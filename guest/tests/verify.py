@@ -175,6 +175,8 @@ def main() -> None:
             "pkg-aur-add-aarch64-unavailable",
             "dropbox-aarch64-unavailable",
             "geforce-now-aarch64-unavailable",
+            "battlenet-aarch64-unavailable",
+            "lutris-aarch64-unavailable",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -208,6 +210,16 @@ def main() -> None:
     check(
         "exec omarchy-pkg-unavailable-arm 'NVIDIA GeForce NOW'" in geforce_unavailable_patch,
         "GeForce NOW aarch64 backport fails via the shared unavailable helper",
+    )
+    battlenet_unavailable_patch = read(GUEST / "patches/omarchy/battlenet-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm 'Battle.net'" in battlenet_unavailable_patch,
+        "Battle.net aarch64 backport fails via the shared unavailable helper",
+    )
+    lutris_unavailable_patch = read(GUEST / "patches/omarchy/lutris-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm Lutris" in lutris_unavailable_patch,
+        "Lutris aarch64 backport fails via the shared unavailable helper",
     )
     dropbox_unavailable_patch = read(GUEST / "patches/omarchy/dropbox-aarch64-unavailable.patch")
     check(
@@ -264,9 +276,11 @@ def main() -> None:
         and "steam\tSteam" in unavailable_package_text
         and "minecraft-launcher\tMinecraft" in unavailable_package_text
         and "heroic-games-launcher-bin\tHeroic" in unavailable_package_text
-        and "umu-launcher\tWine game launcher" in unavailable_package_text
-        and "wine-staging\tWine" in unavailable_package_text,
-        "aarch64 unavailable package denylist covers the audited Install-menu gaps",
+        and "umu-launcher\tWine game launcher" not in unavailable_package_text
+        and "wine-staging\tWine" not in unavailable_package_text
+        and "wine-mono\tWine" not in unavailable_package_text
+        and "wine-gecko\tWine" not in unavailable_package_text,
+        "aarch64 unavailable package denylist covers Install gaps without globally blocking Wine/umu",
     )
 
     post_build_installers = authenticity["postBuildUserInstallers"]
