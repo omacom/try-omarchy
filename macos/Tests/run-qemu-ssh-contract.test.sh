@@ -275,7 +275,11 @@ SH
 cat >"$shim_dir/sysctl" <<'SH'
 #!/bin/bash
 if [[ $# == 2 && $1 == -n && ($2 == hw.logicalcpu || $2 == hw.ncpu) ]]; then
-  printf '8\n'
+  printf '%s\n' "${FAKE_HOST_CPUS:-8}"
+  exit 0
+fi
+if [[ $# == 2 && $1 == -n && $2 == hw.memsize ]]; then
+  printf '%s\n' "${FAKE_HOST_MEMORY_BYTES:-51539607552}"
   exit 0
 fi
 exec /usr/sbin/sysctl "$@"
@@ -403,6 +407,7 @@ run_scenario() {
   mkdir -p "$scenario_dir"
   : >"$scenario_dir/storage.log"
   if env \
+    -u OMARCHY_QEMU_GPU_CPUS -u OMARCHY_QEMU_GPU_MEMORY_MIB \
     PATH="$shim_dir:/usr/bin:/bin:/usr/sbin:/sbin" \
     FAKE_STORAGE_LOG="$scenario_dir/storage.log" \
     FAKE_PERSISTENT_ROOT="$persistent_root" \
@@ -439,6 +444,46 @@ assert_contains "$disabled_qemu" \
   'virtserialport,bus=omarchy-serial.0,nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication'
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
+assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
+assert_line_pair "$test_root/disabled/qemu.log" -m 4096M
+
+# Exercise resource values through the real launcher and its QEMU boundary.
+run_scenario resources 0 '' FAKE_HOST_CPUS=18 \
+  OMARCHY_QEMU_GPU_CPUS=18 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
+assert_line_pair "$test_root/resources/qemu.log" -smp '18,sockets=1,cores=18,threads=1'
+assert_line_pair "$test_root/resources/qemu.log" -m 12288M
+assert_contains "$(<"$test_root/resources/stderr")" '18 vCPUs and 12 GiB RAM'
+
+run_scenario resource-minimum 0 '' OMARCHY_QEMU_GPU_CPUS=4 OMARCHY_QEMU_GPU_MEMORY_MIB=2048
+assert_line_pair "$test_root/resource-minimum/qemu.log" -smp '4,sockets=1,cores=4,threads=1'
+assert_line_pair "$test_root/resource-minimum/qemu.log" -m 2048M
+run_scenario resource-maximum-memory 0 '' OMARCHY_QEMU_GPU_MEMORY_MIB=45056
+assert_line_pair "$test_root/resource-maximum-memory/qemu.log" -m 45056M
+run_scenario smaller-host-defaults 0 '' FAKE_HOST_CPUS=6 FAKE_HOST_MEMORY_BYTES=7516192768
+assert_line_pair "$test_root/smaller-host-defaults/qemu.log" -smp '6,sockets=1,cores=6,threads=1'
+assert_line_pair "$test_root/smaller-host-defaults/qemu.log" -m 4096M
+
+run_scenario too-many-cpus 1 '' OMARCHY_QEMU_GPU_CPUS=9
+assert_contains "$(<"$test_root/too-many-cpus/stderr")" 'must be between 4 and 8'
+[[ ! -s $test_root/too-many-cpus/storage.log ]] || fail 'invalid CPU count touched storage'
+run_scenario too-much-memory 1 '' OMARCHY_QEMU_GPU_MEMORY_MIB=46080
+assert_contains "$(<"$test_root/too-much-memory/stderr")" 'must leave the host at least 4096 MiB'
+[[ ! -s $test_root/too-much-memory/storage.log ]] || fail 'invalid memory touched storage'
+run_scenario insufficient-host-cpus 1 '' FAKE_HOST_CPUS=2
+assert_contains "$(<"$test_root/insufficient-host-cpus/stderr")" 'at least four host CPUs'
+run_scenario host-memory-reserve 1 '' FAKE_HOST_MEMORY_BYTES=8589934592 OMARCHY_QEMU_GPU_MEMORY_MIB=5120
+assert_contains "$(<"$test_root/host-memory-reserve/stderr")" 'must leave the host at least 4096 MiB'
+
+invalid_index=0
+for invalid_resource in '' 0 -1 1.5 abc 08 1+2 18446744073709551620; do
+  invalid_index=$((invalid_index + 1))
+  for resource_key in OMARCHY_QEMU_GPU_CPUS; do
+    scenario="invalid-resource-$resource_key-$invalid_index"
+    run_scenario "$scenario" 1 '' "$resource_key=$invalid_resource"
+    [[ ! -s $test_root/$scenario/storage.log ]] || fail 'malformed resource value touched storage'
+    [[ ! -e $test_root/$scenario/qemu.log ]] || fail 'malformed resource value started QEMU'
+  done
+done
 
 run_scenario nested-fallback 0 '' FAKE_QEMU_NESTED_STATUS=1
 nested_fallback_qemu=$(<"$test_root/nested-fallback/qemu.log")
@@ -592,7 +637,10 @@ assert_contains "$mixed_qemu" 'hostfwd=udp:127.0.0.1:2222-:22'
 [[ $(grep -o 'tryomarchy.ssh_access=1' "$test_root/mixed/qemu.log" | wc -l | tr -d ' ') == 1 ]] || \
   fail 'mixed forwarding must append exactly one SSH activation token'
 
-run_scenario ephemeral 0 --ephemeral OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2224:22
+run_scenario ephemeral 0 --ephemeral OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2224:22 \
+  FAKE_HOST_CPUS=18 OMARCHY_QEMU_GPU_CPUS=18 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
+assert_line_pair "$test_root/ephemeral/qemu.log" -smp '18,sockets=1,cores=18,threads=1'
+assert_line_pair "$test_root/ephemeral/qemu.log" -m 12288M
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" \
   'user,id=omarchy-net,hostfwd=tcp:127.0.0.1:2224-:22'
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" tryomarchy.ssh_access=1

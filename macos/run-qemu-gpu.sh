@@ -957,12 +957,49 @@ host_cpu_count=$(
 ) || {
   fail "cannot determine the host CPU count"
 }
-[[ $host_cpu_count =~ ^[0-9]+$ ]] || fail "host CPU count is invalid: $host_cpu_count"
-vcpu_count=8
-if (( host_cpu_count < vcpu_count )); then
-  vcpu_count=$host_cpu_count
+[[ $host_cpu_count =~ ^[1-9][0-9]{0,6}$ ]] || fail "host CPU count is invalid: $host_cpu_count"
+(( host_cpu_count >= 4 )) || fail "the ARM guest requires at least four host CPUs"
+default_vcpu_count=8
+if (( host_cpu_count < default_vcpu_count )); then
+  default_vcpu_count=$host_cpu_count
 fi
-(( vcpu_count >= 4 )) || fail "the ARM guest requires at least four host CPUs"
+vcpu_count=${OMARCHY_QEMU_GPU_CPUS-$default_vcpu_count}
+# Bound and validate decimal text before shell arithmetic: reject expressions,
+# leading zeroes (octal), and values that could wrap a signed integer.
+[[ $vcpu_count =~ ^[1-9][0-9]{0,6}$ ]] || fail "OMARCHY_QEMU_GPU_CPUS must be a whole number in canonical decimal"
+(( vcpu_count >= 4 && vcpu_count <= host_cpu_count )) || {
+  fail "OMARCHY_QEMU_GPU_CPUS must be between 4 and $host_cpu_count"
+}
+
+# Guest memory is a boot-time allocation. The Swift app resolves the user's
+# stored choice against this host before exporting it; re-check independently
+# here so a hand-set environment value can never start a guest below the
+# manifest's minimumMemoryMiB or starve the host. The 4096 default matches the
+# manifest's recommendedMemoryMiB, both verified at build time. The host cap
+# applies only above the default: 4096 has always booted unconditionally, and
+# hosts smaller than 8 GiB exist (CI runners), so gating the default on host
+# size would be a regression, not a safeguard.
+memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-4096}
+# Seven digits bound the value below any real host while keeping the
+# arithmetic far from 64-bit wraparound; forcing base 10 stops bash from
+# reading a leading zero as octal while QEMU would read the same string as
+# decimal.
+[[ $memory_mib =~ ^[0-9]{1,7}$ ]] || fail "OMARCHY_QEMU_GPU_MEMORY_MIB must be a whole number of MiB"
+memory_mib=$((10#$memory_mib))
+(( memory_mib >= 2048 )) || fail "the ARM guest requires at least 2048 MiB of memory"
+if (( memory_mib > 4096 )); then
+  host_memory_bytes=$(sysctl -n hw.memsize 2>/dev/null) || fail "cannot determine the host memory size"
+  [[ $host_memory_bytes =~ ^[1-9][0-9]{0,17}$ ]] || fail "host memory size is invalid: $host_memory_bytes"
+  host_memory_mib=$((host_memory_bytes / 1048576))
+  (( memory_mib + 4096 <= host_memory_mib )) || {
+    fail "OMARCHY_QEMU_GPU_MEMORY_MIB must leave the host at least 4096 MiB (host has ${host_memory_mib} MiB)"
+  }
+fi
+if (( memory_mib % 1024 == 0 )); then
+  memory_display="$((memory_mib / 1024)) GiB"
+else
+  memory_display="${memory_mib} MiB"
+fi
 
 # The launcher publishes one optional Mac folder for the guest. The Swift app
 # canonicalizes and validates the selection first; re-check here so a stray
@@ -1435,36 +1472,6 @@ if printf '%s\n' \
   echo '[qemu-gpu] Nested virtualization is enabled.' >&2
 else
   echo '[qemu-gpu] Nested virtualization is unavailable; using the compatible EL1 path.' >&2
-fi
-
-# Guest memory is a boot-time allocation. The Swift app resolves the user's
-# stored choice against this host before exporting it; re-check independently
-# here so a hand-set environment value can never start a guest below the
-# manifest's minimumMemoryMiB or starve the host. The 4096 default matches the
-# manifest's recommendedMemoryMiB, both verified at build time. The host cap
-# applies only above the default: 4096 has always booted unconditionally, and
-# hosts smaller than 8 GiB exist (CI runners), so gating the default on host
-# size would be a regression, not a safeguard.
-memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-4096}
-# Seven digits bound the value below any real host while keeping the
-# arithmetic far from 64-bit wraparound; forcing base 10 stops bash from
-# reading a leading zero as octal while QEMU would read the same string as
-# decimal.
-[[ $memory_mib =~ ^[0-9]{1,7}$ ]] || fail "OMARCHY_QEMU_GPU_MEMORY_MIB must be a whole number of MiB"
-memory_mib=$((10#$memory_mib))
-(( memory_mib >= 2048 )) || fail "the ARM guest requires at least 2048 MiB of memory"
-if (( memory_mib > 4096 )); then
-  host_memory_bytes=$(sysctl -n hw.memsize 2>/dev/null) || fail "cannot determine the host memory size"
-  [[ $host_memory_bytes =~ ^[0-9]+$ ]] || fail "host memory size is invalid: $host_memory_bytes"
-  host_memory_mib=$((host_memory_bytes / 1048576))
-  (( memory_mib + 4096 <= host_memory_mib )) || {
-    fail "OMARCHY_QEMU_GPU_MEMORY_MIB must leave the host at least 4096 MiB (host has ${host_memory_mib} MiB)"
-  }
-fi
-if (( memory_mib % 1024 == 0 )); then
-  memory_display="$((memory_mib / 1024)) GiB"
-else
-  memory_display="${memory_mib} MiB"
 fi
 
 qemu_args=(

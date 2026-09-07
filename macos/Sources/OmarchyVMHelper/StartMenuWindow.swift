@@ -189,11 +189,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setSharedFolderEnabled: (Bool) -> Void
     private let portForwardingStatus: () -> [PortForwardMapping]
     private let savePortForwarding: ([PortForwardMapping]) -> String?
+    private let resources: () -> VMResources
+    private let resourceLimits: VMResourceLimits
+    private let saveResources: (VMResources) -> Void
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
-    private let memoryChoiceMiB: () -> Int
-    private let setMemoryChoiceMiB: (Int) -> Void
-    private let hostMemoryMiB: () -> Int
     private let launch: () -> Void
     private let canResetStorage: Bool
     private let storageLocation: () -> String?
@@ -211,6 +211,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var resetConfirmationPrompt: ResetConfirmationPrompt?
     private weak var startMenuScrollView: NSScrollView?
     private(set) var portForwardingEditor: PortForwardingEditor?
+    private(set) var resourceEditor: VMResourceEditor?
     private weak var immersiveCaption: NSTextField?
     private lazy var permissionWindowRestorer = PermissionWindowRestorer(
         canRestore: { [weak self] in
@@ -223,6 +224,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 && self.window.attachedSheet == nil
                 && NSApp.modalWindow == nil
                 && self.portForwardingEditor == nil
+                && self.resourceEditor == nil
         },
         isApplicationActive: { NSApp.isActive },
         orderFrontRegardless: { [weak self] frame in
@@ -272,11 +274,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setSharedFolderEnabled: @escaping (Bool) -> Void,
         portForwardingStatus: @escaping () -> [PortForwardMapping] = { [] },
         savePortForwarding: @escaping ([PortForwardMapping]) -> String? = { _ in nil },
+        resources: @escaping () -> VMResources = { VMResourceLimits.current.defaults },
+        resourceLimits: VMResourceLimits = .current,
+        saveResources: @escaping (VMResources) -> Void = { _ in },
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
-        memoryChoiceMiB: @escaping () -> Int = { MemoryPolicy.defaultMemoryMiB },
-        setMemoryChoiceMiB: @escaping (Int) -> Void = { _ in },
-        hostMemoryMiB: @escaping () -> Int = { MemoryPolicy.hostMemoryMiB() },
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -299,11 +301,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setSharedFolderEnabled = setSharedFolderEnabled
         self.portForwardingStatus = portForwardingStatus
         self.savePortForwarding = savePortForwarding
+        self.resources = resources
+        self.resourceLimits = resourceLimits
+        self.saveResources = saveResources
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
-        self.memoryChoiceMiB = memoryChoiceMiB
-        self.setMemoryChoiceMiB = setMemoryChoiceMiB
-        self.hostMemoryMiB = hostMemoryMiB
         self.launch = launch
 
         window = NSWindow(
@@ -333,7 +335,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func prepareForPresentation(visibleFrame: NSRect?) {
         render()
         if let visibleFrame {
-            // The memory row added one 72pt row to the menu that previously
+            // The resources row adds one 72pt row to the menu that previously
             // fit at 760. At 690 the launch button cleared the bottom edge by
             // 15pt, which any difference in system font metrics turned into a
             // button clipped off the window; on displays shorter than the
@@ -367,6 +369,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resetConfirmationPrompt = nil
         portForwardingEditor?.dismiss()
         portForwardingEditor = nil
+        resourceEditor?.dismiss()
+        resourceEditor = nil
         window.orderOut(nil)
     }
 
@@ -569,12 +573,16 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 90
         )
         let immersiveRow = immersiveSettingRow(isEnabled: immersiveMode())
-
-        let memoryPresentation = StartMenuPresentation.memory(
-            preferredMiB: memoryChoiceMiB(),
-            hostMemoryMiB: hostMemoryMiB()
+        let selectedResources = resources()
+        let resourceRow = permissionRow(
+            symbolName: "cpu",
+            title: "Resources",
+            detail: StartMenuPresentation.resources(selectedResources),
+            granted: selectedResources != resourceLimits.defaults,
+            statusLabels: ("●  Custom", "○  Default"),
+            actions: [("Configure…", #selector(beginResourceConfiguration))],
+            minimumHeight: 72
         )
-        let memoryRow = memorySettingRow(presentation: memoryPresentation)
 
         let storageStatus = storageLocationStatus()
         var storageRow: NSView?
@@ -632,7 +640,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [memoryRow, portForwardingRow, immersiveRow])
+        integrationRowViews.append(contentsOf: [resourceRow, portForwardingRow, immersiveRow])
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1164,83 +1172,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         return row
     }
 
-    private func memorySettingRow(presentation: StartMenuMemoryPresentation) -> NSView {
-        let symbol = NSImageView()
-        symbol.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
-        symbol.contentTintColor = OmarchyStartMenuTheme.accent
-        symbol.identifier = NSUserInterfaceItemIdentifier("memory-symbol")
-        symbol.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            symbol.widthAnchor.constraint(equalToConstant: 26),
-            symbol.heightAnchor.constraint(equalToConstant: 26),
-        ])
-
-        let title = NSTextField(labelWithString: "Memory")
-        title.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
-        title.textColor = OmarchyStartMenuTheme.foreground
-        title.identifier = NSUserInterfaceItemIdentifier("memory-title")
-
-        let detail = NSTextField(wrappingLabelWithString: presentation.detail)
-        detail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        detail.textColor = OmarchyStartMenuTheme.muted
-        detail.maximumNumberOfLines = 2
-        detail.identifier = NSUserInterfaceItemIdentifier("memory-caption")
-
-        let labels = NSStackView(views: [title, detail])
-        labels.orientation = .vertical
-        labels.alignment = .leading
-        labels.spacing = 3
-        labels.translatesAutoresizingMaskIntoConstraints = false
-
-        let popup = NSPopUpButton()
-        popup.addItems(withTitles: presentation.choiceTitles)
-        // Each item carries its own MiB value, so the selection callback needs
-        // no separate index-to-value state that a re-render could desync.
-        for (item, choiceMiB) in zip(popup.itemArray, presentation.choicesMiB) {
-            item.tag = choiceMiB
-        }
-        popup.selectItem(at: presentation.selectedIndex)
-        popup.target = self
-        popup.action = #selector(changeMemoryChoice(_:))
-        popup.isEnabled = presentation.isAdjustable
-            && !microphoneRequestInFlight
-            && !cameraRequestInFlight
-            && !launchInProgress
-            && !resetInProgress
-        popup.identifier = NSUserInterfaceItemIdentifier("memory-popup")
-        popup.setAccessibilityLabel("Memory")
-        popup.setAccessibilityTitleUIElement(title)
-        popup.setAccessibilityHelp(presentation.detail)
-        popup.translatesAutoresizingMaskIntoConstraints = false
-
-        let row = NSView()
-        row.identifier = NSUserInterfaceItemIdentifier("memory-row")
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(symbol)
-        row.addSubview(labels)
-        row.addSubview(popup)
-        NSLayoutConstraint.activate([
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
-            symbol.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            symbol.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            labels.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
-            labels.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            labels.trailingAnchor.constraint(lessThanOrEqualTo: popup.leadingAnchor, constant: -12),
-            popup.trailingAnchor.constraint(equalTo: row.trailingAnchor),
-            popup.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-        ])
-        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return row
-    }
-
-    @objc private func changeMemoryChoice(_ sender: NSPopUpButton) {
-        guard !launchInProgress, !resetInProgress else { return }
-        guard let choiceMiB = sender.selectedItem?.tag, choiceMiB > 0 else { return }
-        setMemoryChoiceMiB(choiceMiB)
-    }
-
     @objc private func beginAccessibilityRequest() {
         permissionWindowRestorer.cancel()
         requestAccessibility()
@@ -1466,6 +1397,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             }
         )
         portForwardingEditor = editor
+        editor.beginSheet(for: window)
+    }
+
+    @objc private func beginResourceConfiguration() {
+        guard !launchInProgress, !resetInProgress,
+              !microphoneRequestInFlight, !cameraRequestInFlight,
+              resourceEditor == nil, window.attachedSheet == nil else { return }
+        permissionWindowRestorer.cancel()
+        let editor = VMResourceEditor(
+            resources: resources(),
+            limits: resourceLimits,
+            save: { [weak self] resources in self?.saveResources(resources) },
+            didClose: { [weak self] in
+                self?.resourceEditor = nil
+                self?.render()
+            }
+        )
+        resourceEditor = editor
         editor.beginSheet(for: window)
     }
 
