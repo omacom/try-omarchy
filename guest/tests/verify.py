@@ -375,7 +375,7 @@ def main() -> None:
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
             "binarySha256": "c668b05275f2d5cbff66fdb8f4ea4cbbfb7d5a7f9e682f358f3fbcff8494c68a",
             "license": "BSD-3-Clause",
-            "issue": "https://github.com/themartiano/try-omarchy/issues/5",
+            "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
                 "base-devel": "1-2",
                 "binutils": "2.46+r70+g155188ea10a7-1",

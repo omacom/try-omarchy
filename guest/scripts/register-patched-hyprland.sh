@@ -206,7 +206,7 @@ build_packages_json=${metadata[21]}
 [[ $glaze_url == "https://github.com/stephenberry/glaze/archive/refs/tags/v$glaze_version.tar.gz" ]] ||
   fail "Glaze URL does not match the pinned release"
 [[ $license == BSD-3-Clause ]] || fail "unexpected Hyprland license: $license"
-[[ $issue == https://github.com/themartiano/try-omarchy/issues/5 ]] || fail "unexpected Hyprland issue URL"
+[[ $issue == https://github.com/omacom/try-omarchy/issues/5 ]] || fail "unexpected Hyprland issue URL"
 [[ $source_date_epoch =~ ^[0-9]+$ && $source_date_epoch -gt 0 ]] || fail "invalid source date epoch"
 for digest in "$sha256" "$upstream_package_sha256" "$patch_sha256" "$glaze_sha256" "$glaze_license_sha256" "$binary_sha256"; do
   [[ $digest =~ ^[0-9a-f]{64}$ ]] || fail "invalid Hyprland content digest"
