@@ -56,6 +56,7 @@ set -euo pipefail
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
+   || ${1:-} == --bridge-native-video \
    || ${1:-} == --bridge-native-camera ]]; then
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
@@ -81,7 +82,7 @@ case " $* " in
   *' -display help '*) printf '%s\n' cocoa ;;
   *' -device help '*)
     for device in \
-      hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci \
+      hda-micro intel-hda omarchy-video-shmem virtconsole virtserialport virtio-balloon-pci \
       virtio-9p-pci virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci \
       virtio-net-pci virtio-rng-pci virtio-serial-pci virtio-tablet-pci; do
       printf 'name "%s"\n' "$device"
@@ -97,7 +98,10 @@ case " $* " in
     ;;
   *' -machine virt -netdev help '*) printf '%s\n' user ;;
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
-  *' -device virtio-gpu-gl-pci,help '*) printf '%s\n' 'romfile=<str>' ;;
+  *' -device virtio-gpu-gl-pci,help '*)
+    printf '%s\n' 'romfile=<str>'
+    if [[ ${FAKE_QEMU_HDR:-0} == 1 ]]; then printf '%s\n' 'x-omarchy-hdr=<bool>'; fi
+    ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
     exit "${FAKE_QEMU_NESTED_STATUS:-0}"
     ;;
@@ -439,6 +443,12 @@ assert_contains "$disabled_qemu" \
   'virtserialport,bus=omarchy-serial.0,nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication'
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
+
+run_scenario hdr-capable 0 '' FAKE_QEMU_HDR=1
+hdr_qemu=$(<"$test_root/hdr-capable/qemu.log")
+assert_contains "$hdr_qemu" 'virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080,x-omarchy-hdr=on'
+assert_contains "$hdr_qemu" 'cocoa,gl=es,hdr=on,show-cursor=on'
+assert_not_contains "$disabled_qemu" 'hdr=on'
 
 run_scenario nested-fallback 0 '' FAKE_QEMU_NESTED_STATUS=1
 nested_fallback_qemu=$(<"$test_root/nested-fallback/qemu.log")

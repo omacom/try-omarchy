@@ -1,0 +1,12 @@
+refresh_hdr_initramfs() {
+  # Pacman retains this install script when removing the package, so the
+  # fallback initramfs is rebuilt even after the package files are gone.
+  for directory in /usr/lib/modules/*; do
+    test -d "$directory/kernel" || continue
+    depmod -a "${directory##*/}" || return 1
+  done
+  mkinitcpio -P
+}
+post_install() { refresh_hdr_initramfs; }
+post_upgrade() { refresh_hdr_initramfs; }
+post_remove() { refresh_hdr_initramfs; }

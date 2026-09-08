@@ -1,0 +1,839 @@
+diff --git a/hw/display/edid-generate.c b/hw/display/edid-generate.c
+--- a/hw/display/edid-generate.c
++++ b/hw/display/edid-generate.c
+@@ -467,7 +467,7 @@
+     /* =============== basic display parameters =============== */
+ 
+     /* video input: digital, 8bpc, displayport */
+-    edid[20] = 0xa5;
++    edid[20] = info->hdr ? 0xb5 : 0xa5;
+ 
+     /* screen size: undefined */
+     edid[21] = width_mm / 10;
+@@ -508,6 +508,18 @@
+     edid_desc_xtra3_std(xtra3);
+     desc = edid_desc_next(edid, dta, desc);
+     edid_fill_modes(edid, xtra3, dta, info->maxx, info->maxy);
++    if (info->hdr && dta && dta[2] <= 116) {
++        /* CTA colorimetry (BT.2020 RGB), followed by static HDR type 1.
++         * This is a 1000-nit virtual display, not a physical-panel measurement.
++         * The Cocoa EDR presenter tone maps to the actual window's display. */
++        const uint8_t blocks[] = { 0xe3, 0x05, 0x80, 0x00,
++                                   0xe6, 0x06, 0x05, 0x01, 138, 96, 0 };
++        memcpy(dta + dta[2], blocks, sizeof(blocks));
++        dta[2] += sizeof(blocks);
++        edid[24] &= ~0x04; /* The native primaries below are not sRGB. */
++        edid_colorspace(edid, 0.708, 0.292, 0.170, 0.797,
++                         0.131, 0.046, 0.3127, 0.3290);
++    }
+     /*
+      * dta video data block is finished at thus point,
+      * so dta descriptor offsets don't move any more.
+diff --git a/hw/display/virtio-gpu-base.c b/hw/display/virtio-gpu-base.c
+--- a/hw/display/virtio-gpu-base.c
++++ b/hw/display/virtio-gpu-base.c
+@@ -75,6 +75,12 @@
+         }
+     }
+ 
++    info.hdr = g->conf.omarchy_hdr &&
++        virtio_vdev_has_feature(&g->parent_obj, VIRTIO_GPU_F_OMARCHY_HDR) &&
++        qemu_console_gl_has_hdr(g->scanout[scanout].con);
++    if (info.hdr && !info.name) {
++        info.name = "Omarchy HDR";
++    }
+     edid->size = cpu_to_le32(sizeof(edid->edid));
+     qemu_edid_generate(edid->edid, sizeof(edid->edid), &info);
+ }
+@@ -263,6 +269,9 @@
+     if (virtio_gpu_virgl_enabled(g->conf) ||
+         virtio_gpu_rutabaga_enabled(g->conf)) {
+         features |= (1 << VIRTIO_GPU_F_VIRGL);
++    }
++    if (g->conf.omarchy_hdr && virtio_gpu_virgl_enabled(g->conf)) {
++        features |= (1 << VIRTIO_GPU_F_OMARCHY_HDR);
+     }
+     if (virtio_gpu_edid_enabled(g->conf)) {
+         features |= (1 << VIRTIO_GPU_F_EDID);
+diff --git a/hw/display/virtio-gpu-virgl.c b/hw/display/virtio-gpu-virgl.c
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -430,6 +430,12 @@
+     if (res_iovs != NULL && num_iovs != 0) {
+         virtio_gpu_cleanup_mapping_iov(g, res_iovs, num_iovs);
+     }
++    for (unsigned i = 0; i < g->parent_obj.conf.max_outputs; ++i) {
++        struct virtio_gpu_scanout *scanout = &g->parent_obj.scanout[i];
++        if (scanout->pending_hdr_resource == res->base.resource_id) {
++            scanout->hdr_pending = false;
++        }
++    }
+     virgl_renderer_resource_unref(res->base.resource_id);
+ 
+     QTAILQ_REMOVE(&g->reslist, &res->base, next);
+@@ -524,6 +530,65 @@
+     qemu_console_gl_update(g->parent_obj.scanout[idx].con, x, y, width, height);
+ }
+ 
++static void virgl_cmd_omarchy_hdr(VirtIOGPU *g,
++                                  struct virtio_gpu_ctrl_command *cmd)
++{
++    /* All payload words use little endian; do not expose a C host ABI. */
++    uint32_t words[18];
++    struct virtio_gpu_scanout *scanout;
++    QemuHDRMetadata metadata;
++    size_t received;
++    unsigned int i;
++    if (!g->parent_obj.conf.omarchy_hdr ||
++        !virtio_vdev_has_feature(&g->parent_obj.parent_obj, VIRTIO_GPU_F_OMARCHY_HDR)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
++        return;
++    }
++    received = iov_to_buf(cmd->elem.out_sg, cmd->elem.out_num,
++                          sizeof(struct virtio_gpu_ctrl_hdr), words, sizeof(words));
++    if (received != sizeof(words) ||
++        iov_size(cmd->elem.out_sg, cmd->elem.out_num) != sizeof(words) + sizeof(struct virtio_gpu_ctrl_hdr)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++        return;
++    }
++    for (i = 0; i < G_N_ELEMENTS(words); ++i) {
++        words[i] = le32_to_cpu(words[i]);
++    }
++    if (words[0] != OMARCHY_HDR_MAGIC || words[1] != 1 ||
++        words[2] >= g->parent_obj.conf.max_outputs ||
++        (words[4] != 0 && words[4] != 9) ||
++        (words[5] != 0 && words[5] != 2) || (words[5] == 2 && words[4] != 9)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++        return;
++    }
++    for (i = 6; i < 14; ++i) {
++        if (words[i] > 50000) {
++            cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++            return;
++        }
++    }
++    for (i = 14; i < 18; ++i) {
++        if (words[i] > 65535) {
++            cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++            return;
++        }
++    }
++    scanout = &g->parent_obj.scanout[words[2]];
++    if (!qemu_console_gl_has_hdr(scanout->con)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
++        return;
++    }
++    if (words[3] && !virtio_gpu_virgl_find_resource(g, words[3])) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_RESOURCE_ID;
++        return;
++    }
++    memcpy(&metadata, words + 4, sizeof(metadata));
++    scanout->pending_hdr = metadata;
++    scanout->pending_hdr_resource = words[3];
++    scanout->hdr_pending = true;
++    /* Metadata is latched by the matching frame flush, after set_scanout. */
++}
++
+ static void virgl_cmd_resource_flush(VirtIOGPU *g,
+                                      struct virtio_gpu_ctrl_command *cmd)
+ {
+@@ -537,6 +602,11 @@
+     for (i = 0; i < g->parent_obj.conf.max_outputs; i++) {
+         if (g->parent_obj.scanout[i].resource_id != rf.resource_id) {
+             continue;
++        }
++        struct virtio_gpu_scanout *scanout = &g->parent_obj.scanout[i];
++        if (scanout->hdr_pending && scanout->pending_hdr_resource == rf.resource_id) {
++            qemu_console_gl_hdr_metadata(scanout->con, &scanout->pending_hdr);
++            scanout->hdr_pending = false;
+         }
+         virtio_gpu_rect_update(g, i, rf.r.x, rf.r.y, rf.r.width, rf.r.height);
+     }
+@@ -1098,6 +1168,9 @@
+         break;
+     case VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING:
+         virgl_resource_detach_backing(g, cmd);
++        break;
++    case VIRTIO_GPU_CMD_OMARCHY_HDR:
++        virgl_cmd_omarchy_hdr(g, cmd);
+         break;
+     case VIRTIO_GPU_CMD_SET_SCANOUT:
+         virgl_cmd_set_scanout(g, cmd);
+@@ -1441,6 +1514,9 @@
+     for (i = 0; i < g->parent_obj.conf.max_outputs; i++) {
+         qemu_console_set_surface(g->parent_obj.scanout[i].con, NULL);
+         qemu_console_gl_scanout_disable(g->parent_obj.scanout[i].con);
++        g->parent_obj.scanout[i].hdr_pending = false;
++        QemuHDRMetadata metadata = { 0 };
++        qemu_console_gl_hdr_metadata(g->parent_obj.scanout[i].con, &metadata);
+     }
+ }
+ 
+diff --git a/include/hw/display/edid.h b/include/hw/display/edid.h
+--- a/include/hw/display/edid.h
++++ b/include/hw/display/edid.h
+@@ -4,6 +4,7 @@
+ #define EDID_NAME_MAX_LENGTH 12
+ 
+ typedef struct qemu_edid_info {
++    bool hdr; /* virtual BT.2020/PQ display; host compositor handles tone mapping */
+     const char *vendor; /* http://www.uefi.org/pnp_id_list */
+     const char *name;
+     const char *serial;
+diff --git a/include/hw/virtio/virtio-gpu.h b/include/hw/virtio/virtio-gpu.h
+--- a/include/hw/virtio/virtio-gpu.h
++++ b/include/hw/virtio/virtio-gpu.h
+@@ -71,7 +71,15 @@
+     uint32_t offset;
+ };
+ 
++/* Private opt-in Try Omarchy v1 extension; not a standard virtio feature. */
++#define VIRTIO_GPU_F_OMARCHY_HDR 6
++#define VIRTIO_GPU_CMD_OMARCHY_HDR 0x0400
++#define OMARCHY_HDR_MAGIC 0x544f4844
++
+ struct virtio_gpu_scanout {
++    QemuHDRMetadata pending_hdr;
++    uint32_t pending_hdr_resource;
++    bool hdr_pending;
+     QemuConsole *con;
+     DisplaySurface *ds;
+     uint32_t width, height;
+@@ -127,6 +135,7 @@
+     (_cfg.flags & (1 << VIRTIO_GPU_FLAG_DRM_ENABLED))
+ 
+ struct virtio_gpu_base_conf {
++    bool omarchy_hdr;
+     uint32_t max_outputs;
+     uint32_t flags;
+     uint32_t xres;
+@@ -171,6 +180,7 @@
+ };
+ 
+ #define VIRTIO_GPU_BASE_PROPERTIES(_state, _conf)                       \
++    DEFINE_PROP_BOOL("x-omarchy-hdr", _state, _conf.omarchy_hdr, false), \
+     DEFINE_PROP_UINT32("max_outputs", _state, _conf.max_outputs, 1),    \
+     DEFINE_PROP_VIRTIO_GPU_OUTPUT_LIST("outputs", _state, _conf.outputs), \
+     DEFINE_PROP_BIT("edid", _state, _conf.flags, \
+diff --git a/include/ui/console.h b/include/ui/console.h
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -1,6 +1,7 @@
+ #ifndef CONSOLE_H
+ #define CONSOLE_H
+ 
++#include "ui/hdr.h"
+ #include "ui/qemu-pixman.h"
+ #include "qom/object.h"
+ #include "qemu/notify.h"
+@@ -204,6 +205,9 @@
+     void (*dpy_cursor_define)(DisplayChangeListener *dcl,
+                               QEMUCursor *cursor);
+ 
++    /* Optional: explicitly describes scanout color, never inferred from bit depth. */
++    bool (*dpy_gl_has_hdr)(DisplayChangeListener *dcl);
++    void (*dpy_gl_hdr_metadata)(DisplayChangeListener *dcl, const QemuHDRMetadata *metadata);
+     /* required if GL */
+     void (*dpy_gl_scanout_disable)(DisplayChangeListener *dcl);
+     /* required if GL */
+@@ -292,6 +296,8 @@
+ bool qemu_console_check_format(QemuConsole *con,
+                                pixman_format_code_t format);
+ 
++bool qemu_console_gl_has_hdr(QemuConsole *con);
++void qemu_console_gl_hdr_metadata(QemuConsole *con, const QemuHDRMetadata *metadata);
+ void qemu_console_gl_scanout_disable(QemuConsole *con);
+ void qemu_console_gl_scanout_texture(QemuConsole *con, uint32_t backing_id,
+                                      DisplayGLTextureBorrower backing_borrow,
+diff --git a/include/ui/hdr.h b/include/ui/hdr.h
+--- /dev/null
++++ b/include/ui/hdr.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef QEMU_UI_HDR_H
++#define QEMU_UI_HDR_H
++#include <stdint.h>
++typedef struct QemuHDRMetadata {
++    uint32_t colorspace, eotf;
++    uint32_t primaries[6], whitepoint[2];
++    uint32_t min_luminance, max_luminance, max_cll, max_fall;
++} QemuHDRMetadata;
++#endif
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -1221,7 +1221,7 @@
+ endif
+ 
+ cocoa = dependency('appleframeworks',
+-                   modules: ['Cocoa', 'CoreVideo', 'OpenGL', 'QuartzCore'],
++                   modules: ['Cocoa', 'CoreVideo', 'OpenGL', 'QuartzCore', 'Metal', 'IOSurface'],
+                    required: get_option('cocoa'))
+ 
+ vmnet = dependency('appleframeworks', modules: 'vmnet', required: get_option('vmnet'))
+diff --git a/qapi/ui.json b/qapi/ui.json
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1449,6 +1449,9 @@
+ #     turned off the host window will be resized instead.  Defaults to
+ #     "off".  (Since 8.2)
+ #
++# @hdr: Use the Metal EDR presenter with the private virtio HDR
++#     extension.  Defaults to off.
++#
+ # @zoom-interpolation: Apply interpolation to smooth output when
+ #     zoom-to-fit is enabled.  Defaults to "off".  (Since 9.0)
+ #
+@@ -1461,7 +1464,8 @@
+       '*immersive': 'bool',
+       '*swap-opt-cmd': 'bool',
+       '*zoom-to-fit': 'bool',
+-      '*zoom-interpolation': 'bool'
++      '*zoom-interpolation': 'bool',
++      '*hdr': 'bool'
+   } }
+ 
+ ##
+diff --git a/ui/cocoa-hdr.h b/ui/cocoa-hdr.h
+--- /dev/null
++++ b/ui/cocoa-hdr.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef QEMU_COCOA_HDR_H
++#define QEMU_COCOA_HDR_H
++#include "ui/hdr.h"
++#include <epoxy/egl.h>
++@class CALayer;
++typedef struct QemuHDRPresenter QemuHDRPresenter;
++QemuHDRPresenter *cocoa_hdr_create(CALayer *root, EGLDisplay display,
++                                  EGLConfig config, EGLContext context);
++bool cocoa_hdr_begin(QemuHDRPresenter *presenter, int width, int height);
++bool cocoa_hdr_present(QemuHDRPresenter *presenter, const QemuHDRMetadata *metadata);
++#endif
+diff --git a/ui/cocoa-hdr.m b/ui/cocoa-hdr.m
+--- /dev/null
++++ b/ui/cocoa-hdr.m
+@@ -0,0 +1,372 @@
++/*
++ * Metal EDR scanout for Cocoa/ANGLE.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * ANGLE's window configurations are 8-bit. Render into a half-float IOSurface
++ * instead, then sample that same allocation in Metal. Shared GPU events order
++ * the two command queues; no frame pixels or completion waits cross the CPU.
++ */
++#import <AppKit/AppKit.h>
++#import <CoreVideo/CoreVideo.h>
++#import <IOSurface/IOSurface.h>
++#import <Metal/Metal.h>
++#import <QuartzCore/QuartzCore.h>
++#include <stdbool.h>
++#include <stdatomic.h>
++#include <stdio.h>
++#include <math.h>
++#include <string.h>
++#include <epoxy/gl.h>
++#include "cocoa-hdr.h"
++
++#ifndef EGL_IOSURFACE_ANGLE
++#define EGL_IOSURFACE_ANGLE 0x3454
++#define EGL_IOSURFACE_PLANE_ANGLE 0x345A
++#define EGL_TEXTURE_TYPE_ANGLE 0x345C
++#define EGL_TEXTURE_INTERNAL_FORMAT_ANGLE 0x345D
++#define EGL_BIND_TO_TEXTURE_TARGET_ANGLE 0x348D
++#endif
++#ifndef EGL_SYNC_METAL_SHARED_EVENT_ANGLE
++#define EGL_SYNC_METAL_SHARED_EVENT_ANGLE 0x34D8
++#define EGL_SYNC_METAL_SHARED_EVENT_SIGNAL_VALUE_LO_ANGLE 0x34DA
++#endif
++
++typedef void *(*CopyMetalSharedEvent)(EGLDisplay, EGLSync);
++
++typedef struct QemuHDRSlot {
++    CVPixelBufferRef pixels;
++    EGLSurface surface;
++    id<MTLTexture> texture;
++    atomic_bool busy;
++    int width, height;
++} QemuHDRSlot;
++
++struct QemuHDRPresenter {
++    EGLDisplay display;
++    EGLConfig config;
++    EGLContext context;
++    EGLint target;
++    CopyMetalSharedEvent copy_event;
++    CAMetalLayer *layer;
++    id<MTLDevice> device;
++    id<MTLCommandQueue> queue;
++    dispatch_queue_t submit_queue;
++    id activity;
++    id<MTLRenderPipelineState> pipeline;
++    QemuHDRSlot slots[3];
++    int current, next;
++    QemuHDRMetadata metadata;
++    bool metadata_initialized;
++    uint64_t presented, skipped;
++};
++
++static NSString *const hdr_shader = @"\n"
++"#include <metal_stdlib>\n"
++"using namespace metal;\n"
++"struct Varying { float4 position [[position]]; float2 uv; };\n"
++"vertex Varying hdr_vertex(uint id [[vertex_id]]) {\n"
++"    constexpr float2 positions[] = { {-1,-1}, {3,-1}, {-1,3} };\n"
++"    Varying result;\n"
++"    result.position = float4(positions[id], 0, 1);\n"
++"    // IOSurface's first row is the OpenGL framebuffer's bottom row.\n"
++"    result.uv = positions[id] * 0.5 + 0.5;\n"
++"    return result;\n"
++"}\n"
++"float3 srgb_linear(float3 value) {\n"
++"    return select(value / 12.92, pow((value + 0.055) / 1.055, float3(2.4)),\n"
++"                  value > 0.04045);\n"
++"}\n"
++"fragment float4 hdr_fragment(Varying in [[stage_in]],\n"
++"                             texture2d<float> source [[texture(0)]],\n"
++"                             constant uint2 &mode [[buffer(0)]]) {\n"
++"    constexpr sampler nearest(coord::normalized, address::clamp_to_edge, filter::nearest);\n"
++"    float3 rgb = max(source.sample(nearest, in.uv).rgb, float3(0));\n"
++"    if (mode.y == 2) {\n"
++"        // ST 2084 EOTF. Linear 1.0 is 100 cd/m2, not the 10000-nit PQ peak.\n"
++"        const float m1 = 2610.0 / 16384.0, m2 = 2523.0 / 32.0;\n"
++"        const float c1 = 3424.0 / 4096.0, c2 = 2413.0 / 128.0, c3 = 2392.0 / 128.0;\n"
++"        float3 v = pow(min(rgb, float3(1)), float3(1.0 / m2));\n"
++"        rgb = pow(max(v - c1, float3(0)) / max(c2 - c3 * v, float3(0.000001)),\n"
++"                  float3(1.0 / m1)) * 100.0;\n"
++"    } else {\n"
++"        rgb = srgb_linear(rgb);\n"
++"        if (mode.x != 9) {\n"
++"            // Linear sRGB/BT.709 to BT.2020, D65. Columns, per Metal's convention.\n"
++"            const float3x3 to2020(float3(0.627403896,0.069097289,0.016391439),\n"
++"                                  float3(0.329283038,0.919540395,0.088013308),\n"
++"                                  float3(0.043313066,0.011362316,0.895595253));\n"
++"            rgb = to2020 * rgb;\n"
++"        }\n"
++"    }\n"
++"    return float4(rgb, 1);\n"
++"}\n";
++
++static void hdr_slot_clear(QemuHDRPresenter *p, QemuHDRSlot *slot)
++{
++    if (slot->surface != EGL_NO_SURFACE) {
++        eglDestroySurface(p->display, slot->surface);
++    }
++    [slot->texture release];
++    if (slot->pixels) {
++        CVPixelBufferRelease(slot->pixels);
++    }
++    slot->surface = EGL_NO_SURFACE;
++    slot->texture = nil;
++    slot->pixels = NULL;
++    slot->width = slot->height = 0;
++}
++
++QemuHDRPresenter *cocoa_hdr_create(CALayer *root, EGLDisplay display,
++                                  EGLConfig config, EGLContext context)
++{
++    const char *extensions = eglQueryString(display, EGL_EXTENSIONS);
++    if (!extensions || !strstr(extensions, "EGL_ANGLE_iosurface_client_buffer") ||
++        !strstr(extensions, "EGL_ANGLE_metal_shared_event_sync")) {
++        fprintf(stderr, "[cocoa-hdr] IOSurface/shared GPU event extensions unavailable\n");
++        return NULL;
++    }
++    QemuHDRPresenter *p = calloc(1, sizeof(*p));
++    if (!p) {
++        return NULL;
++    }
++    p->display = display;
++    p->config = config;
++    p->context = context;
++    p->current = -1;
++    for (unsigned i = 0; i < 3; ++i) {
++        atomic_init(&p->slots[i].busy, false);
++    }
++    p->copy_event = (CopyMetalSharedEvent)eglGetProcAddress("eglCopyMetalSharedEventANGLE");
++    p->device = MTLCreateSystemDefaultDevice();
++    p->queue = [p->device newCommandQueue];
++    p->submit_queue = dispatch_queue_create("org.qemu.cocoa-hdr", DISPATCH_QUEUE_SERIAL);
++    if (!p->copy_event || !p->device || !p->queue || !p->submit_queue ||
++        !eglGetConfigAttrib(display, config, EGL_BIND_TO_TEXTURE_TARGET_ANGLE, &p->target) ||
++        p->target != EGL_TEXTURE_2D) {
++        goto fail;
++    }
++
++    NSError *error = nil;
++    id<MTLLibrary> library = [p->device newLibraryWithSource:hdr_shader options:nil error:&error];
++    if (!library) {
++        fprintf(stderr, "[cocoa-hdr] shader: %s\n", error.localizedDescription.UTF8String);
++        goto fail;
++    }
++    MTLRenderPipelineDescriptor *pipeline = [[MTLRenderPipelineDescriptor alloc] init];
++    id<MTLFunction> vertex = [library newFunctionWithName:@"hdr_vertex"];
++    id<MTLFunction> fragment = [library newFunctionWithName:@"hdr_fragment"];
++    pipeline.vertexFunction = vertex;
++    pipeline.fragmentFunction = fragment;
++    pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA16Float;
++    p->pipeline = [p->device newRenderPipelineStateWithDescriptor:pipeline error:&error];
++    [vertex release];
++    [fragment release];
++    [pipeline release];
++    [library release];
++    if (!p->pipeline) {
++        fprintf(stderr, "[cocoa-hdr] pipeline: %s\n", error.localizedDescription.UTF8String);
++        goto fail;
++    }
++
++    p->layer = [[CAMetalLayer alloc] init];
++    p->layer.device = p->device;
++    p->layer.pixelFormat = MTLPixelFormatRGBA16Float;
++    p->layer.framebufferOnly = YES;
++    p->layer.wantsExtendedDynamicRangeContent = YES;
++    p->layer.maximumDrawableCount = 3;
++    p->layer.displaySyncEnabled = NO;
++    p->layer.opaque = YES;
++    p->layer.frame = root.bounds;
++    p->layer.contentsScale = root.contentsScale;
++    p->layer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
++    CGColorSpaceRef colors = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearITUR_2020);
++    p->layer.colorspace = colors;
++    CGColorSpaceRelease(colors);
++    [root addSublayer:p->layer];
++    /* A VM continues to process guest frames when its window is unfocused.
++     * Explicitly declare that work: App Nap otherwise throttles the offscreen
++     * ANGLE path after launch. The Mac may still enter normal system sleep.
++     */
++    p->activity = [[[NSProcessInfo processInfo]
++        beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
++        reason:@"Presenting the virtual machine HDR display"] retain];
++    fprintf(stderr, "[cocoa-hdr] initialized: RGBA16Float, linear BT.2020, 3 shared surfaces, GPU event synchronization\n");
++    return p;
++
++fail:
++    if (p->submit_queue) {
++        dispatch_release(p->submit_queue);
++    }
++    [p->pipeline release];
++    [p->queue release];
++    [p->device release];
++    free(p);
++    return NULL;
++}
++
++bool cocoa_hdr_begin(QemuHDRPresenter *p, int width, int height)
++{
++    if (width < 1 || height < 1 || width > 8192 || height > 8192 ||
++        (uint64_t)width * height > UINT64_C(8192) * 4320) {
++        return false;
++    }
++    int index = -1;
++    for (unsigned i = 0; i < 3; ++i) {
++        unsigned candidate = (p->next + i) % 3;
++        if (!atomic_load_explicit(&p->slots[candidate].busy, memory_order_acquire)) {
++            index = candidate;
++            break;
++        }
++    }
++    if (index < 0) {
++        ++p->skipped;
++        return false;
++    }
++    QemuHDRSlot *slot = &p->slots[index];
++    if (slot->width != width || slot->height != height) {
++        hdr_slot_clear(p, slot);
++        NSDictionary *attributes = @{
++            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
++            (id)kCVPixelBufferMetalCompatibilityKey: @YES
++        };
++        CVReturn result = CVPixelBufferCreate(NULL, width, height, kCVPixelFormatType_64RGBAHalf,
++                            (CFDictionaryRef)attributes, &slot->pixels);
++        if (result != kCVReturnSuccess) {
++            fprintf(stderr, "[cocoa-hdr] pixel buffer allocation failed: %d\n", result);
++            return false;
++        }
++        IOSurfaceRef surface = CVPixelBufferGetIOSurface(slot->pixels);
++        MTLTextureDescriptor *texture = [MTLTextureDescriptor
++            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
++            width:width height:height mipmapped:NO];
++        texture.usage = MTLTextureUsageShaderRead;
++        texture.storageMode = MTLStorageModeShared;
++        slot->texture = [p->device newTextureWithDescriptor:texture iosurface:surface plane:0];
++        const EGLint attributesEGL[] = {
++            EGL_WIDTH, width, EGL_HEIGHT, height,
++            EGL_IOSURFACE_PLANE_ANGLE, 0, EGL_TEXTURE_TARGET, p->target,
++            EGL_TEXTURE_FORMAT, EGL_TEXTURE_RGBA,
++            EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, GL_RGBA,
++            EGL_TEXTURE_TYPE_ANGLE, GL_HALF_FLOAT, EGL_NONE
++        };
++        slot->surface = eglCreatePbufferFromClientBuffer(p->display, EGL_IOSURFACE_ANGLE,
++                                (EGLClientBuffer)surface, p->config, attributesEGL);
++        if (!slot->texture || slot->surface == EGL_NO_SURFACE) {
++            fprintf(stderr, "[cocoa-hdr] shared texture import failed: EGL 0x%x\n", eglGetError());
++            hdr_slot_clear(p, slot);
++            return false;
++        }
++        slot->width = width;
++        slot->height = height;
++    }
++    if (!eglMakeCurrent(p->display, slot->surface, slot->surface, p->context)) {
++        return false;
++    }
++    glBindFramebuffer(GL_FRAMEBUFFER, 0);
++    p->current = index;
++    p->next = (index + 1) % 3;
++    return true;
++}
++
++/* nextDrawable can wait for WindowServer even when displaySyncEnabled is off.
++ * Keep it, and all Metal submission, off QEMU's main loop. A busy slot covers
++ * both this queued work and its GPU completion; the guest can keep rendering
++ * while a hidden or slower host window applies presentation backpressure.
++ */
++static void hdr_submit(QemuHDRPresenter *p, QemuHDRSlot *slot,
++                       id<MTLSharedEvent> event, QemuHDRMetadata metadata)
++{
++    CGSize size = CGSizeMake(slot->width, slot->height);
++    if (!CGSizeEqualToSize(p->layer.drawableSize, size)) {
++        p->layer.drawableSize = size;
++    }
++    id<CAMetalDrawable> drawable = [[p->layer nextDrawable] retain];
++    if (!drawable) {
++        atomic_store_explicit(&slot->busy, false, memory_order_release);
++        return;
++    }
++    if (!p->metadata_initialized || memcmp(&p->metadata, &metadata, sizeof(metadata))) {
++        p->metadata = metadata;
++        p->metadata_initialized = true;
++        [CATransaction begin];
++        [CATransaction setDisableActions:YES];
++        if (metadata.eotf == 2) {
++            float peak = metadata.max_cll ? metadata.max_cll : metadata.max_luminance;
++            peak = fminf(10000, fmaxf(1, peak ? peak : 1000));
++            float minimum = fminf(peak, metadata.min_luminance / 10000.0f);
++            p->layer.EDRMetadata = [CAEDRMetadata HDR10MetadataWithMinLuminance:minimum
++                                      maxLuminance:peak opticalOutputScale:100];
++        } else {
++            p->layer.EDRMetadata = nil;
++        }
++        [CATransaction commit];
++        fprintf(stderr, "[cocoa-hdr] scanout colorspace=%u eotf=%u min=%g max=%u CLL=%u FALL=%u\n",
++                metadata.colorspace, metadata.eotf, metadata.min_luminance / 10000.0,
++                metadata.max_luminance, metadata.max_cll, metadata.max_fall);
++    }
++    id<MTLCommandBuffer> command = [p->queue commandBuffer];
++    if (!command) {
++        goto fail_frame;
++    }
++    [command encodeWaitForEvent:event value:1];
++    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
++    pass.colorAttachments[0].texture = drawable.texture;
++    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
++    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
++    id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
++    if (!encoder) {
++        goto fail_frame;
++    }
++    const uint32_t mode[] = { metadata.colorspace, metadata.eotf };
++    [encoder setRenderPipelineState:p->pipeline];
++    [encoder setFragmentTexture:slot->texture atIndex:0];
++    [encoder setFragmentBytes:mode length:sizeof(mode) atIndex:0];
++    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
++    [encoder endEncoding];
++    [command presentDrawable:drawable];
++    [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
++        if (completed.status == MTLCommandBufferStatusError) {
++            fprintf(stderr, "[cocoa-hdr] GPU presentation failed: %s\n", completed.error.localizedDescription.UTF8String);
++        }
++        atomic_store_explicit(&slot->busy, false, memory_order_release);
++    }];
++    [command commit];
++    [drawable release];
++    return;
++
++fail_frame:
++    fprintf(stderr, "[cocoa-hdr] Metal command allocation failed\n");
++    [drawable release];
++    atomic_store_explicit(&slot->busy, false, memory_order_release);
++}
++
++bool cocoa_hdr_present(QemuHDRPresenter *p, const QemuHDRMetadata *metadata)
++{
++    if (p->current < 0) {
++        return false;
++    }
++    QemuHDRSlot *slot = &p->slots[p->current];
++    p->current = -1;
++    const EGLAttrib attributes[] = { EGL_SYNC_METAL_SHARED_EVENT_SIGNAL_VALUE_LO_ANGLE, 1, EGL_NONE };
++    EGLSync sync = eglCreateSync(p->display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, attributes);
++    id<MTLSharedEvent> event = sync != EGL_NO_SYNC ? (id<MTLSharedEvent>)p->copy_event(p->display, sync) : nil;
++    if (!event) {
++        fprintf(stderr, "[cocoa-hdr] cannot create GPU handoff fence: EGL 0x%x\n", eglGetError());
++        if (sync != EGL_NO_SYNC) {
++            eglDestroySync(p->display, sync);
++        }
++        return false;
++    }
++    glFlush();
++    QemuHDRMetadata frame_metadata = *metadata;
++    atomic_store_explicit(&slot->busy, true, memory_order_release);
++    dispatch_async(p->submit_queue, ^{
++        @autoreleasepool {
++            hdr_submit(p, slot, event, frame_metadata);
++        }
++    });
++    ++p->presented;
++    [event release];
++    eglDestroySync(p->display, sync);
++    return true;
++}
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -178,6 +178,9 @@
+ 
+ #ifdef CONFIG_EGL
+ static EGLSurface egl_surface;
++#include "cocoa-hdr.h"
++static QemuHDRPresenter *hdr_presenter;
++static QemuHDRMetadata hdr_metadata;
+ #endif
+ 
+ static void cocoa_gl_switch(DisplayChangeListener *dcl,
+@@ -2439,8 +2442,18 @@
+ #ifdef CONFIG_EGL
+         if (egl_surface) {
+             with_gl_view_ctx(^{
+-                cocoa_gl_render();
+-                eglSwapBuffers(qemu_egl_display, egl_surface);
++                if (hdr_presenter) {
++                    NSSize size = [cocoaView convertSizeToBacking:[cocoaView frame].size];
++                    if (cocoa_hdr_begin(hdr_presenter, size.width, size.height)) {
++                        cocoa_gl_render();
++                        if (!cocoa_hdr_present(hdr_presenter, &hdr_metadata)) {
++                            gl_dirty = true;
++                        }
++                    }
++                } else {
++                    cocoa_gl_render();
++                    eglSwapBuffers(qemu_egl_display, egl_surface);
++                }
+                 cocoa_gl_log_error("eglSwapBuffers");
+             });
+ 
+@@ -2454,8 +2467,27 @@
+     }
+ }
+ 
++static bool cocoa_gl_has_hdr(DisplayChangeListener *dcl)
++{
++#ifdef CONFIG_EGL
++    return hdr_presenter != NULL;
++#else
++    return false;
++#endif
++}
++
++static void cocoa_gl_hdr_metadata(DisplayChangeListener *dcl, const QemuHDRMetadata *metadata)
++{
++#ifdef CONFIG_EGL
++    hdr_metadata = *metadata;
++#endif
++}
++
+ static void cocoa_gl_scanout_disable(DisplayChangeListener *dcl)
+ {
++#ifdef CONFIG_EGL
++    memset(&hdr_metadata, 0, sizeof(hdr_metadata));
++#endif
+     gl_scanout_borrow = NULL;
+     gl_dirty = true;
+ 
+@@ -2494,6 +2526,8 @@
+     .dpy_mouse_set          = cocoa_mouse_set,
+     .dpy_cursor_define      = cocoa_cursor_define,
+ 
++    .dpy_gl_has_hdr        = cocoa_gl_has_hdr,
++    .dpy_gl_hdr_metadata   = cocoa_gl_hdr_metadata,
+     .dpy_gl_scanout_disable = cocoa_gl_scanout_disable,
+     .dpy_gl_scanout_texture = cocoa_gl_scanout_texture,
+     .dpy_gl_update          = cocoa_gl_scanout_flush,
+@@ -2541,6 +2575,11 @@
+ 
+ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ {
++    if (opts->u.cocoa.has_hdr && opts->u.cocoa.hdr && opts->gl != DISPLAY_GL_MODE_ES) {
++        error_report("Cocoa HDR requires gl=es");
++        exit(1);
++    }
++
+     NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
+     QemuCocoaAppController *controller;
+ 
+@@ -2579,7 +2618,23 @@
+             if (!gl_view_ctx) {
+                 exit(1);
+             }
+-            egl_surface = qemu_egl_init_surface(gl_view_ctx, [cocoaView layer]);
++            if (opts->u.cocoa.has_hdr && opts->u.cocoa.hdr) {
++                const EGLint attributes[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
++                egl_surface = eglCreatePbufferSurface(qemu_egl_display, qemu_egl_config, attributes);
++                if (egl_surface) {
++                    hdr_presenter = cocoa_hdr_create([cocoaView layer], qemu_egl_display,
++                                                     qemu_egl_config, gl_view_ctx);
++                }
++                if (!hdr_presenter) {
++                    warn_report("Cocoa HDR unavailable; using SDR display output");
++                    if (egl_surface) {
++                        eglDestroySurface(qemu_egl_display, egl_surface);
++                    }
++                }
++            }
++            if (!hdr_presenter) {
++                egl_surface = qemu_egl_init_surface(gl_view_ctx, [cocoaView layer]);
++            }
+             if (!egl_surface) {
+                 exit(1);
+             }
+diff --git a/ui/console.c b/ui/console.c
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -935,6 +935,28 @@
+     return con->gl->ops->dpy_gl_ctx_make_current(con->gl, ctx);
+ }
+ 
++bool qemu_console_gl_has_hdr(QemuConsole *con)
++{
++    DisplayChangeListener *dcl;
++    QLIST_FOREACH(dcl, &con->ds->listeners, next) {
++        if (con == dcl->con && dcl->ops->dpy_gl_has_hdr &&
++            dcl->ops->dpy_gl_has_hdr(dcl)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++void qemu_console_gl_hdr_metadata(QemuConsole *con, const QemuHDRMetadata *metadata)
++{
++    DisplayChangeListener *dcl;
++    QLIST_FOREACH(dcl, &con->ds->listeners, next) {
++        if (con == dcl->con && dcl->ops->dpy_gl_hdr_metadata) {
++            dcl->ops->dpy_gl_hdr_metadata(dcl, metadata);
++        }
++    }
++}
++
+ void qemu_console_gl_scanout_disable(QemuConsole *con)
+ {
+     DisplayState *s = con->ds;
+diff --git a/ui/meson.build b/ui/meson.build
+--- a/ui/meson.build
++++ b/ui/meson.build
+@@ -71,6 +71,7 @@
+   system_ss.add(files('input-linux.c', 'udmabuf.c'))
+ endif
+ system_ss.add(when: cocoa, if_true: files('cocoa.m'))
++system_ss.add(when: [cocoa, opengl, egl], if_true: files('cocoa-hdr.m'))
+ 
+ vnc_ss = ss.source_set()
+ vnc_ss.add(files(

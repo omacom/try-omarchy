@@ -1,0 +1,37 @@
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -103,6 +103,10 @@
+     DisplayState *ds = opaque;
+     DisplayChangeListener *dcl;
+ 
++    /* Synchronous frontends may wait for the host display while rendering.
++     * Count that work inside the refresh interval instead of appending a full
++     * extra interval after it, which turns a 120 Hz guest into ~60-80 Hz. */
++    ds->last_update = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
+     ds->refreshing = true;
+     dpy_refresh(ds);
+     ds->refreshing = false;
+@@ -118,7 +122,6 @@
+         ds->update_interval = interval;
+         trace_console_refresh(interval);
+     }
+-    ds->last_update = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
+     timer_mod(ds->gui_timer, ds->last_update + interval);
+ }
+ 
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -1389,7 +1389,13 @@
+     virgl_renderer_poll();
+     virtio_gpu_process_cmdq(g);
+     if (!QTAILQ_EMPTY(&g->cmdq) || !QTAILQ_EMPTY(&g->fenceq)) {
++#ifdef CONFIG_DARWIN
++        /* ANGLE fences are polled on the render thread. The generic 10 ms
++         * interval exceeds an entire 120 Hz frame and stalls guest uploads. */
++        timer_mod(gl->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
++#else
+         timer_mod(gl->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
++#endif
+     }
+ }
+ 

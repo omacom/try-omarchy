@@ -7,6 +7,7 @@ drm_root=${OMARCHY_DISPLAY_SYNC_DRM_ROOT:-/sys/class/drm}
 preferred_mode_from_edid() {
   python3 - "$1" <<'PY'
 import pathlib
+import re
 import sys
 from math import hypot
 
@@ -97,6 +98,50 @@ def scale_for_mode(
     return f"{clean_120 / 120:.6f}".rstrip("0").rstrip(".")
 
 
+# Only the paired host presenter and guest driver advertise both CTA signals.
+# Check extension checksums and block boundaries before enabling HDR.
+hdr = bt2020 = False
+for index in range(min(data[126], len(data) // 128 - 1)):
+    block = data[(index + 1) * 128 : (index + 2) * 128]
+    if block[0] != 0x02 or sum(block) % 256 or not 4 <= block[2] <= 127:
+        continue
+    position = 4
+    while position < block[2]:
+        header = block[position]
+        end = position + 1 + (header & 31)
+        if end > block[2]:
+            break
+        payload = block[position + 1 : end]
+        if header >> 5 == 7 and len(payload) >= 3:
+            if payload[0] == 0x06:
+                hdr |= bool(payload[1] & 4 and payload[2] & 1)
+            elif payload[0] == 0x05:
+                bt2020 |= bool(payload[1] & 128)
+        position = end
+color = "hdr" if hdr and bt2020 else "sdr"
+
+# The paired Cocoa host can put its SDR cap in a standard additional-text
+# descriptor. Only consume complete, checksum-valid blocks and a bounded
+# decimal value. A missing hint (older hosts or unknown/external panels)
+# preserves the 250-nit fallback; CTA HDR peak is not an SDR white level.
+sdr_white = 250
+descriptor_blocks = [(data[:128], 54)]
+for index in range(min(data[126], len(data) // 128 - 1)):
+    block = data[(index + 1) * 128 : (index + 2) * 128]
+    if block[0] == 0x02 and not sum(block) % 256 and 4 <= block[2] <= 109:
+        descriptor_blocks.append((block, block[2]))
+hints = set()
+for block, start in descriptor_blocks:
+    for offset in range(start, 110, 18):
+        descriptor = block[offset : offset + 18]
+        if descriptor[:5] != b"\0\0\0\xfe\0":
+            continue
+        match = re.fullmatch(rb"TO-SDR:([0-9]{1,4})", descriptor[5:].strip(b" \n"))
+        if match and 1 <= int(match[1]) <= 1000:
+            hints.add(int(match[1]))
+if color == "hdr" and len(hints) == 1:
+    sdr_white = hints.pop()
+
 base_physical_width_mm = data[21] * 10
 base_physical_height_mm = data[22] * 10
 
@@ -178,7 +223,7 @@ if displayid_timings:
         base_physical_width_mm,
         base_physical_height_mm,
     )
-    print(f"{preferred}\t{scale}")
+    print(f"{preferred}\t{scale}\t{color}\t{sdr_white}")
     raise SystemExit(0)
 
 for offset in range(54, 126, 18):
@@ -227,7 +272,7 @@ for offset in range(54, 126, 18):
             physical_width_mm,
             physical_height_mm,
         )
-        print(f"{decoded}\t{scale}")
+        print(f"{decoded}\t{scale}\t{color}\t{sdr_white}")
         raise SystemExit(0)
 
 raise SystemExit(1)
@@ -237,12 +282,15 @@ PY
 apply_preferred_modes() {
   local connector
   local connector_name
+  local color
+  local color_rule
   local mode
   local output
   local preferred
   local response
   local rule
   local scale
+  local sdr_white
 
   shopt -s nullglob
   for connector in "$drm_root"/card*-Virtual-*; do
@@ -254,7 +302,7 @@ apply_preferred_modes() {
     if ! preferred=$(preferred_mode_from_edid "$connector/edid"); then
       continue
     fi
-    IFS=$'\t' read -r mode scale <<<"$preferred"
+    IFS=$'\t' read -r mode scale color sdr_white <<<"$preferred"
     [[ -n $mode && -n $scale ]] || continue
 
     # Aquamarine 0.14 does not refresh its mode cache when an existing DRM
@@ -265,7 +313,13 @@ apply_preferred_modes() {
     # command. Update Omarchy's single-output catch-all mode and dynamic scale;
     # its placement, color, and other policy remain intact, while an explicit
     # per-output user rule still wins.
-    rule="hl.monitor({ output = \"\", mode = \"$mode\", scale = \"$scale\" })"
+    color_rule=""
+    if [[ $color == hdr ]]; then
+      # Use the host panel's SDR cap when known. PQ video keeps its absolute
+      # luminance; the presenter's linear 1.0 reference remains 100 cd/m2.
+      color_rule=", bitdepth = 10, cm = \"hdr\", sdr_max_luminance = $sdr_white"
+    fi
+    rule="hl.monitor({ output = \"\", mode = \"$mode\", scale = \"$scale\"${color_rule} })"
     if ! response=$(hyprctl eval "$rule" 2>&1); then
       printf 'omarchy-native-display-sync: failed to apply %s to %s: %s\n' \
         "$mode" "$output" "$response" >&2

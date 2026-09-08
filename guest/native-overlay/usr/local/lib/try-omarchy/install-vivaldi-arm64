@@ -7,10 +7,20 @@ fail() {
   exit 1
 }
 
-[[ $(uname -m) == aarch64 ]] || fail "the pinned Vivaldi package supports only aarch64"
-
 spec=/usr/share/try-omarchy/build-spec.json
 key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
+package_output=
+while (($#)); do
+  case "$1" in
+    --build-only) package_output=${2:-}; shift 2 ;;
+    --spec) spec=${2:-}; shift 2 ;;
+    --key) key=${2:-}; shift 2 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
+[[ $(uname -m) == aarch64 ]] || fail "the pinned Vivaldi package supports only aarch64"
+[[ -z $package_output || ( $package_output == /* && ! -L $package_output ) ]] ||
+  fail "package output must be an absolute non-symlink path"
 [[ -f $spec && ! -L $spec ]] || fail "the Try Omarchy build spec is missing or unsafe"
 [[ -f $key && ! -L $key ]] || fail "the Vivaldi package key is missing or unsafe"
 
@@ -71,6 +81,7 @@ expected_url="https://downloads.vivaldi.com/stable/vivaldi-stable-$version-$rpm_
 package_version="$version-$pkgrel"
 repo_dir=/usr/share/try-omarchy/repo
 repo_name=try-omarchy
+if [[ -z $package_output ]]; then
 [[ -d $repo_dir && ! -L $repo_dir ]] || fail "the local Try Omarchy repository is missing or unsafe"
 grep -Fq $'[try-omarchy]\n' /etc/pacman.conf || fail "the local Try Omarchy repository is not configured"
 if installed=$(pacman -Q vivaldi 2>/dev/null); then
@@ -84,8 +95,10 @@ if installed=$(pacman -Q vivaldi 2>/dev/null); then
     echo "Re-registering installed Vivaldi in the local Try Omarchy repository"
   fi
 fi
+fi
 
 if ! command -v rpmkeys >/dev/null || ! command -v rpm >/dev/null; then
+  [[ -z $package_output ]] || fail "rpm-tools is required for standalone package builds"
   omarchy-pkg-add rpm-tools || fail "could not install the RPM signature verifier"
 fi
 
@@ -191,6 +204,10 @@ if text.count(environment_marker) != 1 or text.count(exec_marker) != 1:
     raise SystemExit(1)
 flags = r'''XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
 VIVALDI_USER_FLAGS=()
+OMARCHY_VIDEO_FLAGS=()
+if [[ -r /usr/local/lib/omarchy-video/vivaldi.sh ]]; then
+  source /usr/local/lib/omarchy-video/vivaldi.sh
+fi
 if [[ -f "$XDG_CONFIG_HOME/vivaldi-$CHROME_VERSION_EXTRA.conf" ]]; then
   while IFS= read -r flag; do
     trimmed=${flag#"${flag%%[![:space:]]*}"}
@@ -200,7 +217,7 @@ fi
 
 '''
 text = text.replace(environment_marker, environment_marker + flags)
-text = text.replace(exec_marker, 'exec -a "$0" "$HERE/vivaldi-bin" "${VIVALDI_USER_FLAGS[@]}" "$@"\n')
+text = text.replace(exec_marker, 'exec -a "$0" "$HERE/vivaldi-bin" "${OMARCHY_VIDEO_FLAGS[@]}" "${VIVALDI_USER_FLAGS[@]}" "$@"\n')
 launcher.write_text(text)
 PY
 
@@ -296,6 +313,11 @@ tar \
 
 [[ $(pacman -Qp "$package_archive") == "vivaldi $package_version" ]] ||
   fail "the generated Vivaldi package has an unexpected identity"
+if [[ -n $package_output ]]; then
+  install -m 0644 "$package_archive" "$package_output"
+  echo "Built signed-source Vivaldi package: $package_output"
+  exit 0
+fi
 
 # Publish into the immutable-style local sync repository before installing so
 # pacman does not classify Vivaldi as a foreign/AUR package. Omarchy's updater

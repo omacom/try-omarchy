@@ -141,6 +141,7 @@ require_qemu_device() {
 for device in \
   hda-micro \
   intel-hda \
+  omarchy-video-shmem \
   virtconsole \
   virtserialport \
   virtio-balloon-pci \
@@ -176,6 +177,13 @@ gpu_help=$("$qemu_bin" -device virtio-gpu-gl-pci,help 2>&1) || {
   fail "cannot inspect the staged VirGL device"
 }
 gpu_device='virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080'
+cocoa_hdr=''
+# The private HDR feature is negotiated by the matching guest kernel module.
+# Older guest kernels keep their SDR EDID and framebuffer formats.
+if [[ $gpu_help == *x-omarchy-hdr* ]]; then
+  gpu_device+=',x-omarchy-hdr=on'
+  cocoa_hdr=',hdr=on'
+fi
 if [[ $gpu_help == *'romfile=<str>'* ]]; then
   gpu_device+=',romfile='
 fi
@@ -386,6 +394,7 @@ runtime = exact_keys(
         "sharedFolder",
         "storage",
         "virtualMachineMonitor",
+        "video",
     },
     "build spec runtime",
 )
@@ -403,6 +412,7 @@ expected_devices = [
     "intel-hda",
     "hda-micro",
     "virtio-9p-pci",
+    "omarchy-video-shmem",
 ]
 clipboard = {
     "device": "virtserialport",
@@ -476,6 +486,16 @@ camera = {
     "protocolVersion": 1,
     "width": 1280,
 }
+video = {
+    "device": "virtserialport",
+    "port": "dev.tryomarchy.video",
+    "frameDevice": "omarchy-video-shmem",
+    "protocolVersion": 1,
+    "hostDecoder": "videotoolbox",
+    "guestDriver": "vaapi",
+    "codecs": ["av1", "hevc", "vp9"],
+    "maximumSessions": 8,
+}
 storage = {
     "device": "virtio-blk-pci",
     "format": "raw",
@@ -497,6 +517,7 @@ if (
     or runtime.get("network") != network
     or runtime.get("audio") != audio
     or runtime.get("camera") != camera
+    or runtime.get("video") != video
     or runtime.get("storage") != storage
     or runtime.get("clipboard") != clipboard
     or runtime.get("authentication") != authentication
@@ -530,6 +551,7 @@ supply_chain_keys = {
     "archLinuxArmPackagesRepository",
     "hyprland",
     "mise",
+    "nativeVideo",
     "omarchyPackagesCommit",
     "omarchyPackagesRepository",
     "ttfx",
@@ -550,6 +572,8 @@ hyprland = exact_keys(
     {
         "binarySha256",
         "buildPackages",
+        "clientSdrWhitePatch",
+        "clientSdrWhitePatchSha256",
         "commit",
         "glazeCommit",
         "glazeLicenseSha256",
@@ -592,8 +616,8 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "edd58c17fc115b375d8e8b9b5eb7eb78008e89c05867b3ed2f2834287badcae8":
-    fail("factory Hyprland component is not the reviewed rounded-border build")
+if hyprland_identity != "b3142e903d5a987588d263aa5440752a2d85678e4536b299cb75af03dafe0ded":
+    fail("factory Hyprland component is not the reviewed patched build")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},
@@ -698,7 +722,7 @@ vivaldi = exact_keys(
 if vivaldi != {
     "version": "8.2.4133.33",
     "rpmRelease": 1,
-    "pkgrel": 2,
+    "pkgrel": 3,
     "repository": "https://repo.vivaldi.com/stable",
     "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
     "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
@@ -744,6 +768,17 @@ voxtype_identity = hashlib.sha256(
 ).hexdigest()
 if voxtype_identity != "906951dd6a221d39a63116af86dddf77c202bf8dfca59cccc73536c44cd22669":
     fail("factory Voxtype component is not the reviewed signed ARM64 release")
+
+if supply_chain.get("nativeVideo") != {
+    "version": "1.0.0",
+    "ffmpegVersion": "9.0.1",
+    "ffmpegUrl": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+    "ffmpegSha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+    "patch": "video/ffmpeg-full-bitstream.patch",
+    "patchSha256": "57301544bb9fd26bf50b1cc07288b58257201993e73bd71d53513045815a325a",
+    "license": "GPL-3.0-or-later",
+}:
+    fail("native video component is not pinned to the reviewed FFmpeg source")
 
 command_line = runtime.get("kernelCommandLine")
 if not isinstance(command_line, str) or not command_line or any(character in command_line for character in "\x00\r\n\t"):
@@ -972,6 +1007,8 @@ audio_bridge_pid=""
 authentication_bridge_pid=""
 camera_bridge_pid=""
 clipboard_bridge_pid=""
+video_bridge_pid=""
+video_shm_name=""
 
 terminate_child() {
   local pid=$1
@@ -1010,6 +1047,12 @@ cleanup() {
   fi
   if [[ $clipboard_bridge_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$clipboard_bridge_pid" 20
+  fi
+  if [[ $video_bridge_pid =~ ^[0-9]+$ ]]; then
+    terminate_child "$video_bridge_pid" 20
+  fi
+  if [[ -n $video_shm_name && ${OMARCHY_QEMU_GPU_DRY_RUN:-0} != 1 ]]; then
+    "$native_bridge" --remove-native-video-memory "$video_shm_name" 9>&- || true
   fi
   qemu_persistent_storage_release_lock
   if [[ -n $work_dir && -n $owner_marker && -n $owner_token ]]; then
@@ -1262,6 +1305,9 @@ audio_bridge_socket="/tmp/${work_dir##*/}/audio.sock"
 authentication_bridge_socket="/tmp/${work_dir##*/}/authentication.sock"
 camera_bridge_socket="/tmp/${work_dir##*/}/camera.sock"
 clipboard_bridge_socket="/tmp/${work_dir##*/}/clipboard.sock"
+video_bridge_socket="/tmp/${work_dir##*/}/video.sock"
+video_gpu_socket="/tmp/${work_dir##*/}/video-gpu.sock"
+video_shm_name="/tovd.$$.${RANDOM}${RANDOM}"
 audio_route_dir="/tmp/${work_dir##*/}/audio-routes"
 mkdir -m 700 "$work_dir/audio-routes"
 
@@ -1397,7 +1443,10 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device 'virtio-net-pci,netdev=omarchy-net,mac=52:54:00:12:34:56,romfile='
-  -audiodev 'sdl,id=omarchy-audio'
+  # Drain HDA into SDL every millisecond. The default 10 ms backend timer can
+  # leave HDA's 42.7 ms output ring full after scheduling delays; HDA then drops
+  # the entire ring, producing clicks even when PipeWire reports no xruns.
+  -audiodev 'sdl,id=omarchy-audio,timer-period=1000'
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none
@@ -1414,7 +1463,7 @@ qemu_args=(
   # Full grab keeps every Command chord with the focused guest in either
   # presentation mode. Immersive launches Full Screen and hard-hides the Mac
   # menu bar and Dock; otherwise Cocoa opens a centered, resizable window.
-  -display "cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
+  -display "cocoa,gl=es${cocoa_hdr},show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -object 'rng-random,id=omarchy-rng,filename=/dev/urandom'
@@ -1431,6 +1480,10 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication'
   -chardev "socket,id=omarchy-camera-bridge,path=$camera_bridge_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera'
+  -chardev "socket,id=omarchy-video-bridge,path=$video_bridge_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=5,chardev=omarchy-video-bridge,name=dev.tryomarchy.video'
+  -chardev "socket,id=omarchy-video-gpu,path=$video_gpu_socket,server=on,wait=off"
+  -device "omarchy-video-shmem,shm-name=$video_shm_name,shm-create=on,gpu-chardev=omarchy-video-gpu"
 )
 
 if [[ -n $shared_folder ]]; then
@@ -1467,6 +1520,8 @@ if [[ ${OMARCHY_QEMU_GPU_DRY_RUN:-0} == 1 ]]; then
     "$native_bridge" "$authentication_bridge_socket" >&2
   printf '\n[qemu-gpu] camera bridge command: %q --bridge-native-camera QEMU_PID %q' \
     "$native_bridge" "$camera_bridge_socket" >&2
+  printf '\n[qemu-gpu] video bridge command: %q --bridge-native-video QEMU_PID %q %q %q' \
+    "$native_bridge" "$video_bridge_socket" "$video_shm_name" "$video_gpu_socket" >&2
   if [[ -n $shared_folder ]]; then
     printf '\n[qemu-gpu] shared folder: %q' "$shared_folder" >&2
   else
@@ -1496,7 +1551,7 @@ printf '%s\n' "$qemu_pid" >"$work_dir/.qemu.pid"
 chmod 600 "$work_dir/.qemu.pid"
 
 for ((attempt = 0; attempt < 100; attempt++)); do
-  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $clipboard_bridge_socket ]]; then
+  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $clipboard_bridge_socket && -S $video_bridge_socket && -S $video_gpu_socket ]]; then
     break
   fi
   kill -0 "$qemu_pid" 2>/dev/null || fail "QEMU exited before creating its private QMP socket"
@@ -1507,6 +1562,8 @@ done
 [[ -S $authentication_bridge_socket ]] || fail "QEMU did not create its private authentication bridge socket"
 [[ -S $camera_bridge_socket ]] || fail "QEMU did not create its private camera bridge socket"
 [[ -S $clipboard_bridge_socket ]] || fail "QEMU did not create its private clipboard bridge socket"
+[[ -S $video_bridge_socket ]] || fail "QEMU did not create its private video bridge socket"
+[[ -S $video_gpu_socket ]] || fail "QEMU did not create its private video GPU socket"
 echo "[qemu-gpu] Ready. QMP: $qmp_socket" >&2
 
 # FD 9 deliberately remains open only in QEMU. Letting the sibling audio
@@ -1538,6 +1595,14 @@ start_camera_bridge() {
 }
 start_camera_bridge
 camera_bridge_restarts=0
+
+start_video_bridge() {
+  "$native_bridge" --bridge-native-video \
+    "$qemu_pid" "$video_bridge_socket" "$video_shm_name" "$video_gpu_socket" 9>&- &
+  video_bridge_pid=$!
+}
+start_video_bridge
+video_bridge_restarts=0
 
 # Bash 3.2 has no `wait -n`. The native-audio bridge is required for the guest
 # transport, so watch it alongside QEMU and fail if it exits unexpectedly.
@@ -1616,6 +1681,21 @@ while true; do
         start_camera_bridge
       else
         echo "[qemu-gpu] camera sharing is unavailable for the rest of this session" >&2
+      fi
+    fi
+  fi
+  # Video failure can fall back in the application; keep the desktop alive.
+  if [[ $video_bridge_pid =~ ^[0-9]+$ ]]; then
+    video_bridge_state=$(ps -p "$video_bridge_pid" -o state= 2>/dev/null || true)
+    if [[ -z $video_bridge_state || $video_bridge_state == *Z* ]]; then
+      wait "$video_bridge_pid" || true
+      video_bridge_pid=""
+      if (( video_bridge_restarts < 5 )); then
+        video_bridge_restarts=$((video_bridge_restarts + 1))
+        echo "[qemu-gpu] restarting native video bridge ($video_bridge_restarts/5)" >&2
+        start_video_bridge
+      else
+        echo "[qemu-gpu] hardware video decoding is unavailable for this session" >&2
       fi
     fi
   fi

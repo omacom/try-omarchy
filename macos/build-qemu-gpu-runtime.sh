@@ -52,6 +52,12 @@ pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
+video_shmem_patch="$native_dir/patches/qemu-native-video-shmem.patch"
+display_cadence_patch="$native_dir/patches/qemu-display-cadence.patch"
+hdr_patch="$native_dir/patches/qemu-cocoa-hdr.patch"
+sdr_white_patch="$native_dir/patches/qemu-cocoa-sdr-white.patch"
+virgl_macos_patch="$native_dir/patches/virglrenderer-macos-1.0.33.patch"
+virgl_video_patch="$native_dir/patches/virglrenderer-angle-video.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -71,6 +77,9 @@ pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
+video_shmem_patch_sha256="d14639df4b08d31cf54828386eab022fd8408e7072aa9517db225dec24243af4"
+hdr_patch_sha256=e8aa5f27a8bdfc14cceb4069f3eeeb78fd5432bb57c506216f30541f4944fc0a
+sdr_white_patch_sha256=d0246389c826698db014ed9da6687fedc81012dfe4542f783a6c85611ea49eb2
 macos_deployment_target=15.0
 
 keycodemap_commit=f5772a62ec52591ff6870b7e8ef32482371f22c6
@@ -103,6 +112,11 @@ pip_archive_name=pip-26.2.1-py3-none-any.whl
 pip_url="https://files.pythonhosted.org/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/$pip_archive_name"
 pip_sha256=71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e
 
+# wheel 0.48 requires packaging even in QEMU's offline Python environment.
+packaging_archive_name=packaging-25.0-py3-none-any.whl
+packaging_url="https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/$packaging_archive_name"
+packaging_sha256=29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484
+
 virgl_archive_name=virglrenderer-1.0.33.arm64_sequoia.bottle.tar.gz
 virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.33/$virgl_archive_name"
 virgl_sha256=26ad3e927d300587024cd92276d38bf813f6228d130a1800c97f1c18688b34ba
@@ -116,6 +130,19 @@ epoxy_version=1.0.4
 epoxy_archive_name=libepoxy-1.0.4.arm64_sequoia.bottle.tar.gz
 epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.4/$epoxy_archive_name"
 epoxy_sha256=8787cc8c34921834665262dff4941216dd6717edddf2c6d5cdfe04f03b24c517
+
+# Rebuild the existing macOS VirGL port with its GLES video fixes.
+virgl_source_commit=f019de64b666a5a9ff00266099dcfed6137b0768
+virgl_source_root="virglrenderer-$virgl_source_commit"
+virgl_source_archive_name="$virgl_source_root.tar.gz"
+virgl_source_url="https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/$virgl_source_commit/$virgl_source_archive_name"
+virgl_source_sha256=239726ecd47b350d7faf7fc4ab59fa359742b7e59b084945225f39213788053b
+display_cadence_patch_sha256=d5689bdd84ede6f4f04ba5be0b8e6d586ccf890264df2044bdcfc252477c04d1
+virgl_macos_patch_sha256=ad20d5154883c6a2c56846adbe6cb65a7fbfbc6a65f858e60e7100bc5168317b
+virgl_video_patch_sha256=420813fbef4b325ff5c4471e3124d326c398366231462bb91f00a4c0c93975a8
+pyyaml_archive_name=pyyaml-6.0.3.tar.gz
+pyyaml_url=https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/pyyaml-6.0.3.tar.gz
+pyyaml_sha256=d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
 
 die() {
   echo "qemu-source-build: $*" >&2
@@ -275,17 +302,22 @@ keycodemap_archive="$archive_dir/$keycodemap_archive_name"
 dtc_archive="$archive_dir/$dtc_archive_name"
 ninja_archive="$archive_dir/$ninja_archive_name"
 virgl_archive="$archive_dir/$virgl_archive_name"
+virgl_source_archive="$archive_dir/$virgl_source_archive_name"
+pyyaml_archive="$archive_dir/$pyyaml_archive_name"
 angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
 setuptools_archive="$archive_dir/$setuptools_archive_name"
 wheel_archive="$archive_dir/$wheel_archive_name"
 pip_archive="$archive_dir/$pip_archive_name"
+packaging_archive="$archive_dir/$packaging_archive_name"
 
 obtain_and_verify "QEMU $qemu_commit" "$qemu_url" "$qemu_sha256" "$qemu_archive"
 obtain_and_verify "keycodemapdb $keycodemap_commit" "$keycodemap_url" "$keycodemap_sha256" "$keycodemap_archive"
 obtain_and_verify "dtc $dtc_commit" "$dtc_url" "$dtc_sha256" "$dtc_archive"
 obtain_and_verify "Ninja $ninja_version" "$ninja_url" "$ninja_sha256" "$ninja_archive"
 obtain_and_verify "virglrenderer $virgl_version" "$virgl_url" "$virgl_sha256" "$virgl_archive"
+obtain_and_verify "VirGL source" "$virgl_source_url" "$virgl_source_sha256" "$virgl_source_archive"
+obtain_and_verify "PyYAML" "$pyyaml_url" "$pyyaml_sha256" "$pyyaml_archive"
 obtain_and_verify "ANGLE $angle_version" "$angle_url" "$angle_sha256" "$angle_archive"
 obtain_and_verify "libepoxy $epoxy_version" "$epoxy_url" "$epoxy_sha256" "$epoxy_archive"
 while IFS=$'\t' read -r formula version archive_name archive_root archive_sha; do
@@ -299,6 +331,7 @@ done < <(pinned_core_bottle_manifest)
 obtain_and_verify "setuptools" "$setuptools_url" "$setuptools_sha256" "$setuptools_archive"
 obtain_and_verify "wheel" "$wheel_url" "$wheel_sha256" "$wheel_archive"
 obtain_and_verify "pip" "$pip_url" "$pip_sha256" "$pip_archive"
+obtain_and_verify "packaging" "$packaging_url" "$packaging_sha256" "$packaging_archive"
 
 validate_tar_root "QEMU $qemu_commit" "$qemu_archive" "$qemu_root" "$listing_dir/qemu.txt"
 validate_tar_root "keycodemapdb" "$keycodemap_archive" "$keycodemap_root" "$listing_dir/keycodemapdb.txt"
@@ -306,6 +339,15 @@ validate_tar_root "dtc" "$dtc_archive" "$dtc_root" "$listing_dir/dtc.txt"
 validate_tar_root "virglrenderer" "$virgl_archive" "virglrenderer/$virgl_version" "$listing_dir/virglrenderer.txt"
 validate_tar_root "ANGLE" "$angle_archive" "angle/$angle_version" "$listing_dir/angle.txt"
 validate_tar_root "libepoxy" "$epoxy_archive" "libepoxy/$epoxy_version" "$listing_dir/libepoxy.txt"
+
+validate_tar_root "VirGL source" "$virgl_source_archive" "$virgl_source_root" "$listing_dir/virgl-source.txt"
+validate_tar_root "PyYAML" "$pyyaml_archive" "pyyaml-6.0.3" "$listing_dir/pyyaml.txt"
+tar -xzf "$virgl_source_archive" -C "$source_parent"
+tar -xzf "$pyyaml_archive" -C "$source_parent"
+verify_file_sha "VirGL macOS port" "$virgl_macos_patch" "$virgl_macos_patch_sha256"
+verify_file_sha "VirGL ANGLE video support" "$virgl_video_patch" "$virgl_video_patch_sha256"
+patch -d "$source_parent/$virgl_source_root" -p1 -f -i "$virgl_macos_patch"
+patch -d "$source_parent/$virgl_source_root" -p1 -f -i "$virgl_video_patch"
 
 tar -xzf "$qemu_archive" -C "$source_parent"
 tar -xzf "$virgl_archive" -C "$dependency_root"
@@ -319,7 +361,7 @@ source_dir="$source_parent/$qemu_root"
 [[ -f $source_dir/configure && -f $source_dir/ui/cocoa.m ]] || \
   die "QEMU source archive is incomplete"
 
-install -m 0644 "$setuptools_archive" "$wheel_archive" "$pip_archive" \
+install -m 0644 "$setuptools_archive" "$wheel_archive" "$pip_archive" "$packaging_archive" \
   "$source_dir/python/wheels/"
 
 mkdir -p "$source_dir/subprojects/keycodemapdb" "$source_dir/subprojects/dtc"
@@ -344,6 +386,8 @@ verify_file_sha "Try Omarchy 9p shared-folder patch" \
 verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
   "$strchrnul_patch" "$strchrnul_patch_sha256"
 
+verify_file_sha "Try Omarchy native video shared-memory patch" "$video_shmem_patch" "$video_shmem_patch_sha256"
+
 log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, and Darwin compatibility patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
@@ -355,6 +399,13 @@ patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
 patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
+patch -d "$source_dir" -p1 -f -i "$video_shmem_patch"
+verify_file_sha "QEMU display cadence" "$display_cadence_patch" "$display_cadence_patch_sha256"
+patch -d "$source_dir" -p1 -f -i "$display_cadence_patch"
+verify_file_sha "Cocoa HDR and paired virtio metadata" "$hdr_patch" "$hdr_patch_sha256"
+patch -d "$source_dir" -p1 -f -i "$hdr_patch"
+verify_file_sha "Cocoa SDR panel white" "$sdr_white_patch" "$sdr_white_patch_sha256"
+patch -d "$source_dir" -p1 -f -i "$sdr_white_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
@@ -473,6 +524,25 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
       --ninja="$ninja"
 )
 
+log "Building VirGL with ANGLE multisample textures and video uploads"
+virgl_build_dir="$source_parent/$virgl_source_root/build-native"
+(
+  export MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target"
+  export CFLAGS="-mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new"
+  export OBJCFLAGS="$CFLAGS"
+  export LDFLAGS="-mmacosx-version-min=$macos_deployment_target"
+  export PKG_CONFIG_PATH=
+  export PKG_CONFIG_LIBDIR="$pkg_config_libdir"
+  export DYLD_LIBRARY_PATH="$private_libraries"
+  export PYTHONPATH="$source_parent/pyyaml-6.0.3/lib"
+  export PATH="$build_dir/pyvenv/bin:$PATH"
+  export NINJA="$ninja"
+  "$build_dir/pyvenv/bin/meson" setup "$virgl_build_dir" "$source_parent/$virgl_source_root" \
+    --buildtype=release --wrap-mode=nodownload -Dvenus=true -Dvideo=false \
+    -Ddrm-renderers=[] -Dtests=false
+  "$ninja" -C "$virgl_build_dir" src/libvirglrenderer.1.dylib
+)
+
 config_host="$build_dir/config-host.h"
 [[ -f $config_host && ! -L $config_host ]] || die "QEMU configure did not create config-host.h"
 if grep -Eq '^[[:space:]]*#define[[:space:]]+HAVE_STRCHRNUL([[:space:]]+1)?[[:space:]]*$' \
@@ -531,6 +601,7 @@ description=$(file -b "$qemu_binary")
 log "Relocating, capability-gating, signing, and publishing the runtime"
 "$prepare_runtime" \
   --source-qemu "$qemu_binary" \
+  --source-virgl "$virgl_build_dir/src/libvirglrenderer.1.dylib" \
   --archive-dir "$archive_dir"
 
 log "Pinned patched runtime is ready; scratch source and archives will now be removed"

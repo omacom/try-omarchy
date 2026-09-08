@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH [--archive-dir DIR]
+Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH [--source-virgl PATH] [--archive-dir DIR]
 
 Stage, relocate, validate, and ad-hoc sign the source-built QEMU runtime at:
   macos/.build/qemu-gpu-runtime
@@ -16,6 +16,7 @@ EOF
 }
 
 source_qemu=
+source_virgl=
 archive_cache=
 while (($#)); do
   case "$1" in
@@ -23,6 +24,12 @@ while (($#)); do
       (($# >= 2)) || { usage >&2; exit 64; }
       [[ -z $source_qemu ]] || { usage >&2; exit 64; }
       source_qemu=$2
+      shift 2
+      ;;
+    --source-virgl)
+      (($# >= 2)) || { usage >&2; exit 64; }
+      [[ -z $source_virgl ]] || { usage >&2; exit 64; }
+      source_virgl=$2
       shift 2
       ;;
     --archive-dir)
@@ -94,6 +101,10 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $source_qemu == /* ]] || die "--source-qemu must be an absolute path"
 [[ -f $source_qemu && ! -L $source_qemu && -x $source_qemu ]] || \
   die "--source-qemu must name a regular executable: $source_qemu"
+if [[ -n $source_virgl ]]; then
+  [[ $source_virgl == /* && -f $source_virgl && ! -L $source_virgl ]] || \
+    die "--source-virgl must name a regular absolute file"
+fi
 [[ -f $entitlements && ! -L $entitlements ]] || \
   die "missing QEMU signing entitlements: $entitlements"
 [[ -x $dependency_bundler && ! -L $dependency_bundler ]] || \
@@ -222,7 +233,7 @@ tar -xzf "$epoxy_archive" -C "$extract_dir" "$epoxy_member"
 tar -xzf "$angle_archive" -C "$extract_dir" "$egl_member" "$gles_member"
 
 install -m 0755 "$source_qemu" "$staged_runtime/bin/qemu-system-aarch64"
-install -m 0755 "$extract_dir/$virgl_member" \
+install -m 0755 "${source_virgl:-$extract_dir/$virgl_member}" \
   "$staged_runtime/lib/libvirglrenderer.1.dylib"
 install -m 0755 "$extract_dir/$epoxy_member" "$staged_runtime/lib/libepoxy.0.dylib"
 install -m 0755 "$extract_dir/$egl_member" "$staged_runtime/lib/libEGL.dylib"

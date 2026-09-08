@@ -1,0 +1,29 @@
+--- a/video/out/opengl/context_wayland.c
++++ b/video/out/opengl/context_wayland.c
+@@ -20,6 +20,11 @@
+ #include <EGL/egl.h>
+ #include <EGL/eglext.h>
+ 
++#include "config.h"
++#if HAVE_WAYLAND_PROTOCOLS_1_41
++#include "color-management-v1.h"
++#endif
++
+ #include "video/out/present_sync.h"
+ #include "video/out/wayland_common.h"
+ #include "context.h"
+@@ -145,6 +150,14 @@
+         p->gl.DrawBuffer(GL_BACK);
+     }
+ 
++    // This private build is paired with Omarchy's pinned Mesa EGL runtime,
++    // which does not own a Wayland color-management surface. Publish the
++    // renderer's actual target parameters before every buffer commit.
++#if HAVE_WAYLAND_PROTOCOLS_1_41
++    if (wl->color_manager && !wl->color_surface)
++        wl->color_surface = wp_color_manager_v1_get_surface(
++            wl->color_manager, wl->surface);
++#endif
+     eglSwapInterval(p->egl_display, 0);
+ }
+ 

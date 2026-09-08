@@ -1,0 +1,141 @@
+--- a/libavcodec/vaapi_av1.c
++++ b/libavcodec/vaapi_av1.c
+@@ -436,10 +436,50 @@
+         };
+     }
+ 
++    /* VideoToolbox requires the original frame and sequence OBUs. Preserve
++     * those bytes for the Omarchy frontend, while keeping normal VA drivers'
++     * compact tile-only submission unchanged. Tile offsets remain relative
++     * to the submitted VASliceDataBuffer, as required by VA-API. */
++    const char *vendor = vaQueryVendorString(ctx->base.hwctx->display);
++    uint8_t *coded = NULL;
++    if (vendor && strstr(vendor, "Try Omarchy VideoToolbox")) {
++        size_t coded_size = s->seq_data_ref ? s->seq_data_ref->size : 0;
++        size_t tile_base = SIZE_MAX, offset;
++        if (!coded_size)
++            return AVERROR_INVALIDDATA;
++        for (int j = 0; j < s->current_obu.nb_units; j++) {
++            const CodedBitstreamUnit *unit = &s->current_obu.units[j];
++            uintptr_t begin = (uintptr_t)unit->data;
++            uintptr_t tile = (uintptr_t)buffer;
++            if (tile >= begin && tile - begin <= unit->data_size &&
++                size <= unit->data_size - (tile - begin))
++                tile_base = coded_size + (tile - begin);
++            if (unit->data_size > INT_MAX - coded_size)
++                return AVERROR_INVALIDDATA;
++            coded_size += unit->data_size;
++        }
++        if (tile_base == SIZE_MAX || coded_size > 64 * 1024 * 1024)
++            return AVERROR_INVALIDDATA;
++        coded = av_malloc(coded_size);
++        if (!coded)
++            return AVERROR(ENOMEM);
++        memcpy(coded, s->seq_data_ref->data, s->seq_data_ref->size);
++        offset = s->seq_data_ref->size;
++        for (int j = 0; j < s->current_obu.nb_units; j++) {
++            const CodedBitstreamUnit *unit = &s->current_obu.units[j];
++            memcpy(coded + offset, unit->data, unit->data_size);
++            offset += unit->data_size;
++        }
++        for (int j = 0; j < nb_params; j++)
++            ctx->slice_params[j].slice_data_offset += tile_base;
++        buffer = coded;
++        size = coded_size;
++    }
+     err = ff_vaapi_decode_make_slice_buffer(avctx, pic, ctx->slice_params, nb_params,
+                                             sizeof(VASliceParameterBufferAV1),
+                                             buffer,
+                                             size);
++    av_free(coded);
+     if (err)
+         goto fail;
+ 
+--- a/libavcodec/vaapi_hevc.c
++++ b/libavcodec/vaapi_hevc.c
+@@ -24,6 +24,9 @@
+ #include <va/va_dec_hevc.h>
+ 
+ #include "avcodec.h"
++#include "internal.h"
++#include "libavutil/intreadwrite.h"
++#include "libavutil/mem.h"
+ #include "hwaccel_internal.h"
+ #include "vaapi_decode.h"
+ #include "vaapi_hevc.h"
+@@ -44,6 +47,57 @@
+ 
+     VAAPIDecodePicture pic;
+ } VAAPIDecodePictureHEVC;
++
++/* Preserve the complete HEVC parameter NALs for the VideoToolbox frontend.
++ * Other VA drivers continue receiving the normal, unmodified slice payload. */
++static int omarchy_hevc_make_slice_buffer(AVCodecContext *avctx, VAAPIDecodePicture *pic,
++                                         const void *params, int count, size_t param_size,
++                                         const uint8_t *buffer, size_t size)
++{
++    VAAPIDecodeContext *ctx = avctx->internal->hwaccel_priv_data;
++    const char *vendor = vaQueryVendorString(ctx->hwctx->display);
++    const HEVCContext *h = avctx->priv_data;
++    const HEVCSPS *sps = h->pps->sps;
++    uint8_t *coded;
++    size_t offset = 0, capacity = size + 16;
++    const uint8_t *sets[3] = { sps->vps->data, sps->data, h->pps->data };
++    int lengths[3] = { sps->vps->data_size, sps->data_size, h->pps->data_size };
++    int ret;
++    VASliceParameterBufferHEVC param;
++    if (!vendor || !strstr(vendor, "Try Omarchy VideoToolbox"))
++        return ff_vaapi_decode_make_slice_buffer(avctx, pic, params, count, param_size, buffer, size);
++    if (count != 1 || param_size != sizeof(param) || size > 64 * 1024 * 1024 - 1024 * 1024)
++        return AVERROR_INVALIDDATA;
++    for (int i = 0; i < 3; ++i) {
++        if (!sets[i] || lengths[i] < 2 || lengths[i] > 65535)
++            return AVERROR_INVALIDDATA;
++        capacity += lengths[i] * 2;
++    }
++    coded = av_malloc(capacity);
++    if (!coded)
++        return AVERROR(ENOMEM);
++    for (int i = 0; i < 3; ++i) {
++        size_t start = offset;
++        unsigned zeros = 0;
++        offset += 4;
++        /* Parser parameter sets contain RBSP; restore emulation prevention. */
++        for (int j = 0; j < lengths[i]; ++j) {
++            uint8_t b = sets[i][j];
++            if (zeros == 2 && b <= 3) { coded[offset++] = 3; zeros = 0; }
++            coded[offset++] = b;
++            zeros = b == 0 ? zeros + 1 : 0;
++        }
++        AV_WB32(coded + start, offset - start - 4);
++    }
++    AV_WB32(coded + offset, size);
++    memcpy(coded + offset + 4, buffer, size);
++    param = *(const VASliceParameterBufferHEVC *)params;
++    param.slice_data_offset += offset + 4;
++    offset += size + 4;
++    ret = ff_vaapi_decode_make_slice_buffer(avctx, pic, &param, 1, sizeof(param), coded, offset);
++    av_free(coded);
++    return ret;
++}
+ 
+ static void init_vaapi_pic(VAPictureHEVC *va_pic)
+ {
+@@ -356,7 +410,7 @@
+ 
+     if (pic->last_size) {
+         last_slice_param->LongSliceFlags.fields.LastSliceOfPic = 1;
+-        ret = ff_vaapi_decode_make_slice_buffer(avctx, &pic->pic,
++        ret = omarchy_hevc_make_slice_buffer(avctx, &pic->pic,
+                                                 &pic->last_slice_param, 1, slice_param_size,
+                                                 pic->last_buffer, pic->last_size);
+         if (ret < 0)
+@@ -474,7 +528,7 @@
+     int err, i, list_idx;
+ 
+     if (!sh->first_slice_in_pic_flag) {
+-        err = ff_vaapi_decode_make_slice_buffer(avctx, &pic->pic,
++        err = omarchy_hevc_make_slice_buffer(avctx, &pic->pic,
+                                                 &pic->last_slice_param, 1, slice_param_size,
+                                                 pic->last_buffer, pic->last_size);
+         pic->last_buffer = NULL;

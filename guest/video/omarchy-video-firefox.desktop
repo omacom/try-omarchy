@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Name=Firefox with hardware video
+Comment=Browse with the Mac hardware video decoder
+Exec=/usr/local/bin/firefox %u
+Icon=firefox
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupWMClass=firefox

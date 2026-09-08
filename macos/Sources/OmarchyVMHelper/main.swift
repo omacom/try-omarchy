@@ -5,7 +5,7 @@ import Foundation
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-video QEMU_PID SOCKET SHM_NAME [GPU_SOCKET] | --remove-native-video-memory SHM_NAME\n", stderr)
     exit(64)
 }
 
@@ -19,6 +19,29 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--remove-native-video-memory" {
+        guard arguments.count == 2 else { usage() }
+        try NativeVideoSharedMemory.unlinkIfOwned(name: arguments[1])
+        exit(0)
+    }
+    if arguments.first == "--bridge-native-video" {
+        guard (3...5).contains(arguments.count),
+              let processIdentifier = Int32(arguments[1]),
+              processIdentifier > 1 else { usage() }
+        let bridge = try NativeVideoBridge(targetPID: processIdentifier, socketPath: arguments[2],
+                                           sharedMemoryName: arguments.count >= 4 ? arguments[3] : nil,
+                                           gpuSocketPath: arguments.count == 5 ? arguments[4] : nil)
+        for signalNumber in [SIGINT, SIGTERM] {
+            Darwin.signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global(qos: .userInitiated))
+            source.setEventHandler { bridge.stop() }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
+        try bridge.run()
+        exit(0)
+    }
+
     if arguments.first == "--bridge-native-audio" {
         guard arguments.count == 4,
               let processIdentifier = Int32(arguments[1]),

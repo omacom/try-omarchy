@@ -1,0 +1,165 @@
+--- a/src/vrend/vrend_formats.c
++++ b/src/vrend/vrend_formats.c
+@@ -24,6 +24,7 @@
+ #include <epoxy/gl.h>
+ 
+ #include "vrend_renderer.h"
++#include "vrend_angle_msaa.h"
+ #include "util/u_memory.h"
+ #include "util/u_format.h"
+ 
+@@ -772,7 +773,7 @@
+       }
+    } else {
+       /* OpenGL ES path */
+-      if (epoxy_gl_version() >= 31) {
++      if (epoxy_gl_version() >= 31 || vrend_angle_msaa()) {
+          has_tex_storage_ms = true;
+          has_tex_image_ms = true;
+       }
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -50,6 +50,7 @@
+ #include "vrend_shader.h"
+ 
+ #include "vrend_renderer.h"
++#include "vrend_angle_msaa.h"
+ #include "vrend_blitter.h"
+ #include "vrend_debug.h"
+ #include "vrend_winsys.h"
+@@ -315,7 +316,7 @@
+    FEAT(ssbo_barrier, 43, 31, "GL_ARB_shader_storage_buffer_object"),
+    FEAT(srgb_write_control, 30, UNAVAIL, "GL_EXT_sRGB_write_control"),
+    FEAT(stencil_texturing, 43, 31,  "GL_ARB_stencil_texturing" ),
+-   FEAT(storage_multisample, 43, 31,  "GL_ARB_texture_storage_multisample" ),
++   FEAT(storage_multisample, 43, 31,  "GL_ARB_texture_storage_multisample", "GL_ANGLE_texture_multisample" ),
+    FEAT(tessellation, 40, 32,  "GL_ARB_tessellation_shader", "GL_OES_tessellation_shader", "GL_EXT_tessellation_shader" ),
+    FEAT(texture_array, 30, 30,  "GL_EXT_texture_array" ),
+    FEAT(texture_barrier, 45, UNAVAIL,  "GL_ARB_texture_barrier" ),
+@@ -8180,6 +8181,10 @@
+ 
+    /* only texture 2d and 2d array can have multiple samples */
+    if (args->nr_samples > 1) {
++      if (vrend_angle_msaa() && args->target == PIPE_TEXTURE_2D_ARRAY) {
++         snprintf(errmsg, 256, "ANGLE does not support multisample array textures");
++         return -1;
++      }
+       if (!vrend_format_can_multisample(args->format)) {
+          snprintf(errmsg, 256, "Unsupported multisample texture format %s",
+                   util_format_name(args->format));
+@@ -9483,6 +9488,7 @@
+       GLenum glformat;
+       GLenum gltype;
+       int need_temp = 0;
++      GLuint upload_buffer = 0;
+       int elsize = util_format_get_blocksize(res->base.format);
+       int x = 0, y = 0;
+       bool compressed;
+@@ -9538,13 +9544,41 @@
+             return EINVAL;
+          }
+ 
+-         data = malloc(send_size);
++         /* Video planes are uploaded every frame. A pixel-unpack buffer
++          * lets ANGLE copy directly from shared Metal storage instead of
++          * allocating and copying a second CPU staging buffer. */
++         bool plane_upload = vrend_state.use_gles && res->target == GL_TEXTURE_2D &&
++            !invert && (res->base.format == VIRGL_FORMAT_R8_UNORM ||
++                        res->base.format == VIRGL_FORMAT_R8G8_UNORM ||
++                        res->base.format == VIRGL_FORMAT_R16_UNORM ||
++                        res->base.format == VIRGL_FORMAT_R16G16_UNORM);
++         if (plane_upload) {
++            glGenBuffers(1, &upload_buffer);
++            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, upload_buffer);
++            glBufferData(GL_PIXEL_UNPACK_BUFFER, send_size, NULL, GL_STREAM_DRAW);
++            data = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, send_size,
++                                    GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
++         } else {
++            data = malloc(send_size);
++         }
+          if (!data) {
++            if (upload_buffer) {
++               glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
++               glDeleteBuffers(1, &upload_buffer);
++            }
+             virgl_error("Memory allocation failed for %"PRIu64"\n", send_size);
+             return ENOMEM;
+          }
+          read_transfer_data(iov, num_iovs, data, res->base.format, info->offset,
+                             stride, layer_stride, info->box, invert);
++         if (upload_buffer) {
++            if (!glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER)) {
++               glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
++               glDeleteBuffers(1, &upload_buffer);
++               return EIO;
++            }
++            data = NULL; /* offset zero in the bound pixel-unpack buffer */
++         }
+       } else {
+          if (send_size > iov[0].iov_len - info->offset)
+             return EINVAL;
+@@ -9736,8 +9770,12 @@
+ 
+       glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+ 
+-      if (need_temp)
++      if (upload_buffer) {
++         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
++         glDeleteBuffers(1, &upload_buffer);
++      } else if (need_temp) {
+          free(data);
++      }
+    }
+    return 0;
+ }
+@@ -13035,7 +13073,7 @@
+    const char *version = (const char *)glGetString(GL_VERSION);
+    bool is_metal = (version && strstr(version, "Metal"));
+    bool is_angle = (version && strstr(version, "ANGLE"));
+-   if ((is_metal || is_angle) && caps->v1.max_samples > 1) {
++   if ((is_metal || is_angle) && !vrend_angle_msaa() && caps->v1.max_samples > 1) {
+       virgl_debug("[VREND CAPS] %s backend: Overriding max_samples %u -> 1 for fake_sw_msaa\n", 
+                   is_angle ? "ANGLE" : "Metal",
+                   caps->v1.max_samples);
+@@ -13301,7 +13339,10 @@
+    if (has_feature(feat_khr_debug))
+        caps->v2.capability_bits_v2 |= VIRGL_CAP_V2_STRING_MARKER;
+ 
+-   if (has_feature(feat_implicit_msaa))
++   /* ANGLE supports explicit multisample textures, but virgl's implicit
++    * path can attach a single-sample depth/stencil texture to a multisample
++    * color target. Keep Mesa on the explicit resolve path. */
++   if (has_feature(feat_implicit_msaa) && !vrend_angle_msaa())
+        caps->v2.capability_bits_v2 |= VIRGL_CAP_V2_IMPLICIT_MSAA;
+ 
+    if (vrend_winsys_different_gpu())
+--- /dev/null
++++ b/src/vrend/vrend_angle_msaa.h
+@@ -0,0 +1,27 @@
++/* ANGLE's Metal renderer exposes real multisample textures in GLES 3.0
++ * through GL_ANGLE_texture_multisample. The unsuffixed ES 3.1 entry point
++ * rejects these calls; dispatch the advertised extension explicitly. */
++#ifndef VREND_ANGLE_MSAA_H
++#define VREND_ANGLE_MSAA_H
++#include <epoxy/gl.h>
++#include <epoxy/egl.h>
++static inline bool vrend_angle_msaa(void)
++{
++   return !epoxy_is_desktop_gl() &&
++          epoxy_has_gl_extension("GL_ANGLE_texture_multisample");
++}
++static inline void vrend_tex_storage_2d_multisample(GLenum target, GLsizei samples,
++                                                  GLenum format, GLsizei width,
++                                                  GLsizei height, GLboolean fixed)
++{
++   if (vrend_angle_msaa()) {
++      typedef void (*storage_fn)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLboolean);
++      storage_fn storage = (storage_fn)eglGetProcAddress("glTexStorage2DMultisampleANGLE");
++      storage(target, samples, format, width, height, fixed);
++   } else {
++      epoxy_glTexStorage2DMultisample(target, samples, format, width, height, fixed);
++   }
++}
++#undef glTexStorage2DMultisample
++#define glTexStorage2DMultisample vrend_tex_storage_2d_multisample
++#endif
