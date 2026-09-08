@@ -71,6 +71,19 @@
         "xorgproto": "2025.1-1"
       }
     },
+    "aquamarine": {
+      "version": "0.14.0",
+      "pkgrel": "2",
+      "repository": "https://github.com/hyprwm/aquamarine",
+      "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+      "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+      "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+      "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+      "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+      "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+      "license": "BSD-3-Clause",
+      "binarySha256": "16bb51664f8c00d076158613e7bcec313ddd1d0f2c79a0acd7bb8ea8647bf614"
+    },
     "mise": {
       "version": "2026.8.11",
       "url": "https://github.com/jdx/mise/releases/download/v2026.8.11/mise-v2026.8.11-linux-arm64.tar.xz",
@@ -190,9 +203,7 @@
     "abiPackagePins": [
       {
         "name": "aquamarine",
-        "version": "0.14.0-2",
-        "archive": "pinned-packages/aquamarine-0.14.0-2-aarch64.pkg.tar.zst",
-        "sha256": "64f7dc4df3680a59fb4db5237257bf61defdecd87a1f39c2ffb672eda10ac4e8"
+        "version": "0.14.0-2"
       }
     ]
   },

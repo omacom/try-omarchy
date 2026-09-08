@@ -16,8 +16,8 @@ code.
   Hyprland's upstream license and dependency metadata.
 - **aquamarine** — BSD-3-Clause; Arch Linux ARM currently publishes only
   `libaquamarine.so=14`, while the pinned Hyprland still requires `.so=13`. The
-  factory build therefore vendors the reviewed `aquamarine 0.14.0-2` aarch64
-  package under `guest/pinned-packages/` (digest-pinned in `guest/spec.json`)
+  factory therefore rebuilds `aquamarine 0.14.0-2` from the reviewed Arch
+  PKGBUILD and `hyprwm/aquamarine` v0.14.0 tarball (pinned in `guest/spec.json`)
   for empty-root resolve/pacstrap only. The finished guest holds aquamarine on
   `IgnorePkg` with Hyprland so Omarchy updates cannot pull the ABI break.
 - **Glaze** — MIT; the pinned v7.2.0 headers are used by the Hyprland build, and

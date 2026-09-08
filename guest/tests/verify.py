@@ -140,31 +140,48 @@ def main() -> None:
         check((GUEST / value).is_file(), f"spec input exists: {value}")
     abi_pins = spec["inputs"]["abiPackagePins"]
     check(
-        abi_pins
-        == [
-            {
-                "name": "aquamarine",
-                "version": "0.14.0-2",
-                "archive": "pinned-packages/aquamarine-0.14.0-2-aarch64.pkg.tar.zst",
-                "sha256": "64f7dc4df3680a59fb4db5237257bf61defdecd87a1f39c2ffb672eda10ac4e8",
-            }
-        ],
+        abi_pins == [{"name": "aquamarine", "version": "0.14.0-2"}],
         "factory abi pins keep aquamarine on libaquamarine.so=13 for the locked Hyprland",
     )
-    for pin in abi_pins:
-        archive = GUEST / pin["archive"]
-        check(archive.is_file(), f"abi pin archive exists: {pin['archive']}")
-        check(
-            hashlib.sha256(archive.read_bytes()).hexdigest() == pin["sha256"],
-            f"abi pin digest matches: {pin['name']}",
-        )
+    aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
+    pkgbuild = GUEST / aquamarine.get("pkgbuild", "")
+    pkgbuild_text = pkgbuild.read_text() if pkgbuild.is_file() else ""
+    check(
+        aquamarine
+        == {
+            "version": "0.14.0",
+            "pkgrel": "2",
+            "repository": "https://github.com/hyprwm/aquamarine",
+            "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+            "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+            "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+            "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+            "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+            "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+            "license": "BSD-3-Clause",
+            "binarySha256": "16bb51664f8c00d076158613e7bcec313ddd1d0f2c79a0acd7bb8ea8647bf614",
+        }
+        and pkgbuild.is_file()
+        and hashlib.sha256(pkgbuild.read_bytes()).hexdigest() == aquamarine["pkgbuildSha256"]
+        and f"sha256sums=('{aquamarine['sha256']}')" in pkgbuild_text
+        and "pkgver=0.14.0" in pkgbuild_text
+        and "pkgrel=2" in pkgbuild_text,
+        "factory rebuilds aquamarine 0.14 from the reviewed Arch PKGBUILD and upstream tarball",
+    )
     builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
+    build_aquamarine = read(GUEST / "scripts/build-pinned-aquamarine.sh")
     check(
         "try-omarchy-abi-pins" in builder_conf_writer
         and "drop_ignore" in builder_conf_writer
+        and "reproducible rebuild" in builder_conf_writer
         and "write-builder-pacman-conf.py" in read(GUEST / "build.sh")
-        and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh"),
-        "factory builder pacman derivation installs abi pins and strips them from IgnorePkg",
+        and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh")
+        and "build-pinned-aquamarine.sh" in read(GUEST / "build.sh")
+        and "build-pinned-aquamarine.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
+        and "download digest mismatch" in build_aquamarine
+        and "aquamarine reproducible library digest mismatch" in build_aquamarine
+        and "aquamarine source archive has an unsafe member set" in build_aquamarine,
+        "factory builder pacman derivation rebuilds abi pins from source and strips them from IgnorePkg",
     )
 
     wallpaper = DEFAULT_WALLPAPER.read_bytes()
@@ -537,7 +554,11 @@ def main() -> None:
         'supply_chain.get("hyprland")' in launcher
         and '"build spec hyprland component"' in launcher
         and '"build spec hyprland build packages"' in launcher
-        and hyprland_identity in launcher,
+        and hyprland_identity in launcher
+        and 'supply_chain.get("aquamarine")' in launcher
+        and '"build spec aquamarine component"' in launcher
+        and aquamarine["pkgbuildSha256"] in launcher
+        and aquamarine["binarySha256"] in launcher,
         "native launcher accepts and pins the patched Hyprland component",
     )
     check(
@@ -967,9 +988,10 @@ def main() -> None:
     )
     check(
         "**aquamarine**" in third_party_notices
-        and "pinned-packages/" in third_party_notices
+        and "hyprwm/aquamarine" in third_party_notices
+        and "PKGBUILD" in third_party_notices
         and "IgnorePkg" in third_party_notices,
-        "third-party notices cover the vendored aquamarine ABI pin",
+        "third-party notices cover the rebuilt aquamarine ABI pin",
     )
     check(
         "**Glaze**" in third_party_notices and "MIT" in third_party_notices,

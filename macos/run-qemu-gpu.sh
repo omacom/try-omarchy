@@ -526,6 +526,7 @@ if (
     fail("upstream identity is not pinned")
 
 supply_chain_keys = {
+    "aquamarine",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
     "hyprland",
@@ -594,6 +595,37 @@ hyprland_identity = hashlib.sha256(
 ).hexdigest()
 if hyprland_identity != "da1b7e5db14b430f69058303f87d9c2479c4a677936cec426d9c4f5def9effc1":
     fail("factory Hyprland component is not the reviewed rounded-border build")
+aquamarine = exact_keys(
+    supply_chain.get("aquamarine"),
+    {
+        "binarySha256",
+        "license",
+        "packagingCommit",
+        "packagingRepository",
+        "pkgbuild",
+        "pkgbuildSha256",
+        "pkgrel",
+        "repository",
+        "sha256",
+        "url",
+        "version",
+    },
+    "build spec aquamarine component",
+)
+if aquamarine != {
+    "version": "0.14.0",
+    "pkgrel": "2",
+    "repository": "https://github.com/hyprwm/aquamarine",
+    "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+    "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+    "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+    "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+    "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+    "license": "BSD-3-Clause",
+    "binarySha256": "16bb51664f8c00d076158613e7bcec313ddd1d0f2c79a0acd7bb8ea8647bf614",
+}:
+    fail("factory aquamarine component is not the reviewed libaquamarine.so=13 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},

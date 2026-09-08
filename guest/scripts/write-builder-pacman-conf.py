@@ -3,20 +3,20 @@
 
 Guest IgnorePkg holds (kernel / Hyprland / aquamarine) stay in the reviewed
 guest file. The builder config must:
-  - expose reviewed ABI package pins that mirrors no longer publish
+  - expose ABI pins rebuilt from reviewed upstream source + Arch PKGBUILD
   - omit those pin names from IgnorePkg so pacstrap can install them once
   - keep optional signed packageCachePins ahead of rolling mirrors
+
+[try-omarchy-abi-pins] is unsigned because repo-add writes an unsigned database
+for the just-built package. Origin is the reproducible rebuild, not TrustAll.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -27,57 +27,59 @@ def fail(message: str) -> None:
     raise SystemExit(f"write-builder-pacman-conf: {message}")
 
 
-def load_abi_pins(spec: dict, guest_dir: Path, lock_packages: dict[str, str]) -> list[dict]:
+def load_abi_pins(spec: dict, lock_packages: dict[str, str]) -> list[dict]:
     pins = spec.get("inputs", {}).get("abiPackagePins", [])
     if not isinstance(pins, list):
         fail("inputs.abiPackagePins must be a list")
     names = [pin.get("name") for pin in pins]
     if names != sorted(set(names)):
         fail("abiPackagePins names must be sorted and unique")
+    supply = spec.get("supplyChain", {})
     resolved = []
     for pin in pins:
         if not isinstance(pin, dict):
             fail("abiPackagePins entries must be objects")
-        required = {"name", "version", "archive", "sha256"}
+        required = {"name", "version"}
         if set(pin) != required:
             fail(f"abiPackagePins entry keys must be exactly {sorted(required)}")
         name = pin["name"]
         version = pin["version"]
-        archive = guest_dir / pin["archive"]
         if not re.fullmatch(r"[a-z0-9@._+-]+", name or ""):
             fail(f"invalid abi package name: {name}")
         if not re.fullmatch(r"[A-Za-z0-9_.+:~-]+", version or ""):
             fail(f"invalid abi package version: {version}")
-        if not re.fullmatch(r"[0-9a-f]{64}", pin["sha256"] or ""):
-            fail(f"invalid abi package sha256 for {name}")
-        if not archive.is_file():
-            fail(f"abi package archive missing: {pin['archive']}")
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        if digest != pin["sha256"]:
-            fail(f"abi package digest mismatch for {name}: {digest}")
+        if name != "aquamarine":
+            fail(f"unsupported abi pin: {name}")
+        component = supply.get(name)
+        if not isinstance(component, dict):
+            fail(f"abi pin {name} is missing supplyChain.{name}")
+        expected = f"{component.get('version')}-{component.get('pkgrel')}"
+        if version != expected:
+            fail(f"abi pin {name} version {version} does not match supply chain {expected}")
         locked = lock_packages.get(name)
         if locked != version:
             fail(f"abi package {name} version {version} does not match lock {locked}")
-        expected_prefix = f"{name}-{version}-"
-        if not archive.name.startswith(expected_prefix) or not archive.name.endswith(".pkg.tar.zst"):
-            fail(f"abi package archive name must be {expected_prefix}*.pkg.tar.zst")
-        resolved.append({**pin, "path": archive})
+        resolved.append(pin)
     return resolved
 
 
-def materialize_abi_repo(pins: list[dict], repo_dir: Path) -> None:
+def ensure_abi_repo(pins: list[dict], repo_dir: Path) -> None:
     if not pins:
         return
-    if repo_dir.exists():
-        shutil.rmtree(repo_dir)
-    repo_dir.mkdir(parents=True, mode=0o755)
+    if not repo_dir.is_dir():
+        fail(f"abi pin repository is missing: {repo_dir}")
     archives = []
     for pin in pins:
-        destination = repo_dir / pin["path"].name
-        shutil.copy2(pin["path"], destination)
-        archives.append(destination)
+        matches = sorted(repo_dir.glob(f"{pin['name']}-{pin['version']}-*.pkg.tar.zst"))
+        matches = [path for path in matches if path.is_file() and not path.is_symlink()]
+        if len(matches) != 1:
+            fail(f"expected exactly one rebuilt archive for {pin['name']}={pin['version']}")
+        archives.append(matches[0])
+    database = repo_dir / "try-omarchy-abi-pins.db.tar.gz"
+    if database.exists():
+        return
     subprocess.run(
-        ["repo-add", str(repo_dir / "try-omarchy-abi-pins.db.tar.gz"), *map(str, archives)],
+        ["repo-add", str(database), *map(str, archives)],
         check=True,
         stdout=subprocess.DEVNULL,
     )
@@ -169,13 +171,13 @@ def main() -> None:
 
     spec = json.loads(args.spec.read_text())
     lock_packages = json.loads(args.package_lock.read_text())["packages"]
-    pins = load_abi_pins(spec, args.guest_dir, lock_packages)
+    pins = load_abi_pins(spec, lock_packages)
 
     abi_repo = args.abi_repo
     if pins:
         if abi_repo is None:
             fail("--abi-repo is required when abiPackagePins are declared")
-        materialize_abi_repo(pins, abi_repo)
+        ensure_abi_repo(pins, abi_repo)
     elif abi_repo is not None:
         fail("--abi-repo was provided without abiPackagePins")
 
