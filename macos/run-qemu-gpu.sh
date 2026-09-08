@@ -1384,6 +1384,16 @@ else
   echo '[qemu-gpu] Nested virtualization is unavailable; using the compatible EL1 path.' >&2
 fi
 
+if [[ $QEMU_SELECTED_STORAGE_MODE == persistent && -n $QEMU_PERSISTENT_STORAGE_ROOT ]]; then
+  console_log="$QEMU_PERSISTENT_STORAGE_ROOT/console.log"
+else
+  console_log="$work_dir/console.log"
+fi
+if [[ -f $console_log ]]; then
+  mv -f "$console_log" "$console_log.1" 2>/dev/null || true
+fi
+console_log_option=${console_log//,/,,}
+
 qemu_args=(
   -name 'Try Omarchy'
   "${qemu_virtualization_args[@]}"
@@ -1421,7 +1431,7 @@ qemu_args=(
   -device 'virtio-rng-pci,rng=omarchy-rng'
   -device virtio-balloon-pci
   -device 'virtio-serial-pci,id=omarchy-serial'
-  -chardev 'stdio,id=omarchy-hvc0,signal=off'
+  -chardev "stdio,id=omarchy-hvc0,signal=off,logfile=$console_log_option,logappend=off"
   -device 'virtconsole,bus=omarchy-serial.0,nr=0,chardev=omarchy-hvc0'
   -chardev "socket,id=omarchy-audio-bridge,path=$audio_bridge_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=1,chardev=omarchy-audio-bridge,name=dev.tryomarchy.audio'

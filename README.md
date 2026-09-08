@@ -312,6 +312,17 @@ new VM, after a confirmed **Reset Omarchy**, or for an ephemeral launch.
 Before Reset is enabled, the confirmation sheet requires typing `Try Omarchy`
 exactly; cancelling the sheet returns to the start menu without changing the VM.
 
+### Guest console log
+
+Each persistent launch writes the guest console to
+`~/Library/Application Support/Try Omarchy/VM/v1/console.log`, and moves the
+previous launch's log aside to `console.log.1` first. This is the record to
+read when Omarchy fails to boot, loses its network, or hangs, because a fault
+that forces a reboot is otherwise gone by the time you can look. An ephemeral
+launch keeps its log with the rest of its temporary state and discards it on
+exit. The log holds whatever the guest prints to its console, so treat it as
+guest data and review it before attaching it to a bug report.
+
 VMs created before paired boot files were introduced are preserved too. On the
 first launch that needs them, Try Omarchy explains the transition in a
 **Continue** / **Cancel** dialog before starting recovery. Continue performs a

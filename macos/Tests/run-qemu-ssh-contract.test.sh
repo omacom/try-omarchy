@@ -169,6 +169,7 @@ QEMU_PERSISTENT_STORAGE_QEMU_ADD_FD='fd=9,set=77,opaque=omarchy-persistent-lock'
 QEMU_SELECTED_DISK=''
 QEMU_SELECTED_STORAGE_MODE=''
 QEMU_PERSISTENT_STORAGE_DIRECTORY=''
+QEMU_PERSISTENT_STORAGE_ROOT=''
 QEMU_PERSISTENT_STORAGE_IDENTITY=''
 QEMU_SELECTED_KERNEL=''
 QEMU_SELECTED_INITRAMFS=''
@@ -193,6 +194,7 @@ qemu_persistent_storage_select_existing() {
   printf 'reuse\n' >>"$FAKE_STORAGE_LOG"
   QEMU_SELECTED_STORAGE_MODE=persistent
   QEMU_PERSISTENT_STORAGE_DIRECTORY=$FAKE_PERSISTENT_ROOT
+  QEMU_PERSISTENT_STORAGE_ROOT=$FAKE_PERSISTENT_ROOT
   QEMU_PERSISTENT_STORAGE_IDENTITY=${FAKE_SAVED_IDENTITY:-saved-vm}
   if [[ -f $FAKE_PERSISTENT_ROOT/boot/kernel && \
         -f $FAKE_PERSISTENT_ROOT/boot/initramfs && \
@@ -228,6 +230,7 @@ qemu_persistent_storage_select() {
     chmod 600 "$QEMU_SELECTED_DISK"
     QEMU_SELECTED_STORAGE_MODE=ephemeral
     QEMU_PERSISTENT_STORAGE_DIRECTORY=''
+    QEMU_PERSISTENT_STORAGE_ROOT=''
     QEMU_PERSISTENT_STORAGE_IDENTITY=''
     QEMU_SELECTED_KERNEL=$8
     QEMU_SELECTED_INITRAMFS=$9
@@ -250,6 +253,7 @@ qemu_persistent_storage_select() {
   printf '%s\n' "${10}" >"$FAKE_PERSISTENT_ROOT/boot/command-line"
   QEMU_SELECTED_STORAGE_MODE=persistent
   QEMU_PERSISTENT_STORAGE_DIRECTORY=$FAKE_PERSISTENT_ROOT
+  QEMU_PERSISTENT_STORAGE_ROOT=$FAKE_PERSISTENT_ROOT
   QEMU_PERSISTENT_STORAGE_IDENTITY=${FAKE_SAVED_IDENTITY:-saved-vm}
   QEMU_SELECTED_KERNEL="$FAKE_PERSISTENT_ROOT/boot/kernel"
   QEMU_SELECTED_INITRAMFS="$FAKE_PERSISTENT_ROOT/boot/initramfs"
@@ -427,6 +431,8 @@ assert_line_pair "$test_root/disabled/qemu.log" -machine \
 assert_line_pair "$test_root/disabled/qemu.log" -accel 'hvf,kernel-irqchip=on'
 assert_not_contains "$disabled_qemu" gic-version=2
 assert_line_pair "$test_root/disabled/qemu.log" -netdev 'user,id=omarchy-net'
+assert_line_pair "$test_root/disabled/qemu.log" -chardev \
+  "stdio,id=omarchy-hvc0,signal=off,logfile=$persistent_root/console.log,logappend=off"
 assert_line_pair "$test_root/disabled/qemu.log" -kernel "$persistent_root/boot/kernel"
 assert_line_pair "$test_root/disabled/qemu.log" -initrd "$persistent_root/boot/initramfs"
 assert_not_contains "$disabled_qemu" hostfwd
@@ -462,7 +468,12 @@ printf 'new-initramfs\n' >"$guest/initramfs-linux.img"
 /usr/bin/plutil -replace kernelCommandLine -string \
   'root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog' \
   "$guest/launch.plist"
+printf 'previous boot console\n' >"$persistent_root/console.log"
 run_scenario enabled 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2223:22
+[[ -f $persistent_root/console.log.1 ]] || \
+  fail 'expected the previous console log to be rotated to console.log.1'
+[[ $(<"$persistent_root/console.log.1") == 'previous boot console' ]] || \
+  fail 'console.log.1 did not retain the previous boot output'
 enabled_qemu=$(<"$test_root/enabled/qemu.log")
 assert_line_pair "$test_root/enabled/qemu.log" -netdev \
   'user,id=omarchy-net,hostfwd=tcp:127.0.0.1:2223-:22'
