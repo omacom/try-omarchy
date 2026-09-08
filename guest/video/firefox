@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+source /usr/local/lib/omarchy-video/environment.sh
+if omarchy_video_available && [[ -f /usr/lib/libavcodec.so.63 ]]; then
+  omarchy_video_environment
+  export LD_LIBRARY_PATH="/usr/local/lib/omarchy-video/ffmpeg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_PRELOAD="/usr/local/lib/omarchy-video/firefox-video-bootstrap.so${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+exec /usr/lib/firefox/firefox "$@"

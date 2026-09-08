@@ -18,6 +18,15 @@ code.
   their verified upstream license is retained in the rebuilt guest package.
 - **ANGLE, VirGLRenderer, libepoxy, SDL, libslirp, GLib, Pixman, and other QEMU
   dependencies** — retain their respective upstream licenses.
+- **FFmpeg 9.0.1** — the private native-video build enables GPL and version 3
+  components and is distributed under GPL-3.0-or-later. Its pinned source
+  archive, local bitstream-preservation patch and build recipe are included in
+  the guest under `/usr/share/try-omarchy/native-video-source`; its GPL notice
+  is in `/usr/share/licenses/try-omarchy-native-video`. The system FFmpeg
+  package remains separate. Linked Arch packages retain their own notices.
+- **PyYAML and packaging** — pinned build dependencies used to build
+  VirGLRenderer and QEMU, respectively; MIT for PyYAML and Apache-2.0/BSD for
+  packaging. They are not loaded by the application at runtime.
 - **mise** — MIT; the reviewed ARM64 release is pinned in `guest/spec.json`.
 - **ttfx** — MIT; the reviewed source release and locked Rust dependencies are
   pinned in `guest/spec.json` and built natively for ARM64. Its packaged

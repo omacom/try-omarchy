@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+source /usr/local/lib/omarchy-video/environment.sh
+if omarchy_video_available && omarchy_video_private_ffmpeg /usr/bin/mpv; then
+  omarchy_video_environment
+  exec /usr/bin/mpv --hwdec=vaapi --vo=gpu --gpu-api=opengl "$@"
+fi
+exec /usr/bin/mpv "$@"

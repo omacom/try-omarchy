@@ -56,6 +56,7 @@ set -euo pipefail
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
+   || ${1:-} == --bridge-native-video \
    || ${1:-} == --bridge-native-camera ]]; then
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
@@ -81,7 +82,7 @@ case " $* " in
   *' -display help '*) printf '%s\n' cocoa ;;
   *' -device help '*)
     for device in \
-      hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci \
+      hda-micro intel-hda omarchy-video-shmem virtconsole virtserialport virtio-balloon-pci \
       virtio-9p-pci virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci \
       virtio-net-pci virtio-rng-pci virtio-serial-pci virtio-tablet-pci; do
       printf 'name "%s"\n' "$device"

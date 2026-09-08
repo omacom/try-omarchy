@@ -315,7 +315,7 @@ def main() -> None:
         == {
             "version": "8.2.4133.33",
             "rpmRelease": 1,
-            "pkgrel": 2,
+            "pkgrel": 3,
             "repository": "https://repo.vivaldi.com/stable",
             "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
             "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
@@ -696,6 +696,7 @@ def main() -> None:
         and "factory repository is missing pinned yay" in local_repository
         and "factory repository is missing patched Hyprland" in local_repository
         and "factory repository is missing pinned Voxtype" in local_repository
+        and "factory repository is missing native video" in local_repository
         and "immutable local repository does not have priority" in local_repository
         and "resolve patched and ARM64-only packages locally" in local_repository
         and "refusing canonical unsafe root" in local_repository,

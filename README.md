@@ -18,6 +18,7 @@ Omarchy's trademark rights.
 
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
 - Nested KVM virtualization on M3 and newer Apple Silicon
+- Hardware video decoding through the Mac's VideoToolbox media engine
 - Resizable native window with automatic guest resolution and HiDPI scale updates
 - Mac audio input/output selection inside Omarchy, with live routing and system-default fallback
 - FaceTime HD and other Mac cameras exposed to Omarchy as an on-demand 720p webcam
@@ -25,7 +26,10 @@ Omarchy's trademark rights.
 - One optional shared Mac folder, available inside Omarchy under the same name (`~/Work` stays `~/Work`)
 - Loopback-only TCP and UDP port forwarding from the Mac into Omarchy
 
-> **Current limitation:** Video decoding is CPU-only, so playback can be slow, especially at high resolutions. An improved video path is in development.
+The native video path supports HEVC, AV1 and VP9 in the bundled mpv integration,
+HEVC in Firefox, and VP9 YouTube playback in Vivaldi. Available codecs depend on
+the Mac's hardware. See [native video](docs/native-video.md) for application
+setup, verification and measured performance limits.
 
 ## Changes in this fork
 

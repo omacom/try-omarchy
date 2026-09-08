@@ -90,6 +90,7 @@ expected_archive_count=6
 [[ ${archives[*]} == *'/try-omarchy-mise-'* ]] || fail "factory repository is missing pinned mise"
 [[ ${archives[*]} == *'/try-omarchy-ttfx-'* ]] || fail "factory repository is missing pinned ttfx"
 [[ ${archives[*]} == *'/try-omarchy-yay-'* ]] || fail "factory repository is missing pinned yay"
+[[ ${archives[*]} == *'/try-omarchy-native-video-'* ]] || fail "factory repository is missing native video"
 [[ ${archives[*]} == *"/hyprland-$expected_hyprland_version-aarch64.pkg.tar.zst"* ]] ||
   fail "factory repository is missing patched Hyprland"
 [[ ${archives[*]} == *"/voxtype-bin-$expected_voxtype_version-aarch64.pkg.tar.zst"* ]] ||

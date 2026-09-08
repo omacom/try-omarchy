@@ -112,7 +112,7 @@
     "vivaldi": {
       "version": "8.2.4133.33",
       "rpmRelease": 1,
-      "pkgrel": 2,
+      "pkgrel": 3,
       "repository": "https://repo.vivaldi.com/stable",
       "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
       "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
@@ -173,6 +173,15 @@
           "signatureSha256": "f48b8071f78fde0b2d20072e875a8b8e0d8fab4caf6c8ec91cd8e2aa0b031063"
         }
       }
+    },
+    "nativeVideo": {
+      "version": "1.0.0",
+      "ffmpegVersion": "9.0.1",
+      "ffmpegUrl": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+      "ffmpegSha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635",
+      "patch": "video/ffmpeg-full-bitstream.patch",
+      "patchSha256": "57301544bb9fd26bf50b1cc07288b58257201993e73bd71d53513045815a325a",
+      "license": "GPL-3.0-or-later"
     }
   },
   "themes": [
@@ -502,7 +511,22 @@
       "virtio-balloon-pci",
       "intel-hda",
       "hda-micro",
-      "virtio-9p-pci"
-    ]
+      "virtio-9p-pci",
+      "omarchy-video-shmem"
+    ],
+    "video": {
+      "device": "virtserialport",
+      "port": "dev.tryomarchy.video",
+      "frameDevice": "omarchy-video-shmem",
+      "protocolVersion": 1,
+      "hostDecoder": "videotoolbox",
+      "guestDriver": "vaapi",
+      "codecs": [
+        "av1",
+        "hevc",
+        "vp9"
+      ],
+      "maximumSessions": 8
+    }
   }
 }

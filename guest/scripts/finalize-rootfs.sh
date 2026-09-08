@@ -103,6 +103,21 @@ printf '%s  %s\n' "$expected_vivaldi_key_sha256" "$vivaldi_key" | sha256sum -c -
 systemctl enable omarchy-provision-owner.service
 systemctl enable sddm.service
 systemctl enable omarchy-native-mac-share.service
+[[ $(pacman -Qoq /usr/lib/dri/omarchy_drv_video.so) == try-omarchy-native-video ]] || {
+  echo "Native video driver is missing its package ownership" >&2
+  exit 1
+}
+python3 - <<'PY'
+import hashlib, json, pathlib
+record = json.loads(pathlib.Path('/usr/share/try-omarchy/native-video.json').read_text())
+spec = json.loads(pathlib.Path('/usr/share/try-omarchy/build-spec.json').read_text())
+if record['supplyChain'] != spec['supplyChain']['nativeVideo']:
+    raise SystemExit('Native video provenance does not match the build spec')
+for name, expected in record['binarySha256'].items():
+    if hashlib.sha256(pathlib.Path('/' + name).read_bytes()).hexdigest() != expected:
+        raise SystemExit('Native video binary digest mismatch: ' + name)
+PY
+systemctl enable omarchy-video-broker.service
 
 # The app expands only the writable APFS clone to 24 GiB. Grow ext4 online so
 # Omarchy's update-safety check sees that working capacity.

@@ -1,0 +1,560 @@
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -258,3 +258,8 @@
+     bool
+ 
+ source macio/Kconfig
++
++config OMARCHY_VIDEO_SHMEM
++    bool
++    default y
++    depends on PCI
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -168,3 +168,5 @@
+ 
+ # HPPA devices
+ system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
++
++system_ss.add(when: 'CONFIG_OMARCHY_VIDEO_SHMEM', if_true: files('omarchy-video-shmem.c'))
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -172,1 +172,6 @@
+ system_ss.add(when: 'CONFIG_OMARCHY_VIDEO_SHMEM', if_true: files('omarchy-video-shmem.c'))
++if host_os == 'darwin' and virgl.found() and opengl.found()
++  system_ss.add(when: 'CONFIG_OMARCHY_VIDEO_SHMEM',
++                if_true: [virgl, opengl,
++                          dependency('appleframeworks', modules: 'IOSurface')])
++endif
+--- /dev/null
++++ b/hw/misc/omarchy-video-shmem.c
+@@ -0,0 +1,529 @@
++/*
++ * Try Omarchy video frame shared memory transport.
++ * Based on QEMU's ivshmem-plain memory BAR, without Linux eventfd/irqfd.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++#include "qemu/osdep.h"
++#include "qapi/error.h"
++#include "qemu/module.h"
++#include "qemu/units.h"
++#include "hw/pci/pci_device.h"
++#include "hw/core/qdev-properties.h"
++#include "system/hostmem.h"
++#include "system/system.h"
++#include "migration/vmstate.h"
++#include "chardev/char-fe.h"
++#include "hw/core/qdev-properties-system.h"
++#include "qemu/bswap.h"
++#include "qemu/timer.h"
++#ifdef CONFIG_DARWIN
++#include <mach/mach.h>
++#include <servers/bootstrap.h>
++#endif
++#if defined(CONFIG_DARWIN) && defined(VIRGL_VERSION_MAJOR) && defined(CONFIG_OPENGL)
++#include "ui/egl-helpers.h"
++#include "hw/virtio/virtio-gpu.h"
++#include <virglrenderer.h>
++#include <IOSurface/IOSurface.h>
++
++typedef struct VideoImport {
++    EGLDisplay display;
++    EGLContext context;
++    EGLSurface imports[2];
++    GLuint textures[2], fb[2];
++    GLsync fence;
++    IOSurfaceRef surface;
++    mach_port_t port;
++    struct VideoImport *next;
++} VideoImport;
++
++/* QEMU dispatches both the channel and timer under the main loop lock. Keep
++ * the Mach capability as well as the textures until the GPU finishes: the
++ * decoder can recycle a CVPixelBuffer as soon as it receives our reply. */
++static VideoImport *video_pending;
++static unsigned video_pending_count;
++static QEMUTimer *video_reap_timer;
++
++static void video_reap(void *opaque)
++{
++    Object *gpu = object_resolve_path_type("", TYPE_VIRTIO_GPU_GL, NULL);
++    if (video_pending && gpu && VIRTIO_GPU_GL(gpu)->renderer_state == RS_INITED) {
++        virgl_renderer_force_ctx_0();
++        VideoImport **link = &video_pending;
++        while (*link) {
++            VideoImport *p = *link;
++            /* A renderer reset must not apply stale GL names to a new context.
++             * Keep these bounded capabilities until QEMU exits in that case. */
++            if (eglGetCurrentDisplay() != p->display || eglGetCurrentContext() != p->context) {
++                link = &p->next;
++                continue;
++            }
++            GLenum status = glClientWaitSync(p->fence, 0, 0);
++            if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
++                link = &p->next;
++                continue;
++            }
++            glDeleteSync(p->fence);
++            glDeleteFramebuffers(2, p->fb);
++            for (int i = 0; i < 2; i++) {
++                eglReleaseTexImage(p->display, p->imports[i], EGL_BACK_BUFFER);
++                eglDestroySurface(p->display, p->imports[i]);
++            }
++            glDeleteTextures(2, p->textures);
++            CFRelease(p->surface);
++            mach_port_deallocate(mach_task_self(), p->port);
++            *link = p->next;
++            g_free(p);
++            video_pending_count--;
++        }
++    }
++    if (video_pending) {
++        timer_mod(video_reap_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 2);
++    }
++}
++
++/* The IOSurface capability comes exclusively from the host decoder over a
++ * Mach port. Guest requests may choose only their VirGL targets. */
++static unsigned video_import(const uint8_t *request, uint32_t surface_port)
++{
++    struct virgl_renderer_resource_info info[2] = {0};
++    uint32_t width = ldl_le_p(request + 28), height = ldl_le_p(request + 32);
++    uint32_t format = ldl_le_p(request + 36);
++    IOSurfaceRef surface = NULL;
++    EGLDisplay display;
++    EGLContext context;
++    EGLConfig config;
++    EGLint config_id, count, target;
++    EGLSurface imports[2] = {EGL_NO_SURFACE, EGL_NO_SURFACE};
++    GLuint textures[2] = {0}, fb[2] = {0};
++    unsigned result = 2;
++    bool bound[2] = {false, false};
++
++    if (video_pending_count >= 32) {
++        return 16;
++    }
++
++    if (!width || !height || width > 8192 || height > 4320 ||
++        (width & 1) || (height & 1) || (format != 1 && format != 2) ||
++        !ldl_le_p(request + 20) || !ldl_le_p(request + 24) ||
++        ldl_le_p(request + 20) == ldl_le_p(request + 24) ||
++        qemu_egl_display == EGL_NO_DISPLAY) {
++        return result;
++    }
++    Object *gpu = object_resolve_path_type("", TYPE_VIRTIO_GPU_GL, NULL);
++    if (!gpu || VIRTIO_GPU_GL(gpu)->renderer_state != RS_INITED) {
++        return 10;
++    }
++    virgl_renderer_force_ctx_0();
++    display = eglGetCurrentDisplay();
++    context = eglGetCurrentContext();
++    if (display == EGL_NO_DISPLAY || context == EGL_NO_CONTEXT ||
++        !epoxy_has_egl_extension(display, "EGL_ANGLE_iosurface_client_buffer") ||
++        !eglQueryContext(display, context, EGL_CONFIG_ID, &config_id)) {
++        return 1;
++    }
++    EGLint config_attrs[] = {EGL_CONFIG_ID, config_id, EGL_NONE};
++    if (!eglChooseConfig(display, config_attrs, &config, 1, &count) || !count ||
++        !eglGetConfigAttrib(display, config, 0x348d, &target) ||
++        target != EGL_TEXTURE_2D) {
++        return 1;
++    }
++    for (int p = 0; p < 2; p++) {
++        if (virgl_renderer_resource_get_info(ldl_le_p(request + 20 + p * 4), &info[p]) ||
++            !info[p].tex_id || info[p].depth != 1 ||
++            info[p].width < (width >> p) || info[p].height < (height >> p) ||
++            info[p].virgl_format != (format == 1 ? 64 : 48) + p) {
++            return 11 + p;
++        }
++    }
++    surface = IOSurfaceLookupFromMachPort(surface_port);
++    if (!surface) {
++        return 13;
++    }
++    if (IOSurfaceGetID(surface) != ldl_le_p(request + 16) || IOSurfaceGetPlaneCount(surface) != 2 ||
++        IOSurfaceGetWidth(surface) != width || IOSurfaceGetHeight(surface) != height ||
++        IOSurfaceGetPixelFormat(surface) != (format == 1 ? 0x34323076 : 0x78343230)) {
++        result = 14;
++        goto done;
++    }
++    while (glGetError() != GL_NO_ERROR) {}
++    glGenTextures(2, textures);
++    glGenFramebuffers(2, fb);
++    glDisable(GL_SCISSOR_TEST);
++    result = 3;
++    for (int p = 0; p < 2; p++) {
++        if (IOSurfaceGetWidthOfPlane(surface, p) != (width >> p) ||
++            IOSurfaceGetHeightOfPlane(surface, p) != (height >> p) ||
++            IOSurfaceGetBytesPerElementOfPlane(surface, p) != (format == 1 ? 1 : 2) * (p + 1)) {
++            goto done;
++        }
++        EGLint attrs[] = {
++            EGL_WIDTH, width >> p, EGL_HEIGHT, height >> p,
++            0x345a, p, /* EGL_IOSURFACE_PLANE_ANGLE */
++            EGL_TEXTURE_TARGET, target, EGL_TEXTURE_FORMAT, EGL_TEXTURE_RGBA,
++            0x345d, p ? GL_RG : GL_RED, /* EGL_TEXTURE_INTERNAL_FORMAT_ANGLE */
++            0x345c, format == 1 ? GL_UNSIGNED_BYTE : GL_UNSIGNED_SHORT,
++            EGL_NONE,
++        };
++        imports[p] = eglCreatePbufferFromClientBuffer(display, 0x3454,
++                        (EGLClientBuffer)surface, config, attrs);
++        if (imports[p] == EGL_NO_SURFACE) {
++            goto done;
++        }
++        glBindTexture(GL_TEXTURE_2D, textures[p]);
++        bound[p] = eglBindTexImage(display, imports[p], EGL_BACK_BUFFER);
++        if (!bound[p]) {
++            goto done;
++        }
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, fb[0]);
++        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
++                              GL_TEXTURE_2D, textures[p], 0);
++        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fb[1]);
++        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
++                              GL_TEXTURE_2D, info[p].tex_id, 0);
++        if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
++            glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
++            goto done;
++        }
++        glBlitFramebuffer(0, 0, width >> p, height >> p, 0, 0, width >> p, height >> p,
++                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
++        if (glGetError() != GL_NO_ERROR) {
++            goto done;
++        }
++    }
++    result = 0;
++    GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
++    if (fence && mach_port_mod_refs(mach_task_self(), surface_port,
++                                  MACH_PORT_RIGHT_SEND, 1) == KERN_SUCCESS) {
++        VideoImport *pending = g_new0(VideoImport, 1);
++        pending->display = display;
++        pending->context = context;
++        memcpy(pending->imports, imports, sizeof(imports));
++        memcpy(pending->textures, textures, sizeof(textures));
++        memcpy(pending->fb, fb, sizeof(fb));
++        pending->fence = fence;
++        pending->surface = surface;
++        pending->port = surface_port;
++        pending->next = video_pending;
++        video_pending = pending;
++        video_pending_count++;
++        /* ANGLE's contexts share DisplayMtl's Metal command queue. Submit the
++         * copies before the guest is allowed to submit sampling commands. */
++        glFlush();
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        if (!video_reap_timer) {
++            video_reap_timer = timer_new_ms(QEMU_CLOCK_REALTIME, video_reap, NULL);
++        }
++        timer_mod(video_reap_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 2);
++        return 0;
++    }
++    if (fence) {
++        glDeleteSync(fence);
++    }
++done:
++    if (fb[0]) {
++        /* Keep the decoder's CVPixelBuffer alive until both GPU copies finish. */
++        glFinish();
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        glDeleteFramebuffers(2, fb);
++        for (int p = 0; p < 2; p++) {
++            if (bound[p]) {
++                eglReleaseTexImage(display, imports[p], EGL_BACK_BUFFER);
++            }
++            if (imports[p] != EGL_NO_SURFACE) {
++                eglDestroySurface(display, imports[p]);
++            }
++        }
++        glDeleteTextures(2, textures);
++    }
++    CFRelease(surface);
++    return result;
++}
++#else
++static unsigned video_import(const uint8_t *request, uint32_t surface_port) { return 1; }
++#endif
++
++#define TYPE_OMARCHY_VIDEO_SHMEM "omarchy-video-shmem"
++OBJECT_DECLARE_SIMPLE_TYPE(OmarchyVideoShmem, OMARCHY_VIDEO_SHMEM)
++
++struct OmarchyVideoShmem {
++    PCIDevice parent_obj;
++    char *shm_name;
++    bool create;
++    bool owns_name;
++    Notifier exit_notifier;
++    MemoryRegion frame_memory;
++    MemoryRegion registers;
++    uint64_t size;
++    CharFrontend gpu_channel;
++    uint8_t gpu_request[40];
++    unsigned gpu_received;
++#ifdef CONFIG_DARWIN
++    mach_port_t surface_port;
++    char surface_service[120];
++    bool surface_service_registered;
++#endif
++};
++
++#ifdef CONFIG_DARWIN
++typedef struct VideoSurfaceMessage {
++    mach_msg_header_t header;
++    mach_msg_body_t body;
++    mach_msg_port_descriptor_t surface;
++    uint64_t token;
++} VideoSurfaceMessage;
++G_STATIC_ASSERT(sizeof(VideoSurfaceMessage) == 48);
++
++static mach_port_t video_receive_surface(OmarchyVideoShmem *s, uint64_t token)
++{
++    struct {
++        VideoSurfaceMessage message;
++        mach_msg_max_trailer_t trailer;
++    } buffer = {0};
++    VideoSurfaceMessage *m = &buffer.message;
++    mach_port_t port = MACH_PORT_NULL;
++    if (mach_msg(&m->header, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof(buffer),
++                 s->surface_port, 0, MACH_PORT_NULL) != MACH_MSG_SUCCESS) {
++        return port;
++    }
++    if (m->header.msgh_size == sizeof(*m) && m->header.msgh_id == 0x544f5647 &&
++        (m->header.msgh_bits & MACH_MSGH_BITS_COMPLEX) &&
++        m->body.msgh_descriptor_count == 1 &&
++        m->surface.type == MACH_MSG_PORT_DESCRIPTOR && m->token == token) {
++        port = m->surface.name;
++        m->surface.name = MACH_PORT_NULL;
++    }
++    mach_msg_destroy(&m->header);
++    return port;
++}
++
++static void video_surface_cleanup(OmarchyVideoShmem *s)
++{
++    if (s->surface_port) {
++        if (s->surface_service_registered) {
++            kern_return_t ignored = bootstrap_register(bootstrap_port, s->surface_service, MACH_PORT_NULL);
++            (void)ignored;
++            s->surface_service_registered = false;
++        }
++        mach_port_destroy(mach_task_self(), s->surface_port);
++        s->surface_port = MACH_PORT_NULL;
++    }
++}
++#else
++static void video_surface_cleanup(OmarchyVideoShmem *s) {}
++#endif
++
++static int video_gpu_can_read(void *opaque)
++{
++    OmarchyVideoShmem *s = opaque;
++    return sizeof(s->gpu_request) - s->gpu_received;
++}
++
++static void video_gpu_read(void *opaque, const uint8_t *data, int size)
++{
++    OmarchyVideoShmem *s = opaque;
++    unsigned status = 4;
++    if (size <= 0 || size > video_gpu_can_read(s)) {
++        return;
++    }
++    memcpy(s->gpu_request + s->gpu_received, data, size);
++    s->gpu_received += size;
++    if (s->gpu_received != sizeof(s->gpu_request)) {
++        return;
++    }
++    if (!memcmp(s->gpu_request, "TOVG", 4) &&
++        lduw_le_p(s->gpu_request + 4) == 1 && !lduw_le_p(s->gpu_request + 6)) {
++#ifdef CONFIG_DARWIN
++        mach_port_t surface = video_receive_surface(s, ldq_le_p(s->gpu_request + 8));
++        status = surface ? video_import(s->gpu_request, surface) : 15;
++        if (surface) {
++            mach_port_deallocate(mach_task_self(), surface);
++        }
++#endif
++    }
++    stw_le_p(s->gpu_request + 6, status);
++    qemu_chr_fe_write_all(&s->gpu_channel, s->gpu_request, sizeof(s->gpu_request));
++    s->gpu_received = 0;
++}
++
++static void video_gpu_event(void *opaque, QEMUChrEvent event)
++{
++    OmarchyVideoShmem *s = opaque;
++    if (event == CHR_EVENT_CLOSED || event == CHR_EVENT_OPENED) {
++        s->gpu_received = 0;
++#ifdef CONFIG_DARWIN
++        /* Drop capabilities left by an interrupted decoder before reconnect. */
++        for (int i = 0; i < 8; i++) {
++            mach_port_t port = video_receive_surface(s, 0);
++            if (port) {
++                mach_port_deallocate(mach_task_self(), port);
++            }
++        }
++        if (event == CHR_EVENT_OPENED) {
++            uint8_t greeting[128] = {0};
++            memcpy(greeting, "TOGM", 4);
++            stl_le_p(greeting + 4, 1);
++            memcpy(greeting + 8, s->surface_service, strlen(s->surface_service));
++            qemu_chr_fe_write_all(&s->gpu_channel, greeting, sizeof(greeting));
++        }
++#endif
++    }
++}
++
++static uint64_t video_read(void *opaque, hwaddr addr, unsigned size)
++{
++    OmarchyVideoShmem *s = opaque;
++    switch (addr) {
++    case 0: return 0x44564f54; /* TOVD */
++    case 4: return 1;          /* ABI version */
++    case 8: return s->size;    /* byte size of BAR 2 */
++    default: return 0;
++    }
++}
++
++static void video_write(void *opaque, hwaddr addr, uint64_t value,
++                        unsigned size)
++{
++    /* Control is read-only. Requests use the private virtio serial channel. */
++}
++
++static const MemoryRegionOps video_ops = {
++    .read = video_read,
++    .write = video_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid = { .min_access_size = 4, .max_access_size = 4 },
++    .impl = { .min_access_size = 4, .max_access_size = 4 },
++};
++
++static void video_unlink(OmarchyVideoShmem *s)
++{
++    if (s->owns_name) {
++        shm_unlink(s->shm_name);
++        s->owns_name = false;
++    }
++}
++
++static void video_exit_notify(Notifier *notifier, void *data)
++{
++    OmarchyVideoShmem *s = container_of(notifier, OmarchyVideoShmem, exit_notifier);
++    video_unlink(s);
++    video_surface_cleanup(s);
++}
++
++static void video_unrealize(PCIDevice *dev)
++{
++    OmarchyVideoShmem *s = OMARCHY_VIDEO_SHMEM(dev);
++    qemu_remove_exit_notifier(&s->exit_notifier);
++    qemu_chr_fe_deinit(&s->gpu_channel, false);
++    video_unlink(s);
++    video_surface_cleanup(s);
++}
++
++static void video_realize(PCIDevice *dev, Error **errp)
++{
++    OmarchyVideoShmem *s = OMARCHY_VIDEO_SHMEM(dev);
++    struct stat st;
++    int fd;
++    if (!s->shm_name || !g_str_has_prefix(s->shm_name, "/tovd.") ||
++        strlen(s->shm_name) > 31 || strchr(s->shm_name + 1, '/')) {
++        error_setg(errp, "video shared memory requires a /tovd. POSIX object name");
++        return;
++    }
++    fd = shm_open(s->shm_name, O_RDWR | (s->create ? O_CREAT | O_EXCL : 0), 0600);
++    if (fd < 0) {
++        error_setg_errno(errp, errno, "cannot open video shared memory");
++        return;
++    }
++    s->owns_name = s->create;
++    if (s->create && ftruncate(fd, 512 * MiB)) {
++        error_setg_errno(errp, errno, "cannot size video shared memory");
++        close(fd);
++        video_unlink(s);
++        return;
++    }
++    if (fstat(fd, &st) || st.st_uid != getuid() || (st.st_mode & 077) ||
++        st.st_size != 512 * MiB) {
++        close(fd);
++        video_unlink(s);
++        error_setg(errp, "video shared memory must be private, owned and 512 MiB");
++        return;
++    }
++    s->size = st.st_size;
++    if (!memory_region_init_ram_from_fd(&s->frame_memory, OBJECT(s),
++            "omarchy-video-frames", s->size, RAM_SHARED, fd, 0, errp)) {
++        close(fd);
++        video_unlink(s);
++        return;
++    }
++    s->exit_notifier.notify = video_exit_notify;
++    qemu_add_exit_notifier(&s->exit_notifier);
++    memory_region_init_io(&s->registers, OBJECT(s), &video_ops, s,
++                          "omarchy-video-control", 256);
++    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->registers);
++    pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_MEMORY |
++                     PCI_BASE_ADDRESS_MEM_TYPE_64 | PCI_BASE_ADDRESS_MEM_PREFETCH,
++                     &s->frame_memory);
++    if (qemu_chr_fe_backend_connected(&s->gpu_channel)) {
++#ifdef CONFIG_DARWIN
++        snprintf(s->surface_service, sizeof(s->surface_service),
++                 "com.tryomarchy.video.%u.%s", (unsigned)getpid(), s->shm_name + 1);
++        if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &s->surface_port) != KERN_SUCCESS ||
++            mach_port_insert_right(mach_task_self(), s->surface_port, s->surface_port, MACH_MSG_TYPE_MAKE_SEND) != KERN_SUCCESS ||
++            bootstrap_register(bootstrap_port, s->surface_service, s->surface_port) != KERN_SUCCESS) {
++            error_setg(errp, "cannot register private video surface channel");
++            qemu_remove_exit_notifier(&s->exit_notifier);
++            video_surface_cleanup(s);
++            video_unlink(s);
++            return;
++        }
++        s->surface_service_registered = true;
++#endif
++        qemu_chr_fe_set_handlers(&s->gpu_channel, video_gpu_can_read, video_gpu_read,
++                                video_gpu_event, NULL, s, NULL, true);
++    }
++}
++
++static const Property video_properties[] = {
++    DEFINE_PROP_STRING("shm-name", OmarchyVideoShmem, shm_name),
++    DEFINE_PROP_BOOL("shm-create", OmarchyVideoShmem, create, false),
++    DEFINE_PROP_CHR("gpu-chardev", OmarchyVideoShmem, gpu_channel),
++};
++
++static const VMStateDescription video_vmstate = {
++    .name = TYPE_OMARCHY_VIDEO_SHMEM,
++    .unmigratable = 1,
++};
++
++static void video_class_init(ObjectClass *klass, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++    PCIDeviceClass *pc = PCI_DEVICE_CLASS(klass);
++    pc->realize = video_realize;
++    pc->exit = video_unrealize;
++    pc->vendor_id = PCI_VENDOR_ID_REDHAT_QUMRANET;
++    pc->device_id = 0x1110;
++    pc->subsystem_vendor_id = PCI_VENDOR_ID_REDHAT_QUMRANET;
++    pc->subsystem_id = 0x5654;
++    pc->class_id = PCI_CLASS_MEMORY_RAM;
++    pc->revision = 1;
++    dc->desc = "Try Omarchy video frame shared memory";
++    dc->vmsd = &video_vmstate;
++    device_class_set_props(dc, video_properties);
++    set_bit(DEVICE_CATEGORY_MISC, dc->categories);
++}
++
++static const TypeInfo video_info = {
++    .name = TYPE_OMARCHY_VIDEO_SHMEM,
++    .parent = TYPE_PCI_DEVICE,
++    .instance_size = sizeof(OmarchyVideoShmem),
++    .class_init = video_class_init,
++    .interfaces = (const InterfaceInfo[]) {
++        { INTERFACE_CONVENTIONAL_PCI_DEVICE }, { }
++    },
++};
++
++static void video_register_types(void)
++{
++    type_register_static(&video_info);
++}
++type_init(video_register_types)
