@@ -177,6 +177,13 @@ gpu_help=$("$qemu_bin" -device virtio-gpu-gl-pci,help 2>&1) || {
   fail "cannot inspect the staged VirGL device"
 }
 gpu_device='virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080'
+cocoa_hdr=''
+# The private HDR feature is negotiated by the matching guest kernel module.
+# Older guest kernels keep their SDR EDID and framebuffer formats.
+if [[ $gpu_help == *x-omarchy-hdr* ]]; then
+  gpu_device+=',x-omarchy-hdr=on'
+  cocoa_hdr=',hdr=on'
+fi
 if [[ $gpu_help == *'romfile=<str>'* ]]; then
   gpu_device+=',romfile='
 fi
@@ -565,6 +572,8 @@ hyprland = exact_keys(
     {
         "binarySha256",
         "buildPackages",
+        "clientSdrWhitePatch",
+        "clientSdrWhitePatchSha256",
         "commit",
         "glazeCommit",
         "glazeLicenseSha256",
@@ -607,8 +616,8 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "edd58c17fc115b375d8e8b9b5eb7eb78008e89c05867b3ed2f2834287badcae8":
-    fail("factory Hyprland component is not the reviewed rounded-border build")
+if hyprland_identity != "b3142e903d5a987588d263aa5440752a2d85678e4536b299cb75af03dafe0ded":
+    fail("factory Hyprland component is not the reviewed patched build")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},
@@ -1454,7 +1463,7 @@ qemu_args=(
   # Full grab keeps every Command chord with the focused guest in either
   # presentation mode. Immersive launches Full Screen and hard-hides the Mac
   # menu bar and Dock; otherwise Cocoa opens a centered, resizable window.
-  -display "cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
+  -display "cocoa,gl=es${cocoa_hdr},show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -object 'rng-random,id=omarchy-rng,filename=/dev/urandom'

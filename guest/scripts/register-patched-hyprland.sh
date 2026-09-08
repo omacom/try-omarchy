@@ -6,7 +6,7 @@ usage() {
   cat <<'USAGE'
 Usage: register-patched-hyprland.sh --root ROOT --work WORK --spec SPEC --pacman-config CONFIG
 
-Builds the spec-pinned rounded-border Hyprland backport natively for ARM64,
+Builds the spec-pinned rounded-border and client SDR-white Hyprland fixes natively for ARM64,
 repackages the verified upstream Arch package with the patched executable and
 public headers, and registers it in the guest's immutable package repository.
 USAGE
@@ -96,6 +96,8 @@ required = {
     "upstreamPackageSha256",
     "patch",
     "patchSha256",
+    "clientSdrWhitePatch",
+    "clientSdrWhitePatchSha256",
     "glazeVersion",
     "glazeCommit",
     "glazeUrl",
@@ -161,12 +163,14 @@ for key in (
 print(architecture)
 print(source_date_epoch)
 print(json.dumps(build_packages, sort_keys=True, separators=(",", ":")))
+print(component["clientSdrWhitePatch"])
+print(component["clientSdrWhitePatchSha256"])
 PY
 ) || fail "could not read pinned Hyprland metadata"
 mapfile -t metadata <<<"$metadata_output"
 [[ ${metadata[0]:-} == disabled ]] && exit 0
 [[ ${metadata[0]:-} == enabled ]] || fail "invalid pinned Hyprland state"
-(( ${#metadata[@]} == 22 )) || fail "pinned Hyprland metadata is incomplete"
+(( ${#metadata[@]} == 24 )) || fail "pinned Hyprland metadata is incomplete"
 
 version=${metadata[1]}
 pkgrel=${metadata[2]}
@@ -189,11 +193,13 @@ issue=${metadata[18]}
 architecture=${metadata[19]}
 source_date_epoch=${metadata[20]}
 build_packages_json=${metadata[21]}
+client_sdr_white_patch_relative=${metadata[22]}
+client_sdr_white_patch_sha256=${metadata[23]}
 
 [[ $architecture == aarch64 ]] || fail "patched Hyprland supports only aarch64"
 [[ $(uname -m) == aarch64 ]] || fail "patched Hyprland must be built natively on aarch64"
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid Hyprland version: $version"
-[[ $pkgrel == 3.2 ]] || fail "unexpected Hyprland package release: $pkgrel"
+[[ $pkgrel == 3.3 ]] || fail "unexpected Hyprland package release: $pkgrel"
 [[ $upstream_package_version == "$version-3" ]] || fail "unexpected upstream Hyprland package version"
 [[ $repository == https://github.com/hyprwm/Hyprland ]] || fail "unexpected Hyprland repository"
 [[ $url == "$repository/releases/download/v$version/source-v$version.tar.gz" ]] ||
@@ -201,6 +207,8 @@ build_packages_json=${metadata[21]}
 [[ $commit =~ ^[0-9a-f]{40}$ ]] || fail "invalid Hyprland commit"
 [[ $patch_relative == patches/hyprland/rounded-border-coverage.patch ]] ||
   fail "unexpected Hyprland patch path"
+[[ $client_sdr_white_patch_relative == patches/hyprland/client-sdr-white.patch ]] ||
+  fail "unexpected Hyprland client SDR-white patch path"
 [[ $glaze_version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "invalid Glaze version"
 [[ $glaze_commit == b518eec7a22e56ffa238b072c07f47efa7cea97f ]] || fail "unexpected Glaze commit"
 [[ $glaze_url == "https://github.com/stephenberry/glaze/archive/refs/tags/v$glaze_version.tar.gz" ]] ||
@@ -208,7 +216,7 @@ build_packages_json=${metadata[21]}
 [[ $license == BSD-3-Clause ]] || fail "unexpected Hyprland license: $license"
 [[ $issue == https://github.com/omacom/try-omarchy/issues/5 ]] || fail "unexpected Hyprland issue URL"
 [[ $source_date_epoch =~ ^[0-9]+$ && $source_date_epoch -gt 0 ]] || fail "invalid source date epoch"
-for digest in "$sha256" "$upstream_package_sha256" "$patch_sha256" "$glaze_sha256" "$glaze_license_sha256" "$binary_sha256"; do
+for digest in "$sha256" "$upstream_package_sha256" "$patch_sha256" "$client_sdr_white_patch_sha256" "$glaze_sha256" "$glaze_license_sha256" "$binary_sha256"; do
   [[ $digest =~ ^[0-9a-f]{64}$ ]] || fail "invalid Hyprland content digest"
 done
 
@@ -235,6 +243,9 @@ verify_file() {
 }
 
 verify_file "$patch_sha256" "$patch_path" || fail "Hyprland patch digest mismatch"
+client_sdr_white_patch_path="$guest_dir/$client_sdr_white_patch_relative"
+[[ -f $client_sdr_white_patch_path && ! -L $client_sdr_white_patch_path ]] || fail "invalid Hyprland client SDR-white patch"
+verify_file "$client_sdr_white_patch_sha256" "$client_sdr_white_patch_path" || fail "Hyprland client SDR-white patch digest mismatch"
 
 cache_dir="$work/download-cache"
 install -d -m 0755 "$cache_dir"
@@ -347,9 +358,15 @@ verify_file "$glaze_license_sha256" "$glaze_license" || fail "Glaze license dige
 
 (
   cd "$source_root"
+  # A work directory inside a checkout must not make git silently skip paths
+  # outside that checkout's current prefix when applying to extracted sources.
+  export GIT_CEILING_DIRECTORIES="$stage"
   git apply --check --no-index --whitespace=error-all "$patch_path"
   git apply --no-index --whitespace=error-all "$patch_path"
   git apply --check --reverse --no-index "$patch_path"
+  git apply --check --no-index --whitespace=error-all "$client_sdr_white_patch_path"
+  git apply --no-index --whitespace=error-all "$client_sdr_white_patch_path"
+  git apply --check --reverse --no-index "$client_sdr_white_patch_path"
 ) || fail "could not apply the verified Hyprland patch"
 
 mapfile -t build_package_records < <(python3 - "$build_packages_json" <<'PY'
@@ -599,6 +616,7 @@ install -d -m 0755 "$package_root"
 tar --extract --file "$upstream_tar" --no-same-owner --directory "$package_root"
 
 header_paths=(
+  src/output/Monitor.hpp
   src/render/OpenGL.hpp
   src/render/Shader.hpp
   src/render/pass/TexPassElement.hpp

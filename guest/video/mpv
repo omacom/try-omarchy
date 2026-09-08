@@ -1,6 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 source /usr/local/lib/omarchy-video/environment.sh
+if [[ -r /usr/local/lib/omarchy-hdr/environment.sh ]]; then
+  source /usr/local/lib/omarchy-hdr/environment.sh
+  if omarchy_video_available && omarchy_hdr_available &&
+     omarchy_video_private_ffmpeg /usr/local/lib/omarchy-hdr/mpv/bin/mpv; then
+    omarchy_video_environment
+    omarchy_hdr_environment
+    # Explicit PQ output is paired with the private mpv build's Wayland
+    # metadata handoff. It also converts SDR and HLG sources correctly.
+    exec /usr/local/lib/omarchy-hdr/mpv/bin/mpv \
+      --hwdec=vaapi --vo=gpu --gpu-api=opengl --gpu-context=wayland \
+      --opengl-es=yes --egl-output-format=rgb10_a2 \
+      --target-trc=pq --target-prim=bt.2020 --target-peak=1000 "$@"
+  fi
+fi
 if omarchy_video_available && omarchy_video_private_ffmpeg /usr/bin/mpv; then
   omarchy_video_environment
   exec /usr/bin/mpv --hwdec=vaapi --vo=gpu --gpu-api=opengl "$@"

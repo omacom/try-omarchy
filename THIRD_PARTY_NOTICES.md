@@ -12,7 +12,7 @@ code.
 - **Arch Linux ARM packages** — each package retains its own license. The
   generated package transaction is recorded in `packages.lock.txt`.
 - **Hyprland** — BSD-3-Clause; the reviewed v0.56.1 source and rounded-border
-  coverage backport are pinned in `guest/spec.json`. The guest package retains
+  coverage and client SDR-white patches are pinned in `guest/spec.json`. The guest package retains
   Hyprland's upstream license and dependency metadata.
 - **Glaze** — MIT; the pinned v7.2.0 headers are used by the Hyprland build, and
   their verified upstream license is retained in the rebuilt guest package.
@@ -24,6 +24,13 @@ code.
   the guest under `/usr/share/try-omarchy/native-video-source`; its GPL notice
   is in `/usr/share/licenses/try-omarchy-native-video`. The system FFmpeg
   package remains separate. Linked Arch packages retain their own notices.
+- **Linux virtio-gpu, Mesa 26.2.1 and mpv 0.41.0** — the native-HDR package
+  contains a patched GPL-2.0-only kernel module, Mesa under its component
+  licenses (primarily MIT), and mpv under GPL-2.0-or-later plus linked-library
+  obligations. Pinned source archives/files, patches and the build recipe are
+  included under `/usr/share/try-omarchy/native-hdr-source`; license notices
+  are in `/usr/share/licenses/try-omarchy-native-hdr`. Source identities are
+  recorded in `guest/hdr/sources.json`.
 - **PyYAML and packaging** — pinned build dependencies used to build
   VirGLRenderer and QEMU, respectively; MIT for PyYAML and Apache-2.0/BSD for
   packaging. They are not loaded by the application at runtime.

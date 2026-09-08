@@ -1,2 +1,2 @@
-# Blank context lines, including the final hunk's context, are patch syntax.
-*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Blank lines and a space before context indentation are patch syntax.
+*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

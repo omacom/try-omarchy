@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "kernelVersion": "7.2.2",
+  "kernelRelease": "7.2.2-2-aarch64-ARCH",
+  "linuxBaseUrl": "https://raw.githubusercontent.com/gregkh/linux/v7.2.2/drivers/gpu/drm/virtio/",
+  "linuxManifestSha256": "6b93280bdb830b9643ac47458f924a1887dff5d46577f2432ebfbf2bd6444e8d",
+  "mesa": {
+    "version": "26.2.1",
+    "url": "https://archive.mesa3d.org/mesa-26.2.1.tar.xz",
+    "sha256": "c47e81bddc4760360a41ac3c5acec38acb81f9d750ecef47e7f3adc7021a4442"
+  },
+  "mpv": {
+    "version": "0.41.0",
+    "url": "https://codeload.github.com/mpv-player/mpv/tar.gz/refs/tags/v0.41.0",
+    "sha256": "ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209"
+  },
+  "patches": {
+    "mesa-es3-norm16.patch": "6a7099a1412295843ea5de11d81f41f43cb4b58f679ba4a87a6108e93cb2a8e0",
+    "mpv-wayland-color.patch": "1d73f289f099675faba42775280b91d8aff8a2b74965a0138db9a928276c86b6",
+    "virtio-gpu-hdr.patch": "4bb5e42a65d9e86bcb054254cc892fe606fdf90333b27debf9c140711c03bbc0"
+  },
+  "buildPackages": {
+    "bison": "3.8.2-8",
+    "flex": "2.6.4-6",
+    "python-mako": "1.3.12-1",
+    "python-packaging": "26.3-1",
+    "python-yaml": "6.0.3-2"
+  }
+}

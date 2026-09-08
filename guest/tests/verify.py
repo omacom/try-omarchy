@@ -429,7 +429,7 @@ def main() -> None:
         hyprland
         == {
             "version": "0.56.1",
-            "pkgrel": "3.2",
+            "pkgrel": "3.3",
             "upstreamPackageVersion": "0.56.1-3",
             "repository": "https://github.com/hyprwm/Hyprland",
             "commit": "5c9377c15f85c50648f35ca5a213754f95b93ca0",
@@ -443,13 +443,15 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "c668b05275f2d5cbff66fdb8f4ea4cbbfb7d5a7f9e682f358f3fbcff8494c68a",
+            "binarySha256": "bc9727b50151cd17f4cedd39c6f75dcbfdd1c9f687671861d51a748a028d8ec9",
+            "clientSdrWhitePatch": "patches/hyprland/client-sdr-white.patch",
+            "clientSdrWhitePatchSha256": "e0ee4857e88043f8ff11eaf421d7c54f8c0955d1331e329873fbd85caf7a7a56",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
                 "base-devel": "1-2",
                 "binutils": "2.46+r70+g155188ea10a7-1",
-                "cmake": "4.4.3-1",
+                "cmake": "4.4.3-2",
                 "gcc": "16.1.1+r12+g301eb08fa2c5-1",
                 "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
                 "glibc": "2.43+r22+g8362e8ce10b2-2",
@@ -470,6 +472,12 @@ def main() -> None:
         hyprland_patch.is_file()
         and hashlib.sha256(hyprland_patch.read_bytes()).hexdigest() == hyprland["patchSha256"],
         "rounded-border Hyprland patch digest matches the build spec",
+    )
+    client_sdr_patch = GUEST / hyprland["clientSdrWhitePatch"]
+    check(
+        client_sdr_patch.is_file()
+        and hashlib.sha256(client_sdr_patch.read_bytes()).hexdigest() == hyprland["clientSdrWhitePatchSha256"],
+        "Hyprland client SDR-white patch digest matches the build spec",
     )
     launcher = read(REPO / "macos/run-qemu-gpu.sh")
     runtime_preparer = read(REPO / "macos/prepare-qemu-gpu-runtime.sh")
@@ -691,12 +699,13 @@ def main() -> None:
         "pacman recovery files snapshot the final local-repository configuration",
     )
     check(
-        "expected_archive_count=7" in local_repository
+        "expected_archive_count=8" in local_repository
         and "factory repository is missing pinned ttfx" in local_repository
         and "factory repository is missing pinned yay" in local_repository
         and "factory repository is missing patched Hyprland" in local_repository
         and "factory repository is missing pinned Voxtype" in local_repository
         and "factory repository is missing native video" in local_repository
+        and "factory repository is missing native HDR" in local_repository
         and "immutable local repository does not have priority" in local_repository
         and "resolve patched and ARM64-only packages locally" in local_repository
         and "refusing canonical unsafe root" in local_repository,
@@ -1414,6 +1423,84 @@ HOTPLUG=1
             ],
             "native display sync handles QEMU DisplayID and legacy EDID hotplug modes",
         )
+
+        # HDR requires both valid CTA PQ/static metadata and BT.2020 RGB.
+        cta = bytearray(128)
+        cta[:13] = bytes([2, 3, 13, 0, 0xE3, 5, 0x80, 0,
+                          0xE4, 6, 4, 1, 0])
+        cta[127] = (-sum(cta[:127])) & 0xFF
+        (legacy_connector / "status").write_text("disconnected\n")
+        for description, extension, expected_hdr in [
+            ("valid PQ BT.2020", cta, True),
+            ("bad CTA checksum", cta[:127] + bytes([cta[127] ^ 1]), False),
+            ("no CTA capabilities", bytes(128), False),
+        ]:
+            qemu_edid[128:256] = extension
+            (connector / "edid").write_bytes(qemu_edid)
+            reload_log.write_text("")
+            subprocess.run([str(display_sync), "--from-stdin"],
+                           input="ACTION=change\nHOTPLUG=1\n\n", text=True,
+                           env=environment, check=True)
+            command = reload_log.read_text()
+            check(('bitdepth = 10, cm = "hdr", sdr_max_luminance = 250'
+                   in command) == expected_hdr,
+                  "native display sync HDR detection: " + description)
+
+        # Native panel SDR caps are independent of CTA HDR peak luminance.
+        # Exercise both standard locations for additional-text descriptors,
+        # malformed payloads, checksum corruption, and conflicting hints.
+        def sdr_hint(text):
+            return b"\0\0\0\xfe\0" + text.ljust(13, b" ")[:13]
+
+        for description, text, expected in [
+            ("Air panel", b"TO-SDR:500", 500),
+            ("Pro indoor cap", b"TO-SDR:600", 600),
+            ("outdoor cap", b"TO-SDR:1000", 1000),
+            ("unknown host", b"no hint", 250),
+            ("out of range", b"TO-SDR:1001", 250),
+            ("zero", b"TO-SDR:0", 250),
+            ("negative", b"TO-SDR:-500", 250),
+            ("trailing code", b"TO-SDR:600;()", 250),
+        ]:
+            extension = bytearray(cta)
+            extension[13:31] = sdr_hint(text)
+            extension[127] = (-sum(extension[:127])) & 0xFF
+            qemu_edid[128:256] = extension
+            (connector / "edid").write_bytes(qemu_edid)
+            reload_log.write_text("")
+            subprocess.run([str(display_sync), "--from-stdin"],
+                           input="ACTION=change\nHOTPLUG=1\n\n", text=True,
+                           env=environment, check=True)
+            check(f'sdr_max_luminance = {expected}' in reload_log.read_text(),
+                  "native SDR white hint: " + description)
+
+        for description, base_hint, cta_hint, expected in [
+            ("base descriptor", b"TO-SDR:500", b"", 500),
+            ("matching descriptors", b"TO-SDR:600", b"TO-SDR:600", 600),
+            ("conflicting descriptors", b"TO-SDR:500", b"TO-SDR:600", 250),
+        ]:
+            qemu_edid[108:126] = sdr_hint(base_hint)
+            qemu_edid[127] = (-sum(qemu_edid[:127])) & 0xFF
+            extension = bytearray(cta)
+            extension[13:31] = sdr_hint(cta_hint)
+            extension[127] = (-sum(extension[:127])) & 0xFF
+            qemu_edid[128:256] = extension
+            (connector / "edid").write_bytes(qemu_edid)
+            reload_log.write_text("")
+            subprocess.run([str(display_sync), "--from-stdin"],
+                           input="ACTION=change\nHOTPLUG=1\n\n", text=True,
+                           env=environment, check=True)
+            check(f'sdr_max_luminance = {expected}' in reload_log.read_text(),
+                  "native SDR white hint: " + description)
+
+        qemu_edid[255] ^= 1
+        (connector / "edid").write_bytes(qemu_edid)
+        reload_log.write_text("")
+        subprocess.run([str(display_sync), "--from-stdin"],
+                       input="ACTION=change\nHOTPLUG=1\n\n", text=True,
+                       env=environment, check=True)
+        check('sdr_max_luminance' not in reload_log.read_text(),
+              "corrupt HDR capability block cannot enable an SDR white hint")
 
     shell_files = [
         GUEST / "test",

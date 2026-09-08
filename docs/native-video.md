@@ -1,5 +1,7 @@
 # Native hardware video
 
+For ten-bit HDR presentation in Vivaldi and mpv, see [native HDR](native-hdr.md).
+
 The guest's `omarchy` VA-API driver sends compressed video to a supervised Swift
 helper on the Mac. VideoToolbox sessions require hardware decoding and must
 confirm `UsingHardwareAcceleratedVideoDecoder=true` before they are exposed to
@@ -221,7 +223,12 @@ python3 tests/audio-continuity.py /absolute/path/capture.wav --duration 45
 The test checks both channels using a sine recurrence, detects phase jumps and
 inserted silence, and requires the complete source duration within 10 ms.
 
-The local upgrade used for these tests retained the application's existing
-factory image. **Reset Omarchy restores that earlier guest baseline.** A new
-factory image built from this branch includes the native-video package through
-the guest build integration described above.
+The September 8 playback tests used an upgraded existing guest. A subsequent
+clean-install check reassembled an unprovisioned, verified factory base with
+the current native overlay and verified native-video, HDR and Hyprland packages,
+then finalized and repacked it with the project scripts. First boot on a new
+user disk reached the graphical desktop; no prior user state was imported.
+This verifies the assembled factory image and clean setup, not a complete
+from-source container build: the latter stopped because pinned Rust
+`1:1.98.0-1` was no longer available from the current Arch ARM repository.
+The Rust pin was retained and the verified existing ttfx package was reused.

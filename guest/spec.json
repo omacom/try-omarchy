@@ -38,7 +38,7 @@
     "archLinuxArmPackagesCommit": "0b5418fc3f62860b191cd872cb2f933f9fc77841",
     "hyprland": {
       "version": "0.56.1",
-      "pkgrel": "3.2",
+      "pkgrel": "3.3",
       "upstreamPackageVersion": "0.56.1-3",
       "repository": "https://github.com/hyprwm/Hyprland",
       "commit": "5c9377c15f85c50648f35ca5a213754f95b93ca0",
@@ -52,13 +52,13 @@
       "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
       "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
       "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-      "binarySha256": "c668b05275f2d5cbff66fdb8f4ea4cbbfb7d5a7f9e682f358f3fbcff8494c68a",
+      "binarySha256": "bc9727b50151cd17f4cedd39c6f75dcbfdd1c9f687671861d51a748a028d8ec9",
       "license": "BSD-3-Clause",
       "issue": "https://github.com/omacom/try-omarchy/issues/5",
       "buildPackages": {
         "base-devel": "1-2",
         "binutils": "2.46+r70+g155188ea10a7-1",
-        "cmake": "4.4.3-1",
+        "cmake": "4.4.3-2",
         "gcc": "16.1.1+r12+g301eb08fa2c5-1",
         "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
         "glibc": "2.43+r22+g8362e8ce10b2-2",
@@ -69,7 +69,9 @@
         "ninja": "1.13.2-3",
         "pkgconf": "3.0.6-1",
         "xorgproto": "2025.1-1"
-      }
+      },
+      "clientSdrWhitePatch": "patches/hyprland/client-sdr-white.patch",
+      "clientSdrWhitePatchSha256": "e0ee4857e88043f8ff11eaf421d7c54f8c0955d1331e329873fbd85caf7a7a56"
     },
     "mise": {
       "version": "2026.8.11",

@@ -19,6 +19,7 @@ Omarchy's trademark rights.
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
 - Nested KVM virtualization on M3 and newer Apple Silicon
 - Hardware video decoding through the Mac's VideoToolbox media engine
+- HDR10 output for YouTube in Vivaldi and local files in mpv
 - Resizable native window with automatic guest resolution and HiDPI scale updates
 - Mac audio input/output selection inside Omarchy, with live routing and system-default fallback
 - FaceTime HD and other Mac cameras exposed to Omarchy as an on-demand 720p webcam
@@ -30,6 +31,8 @@ The native video path supports HEVC, AV1 and VP9 in the bundled mpv integration,
 HEVC in Firefox, and VP9 YouTube playback in Vivaldi. Available codecs depend on
 the Mac's hardware. See [native video](docs/native-video.md) for application
 setup, verification and measured performance limits.
+See [native HDR](docs/native-hdr.md) for the paired display driver, HDR output
+verification and kernel compatibility requirements.
 
 ## Changes in this fork
 

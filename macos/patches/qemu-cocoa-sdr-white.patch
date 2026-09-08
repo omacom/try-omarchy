@@ -1,0 +1,165 @@
+diff --git a/hw/display/edid-generate.c b/hw/display/edid-generate.c
+--- a/hw/display/edid-generate.c
++++ b/hw/display/edid-generate.c
+@@ -538,6 +538,16 @@
+         desc = edid_desc_next(edid, dta, desc);
+     }
+ 
++    if (desc && info->hdr && info->sdr_white_nits >= 1 &&
++        info->sdr_white_nits <= 1000) {
++        /* Standard additional-text descriptor with a private paired hint.
++         * Keep SDR policy separate from the CTA HDR mastering capabilities. */
++        char text[14];
++        snprintf(text, sizeof(text), "TO-SDR:%u", info->sdr_white_nits);
++        edid_desc_text(desc, 0xfe, text);
++        desc = edid_desc_next(edid, dta, desc);
++    }
++
+     while (desc) {
+         edid_desc_dummy(desc);
+         desc = edid_desc_next(edid, dta, desc);
+diff --git a/hw/display/virtio-gpu-base.c b/hw/display/virtio-gpu-base.c
+--- a/hw/display/virtio-gpu-base.c
++++ b/hw/display/virtio-gpu-base.c
+@@ -81,6 +81,10 @@
+     if (info.hdr && !info.name) {
+         info.name = "Omarchy HDR";
+     }
++    if (info.hdr) {
++        const QemuUIInfo *ui = qemu_console_get_ui_info(g->scanout[scanout].con);
++        info.sdr_white_nits = ui ? ui->sdr_white_nits : 0;
++    }
+     edid->size = cpu_to_le32(sizeof(edid->edid));
+     qemu_edid_generate(edid->edid, sizeof(edid->edid), &info);
+ }
+diff --git a/include/hw/display/edid.h b/include/hw/display/edid.h
+--- a/include/hw/display/edid.h
++++ b/include/hw/display/edid.h
+@@ -5,6 +5,7 @@
+ 
+ typedef struct qemu_edid_info {
+     bool hdr; /* virtual BT.2020/PQ display; host compositor handles tone mapping */
++    uint32_t sdr_white_nits; /* optional native SDR white hint, in cd/m2 */
+     const char *vendor; /* http://www.uefi.org/pnp_id_list */
+     const char *name;
+     const char *serial;
+diff --git a/include/ui/console.h b/include/ui/console.h
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -123,6 +123,7 @@
+     uint32_t  width;
+     uint32_t  height;
+     uint32_t  refresh_rate;
++    uint32_t  sdr_white_nits; /* optional host SDR cap, 0 means unknown */
+ } QemuUIInfo;
+ 
+ /* cursor data format is 32bit RGBA */
+diff --git a/ui/cocoa-sdr-white.h b/ui/cocoa-sdr-white.h
+--- /dev/null
++++ b/ui/cocoa-sdr-white.h
+@@ -0,0 +1,75 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef QEMU_COCOA_SDR_WHITE_H
++#define QEMU_COCOA_SDR_WHITE_H
++
++#include <dlfcn.h>
++#include <math.h>
++#include <stdint.h>
++#import <AppKit/AppKit.h>
++
++static uint32_t cocoa_sdr_nits_from_preset(CFDictionaryRef preset)
++{
++    if (!preset || CFGetTypeID(preset) != CFDictionaryGetTypeID() ||
++        CFDictionaryGetValue(preset, CFSTR("PresetValid")) != kCFBooleanTrue) {
++        return 0;
++    }
++    CFTypeRef value = CFDictionaryGetValue(preset, CFSTR("PresetMaxSDRLuminance"));
++    double nits = 0;
++    if (!value || CFGetTypeID(value) != CFNumberGetTypeID() ||
++        !CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &nits) ||
++        !isfinite(nits) || nits < 1 || nits > 10000) {
++        return 0;
++    }
++    /* The paired virtual HDR display has a 1000-nit output contract. */
++    return (uint32_t)lround(fmin(nits, 1000));
++}
++
++static uint32_t cocoa_sdr_white_nits(NSScreen *screen)
++{
++    NSNumber *number = screen.deviceDescription[@"NSScreenNumber"];
++    if (!number) {
++        return 0;
++    }
++
++    /* Read the active display preset's SDR maximum. A panel's backlight cap
++     * also rises for HDR, so it cannot describe SDR white. Likewise, neither
++     * an HDR peak nor an EDR ratio is a maximum SDR luminance in cd/m2.
++     * These optional CoreDisplay read APIs are private; resolve at runtime
++     * and omit the hint if the API or a valid display preset is unavailable.
++     * No preset or host brightness setting is ever changed here. */
++    typedef uint32_t (*PresetCount)(uint32_t);
++    typedef int32_t (*ActivePreset)(uint32_t);
++    typedef CFDictionaryRef (*CopyPreset)(uint32_t, uint32_t);
++    static PresetCount count;
++    static ActivePreset active;
++    static CopyPreset copy;
++    static dispatch_once_t once;
++    dispatch_once(&once, ^{
++        void *library = dlopen("/System/Library/Frameworks/CoreDisplay.framework/CoreDisplay",
++                               RTLD_LAZY | RTLD_LOCAL);
++        if (library) {
++            count = (PresetCount)dlsym(library, "CoreDisplay_Display_GetPresetCount");
++            active = (ActivePreset)dlsym(library, "CoreDisplay_Display_GetActivePresetIndex");
++            copy = (CopyPreset)dlsym(library, "CoreDisplay_Display_CopyPreset");
++        }
++        /* Keep the framework loaded while its function pointers are in use. */
++    });
++    if (!count || !active || !copy) {
++        return 0;
++    }
++    uint32_t display = number.unsignedIntValue;
++    uint32_t total = count(display);
++    int32_t index = active(display);
++    if (!total || total > 4096 || index < 0 || (uint32_t)index >= total) {
++        return 0;
++    }
++    CFDictionaryRef preset = copy(display, (uint32_t)index);
++    uint32_t nits = cocoa_sdr_nits_from_preset(preset);
++    if (preset) {
++        CFRelease(preset);
++    }
++    /* A preset changed while reading: the next screen notification retries. */
++    return active(display) == index ? nits : 0;
++}
++
++#endif
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -27,6 +27,7 @@
+ #include "qemu/osdep.h"
+ 
+ #import <Cocoa/Cocoa.h>
++#include "ui/cocoa-sdr-white.h"
+ #import <QuartzCore/QuartzCore.h>
+ #include <crt_externs.h>
+ #include <stdarg.h>
+@@ -712,6 +713,8 @@
+         bool isFullscreen = ([[self window] styleMask] & NSWindowStyleMaskFullScreen) != 0;
+         CVDisplayLinkRef displayLink;
+         uint32_t refreshRate = 0;
++
++        info.sdr_white_nits = cocoa_sdr_white_nits([[self window] screen]);
+ 
+         frameSize = isFullscreen ? [self screenSafeAreaSize] : [self frame].size;
+ 
+@@ -1397,6 +1400,9 @@
+     self = [super init];
+     if (self) {
+         NSRect frame = cocoa_initial_window_frame();
++        [[NSNotificationCenter defaultCenter] addObserver:self
++            selector:@selector(windowDidChangeScreen:)
++            name:NSApplicationDidChangeScreenParametersNotification object:nil];
+ 
+         // create a view and add it to the window
+ #ifdef CONFIG_OPENGL

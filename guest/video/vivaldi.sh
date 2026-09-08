@@ -9,7 +9,7 @@ if omarchy_video_available; then
   export LD_PRELOAD="/usr/local/lib/omarchy-video/arm64-browser-compat.so${LD_PRELOAD:+:$LD_PRELOAD}"
   OMARCHY_VIDEO_FLAGS+=(
     --ozone-platform=wayland --use-gl=angle --use-angle=gles
-    --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiIgnoreDriverChecks
+    --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL,VaapiIgnoreDriverChecks,WaylandWpColorManagerV1
     --ignore-gpu-blocklist
   )
 fi

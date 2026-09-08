@@ -54,6 +54,8 @@ shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 video_shmem_patch="$native_dir/patches/qemu-native-video-shmem.patch"
 display_cadence_patch="$native_dir/patches/qemu-display-cadence.patch"
+hdr_patch="$native_dir/patches/qemu-cocoa-hdr.patch"
+sdr_white_patch="$native_dir/patches/qemu-cocoa-sdr-white.patch"
 virgl_macos_patch="$native_dir/patches/virglrenderer-macos-1.0.33.patch"
 virgl_video_patch="$native_dir/patches/virglrenderer-angle-video.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
@@ -76,6 +78,8 @@ audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 video_shmem_patch_sha256="d14639df4b08d31cf54828386eab022fd8408e7072aa9517db225dec24243af4"
+hdr_patch_sha256=e8aa5f27a8bdfc14cceb4069f3eeeb78fd5432bb57c506216f30541f4944fc0a
+sdr_white_patch_sha256=d0246389c826698db014ed9da6687fedc81012dfe4542f783a6c85611ea49eb2
 macos_deployment_target=15.0
 
 keycodemap_commit=f5772a62ec52591ff6870b7e8ef32482371f22c6
@@ -398,6 +402,10 @@ patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$video_shmem_patch"
 verify_file_sha "QEMU display cadence" "$display_cadence_patch" "$display_cadence_patch_sha256"
 patch -d "$source_dir" -p1 -f -i "$display_cadence_patch"
+verify_file_sha "Cocoa HDR and paired virtio metadata" "$hdr_patch" "$hdr_patch_sha256"
+patch -d "$source_dir" -p1 -f -i "$hdr_patch"
+verify_file_sha "Cocoa SDR panel white" "$sdr_white_patch" "$sdr_white_patch_sha256"
+patch -d "$source_dir" -p1 -f -i "$sdr_white_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
