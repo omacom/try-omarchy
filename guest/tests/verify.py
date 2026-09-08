@@ -1305,6 +1305,17 @@ def main() -> None:
         and '"$root/usr/local/bin/alacritty"' in configure,
         "Alacritty VirGL wrapper forces software GL onto the pacman binary",
     )
+    kitty_wrapper = GUEST / "native-overlay/usr/local/bin/kitty"
+    kitty_wrapper_text = read(kitty_wrapper)
+    check(kitty_wrapper.stat().st_mode & stat.S_IXUSR != 0, "Kitty VirGL wrapper is executable")
+    check(
+        'real=/usr/bin/kitty' in kitty_wrapper_text
+        and "export LIBGL_ALWAYS_SOFTWARE=1" in kitty_wrapper_text
+        and "omarchy.qemu_virgl=1" in kitty_wrapper_text
+        and 'exec "$real" "$@"' in kitty_wrapper_text
+        and '"$root/usr/local/bin/kitty"' in configure,
+        "Kitty VirGL wrapper forces software GL onto the pacman binary",
+    )
     check(
         "/usr/local/bin/omarchy-native-cursor-restore 2>/dev/null || true"
         in read(screensaver_override),
@@ -1420,6 +1431,7 @@ HOTPLUG=1
         background_switcher_override,
         cursor_restore,
         alacritty_wrapper,
+        kitty_wrapper,
         display_sync,
         mac_share,
         *GUEST.glob("*.sh"),

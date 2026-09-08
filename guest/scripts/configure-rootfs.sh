@@ -77,6 +77,7 @@ chmod 0755 \
   "$root/usr/bin/omarchy-screensaver" \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
   "$root/usr/local/bin/alacritty" \
+  "$root/usr/local/bin/kitty" \
   "$root/usr/local/bin/omarchy-native-audio-bridge" \
   "$root/usr/local/bin/omarchy-native-camera-bridge" \
   "$root/usr/local/bin/omarchy-native-clipboard-bridge" \
