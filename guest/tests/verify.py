@@ -691,7 +691,7 @@ def main() -> None:
         "pacman recovery files snapshot the final local-repository configuration",
     )
     check(
-        "expected_archive_count=6" in local_repository
+        "expected_archive_count=7" in local_repository
         and "factory repository is missing pinned ttfx" in local_repository
         and "factory repository is missing pinned yay" in local_repository
         and "factory repository is missing patched Hyprland" in local_repository

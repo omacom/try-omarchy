@@ -1434,7 +1434,10 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device 'virtio-net-pci,netdev=omarchy-net,mac=52:54:00:12:34:56,romfile='
-  -audiodev 'sdl,id=omarchy-audio'
+  # Drain HDA into SDL every millisecond. The default 10 ms backend timer can
+  # leave HDA's 42.7 ms output ring full after scheduling delays; HDA then drops
+  # the entire ring, producing clicks even when PipeWire reports no xruns.
+  -audiodev 'sdl,id=omarchy-audio,timer-period=1000'
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none

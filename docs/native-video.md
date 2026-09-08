@@ -105,6 +105,45 @@ c++ -std=c++17 -O2 -pthread tests/native-video-gpu.cpp \
 diagnostic, `OMARCHY_VIDEO_LOG=1 mpv video.mp4` reports the codec and hardware
 session; mpv must also report `Using hardware decoding (vaapi)`.
 
+For FFmpeg commands, enable the same process-scoped environment as the player:
+
+```sh
+. /usr/local/lib/omarchy-video/environment.sh
+omarchy_video_environment
+omarchy_video_private_ffmpeg /usr/bin/ffmpeg
+ffmpeg -hwaccel vaapi -hwaccel_device /dev/dri/renderD128 \
+  -hwaccel_output_format vaapi -i video.mp4 -an -f null -
+```
+
+To reproduce the pixel and decode-throughput comparison inside the VM:
+
+```sh
+python3 tests/native-video-ffmpeg.py --output ffmpeg-results \
+  --frames 120 --repeats 3 hevc-main.mp4 hevc-main10.mp4 av1-main10.mp4 vp9.webm
+```
+
+The harness compares decoded pixels, timestamps and frame counts after
+`hwdownload` into NV12/P010, then measures decode-only runs separately. It
+requires explicit hardware initialization, checks all requested frames, and
+alternates hardware/software order across three benchmark repetitions.
+
+On 2026-09-08, using the built runtime and a regular guest user on the M5 Pro
+with 18 vCPUs and 12 GiB RAM, all 480 frames across these four streams matched
+software decoding exactly. The following are median decode-only measurements:
+
+| Stream | Hardware FPS | Software FPS | Hardware guest CPU seconds | Software guest CPU seconds |
+| --- | ---: | ---: | ---: | ---: |
+| HEVC 1920×1080, 8-bit | 107.91 | 189.27 | 0.157 | 2.253 |
+| HEVC 3840×2160, 10-bit | 56.68 | 43.89 | 0.794 | 14.318 |
+| AV1 3840×2160, 10-bit | 115.16 | 17.34 | 0.403 | 103.364 |
+| VP9 3840×2160, 8-bit | 76.53 | 118.23 | 0.327 | 3.816 |
+
+CPU time is the FFmpeg process's user plus system time in the guest; it excludes
+the host decoder/helper and is not a whole-system energy measurement. Hardware
+decoding reduces guest CPU work in these cases but is not always faster in wall
+time. Null-output throughput excludes CPU readback and presentation; the
+playback measurements below establish the separate end-to-end result.
+
 ## Playback verification
 
 On the M5 Pro test machine, 4K/10-bit HEVC and the downloaded AV1 YouTube sample
@@ -137,6 +176,50 @@ not be used to establish foreground playback performance. Decode-only throughput
 or playback that slows the media clock likewise does not prove display cadence.
 These measurements establish 4K60 playback for this machine and tested streams;
 other Macs and streams need their own playback measurements.
+
+## Audio continuity
+
+The launcher sets SDL's backend timer to 1 ms (`timer-period=1000`). With the
+default 10 ms period, host scheduling delays can fill HDA's 8 KiB output ring
+(42.7 ms of stereo 48 kHz S16 audio). QEMU's HDA output callback then discards
+the entire ring. This produces phase jumps and missing audio even when the
+guest PipeWire graph reports zero xruns. The existing guest quantum stays at
+4096; increasing it further does not address this separate host buffer.
+
+The change was checked on 2026-09-08 with the same runtime, guest, Mac speaker
+route, and a 45-second 997 Hz stereo tone while Vivaldi played the 4K60 YouTube
+sample muted. Both QEMU's output capture and an SDL callback capture were
+analyzed before and after the timer change:
+
+| Backend timer | Discontinuities per channel | Captured tone duration after SDL |
+| --- | ---: | ---: |
+| Default 10 ms | 37 | 43.3787 seconds |
+| 1 ms | 0 | 45.0000 seconds |
+
+The SDL capture includes the actual buffers supplied to the host audio backend,
+including any inserted silence. It does not measure the physical speaker or
+Bluetooth transport. One-millisecond scheduling increases requested timer
+wakeups while audio is active; it cannot guarantee continuity during arbitrary
+host stalls, suspend, or output-device changes.
+
+To reproduce the deterministic tone check, generate and play it in the guest:
+
+```sh
+ffmpeg -f lavfi -i sine=frequency=997:sample_rate=48000:duration=45 \
+  -ac 2 tone.wav
+pw-play tone.wav
+```
+
+Start a capture before playback with QEMU's human monitor command
+`wavcapture /absolute/path/capture.wav omarchy-audio 48000 16 2`, then close it
+with `stopcapture 0` after playback. Analyze the host WAV with:
+
+```sh
+python3 tests/audio-continuity.py /absolute/path/capture.wav --duration 45
+```
+
+The test checks both channels using a sine recurrence, detects phase jumps and
+inserted silence, and requires the complete source duration within 10 ms.
 
 The local upgrade used for these tests retained the application's existing
 factory image. **Reset Omarchy restores that earlier guest baseline.** A new

@@ -83,7 +83,7 @@ repo_dir="$root/usr/share/try-omarchy/repo"
 shopt -s nullglob
 archives=("$repo_dir"/*.pkg.tar.zst)
 shopt -u nullglob
-expected_archive_count=6
+expected_archive_count=7
 (( ${#archives[@]} == expected_archive_count )) ||
   fail "local repository expected $expected_archive_count package archive(s), found ${#archives[@]}"
 [[ ${archives[*]} == *'/try-omarchy-runtime-'* ]] || fail "local repository is missing the Omarchy runtime"
