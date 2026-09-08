@@ -1305,6 +1305,18 @@ def main() -> None:
         and '"$root/usr/local/bin/alacritty"' in configure,
         "Alacritty VirGL wrapper forces software GL onto the pacman binary",
     )
+    xdg_terminal = GUEST / "factory-overlay/usr/local/bin/xdg-terminal-exec"
+    xdg_terminal_text = read(xdg_terminal)
+    check(xdg_terminal.stat().st_mode & stat.S_IXUSR != 0, "xdg-terminal-exec shim is executable")
+    check(
+        "xdg-terminals.list" in xdg_terminal_text
+        and "Alacritty.desktop" in xdg_terminal_text
+        and "kitty.desktop" in xdg_terminal_text
+        and "com.mitchellh.ghostty.desktop" in xdg_terminal_text
+        and "command -v" in xdg_terminal_text
+        and '"$root/usr/local/bin/xdg-terminal-exec"' in configure,
+        "xdg-terminal-exec honors Omarchy's supported terminal preference list",
+    )
     check(
         "/usr/local/bin/omarchy-native-cursor-restore 2>/dev/null || true"
         in read(screensaver_override),

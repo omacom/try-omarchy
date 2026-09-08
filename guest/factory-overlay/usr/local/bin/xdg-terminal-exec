@@ -1,6 +1,62 @@
 #!/bin/bash
-# Minimal xdg-terminal-exec compatibility for the pinned Foot terminal.
+# xdg-terminal-exec compatibility for Omarchy's supported terminals.
+# Honors ~/.config/xdg-terminals.list (written by omarchy-default-terminal and
+# omarchy-install-terminal). Still does not parse arbitrary user desktop files.
 set -euo pipefail
+
+command_for_desktop() {
+  case "$1" in
+    Alacritty.desktop) printf 'alacritty\n' ;;
+    foot.desktop) printf 'foot\n' ;;
+    com.mitchellh.ghostty.desktop) printf 'ghostty\n' ;;
+    kitty.desktop) printf 'kitty\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+preference_files() {
+  local config_home desktop IFS=:
+  config_home=${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}
+  [[ -n $config_home ]] || return 0
+  printf '%s/xdg-terminals.list\n' "$config_home"
+  for desktop in ${XDG_CURRENT_DESKTOP:-}; do
+    [[ -n $desktop ]] || continue
+    printf '%s/%s-xdg-terminals.list\n' "$config_home" "$desktop"
+  done
+}
+
+list_preferences() {
+  local file desktop_id
+  while IFS= read -r file; do
+    [[ -f $file ]] || continue
+    while IFS= read -r desktop_id || [[ -n $desktop_id ]]; do
+      desktop_id=${desktop_id%%#*}
+      desktop_id=${desktop_id%"${desktop_id##*[![:space:]]}"}
+      desktop_id=${desktop_id#"${desktop_id%%[![:space:]]*}"}
+      [[ -n $desktop_id ]] || continue
+      desktop_id=${desktop_id%%:*}
+      printf '%s\n' "$desktop_id"
+    done <"$file"
+  done < <(preference_files)
+  printf 'foot.desktop\n'
+}
+
+selected_desktop_id() {
+  local desktop_id command_name
+  while IFS= read -r desktop_id; do
+    command_name=$(command_for_desktop "$desktop_id") || continue
+    if command -v "$command_name" >/dev/null 2>&1; then
+      printf '%s\n' "$desktop_id"
+      return 0
+    fi
+  done < <(list_preferences)
+  printf 'foot.desktop\n'
+}
+
+append_opt() {
+  [[ -n $2 ]] || return 0
+  args+=("$1$2")
+}
 
 app_id=""
 title=""
@@ -10,7 +66,7 @@ command=()
 while (($#)); do
   case "$1" in
     --print-id)
-      printf 'foot.desktop\n'
+      selected_desktop_id
       exit 0
       ;;
     --app-id)
@@ -49,11 +105,44 @@ while (($#)); do
   esac
 done
 
+desktop_id=$(selected_desktop_id)
+command_name=$(command_for_desktop "$desktop_id") || {
+  echo "xdg-terminal-exec: no supported terminal is available" >&2
+  exit 127
+}
+resolved=$(command -v "$command_name") || {
+  echo "xdg-terminal-exec: $command_name is not installed" >&2
+  exit 127
+}
+
 args=()
-[[ -z $app_id ]] || args+=(--app-id "$app_id")
-[[ -z $title ]] || args+=(--title "$title")
-[[ -z $directory ]] || args+=(--working-directory "$directory")
+exec_spec=""
+case "$command_name" in
+  alacritty|ghostty)
+    append_opt --class= "$app_id"
+    append_opt --title= "$title"
+    append_opt --working-directory= "$directory"
+    exec_spec=-e
+    ;;
+  foot)
+    append_opt --app-id= "$app_id"
+    append_opt --title= "$title"
+    append_opt --working-directory= "$directory"
+    exec_spec=-e
+    ;;
+  kitty)
+    append_opt --class= "$app_id"
+    append_opt --title= "$title"
+    append_opt --directory= "$directory"
+    exec_spec=--
+    ;;
+esac
+
 if ((${#command[@]})); then
+  [[ -z $exec_spec ]] || args+=("$exec_spec")
   args+=("${command[@]}")
 fi
-exec /usr/bin/foot "${args[@]}"
+if ((${#args[@]})); then
+  exec "$resolved" "${args[@]}"
+fi
+exec "$resolved"
