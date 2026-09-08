@@ -90,11 +90,11 @@ if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
 fi
 abi_pin_count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("inputs", {}).get("abiPackagePins", [])))' "$spec")
 if (( abi_pin_count > 0 )); then
-  "$script_dir/build-pinned-aquamarine.sh" \
+  "$script_dir/build-pinned-abi-packages.sh" \
     --spec "$spec" \
     --guest-dir "$guest_dir" \
     --output-repo "$temporary/abi-pin-repo" \
-    --work "$temporary" || fail "could not rebuild the reviewed aquamarine ABI pin"
+    --work "$temporary" || fail "could not rebuild the reviewed ABI pins"
   builder_conf_args+=(--abi-repo "$temporary/abi-pin-repo")
 fi
 "${builder_conf_args[@]}" || fail "could not derive the factory builder pacman configuration"

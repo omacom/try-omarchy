@@ -167,9 +167,13 @@ creates the account on first boot.
   guarded rounded-border coverage patch for the VM graphics path, then held in
   the guest's immutable local repository. While that pin still needs
   `libaquamarine.so=13`, the factory rebuilds `aquamarine 0.14.0-2` from the
-  reviewed Arch PKGBUILD and upstream tarball (ALARM mirrors only publish
-  `.so=14`) and holds aquamarine on `IgnorePkg` in the finished guest so Omarchy
-  updates cannot pull the break.
+  reviewed Arch PKGBUILD and upstream tarball, then rebuilds Hyprtoolkit
+  against that library. Both packages are provided by the disposable builder
+  repository and held alongside Hyprland on guest `IgnorePkg`; mixing the
+  newer mirror Hyprtoolkit with the older aquamarine cannot resolve. Source
+  and library hashes are verified, and build paths are remapped for repeatable
+  output. The ABI builder must pass from an empty cache before refreshing the
+  transaction lock.
 - The final Arch Linux ARM pacman files live under `/usr/share/try-omarchy/`.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain

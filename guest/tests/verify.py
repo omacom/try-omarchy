@@ -140,7 +140,7 @@ def main() -> None:
         check((GUEST / value).is_file(), f"spec input exists: {value}")
     abi_pins = spec["inputs"]["abiPackagePins"]
     check(
-        abi_pins == [{"name": "aquamarine", "version": "0.14.0-2"}],
+        abi_pins == [{"name": "aquamarine", "version": "0.14.0-2"}, {"name": "hyprtoolkit", "version": "0.5.4-6.1"}],
         "factory abi pins keep aquamarine on libaquamarine.so=13 for the locked Hyprland",
     )
     aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
@@ -159,7 +159,7 @@ def main() -> None:
             "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
             "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
             "license": "BSD-3-Clause",
-            "binarySha256": "16bb51664f8c00d076158613e7bcec313ddd1d0f2c79a0acd7bb8ea8647bf614",
+            "binarySha256": "7da003aa60e008e9f514c312f01c1e967983e2c46732d58953735bfaee3fd8aa",
         }
         and pkgbuild.is_file()
         and hashlib.sha256(pkgbuild.read_bytes()).hexdigest() == aquamarine["pkgbuildSha256"]
@@ -168,19 +168,39 @@ def main() -> None:
         and "pkgrel=2" in pkgbuild_text,
         "factory rebuilds aquamarine 0.14 from the reviewed Arch PKGBUILD and upstream tarball",
     )
+    hyprtoolkit = spec.get("supplyChain", {}).get("hyprtoolkit", {})
+    toolkit_recipe = GUEST / hyprtoolkit.get("pkgbuild", "")
+    check(
+        hyprtoolkit == {
+    "version": "0.5.4",
+    "pkgrel": "6.1",
+    "repository": "https://github.com/hyprwm/hyprtoolkit",
+    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
+    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
+    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
+    "pkgbuildSha256": "803f1db19ad1d42e48b638e35256d3dabbe19d1d0b4b3fd584eedf20121256ce",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
+    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
+    "license": "BSD-3-Clause",
+    "binarySha256": "dc814fad9723bfcf66dbd29b7f8c5cc96fd63a1ff623909e466dd9d011c0cba8"
+}
+        and toolkit_recipe.is_file()
+        and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
+        "factory rebuilds Hyprtoolkit against the compatible aquamarine ABI",
+    )
     builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
-    build_aquamarine = read(GUEST / "scripts/build-pinned-aquamarine.sh")
+    build_aquamarine = read(GUEST / "scripts/build-pinned-abi-packages.sh")
     check(
         "try-omarchy-abi-pins" in builder_conf_writer
         and "drop_ignore" in builder_conf_writer
         and "reproducible rebuild" in builder_conf_writer
         and "write-builder-pacman-conf.py" in read(GUEST / "build.sh")
         and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh")
-        and "build-pinned-aquamarine.sh" in read(GUEST / "build.sh")
-        and "build-pinned-aquamarine.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
+        and "build-pinned-abi-packages.sh" in read(GUEST / "build.sh")
+        and "build-pinned-abi-packages.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
         and "download digest mismatch" in build_aquamarine
-        and "aquamarine reproducible library digest mismatch" in build_aquamarine
-        and "aquamarine source archive has an unsafe member set" in build_aquamarine,
+        and "reproducible library digest mismatch" in build_aquamarine
+        and "ABI source archive has an unsafe member set" in build_aquamarine,
         "factory builder pacman derivation rebuilds abi pins from source and strips them from IgnorePkg",
     )
 
@@ -301,7 +321,7 @@ def main() -> None:
         "factory pacman retains the ARM Omarchy keyring repository",
     )
     check(
-        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine"
+        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit"
         in pacman_conf,
         "factory pacman holds the QEMU-booted kernel, matching headers, patched compositor, and its aquamarine ABI",
     )
@@ -467,11 +487,11 @@ def main() -> None:
             "url": "https://github.com/omacom-io/ttfx/archive/refs/tags/v0.3.2.tar.gz",
             "sha256": "d0c0df4867e7f03142fb7f77c66670d0e8da15534239c1a7abfd89f19dfc00f6",
             "cargoLockSha256": "49e2091962fc4d425b4cf3bde1a105719b5b50eed0583ec90e85922adb45e2ce",
-            "binarySha256": "9171a07c752b202a21f80a4ad336a9d093be06a6c96b062e8b5e0c158d2a86d2",
+            "binarySha256": "d034cc5b9a8d410ce93113ef0a5d27b5ee2327948562bf2b0e756eebd326fa8f",
             "target": "aarch64-unknown-linux-gnu",
-            "rustPackageVersion": "rust 1:1.98.0-1",
-            "rustcVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Arch Linux rust 1:1.98.0-1)",
-            "cargoVersion": "cargo 1.98.0 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.0-1)",
+            "rustPackageVersion": "rust 1:1.98.1-1",
+            "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1)",
+            "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
             "reportedVersion": "ttfx 0.3.2",
             "license": "MIT",
             "licenseSha256": "175441de2eb9a0d3f0627c404ad71929336fd98d75926cc27b9e364d35cc7977",
@@ -498,7 +518,7 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "c668b05275f2d5cbff66fdb8f4ea4cbbfb7d5a7f9e682f358f3fbcff8494c68a",
+            "binarySha256": "b0c96f3057f9f4000c5e50adba0f6020dd7f63747e64371adcd4b30b97eabdb9",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
@@ -513,7 +533,7 @@ def main() -> None:
                 "make": "4.4.1-3",
                 "meson": "1.12.0-1",
                 "ninja": "1.13.2-3",
-                "pkgconf": "3.0.6-1",
+                "pkgconf": "3.0.7-1",
                 "xorgproto": "2025.1-1",
             },
         }
@@ -610,7 +630,7 @@ def main() -> None:
     check("try-omarchy-guest-work" in container, "guest cache has a project-scoped Docker volume")
     containerfile = read(GUEST / "Containerfile")
     check(
-        "arch-install-scripts e2fsprogs git python rust=1:1.98.0-1 zstd" in containerfile,
+        "arch-install-scripts e2fsprogs git python rust=1:1.98.1-1 zstd" in containerfile,
         "guest builder pins Rust for source-built components",
     )
 

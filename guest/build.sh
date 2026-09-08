@@ -184,11 +184,11 @@ if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
 fi
 if (( abi_pin_count > 0 )); then
   abi_pin_repo=$(mktemp -d "$work/abi-pin-repo.XXXXXX")
-  "$guest_dir/scripts/build-pinned-aquamarine.sh" \
+  "$guest_dir/scripts/build-pinned-abi-packages.sh" \
     --spec "$spec" \
     --guest-dir "$guest_dir" \
     --output-repo "$abi_pin_repo" \
-    --work "$work" || fail "could not rebuild the reviewed aquamarine ABI pin"
+    --work "$work" || fail "could not rebuild the reviewed ABI pins"
   builder_conf_args+=(--abi-repo "$abi_pin_repo")
 fi
 if [[ -n $pinned_repo ]]; then
