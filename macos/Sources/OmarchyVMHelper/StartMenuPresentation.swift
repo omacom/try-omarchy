@@ -19,6 +19,17 @@ struct StartMenuSharedFolderPresentation: Equatable {
     let toggleActionTitle: String?
 }
 
+struct StartMenuMemoryPresentation: Equatable {
+    let detail: String
+    /// The MiB value behind each popup entry, in display order.
+    let choicesMiB: [Int]
+    let choiceTitles: [String]
+    let selectedIndex: Int
+    /// False when this Mac's RAM fits only the default, so the popup renders
+    /// disabled rather than offering a single-item "choice".
+    let isAdjustable: Bool
+}
+
 struct StartMenuPortForwardingPresentation: Equatable {
     let detail: String
     let compactDetailLines: [String]?
@@ -30,6 +41,10 @@ struct StartMenuPortForwardingPresentation: Equatable {
 /// of AppKit makes the important behavior testable without relying on window
 /// positions, font metrics, run-loop timing, or the current display size.
 enum StartMenuPresentation {
+    static func resources(_ resources: VMResources) -> String {
+        "\(resources.cpuCount) processor cores · \(resources.memoryGiB) GiB memory"
+    }
+
     static let incompatibleWorkspaceDetail = "The saved VM uses a storage or boot format this version can’t use, or its data folder contains multiple saved VMs. Reset Omarchy to create a compatible VM. Resetting permanently erases everything in the VM."
 
     static let bootRecoveryConfirmationTitle = "Prepare this saved VM once?"
@@ -176,6 +191,32 @@ enum StartMenuPresentation {
             ],
             isGranted: true,
             grantedStatusLabel: "●  \(mappings.count) Ports"
+        )
+    }
+
+    static func memory(
+        preferredMiB: Int,
+        hostMemoryMiB: Int
+    ) -> StartMenuMemoryPresentation {
+        let choices = MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: hostMemoryMiB)
+        let selected = MemoryPolicy.resolvedMemoryMiB(
+            preferredMiB: preferredMiB,
+            hostMemoryMiB: hostMemoryMiB
+        )
+        let titles = choices.map { choice in
+            choice == MemoryPolicy.defaultMemoryMiB
+                ? "\(MemoryPolicy.displayLabel(memoryMiB: choice)) · default"
+                : MemoryPolicy.displayLabel(memoryMiB: choice)
+        }
+        let isAdjustable = choices.count > 1
+        return StartMenuMemoryPresentation(
+            detail: isAdjustable
+                ? "Give Omarchy more of this Mac’s memory. Applies on the next launch."
+                : "This Mac’s memory fits the \(MemoryPolicy.displayLabel(memoryMiB: MemoryPolicy.defaultMemoryMiB)) default.",
+            choicesMiB: choices,
+            choiceTitles: titles,
+            selectedIndex: choices.firstIndex(of: selected) ?? 0,
+            isAdjustable: isAdjustable
         )
     }
 

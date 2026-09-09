@@ -108,6 +108,8 @@ struct QEMUGPURuntimeEnvironmentTests {
             AudioLaunchConfiguration.inputDeviceNameKey,
             SharedFolderPolicy.environmentKey,
             PortForwardPolicy.environmentKey,
+            VMResourceLaunchConfiguration.cpuEnvironmentKey,
+            VMResourceLaunchConfiguration.memoryEnvironmentKey,
             QEMUGPURuntimeEnvironment.inspectOnlyKey,
             QEMUGPURuntimeEnvironment.dryRunKey,
             QEMUGPURuntimeEnvironment.bootRecoveryConsentKey,
@@ -127,12 +129,9 @@ struct QEMUStandardErrorDrainTests {
     @Test("drains a bounded tail without waiting for EOF and restores descriptor flags")
     func boundedNonblockingDrain() throws {
         let pipe = Pipe()
-        var writerClosed = false
         defer {
             pipe.fileHandleForReading.closeFile()
-            if !writerClosed {
-                pipe.fileHandleForWriting.closeFile()
-            }
+            pipe.fileHandleForWriting.closeFile()
         }
 
         let payload = Data("trailing QEMU diagnostic".utf8)
@@ -156,11 +155,26 @@ struct QEMUStandardErrorDrainTests {
         #expect(second.data == Data(payload.dropFirst(8)))
         #expect(!second.reachedEnd)
         #expect(Darwin.fcntl(descriptor, F_GETFL) == originalFlags)
+    }
 
-        pipe.fileHandleForWriting.closeFile()
-        writerClosed = true
+    @Test("reports EOF on a shut-down stream and restores descriptor flags")
+    func drainAtEndOfStream() throws {
+        var descriptors: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
+        let reader = FileHandle(fileDescriptor: descriptors[0], closeOnDealloc: true)
+        defer {
+            reader.closeFile()
+            Darwin.close(descriptors[1])
+        }
+        let descriptor = reader.fileDescriptor
+        let originalFlags = Darwin.fcntl(descriptor, F_GETFL)
+        #expect(originalFlags >= 0)
+
+        // Parallel process tests can inherit a pipe writer and delay EOF after
+        // close. Socket shutdown ends the stream even with inherited copies.
+        try #require(Darwin.shutdown(descriptors[1], SHUT_WR) == 0)
         let end = QEMUGPUProcessSupervisor.drainAvailableStandardError(
-            from: pipe.fileHandleForReading,
+            from: reader,
             maximumBytes: 1_024
         )
         #expect(end.data.isEmpty)

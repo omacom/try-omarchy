@@ -147,6 +147,18 @@ Every launch begins at the start menu. While that menu is open, Try Omarchy beha
 Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
 Shutting down Omarchy closes the app and leaves it closed.
 
+## Virtual machine resources
+
+Choose **Resources → Configure…** on the start menu to adjust processor cores
+and memory for the next launch. Processor cores range from 4 to all the cores
+on this Mac; the default remains up to 8 cores. Memory keeps the existing 4 GiB
+default and offers 6, 8, 12, or 16 GiB when at least 8 GiB remains for macOS.
+
+**Save** remembers both choices. **Cancel** leaves them unchanged, and
+**Use Defaults** restores the draft until you save. Existing memory preferences
+are carried forward. A choice that no longer fits a smaller Mac falls back to
+its default without erasing the saved choice.
+
 ## 1Password
 
 Install 1Password from the Omarchy menu. On ARM64 guests, Try Omarchy downloads
@@ -291,6 +303,25 @@ or changing the enrolled Touch ID fingerprint set requires re-pairing. Disabling
 removes the guest enrollment and, while the host bridge is available, its wrapped
 Secure Enclave key representation.
 
+## Giving Omarchy more memory
+
+Use **Resources → Configure…** on the start menu to pick how much of the Mac's
+RAM the guest boots with. The default is 4 GiB, and the menu only offers larger allocations
+(6, 8, 12, or 16 GiB) that leave macOS at least 8 GiB for itself, so an 8 GiB
+Mac shows the default alone. The choice is not tied to installation: change it
+before any launch, and it applies the next time Omarchy starts. Memory is a
+boot-time QEMU setting, never part of the guest image or VM data, so switching
+allocations never needs a reset and never touches your files. A stored choice
+that no longer fits the Mac it runs on falls back to the default.
+
+Scripted launches can set `OMARCHY_QEMU_GPU_MEMORY_MIB` (a whole number of
+MiB) instead. The launcher's own rule is looser than the menu's: it refuses
+values below the guest's 2048 MiB minimum, and values above the 4096 default
+that would leave the host under 4 GiB. The default itself always boots, and
+an environment value the menu would not offer (say 12 GiB on a 16 GiB Mac)
+is still accepted — the menu is deliberately conservative, the launcher is a
+safety floor.
+
 ## Requirements
 
 - Apple Silicon Mac (`arm64`)
@@ -311,6 +342,17 @@ with that disk. A newer app's bundled factory image is used only to create a
 new VM, after a confirmed **Reset Omarchy**, or for an ephemeral launch.
 Before Reset is enabled, the confirmation sheet requires typing `Try Omarchy`
 exactly; cancelling the sheet returns to the start menu without changing the VM.
+
+### Guest console log
+
+Each persistent launch writes the guest console to
+`~/Library/Application Support/Try Omarchy/VM/v1/console.log`, and moves the
+previous launch's log aside to `console.log.1` first. This is the record to
+read when Omarchy fails to boot, loses its network, or hangs, because a fault
+that forces a reboot is otherwise gone by the time you can look. An ephemeral
+launch keeps its log with the rest of its temporary state and discards it on
+exit. The log holds whatever the guest prints to its console, so treat it as
+guest data and review it before attaching it to a bug report.
 
 VMs created before paired boot files were introduced are preserved too. On the
 first launch that needs them, Try Omarchy explains the transition in a

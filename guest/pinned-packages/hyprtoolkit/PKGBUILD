@@ -1,0 +1,50 @@
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+
+pkgname=hyprtoolkit
+pkgver=0.5.4
+pkgrel=6.1
+pkgdesc='A modern C++ Wayland-native GUI toolkit'
+arch=(x86_64 aarch64)
+url="https://github.com/hyprwm/$pkgname"
+license=(BSD-3-Clause)
+depends=(
+         libgcc
+         libstdc++
+         aquamarine libaquamarine.so
+         cairo libcairo.so
+         glib2 libglib-2.0.so
+         glibc # libc.so libm.so
+         hyprgraphics libhyprgraphics.so
+         hyprlang libhyprlang.so
+         hyprutils libhyprutils.so
+         iniparser libiniparser.so
+         libdrm # libdrm.so
+         libglvnd libEGL.so libOpenGL.so
+         libxkbcommon libxkbcommon.so
+         mesa # libgbm.so
+         pango libpango-1.0.so # libpango.so
+         pixman libpixman-1.so
+         wayland libwayland-client.so
+)
+makedepends=(cmake
+             hyprwayland-scanner)
+provides=(libhyprtoolkit.so)
+_archive="$pkgname-$pkgver"
+source=("$url/archive/v$pkgver/$_archive.tar.gz")
+sha256sums=('2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f')
+
+build() {
+	cd "$_archive"
+	local cmake_options=(
+		-D CMAKE_BUILD_TYPE=None
+		-D CMAKE_INSTALL_PREFIX=/usr
+	)
+	cmake -B build -W no-dev ${cmake_options[@]}
+	cmake --build build
+}
+
+package() {
+	cd "$_archive"
+	DESTDIR="$pkgdir" cmake --install build
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}

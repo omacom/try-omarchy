@@ -155,7 +155,6 @@ class XdgTerminalExecTests(unittest.TestCase):
         self.assertEqual(self.log.read_text(encoding="utf-8"), "alacritty:\n")
 
     def test_factory_wrappers_require_executable_package_binary(self) -> None:
-        source = HELPER.parents[4] / "native-overlay/usr/local/bin/alacritty"
         package_bin = self.root / "usr/bin"
         package_bin.mkdir(parents=True)
         helper = self.root / "xdg-terminal-exec"
@@ -168,8 +167,9 @@ class XdgTerminalExecTests(unittest.TestCase):
         for name, desktop_id in (("alacritty", "Alacritty.desktop"), ("kitty", "kitty.desktop")):
             wrapper = self.commands / name
             real = package_bin / name
+            source = HELPER.parents[4] / f"native-overlay/usr/local/bin/{name}"
             wrapper.write_text(
-                source.read_text().replace("alacritty", name)
+                source.read_text()
                 .replace(f"real=/usr/bin/{name}", f"real={real}")
             )
             wrapper.chmod(0o755)
@@ -185,7 +185,7 @@ class XdgTerminalExecTests(unittest.TestCase):
                     cmdline = self.root / "cmdline"
                     cmdline.write_text("omarchy.qemu_virgl=1\n")
                     environment = {
-                        "OMARCHY_ALACRITTY_CMDLINE": str(cmdline),
+                        f"OMARCHY_{name.upper()}_CMDLINE": str(cmdline),
                         "XDG_TERMINAL_TEST_HELPER": str(helper),
                         "LIBGL_ALWAYS_SOFTWARE": "0",
                     }

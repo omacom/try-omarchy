@@ -78,6 +78,10 @@ chmod 0755 \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
   "$root/usr/local/bin/alacritty" \
   "$root/usr/local/bin/xdg-terminal-exec" \
+  "$root/usr/local/bin/kitty" \
+  "$root/usr/local/bin/omarchy-arch-aarch64" \
+  "$root/usr/local/bin/omarchy-pkg-unavailable-arm" \
+  "$root/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable" \
   "$root/usr/local/bin/omarchy-native-audio-bridge" \
   "$root/usr/local/bin/omarchy-native-camera-bridge" \
   "$root/usr/local/bin/omarchy-native-clipboard-bridge" \
@@ -91,6 +95,7 @@ chmod 0755 \
   "$root/usr/local/sbin/try-omarchy-touch-id-enroll" \
   "$root/usr/local/lib/try-omarchy/install-vivaldi-arm64" \
   "$root/usr/lib/systemd/system-generators/try-omarchy-ssh-access"
+chmod 0644 "$root/usr/local/share/try-omarchy/aarch64-unavailable-packages"
 
 vivaldi_key=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["supplyChain"]["vivaldi"]["signingKey"])' "$spec")
 [[ $vivaldi_key == keys/vivaldi-package-composer-key11.asc ]] || fail "unexpected Vivaldi key path"

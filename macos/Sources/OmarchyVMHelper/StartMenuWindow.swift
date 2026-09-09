@@ -189,6 +189,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setSharedFolderEnabled: (Bool) -> Void
     private let portForwardingStatus: () -> [PortForwardMapping]
     private let savePortForwarding: ([PortForwardMapping]) -> String?
+    private let resources: () -> VMResources
+    private let resourceLimits: VMResourceLimits
+    private let saveResources: (VMResources) -> Void
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
     private let launch: () -> Void
@@ -208,6 +211,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var resetConfirmationPrompt: ResetConfirmationPrompt?
     private weak var startMenuScrollView: NSScrollView?
     private(set) var portForwardingEditor: PortForwardingEditor?
+    private(set) var resourceEditor: VMResourceEditor?
     private weak var immersiveCaption: NSTextField?
     private lazy var permissionWindowRestorer = PermissionWindowRestorer(
         canRestore: { [weak self] in
@@ -220,6 +224,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 && self.window.attachedSheet == nil
                 && NSApp.modalWindow == nil
                 && self.portForwardingEditor == nil
+                && self.resourceEditor == nil
         },
         isApplicationActive: { NSApp.isActive },
         orderFrontRegardless: { [weak self] frame in
@@ -269,6 +274,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setSharedFolderEnabled: @escaping (Bool) -> Void,
         portForwardingStatus: @escaping () -> [PortForwardMapping] = { [] },
         savePortForwarding: @escaping ([PortForwardMapping]) -> String? = { _ in nil },
+        resources: @escaping () -> VMResources = { VMResourceLimits.current.defaults },
+        resourceLimits: VMResourceLimits = .current,
+        saveResources: @escaping (VMResources) -> Void = { _ in },
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
         launch: @escaping () -> Void
@@ -293,12 +301,15 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setSharedFolderEnabled = setSharedFolderEnabled
         self.portForwardingStatus = portForwardingStatus
         self.savePortForwarding = savePortForwarding
+        self.resources = resources
+        self.resourceLimits = resourceLimits
+        self.saveResources = saveResources
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
         self.launch = launch
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 832),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -324,12 +335,13 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func prepareForPresentation(visibleFrame: NSRect?) {
         render()
         if let visibleFrame {
-            // The menu carries six rows once a resettable VM can choose where it
-            // lives. At 690 the launch button cleared the bottom edge by 15pt,
-            // which any difference in system font metrics turned into a button
-            // clipped off the window.
+            // The resources row adds one 72pt row to the menu that previously
+            // fit at 760. At 690 the launch button cleared the bottom edge by
+            // 15pt, which any difference in system font metrics turned into a
+            // button clipped off the window; on displays shorter than the
+            // window the content scrolls rather than clips.
             let availableHeight = max(480, visibleFrame.height - 32)
-            window.setContentSize(NSSize(width: 600, height: min(760, availableHeight)))
+            window.setContentSize(NSSize(width: 600, height: min(832, availableHeight)))
         }
     }
 
@@ -357,6 +369,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resetConfirmationPrompt = nil
         portForwardingEditor?.dismiss()
         portForwardingEditor = nil
+        resourceEditor?.dismiss()
+        resourceEditor = nil
         window.orderOut(nil)
     }
 
@@ -559,6 +573,16 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 90
         )
         let immersiveRow = immersiveSettingRow(isEnabled: immersiveMode())
+        let selectedResources = resources()
+        let resourceRow = permissionRow(
+            symbolName: "cpu",
+            title: "Resources",
+            detail: StartMenuPresentation.resources(selectedResources),
+            granted: selectedResources != resourceLimits.defaults,
+            statusLabels: ("●  Custom", "○  Default"),
+            actions: [("Configure…", #selector(beginResourceConfiguration))],
+            minimumHeight: 72
+        )
 
         let storageStatus = storageLocationStatus()
         var storageRow: NSView?
@@ -616,7 +640,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [portForwardingRow, immersiveRow])
+        integrationRowViews.append(contentsOf: [resourceRow, portForwardingRow, immersiveRow])
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1373,6 +1397,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             }
         )
         portForwardingEditor = editor
+        editor.beginSheet(for: window)
+    }
+
+    @objc private func beginResourceConfiguration() {
+        guard !launchInProgress, !resetInProgress,
+              !microphoneRequestInFlight, !cameraRequestInFlight,
+              resourceEditor == nil, window.attachedSheet == nil else { return }
+        permissionWindowRestorer.cancel()
+        let editor = VMResourceEditor(
+            resources: resources(),
+            limits: resourceLimits,
+            save: { [weak self] resources in self?.saveResources(resources) },
+            didClose: { [weak self] in
+                self?.resourceEditor = nil
+                self?.render()
+            }
+        )
+        resourceEditor = editor
         editor.beginSheet(for: window)
     }
 

@@ -1,0 +1,484 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: forward magnification through a dedicated virtio touchpad
+
+Applies after the existing Try Omarchy QEMU patches. Preserve the tablet and
+multitouch touchscreen; the new pinch device accepts only multitouch events.
+The Cocoa bridge reconstructs two symmetric contacts from magnification and
+releases them on cancellation or loss of keyboard focus. Guest configuration
+disables tapping for this gesture-only device.
+
+diff --git a/include/ui/cocoa-pinch.h b/include/ui/cocoa-pinch.h
+new file mode 100644
+--- /dev/null
++++ b/include/ui/cocoa-pinch.h
+@@ -0,0 +1,127 @@
++/*
++ * Cocoa pinch geometry, independent of AppKit for deterministic testing.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++#ifndef QEMU_COCOA_PINCH_H
++#define QEMU_COCOA_PINCH_H
++
++#include <stdbool.h>
++#include <math.h>
++
++typedef struct CocoaPinch {
++    bool active;
++    double scale;
++} CocoaPinch;
++
++enum {
++    COCOA_PINCH_CENTER = 16384,
++    COCOA_PINCH_RADIUS = 4096,
++    COCOA_PINCH_AXIS_MAX = 32767,
++};
++
++static inline void cocoa_pinch_begin(CocoaPinch *pinch)
++{
++    pinch->active = true;
++    pinch->scale = 1.0;
++}
++
++static inline bool cocoa_pinch_end(CocoaPinch *pinch)
++{
++    bool active = pinch->active;
++    pinch->active = false;
++    pinch->scale = 1.0;
++    return active;
++}
++
++/* NSEvent.magnification is the relative change since the previous event. */
++static inline bool cocoa_pinch_update(CocoaPinch *pinch, double delta)
++{
++    if (!pinch->active || !isfinite(delta) || delta <= -1.0) {
++        return false;
++    }
++    double scale = pinch->scale * (1.0 + delta);
++    pinch->scale = fmin(3.5, fmax(0.125, scale));
++    return true;
++}
++
++static inline int cocoa_pinch_x(const CocoaPinch *pinch, int slot)
++{
++    int radius = (int)lround(COCOA_PINCH_RADIUS * pinch->scale);
++    return COCOA_PINCH_CENTER + (slot == 0 ? -radius : radius);
++}
++
++typedef struct CocoaPinchFrame {
++    bool down;
++    int x[2];
++} CocoaPinchFrame;
++
++typedef void (*CocoaPinchEmit)(void *opaque, const CocoaPinchFrame *frame);
++
++enum {
++    COCOA_PINCH_BEGIN = 1,
++    COCOA_PINCH_END = 2,
++    COCOA_PINCH_CANCEL = 4,
++};
++
++static inline void cocoa_pinch_emit(const CocoaPinch *pinch,
++                                    CocoaPinchEmit emit, void *opaque)
++{
++    CocoaPinchFrame frame = {
++        .down = pinch->active,
++        .x = { cocoa_pinch_x(pinch, 0), cocoa_pinch_x(pinch, 1) },
++    };
++    emit(opaque, &frame);
++}
++
++static inline void cocoa_pinch_cancel(CocoaPinch *pinch,
++                                      CocoaPinchEmit emit, void *opaque)
++{
++    if (cocoa_pinch_end(pinch)) {
++        cocoa_pinch_emit(pinch, emit, opaque);
++    }
++}
++
++/* Input is dropped while QEMU is paused. Clear stale guest slots on resume,
++ * even if focus loss already cleared the local state during the pause. */
++static inline void cocoa_pinch_vm_state(CocoaPinch *pinch, bool running,
++                                        CocoaPinchEmit emit, void *opaque)
++{
++    cocoa_pinch_end(pinch);
++    if (running) {
++        cocoa_pinch_emit(pinch, emit, opaque);
++    }
++}
++
++/* Only a new begin can re-establish contacts after cancellation/focus loss. */
++static inline bool cocoa_pinch_event(CocoaPinch *pinch, unsigned phase,
++                                     bool eligible, double delta,
++                                     CocoaPinchEmit emit, void *opaque)
++{
++    if (!eligible) {
++        cocoa_pinch_cancel(pinch, emit, opaque);
++        return false;
++    }
++    if (phase & COCOA_PINCH_CANCEL) {
++        cocoa_pinch_cancel(pinch, emit, opaque);
++        return true;
++    }
++    if (!isfinite(delta) || delta <= -1.0) {
++        cocoa_pinch_cancel(pinch, emit, opaque);
++        return true;
++    }
++    if (phase & COCOA_PINCH_BEGIN) {
++        cocoa_pinch_cancel(pinch, emit, opaque);
++        cocoa_pinch_begin(pinch);
++        cocoa_pinch_emit(pinch, emit, opaque);
++    }
++    if (pinch->active && delta != 0.0) {
++        cocoa_pinch_update(pinch, delta);
++        cocoa_pinch_emit(pinch, emit, opaque);
++    }
++    if (phase & COCOA_PINCH_END) {
++        cocoa_pinch_cancel(pinch, emit, opaque);
++    }
++    return true;
++}
++
++#endif
+diff --git a/include/hw/virtio/virtio-input.h b/include/hw/virtio/virtio-input.h
+--- a/include/hw/virtio/virtio-input.h
++++ b/include/hw/virtio/virtio-input.h
+@@ -31,6 +31,7 @@
+ #define TYPE_VIRTIO_MOUSE      "virtio-mouse-device"
+ #define TYPE_VIRTIO_TABLET     "virtio-tablet-device"
+ #define TYPE_VIRTIO_MULTITOUCH "virtio-multitouch-device"
++#define TYPE_VIRTIO_PINCH      "virtio-pinch-device"
+ 
+ OBJECT_DECLARE_SIMPLE_TYPE(VirtIOInputHID, VIRTIO_INPUT_HID)
+ #define VIRTIO_INPUT_HID_GET_PARENT_CLASS(obj) \
+diff --git a/hw/input/virtio-input-hid.c b/hw/input/virtio-input-hid.c
+--- a/hw/input/virtio-input-hid.c
++++ b/hw/input/virtio-input-hid.c
+@@ -529,6 +529,132 @@
+     .instance_init = virtio_multitouch_init,
+ };
+ 
++/*
++ * A dedicated two-contact, indirect device for Cocoa magnification. It does
++ * not subscribe to BTN/ABS/REL events: the existing tablet retains all normal
++ * pointer input. Slot zero carries the two-contact lifecycle; slot one is
++ * always its symmetric partner. There is no persistent backend contact state,
++ * so virtio reset/migration uses the existing input device machinery.
++ */
++static void virtio_pinch_send(VirtIOInput *vinput, int type, int code, int value)
++{
++    virtio_input_event event = {
++        .type = cpu_to_le16(type),
++        .code = cpu_to_le16(code),
++        .value = cpu_to_le32(value),
++    };
++    virtio_input_send(vinput, &event);
++}
++
++static void virtio_pinch_event(DeviceState *dev, QemuConsole *src,
++                               QemuInputEvent *evt)
++{
++    VirtIOInput *vinput = VIRTIO_INPUT(dev);
++    InputMultiTouchEvent *mtt = &evt->mtt;
++
++    if (evt->type != INPUT_EVENT_KIND_MTT || mtt->slot < 0 || mtt->slot > 1) {
++        return;
++    }
++    if (mtt->slot == 0) {
++        if (mtt->type != INPUT_MULTI_TOUCH_TYPE_DATA) {
++            /* BTN_TOUCH must precede the axes within the frame. */
++            bool down = mtt->tracking_id >= 0;
++            virtio_pinch_send(vinput, EV_KEY, BTN_TOUCH, down);
++            virtio_pinch_send(vinput, EV_KEY, BTN_TOOL_DOUBLETAP, down);
++        } else if (mtt->axis == INPUT_AXIS_X || mtt->axis == INPUT_AXIS_Y) {
++            virtio_pinch_send(vinput, EV_ABS, axismap_abs[mtt->axis],
++                              mtt->value);
++        }
++    }
++    virtio_input_handle_event(dev, src, evt);
++}
++
++static const QemuInputHandler virtio_pinch_handler = {
++    .name = "QEMU Virtio Pinch Touchpad",
++    .mask = INPUT_EVENT_MASK_MTT,
++    .event = virtio_pinch_event,
++    .sync = virtio_input_handle_sync,
++};
++
++static void virtio_pinch_init(Object *obj)
++{
++    VirtIOInputHID *vhid = VIRTIO_INPUT_HID(obj);
++    VirtIOInput *vinput = VIRTIO_INPUT(obj);
++    const unsigned short keys[] = {
++        BTN_LEFT, BTN_TOUCH, BTN_TOOL_FINGER, BTN_TOOL_DOUBLETAP,
++    };
++    /* ABS_X and INPUT_PROP_POINTER are zero: the bitmap helper skips zero. */
++    const unsigned short axes[] = {
++        ABS_Y, ABS_MT_SLOT, ABS_MT_TRACKING_ID,
++        ABS_MT_POSITION_X, ABS_MT_POSITION_Y,
++    };
++    const unsigned short position_axes[] = {
++        ABS_X, ABS_Y, ABS_MT_POSITION_X, ABS_MT_POSITION_Y,
++    };
++    virtio_input_config config = {
++        .select = VIRTIO_INPUT_CFG_ID_NAME,
++        .size = sizeof("QEMU Virtio Pinch Touchpad"),
++        .u.string = "QEMU Virtio Pinch Touchpad",
++    };
++
++    virtio_input_config empty = {0};
++
++    vhid->handler = &virtio_pinch_handler;
++    virtio_input_init_config(vinput, &empty);
++    virtio_input_add_config(vinput, &config);
++    memset(&config, 0, sizeof(config));
++    config.select = VIRTIO_INPUT_CFG_ID_DEVIDS;
++    config.size = sizeof(struct virtio_input_devids);
++    config.u.ids.bustype = const_le16(BUS_VIRTUAL);
++    config.u.ids.vendor = const_le16(0x0627);
++    config.u.ids.product = const_le16(0x0004);
++    config.u.ids.version = const_le16(1);
++    virtio_input_add_config(vinput, &config);
++
++    virtio_input_extend_config(vinput, keys, ARRAY_SIZE(keys),
++                               VIRTIO_INPUT_CFG_EV_BITS, EV_KEY);
++    memset(&config, 0, sizeof(config));
++    config.select = VIRTIO_INPUT_CFG_EV_BITS;
++    config.subsel = EV_ABS;
++    config.size = 1;
++    config.u.bitmap[0] = 1 << ABS_X;
++    /* Include ABS_X explicitly as the generic bitmap helper skips zero. */
++    for (int i = 0; i < ARRAY_SIZE(axes); i++) {
++        config.u.bitmap[axes[i] / 8] |= 1 << (axes[i] % 8);
++        config.size = MAX(config.size, axes[i] / 8 + 1);
++    }
++    virtio_input_add_config(vinput, &config);
++    memset(&config, 0, sizeof(config));
++    config.select = VIRTIO_INPUT_CFG_PROP_BITS;
++    config.size = 1;
++    config.u.bitmap[0] = 1 << INPUT_PROP_POINTER;
++    virtio_input_add_config(vinput, &config);
++
++    memset(&config, 0, sizeof(config));
++    config.select = VIRTIO_INPUT_CFG_ABS_INFO;
++    config.size = sizeof(virtio_input_absinfo);
++    config.subsel = ABS_MT_SLOT;
++    config.u.abs.max = const_le32(1);
++    virtio_input_add_config(vinput, &config);
++    config.subsel = ABS_MT_TRACKING_ID;
++    config.u.abs.max = const_le32(65535);
++    virtio_input_add_config(vinput, &config);
++    /* A 100 mm square sensor, with explicit resolution for libinput. */
++    config.u.abs.max = const_le32(INPUT_EVENT_ABS_MAX);
++    config.u.abs.res = const_le32(327);
++    for (int i = 0; i < ARRAY_SIZE(position_axes); i++) {
++        config.subsel = position_axes[i];
++        virtio_input_add_config(vinput, &config);
++    }
++}
++
++static const TypeInfo virtio_pinch_info = {
++    .name = TYPE_VIRTIO_PINCH,
++    .parent = TYPE_VIRTIO_INPUT_HID,
++    .instance_size = sizeof(VirtIOInputHID),
++    .instance_init = virtio_pinch_init,
++};
++
+ /* ----------------------------------------------------------------- */
+ 
+ static void virtio_register_types(void)
+@@ -538,6 +664,7 @@
+     type_register_static(&virtio_mouse_info);
+     type_register_static(&virtio_tablet_info);
+     type_register_static(&virtio_multitouch_info);
++    type_register_static(&virtio_pinch_info);
+ }
+ 
+ type_init(virtio_register_types)
+diff --git a/hw/virtio/virtio-input-pci.c b/hw/virtio/virtio-input-pci.c
+--- a/hw/virtio/virtio-input-pci.c
++++ b/hw/virtio/virtio-input-pci.c
+@@ -30,6 +30,7 @@
+ #define TYPE_VIRTIO_MOUSE_PCI      "virtio-mouse-pci"
+ #define TYPE_VIRTIO_TABLET_PCI     "virtio-tablet-pci"
+ #define TYPE_VIRTIO_MULTITOUCH_PCI "virtio-multitouch-pci"
++#define TYPE_VIRTIO_PINCH_PCI     "virtio-pinch-pci"
+ OBJECT_DECLARE_SIMPLE_TYPE(VirtIOInputHIDPCI, VIRTIO_INPUT_HID_PCI)
+ 
+ struct VirtIOInputHIDPCI {
+@@ -111,6 +112,14 @@
+                                 TYPE_VIRTIO_MULTITOUCH);
+ }
+ 
++static void virtio_pinch_initfn(Object *obj)
++{
++    VirtIOInputHIDPCI *dev = VIRTIO_INPUT_HID_PCI(obj);
++
++    virtio_instance_init_common(obj, &dev->vdev, sizeof(dev->vdev),
++                                TYPE_VIRTIO_PINCH);
++}
++
+ static const TypeInfo virtio_input_pci_info = {
+     .name          = TYPE_VIRTIO_INPUT_PCI,
+     .parent        = TYPE_VIRTIO_PCI,
+@@ -156,6 +165,13 @@
+     .instance_init = virtio_multitouch_initfn,
+ };
+ 
++static const VirtioPCIDeviceTypeInfo virtio_pinch_pci_info = {
++    .generic_name  = TYPE_VIRTIO_PINCH_PCI,
++    .parent        = TYPE_VIRTIO_INPUT_HID_PCI,
++    .instance_size = sizeof(VirtIOInputHIDPCI),
++    .instance_init = virtio_pinch_initfn,
++};
++
+ static void virtio_pci_input_register(void)
+ {
+     /* Base types: */
+@@ -167,6 +183,7 @@
+     virtio_pci_types_register(&virtio_mouse_pci_info);
+     virtio_pci_types_register(&virtio_tablet_pci_info);
+     virtio_pci_types_register(&virtio_multitouch_pci_info);
++    virtio_pci_types_register(&virtio_pinch_pci_info);
+ }
+ 
+ type_init(virtio_pci_input_register)
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -37,6 +37,7 @@
+ #include "ui/clipboard.h"
+ #include "ui/console.h"
+ #include "ui/input.h"
++#include "ui/cocoa-pinch.h"
+ #include "ui/kbd-state.h"
+ #include "system/system.h"
+ #include "system/runstate.h"
+@@ -344,6 +345,7 @@
+     int mouseX;
+     int mouseY;
+     bool mouseOn;
++    CocoaPinch pinch;
+ }
+ - (void) grabMouse;
+ - (void) ungrabMouse;
+@@ -355,9 +357,20 @@
+ - (BOOL) isMouseGrabbed;
+ - (BOOL) isKeyboardCaptured;
+ - (void) raiseAllKeys;
++- (void) endPinchLocked;
++- (void) resetPinchLocked:(bool)running;
++- (bool) handlePinchLocked:(NSEvent *)event;
+ @end
+ 
+ QemuCocoaView *cocoaView;
++static VMChangeStateEntry *pinch_vm_change;
++
++/* VM state callbacks hold the BQL; this method only touches input state. */
++static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
++{
++    [cocoaView resetPinchLocked:running];
++}
++
+ 
+ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef cgEvent, void *userInfo)
+ {
+@@ -370,6 +383,24 @@
+     COCOA_DEBUG("Global events tap: qemu did not handle the event, letting it through...\n");
+ 
+     return cgEvent;
++}
++
++/* Called under the same BQL as normal Cocoa input. */
++static void cocoa_pinch_send_frame(void *opaque, const CocoaPinchFrame *frame)
++{
++    for (int slot = 0; slot < 2; slot++) {
++        qemu_input_queue_mtt(dcl.con,
++                            frame->down ? INPUT_MULTI_TOUCH_TYPE_UPDATE :
++                                          INPUT_MULTI_TOUCH_TYPE_END,
++                            slot, frame->down ? slot : -1);
++        if (frame->down) {
++            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_X, frame->x[slot], 0,
++                                    COCOA_PINCH_AXIS_MAX, slot, slot);
++            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_Y, COCOA_PINCH_CENTER, 0,
++                                    COCOA_PINCH_AXIS_MAX, slot, slot);
++        }
++    }
++    qemu_input_event_sync();
+ }
+ 
+ @implementation QemuCocoaView
+@@ -899,6 +930,40 @@
+         QemuTextConsole *con = QEMU_TEXT_CONSOLE(dcl.con);
+         qemu_text_console_put_keysym(con, keysym);
+     }
++}
++
++- (void) resetPinchLocked:(bool)running
++{
++    cocoa_pinch_vm_state(&pinch, running, cocoa_pinch_send_frame, NULL);
++}
++
++- (void) endPinchLocked
++{
++    cocoa_pinch_cancel(&pinch, cocoa_pinch_send_frame, NULL);
++}
++
++- (bool) handlePinchLocked:(NSEvent *)event
++{
++    NSEventPhase phase = [event phase];
++    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
++    unsigned action = 0;
++    bool eligible = [event window] == [self window] &&
++                    [[self window] isKeyWindow] &&
++                    NSPointInRect(point, [self bounds]) &&
++                    qemu_console_is_graphic(dcl.con) &&
++                    runstate_is_running();
++
++    if (phase & NSEventPhaseBegan) {
++        action |= COCOA_PINCH_BEGIN;
++    }
++    if (phase & NSEventPhaseEnded) {
++        action |= COCOA_PINCH_END;
++    }
++    if (phase & NSEventPhaseCancelled) {
++        action |= COCOA_PINCH_CANCEL;
++    }
++    return cocoa_pinch_event(&pinch, action, eligible, [event magnification],
++                            cocoa_pinch_send_frame, NULL);
+ }
+ 
+ - (bool) handleEvent:(NSEvent *)event
+@@ -1110,6 +1175,8 @@
+                 qkbd_state_key_event(kbd, keycode, false);
+             }
+             return true;
++        case NSEventTypeMagnify:
++            return [self handlePinchLocked:event];
+         case NSEventTypeScrollWheel:
+             /*
+              * Send wheel events to the guest regardless of window focus.
+@@ -1320,6 +1387,7 @@
+ - (void) raiseAllKeys
+ {
+     with_bql(^{
++        [self endPinchLocked];
+         qkbd_state_lift_all_keys(kbd);
+     });
+ }
+@@ -2667,6 +2735,8 @@
+     qemu_add_mouse_mode_change_notifier(&mouse_mode_change_notifier);
+     [cocoaView notifyMouseModeChange];
+     [cocoaView updateUIInfo];
++    pinch_vm_change = qemu_add_vm_change_state_handler(cocoa_pinch_vm_change,
++                                                       NULL);
+ 
+     qemu_event_init(&cbevent, false);
+     cbowner = [[QemuCocoaPasteboardTypeOwner alloc] init];
+@@ -2689,6 +2759,7 @@
+ 
+     qemu_console_unregister_listener(&dcl);
+     g_clear_pointer(&kbd, qkbd_state_free);
++    qemu_del_vm_change_state_handler(pinch_vm_change);
+     qemu_remove_mouse_mode_change_notifier(&mouse_mode_change_notifier);
+     qemu_clipboard_peer_unregister(&cbpeer);
+     g_clear_pointer(&cbinfo, qemu_clipboard_info_unref);
