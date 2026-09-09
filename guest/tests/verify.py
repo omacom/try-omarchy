@@ -1253,6 +1253,69 @@ def main() -> None:
         "SSH generator requests only the boot-scoped vendor sshd unit",
     )
 
+    locale_generator_path = (
+        GUEST
+        / "native-overlay/usr/lib/systemd/system-generators/try-omarchy-locale"
+    )
+    locale_generator = read(locale_generator_path)
+    locale_generator_code = "\n".join(
+        line
+        for line in locale_generator.splitlines()
+        if not line.strip().startswith("#")
+    )
+    locale_gen_format = re.search(
+        r"printf '([^']*)' >\"\$root/etc/locale\.gen\"", configure
+    )
+    generated_locales = (
+        sorted(
+            line.split(" ", 1)[0]
+            for line in locale_gen_format.group(1).split("\\n")
+            if line
+        )
+        if locale_gen_format
+        else []
+    )
+    locale_allowlist_match = re.search(
+        r"case \$locale in\n\s*([^\n]+)\) ;;\n\s*\*\) exit 0 ;;\n", locale_generator
+    )
+    allowlisted_locales = (
+        sorted(token.strip() for token in locale_allowlist_match.group(1).split("|"))
+        if locale_allowlist_match
+        else []
+    )
+    check(
+        locale_gen_format is not None
+        and locale_allowlist_match is not None
+        and generated_locales == allowlisted_locales,
+        "locale generator's allowlist cannot drift from the locales configure-rootfs.sh actually "
+        "generates, or a chosen language silently gets no LANG",
+    )
+    check(
+        locale_generator_path.is_file()
+        and locale_generator_path.stat().st_mode & stat.S_IXUSR != 0
+        and "tryomarchy.locale=" in locale_generator
+        and "/proc/cmdline" in locale_generator,
+        "locale generator is an executable that reads the host-chosen locale from the kernel command line",
+    )
+    check(
+        "/run/environment.d" in locale_generator_code
+        and "/etc" not in locale_generator_code,
+        "locale generator writes only to the runtime tier, never to /etc, like its sibling ssh generator",
+    )
+    check(
+        "LANG=%s" in locale_generator
+        and "LC_ALL" not in locale_generator
+        and "KEYMAP" not in locale_generator,
+        "locale generator sets LANG only, never LC_ALL or the console keymap",
+    )
+    check(
+        locale_generator.index('[ -n "$locale" ] || exit 0')
+        < locale_generator.index(
+            'printf \'LANG=%s\\n\' "$locale" >"$environment_d/91-try-omarchy-locale.conf"'
+        ),
+        "an absent locale token leaves an english boot untouched: the generator exits before writing anything",
+    )
+
     manifest_writer = read(GUEST / "scripts/write-guest-manifest.py")
     check('"kind": "try-omarchy-guest-artifacts"' in manifest_writer, "new artifacts use the native manifest identity")
 
