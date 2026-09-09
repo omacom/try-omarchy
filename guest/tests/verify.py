@@ -737,6 +737,14 @@ def main() -> None:
         "compat/ttfx-arm64" not in configure and not (GUEST / "compat/ttfx-arm64").exists(),
         "obsolete no-op ttfx compatibility command is absent",
     )
+    check(
+        "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure,
+        "Traditional Chinese locale is generated alongside English so it can be opted into",
+    )
+    check(
+        "LANG=en_US.UTF-8" in configure and "KEYMAP=us" in configure,
+        "default session language and keyboard layout stay English/US for a user who never opts into zh-TW",
+    )
     check("omarchy-provision-owner.service" in configure, "first boot uses upstream owner provisioning")
     native_autologin = read(
         GUEST
@@ -746,6 +754,32 @@ def main() -> None:
         "ExecStartPost=" in native_autologin
         and "omarchy-provision-autologin-once.service" in native_autologin,
         "native provisioning keeps direct graphical login across VM boots",
+    )
+    check(
+        'install -d -m 0755 "$root/etc/skel/.config/fcitx5"' in configure
+        and "fragments/fcitx5-profile.ini" in configure
+        and '"$root/etc/skel/.config/fcitx5/profile"' in configure,
+        "every new user's skeleton home gets the fcitx5 input profile seeded, not just the package",
+    )
+    fcitx5_profile = read(GUEST / "fragments/fcitx5-profile.ini")
+    check(
+        fcitx5_profile.index("Name=keyboard-us") < fcitx5_profile.index("Name=chewing")
+        and "DefaultIM=keyboard-us" in fcitx5_profile,
+        "US keyboard stays the default input method, so a user who never triggers the IME sees no change",
+    )
+    check(
+        'chromium_flags="$root/etc/skel/.config/chromium-flags.conf"' in configure
+        and "[[ -f $chromium_flags ]] || fail" in configure
+        and 'cat "$guest_dir/fragments/chromium-flags-wayland-ime.append.conf" >>"$chromium_flags"'
+        in configure,
+        "the wayland-ime flag is appended to Chromium's existing flags, never overwriting Basecamp's upstream ones",
+    )
+    chromium_ime_flag = read(
+        GUEST / "fragments/chromium-flags-wayland-ime.append.conf"
+    )
+    check(
+        "--enable-wayland-ime" in chromium_ime_flag,
+        "Chromium launches with the flag fcitx5 needs to reach Wayland text fields",
     )
     fcitx_guard = read(
         GUEST / "native-overlay/etc/systemd/user/omarchy-fcitx5.service.d/10-guard.conf"
@@ -889,6 +923,43 @@ def main() -> None:
         "[zram0]" in zram_override
         and "compression-algorithm = lzo-rle" in zram_override,
         "factory zram uses the ARM kernel's supported lzo-rle backend",
+    )
+    cjk_fontconfig = read(
+        GUEST / "factory-overlay/etc/fonts/conf.d/30-try-omarchy.conf"
+    )
+    check(
+        all(f"<string>{lang}</string>" in cjk_fontconfig for lang in ("zh-tw", "zh-hant"))
+        and all(
+            f"<string>Noto {kind} CJK TC</string>" in cjk_fontconfig
+            for kind in ("Sans", "Serif", "Sans Mono")
+        ),
+        "zh-TW and zh-Hant text prefers Traditional Chinese Han glyphs over Simplified or Japanese variants for sans, serif, and monospace",
+    )
+    check(
+        'mode="prepend" binding="strong"' in cjk_fontconfig
+        and all(
+            f"<string>{family}</string>" in cjk_fontconfig
+            for family in ("sans-serif", "serif", "monospace")
+        ),
+        "the Traditional Chinese font preference is scoped to generic sans/serif/monospace requests and wins over later fontconfig stages",
+    )
+    environment_conf = read(
+        GUEST / "factory-overlay/usr/lib/environment.d/90-try-omarchy.conf"
+    )
+    environment_assignments = [
+        line.split("#", 1)[0].strip() for line in environment_conf.splitlines()
+    ]
+    environment_assignments = [line for line in environment_assignments if line]
+    check(
+        "XMODIFIERS=@im=fcitx" in environment_assignments,
+        "XWayland apps can still reach fcitx5, since they only speak the legacy XIM protocol",
+    )
+    check(
+        not any(
+            re.match(r"(GTK_IM_MODULE|QT_IM_MODULE)\s*=", line)
+            for line in environment_assignments
+        ),
+        "GTK4/Qt6 apps stay on native Wayland text-input-v3 for fcitx5 instead of being forced onto the legacy im-module path globally",
     )
     check(
         '"$root/usr/bin/omarchy-audio-input-set-default"' in configure
