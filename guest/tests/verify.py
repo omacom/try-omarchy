@@ -130,9 +130,79 @@ def main() -> None:
         "SSH preset and boot activation are an exact loopback-only runtime contract",
     )
     check(spec["runtime"]["storage"]["expandedSizeMiB"] == 24576, "working disk expands to 24 GiB")
-    check(set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig"}, "spec has a minimal input set")
-    for path in spec["inputs"].values():
-        check((GUEST / path).is_file(), f"spec input exists: {path}")
+    check(
+        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins"},
+        "spec has a minimal input set",
+    )
+    for key, value in spec["inputs"].items():
+        if key == "abiPackagePins":
+            continue
+        check((GUEST / value).is_file(), f"spec input exists: {value}")
+    abi_pins = spec["inputs"]["abiPackagePins"]
+    check(
+        abi_pins == [{"name": "aquamarine", "version": "0.14.0-2"}, {"name": "hyprtoolkit", "version": "0.5.4-6.1"}],
+        "factory abi pins keep aquamarine on libaquamarine.so=13 for the locked Hyprland",
+    )
+    aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
+    pkgbuild = GUEST / aquamarine.get("pkgbuild", "")
+    pkgbuild_text = pkgbuild.read_text() if pkgbuild.is_file() else ""
+    check(
+        aquamarine
+        == {
+            "version": "0.14.0",
+            "pkgrel": "2",
+            "repository": "https://github.com/hyprwm/aquamarine",
+            "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+            "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+            "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+            "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+            "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+            "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+            "license": "BSD-3-Clause",
+            "binarySha256": "7da003aa60e008e9f514c312f01c1e967983e2c46732d58953735bfaee3fd8aa",
+        }
+        and pkgbuild.is_file()
+        and hashlib.sha256(pkgbuild.read_bytes()).hexdigest() == aquamarine["pkgbuildSha256"]
+        and f"sha256sums=('{aquamarine['sha256']}')" in pkgbuild_text
+        and "pkgver=0.14.0" in pkgbuild_text
+        and "pkgrel=2" in pkgbuild_text,
+        "factory rebuilds aquamarine 0.14 from the reviewed Arch PKGBUILD and upstream tarball",
+    )
+    hyprtoolkit = spec.get("supplyChain", {}).get("hyprtoolkit", {})
+    toolkit_recipe = GUEST / hyprtoolkit.get("pkgbuild", "")
+    check(
+        hyprtoolkit == {
+    "version": "0.5.4",
+    "pkgrel": "6.1",
+    "repository": "https://github.com/hyprwm/hyprtoolkit",
+    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
+    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
+    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
+    "pkgbuildSha256": "803f1db19ad1d42e48b638e35256d3dabbe19d1d0b4b3fd584eedf20121256ce",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
+    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
+    "license": "BSD-3-Clause",
+    "binarySha256": "dc814fad9723bfcf66dbd29b7f8c5cc96fd63a1ff623909e466dd9d011c0cba8"
+}
+        and toolkit_recipe.is_file()
+        and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
+        "factory rebuilds Hyprtoolkit against the compatible aquamarine ABI",
+    )
+    builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
+    build_aquamarine = read(GUEST / "scripts/build-pinned-abi-packages.sh")
+    check(
+        "try-omarchy-abi-pins" in builder_conf_writer
+        and "drop_ignore" in builder_conf_writer
+        and "reproducible rebuild" in builder_conf_writer
+        and "write-builder-pacman-conf.py" in read(GUEST / "build.sh")
+        and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh")
+        and "build-pinned-abi-packages.sh" in read(GUEST / "build.sh")
+        and "build-pinned-abi-packages.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
+        and "download digest mismatch" in build_aquamarine
+        and "reproducible library digest mismatch" in build_aquamarine
+        and "ABI source archive has an unsafe member set" in build_aquamarine,
+        "factory builder pacman derivation rebuilds abi pins from source and strips them from IgnorePkg",
+    )
 
     wallpaper = DEFAULT_WALLPAPER.read_bytes()
     check(
@@ -171,6 +241,12 @@ def main() -> None:
             "notification-hover-close",
             "notification-screen-privacy",
             "update-free-space-message",
+            "pkg-add-aarch64-unavailable",
+            "pkg-aur-add-aarch64-unavailable",
+            "dropbox-aarch64-unavailable",
+            "geforce-now-aarch64-unavailable",
+            "battlenet-aarch64-unavailable",
+            "lutris-aarch64-unavailable",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -199,6 +275,82 @@ def main() -> None:
         and "/usr/share/try-omarchy/build-spec.json" in update_free_space_patch
         and "df -h /" in update_free_space_patch,
         "update free-space backport clarifies the guest VM disk requirement",
+    )
+    geforce_unavailable_patch = read(GUEST / "patches/omarchy/geforce-now-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm 'NVIDIA GeForce NOW'" in geforce_unavailable_patch,
+        "GeForce NOW aarch64 backport fails via the shared unavailable helper",
+    )
+    battlenet_unavailable_patch = read(GUEST / "patches/omarchy/battlenet-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm 'Battle.net'" in battlenet_unavailable_patch,
+        "Battle.net aarch64 backport fails via the shared unavailable helper",
+    )
+    lutris_unavailable_patch = read(GUEST / "patches/omarchy/lutris-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm Lutris" in lutris_unavailable_patch,
+        "Lutris aarch64 backport fails via the shared unavailable helper",
+    )
+    dropbox_unavailable_patch = read(GUEST / "patches/omarchy/dropbox-aarch64-unavailable.patch")
+    check(
+        "exec omarchy-pkg-unavailable-arm Dropbox" in dropbox_unavailable_patch
+        and "omarchy-plugin-enable omarchy.dropbox" in dropbox_unavailable_patch,
+        "Dropbox aarch64 backport stops before tray setup via the shared unavailable helper",
+    )
+    pkg_add_patch = read(GUEST / "patches/omarchy/omarchy-pkg-add-aarch64-unavailable.patch")
+    pkg_aur_patch = read(GUEST / "patches/omarchy/omarchy-pkg-aur-add-aarch64-unavailable.patch")
+    check(
+        "/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable" in pkg_add_patch
+        and "/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable" in pkg_aur_patch,
+        "pkg-add/pkg-aur-add backports refuse known aarch64-unavailable packages",
+    )
+    arch_helper = GUEST / "native-overlay/usr/local/bin/omarchy-arch-aarch64"
+    unavailable_helper = GUEST / "native-overlay/usr/local/bin/omarchy-pkg-unavailable-arm"
+    refuse_helper = GUEST / "native-overlay/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable"
+    unavailable_packages = GUEST / "native-overlay/usr/local/share/try-omarchy/aarch64-unavailable-packages"
+    check(
+        arch_helper.is_file()
+        and arch_helper.stat().st_mode & stat.S_IXUSR != 0
+        and '[[ $(uname -m) == aarch64 ]]' in read(arch_helper),
+        "aarch64 architecture predicate ships in the native overlay",
+    )
+    check(
+        unavailable_helper.is_file()
+        and unavailable_helper.stat().st_mode & stat.S_IXUSR != 0
+        and "not available via pacman/AUR for aarch64 at this time."
+        in read(unavailable_helper),
+        "shared aarch64 unavailable helper ships in the native overlay",
+    )
+    check(
+        refuse_helper.is_file()
+        and refuse_helper.stat().st_mode & stat.S_IXUSR != 0
+        and "aarch64-unavailable-packages" in read(refuse_helper)
+        and "omarchy-pkg-unavailable-arm" in read(refuse_helper),
+        "aarch64 unavailable package refuse helper ships in the native overlay",
+    )
+    check(
+        not (GUEST / "native-overlay/usr/local/bin/omarchy-pkg-add").exists()
+        and not (GUEST / "native-overlay/usr/local/bin/omarchy-pkg-aur-add").exists(),
+        "pkg-add refusal is authenticity-backed rather than PATH-wrapped",
+    )
+    unavailable_package_text = read(unavailable_packages)
+    check(
+        unavailable_packages.is_file()
+        and "ghostty\tGhostty" in unavailable_package_text
+        and "microsoft-edge-stable-bin\tEdge" in unavailable_package_text
+        and "spotify\tSpotify" in unavailable_package_text
+        and "dropbox\tDropbox" in unavailable_package_text
+        and "cursor-bin\tCursor" in unavailable_package_text
+        and "grok-bot\tGrok Bot" in unavailable_package_text
+        and "lmstudio-bin\tLM Studio" in unavailable_package_text
+        and "steam\tSteam" in unavailable_package_text
+        and "minecraft-launcher\tMinecraft" in unavailable_package_text
+        and "heroic-games-launcher-bin\tHeroic" in unavailable_package_text
+        and "umu-launcher\tWine game launcher" not in unavailable_package_text
+        and "wine-staging\tWine" not in unavailable_package_text
+        and "wine-mono\tWine" not in unavailable_package_text
+        and "wine-gecko\tWine" not in unavailable_package_text,
+        "aarch64 unavailable package denylist covers Install gaps without globally blocking Wine/umu",
     )
 
     post_build_installers = authenticity["postBuildUserInstallers"]
@@ -251,7 +403,7 @@ def main() -> None:
         "factory pacman retains the ARM Omarchy keyring repository",
     )
     check(
-        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine"
+        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit"
         in pacman_conf,
         "factory pacman holds the QEMU-booted kernel, matching headers, patched compositor, and its aquamarine ABI",
     )
@@ -271,6 +423,11 @@ def main() -> None:
     )
     packages = package_lock.get("packages")
     check(isinstance(packages, dict) and len(packages) > 100, "package transaction is fully locked")
+    for pin in spec["inputs"]["abiPackagePins"]:
+        check(
+            packages.get(pin["name"]) == pin["version"],
+            f"abi pin version matches the transaction lock: {pin['name']}",
+        )
     requested_packages = {
         line.strip()
         for line in package_text.decode().splitlines()
@@ -412,11 +569,11 @@ def main() -> None:
             "url": "https://github.com/omacom-io/ttfx/archive/refs/tags/v0.3.2.tar.gz",
             "sha256": "d0c0df4867e7f03142fb7f77c66670d0e8da15534239c1a7abfd89f19dfc00f6",
             "cargoLockSha256": "49e2091962fc4d425b4cf3bde1a105719b5b50eed0583ec90e85922adb45e2ce",
-            "binarySha256": "9171a07c752b202a21f80a4ad336a9d093be06a6c96b062e8b5e0c158d2a86d2",
+            "binarySha256": "d034cc5b9a8d410ce93113ef0a5d27b5ee2327948562bf2b0e756eebd326fa8f",
             "target": "aarch64-unknown-linux-gnu",
-            "rustPackageVersion": "rust 1:1.98.0-1",
-            "rustcVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Arch Linux rust 1:1.98.0-1)",
-            "cargoVersion": "cargo 1.98.0 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.0-1)",
+            "rustPackageVersion": "rust 1:1.98.1-1",
+            "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1)",
+            "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
             "reportedVersion": "ttfx 0.3.2",
             "license": "MIT",
             "licenseSha256": "175441de2eb9a0d3f0627c404ad71929336fd98d75926cc27b9e364d35cc7977",
@@ -443,13 +600,13 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "c668b05275f2d5cbff66fdb8f4ea4cbbfb7d5a7f9e682f358f3fbcff8494c68a",
+            "binarySha256": "b0c96f3057f9f4000c5e50adba0f6020dd7f63747e64371adcd4b30b97eabdb9",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
                 "base-devel": "1-2",
                 "binutils": "2.46+r70+g155188ea10a7-1",
-                "cmake": "4.4.3-1",
+                "cmake": "4.4.3-2",
                 "gcc": "16.1.1+r12+g301eb08fa2c5-1",
                 "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
                 "glibc": "2.43+r22+g8362e8ce10b2-2",
@@ -458,7 +615,7 @@ def main() -> None:
                 "make": "4.4.1-3",
                 "meson": "1.12.0-1",
                 "ninja": "1.13.2-3",
-                "pkgconf": "3.0.6-1",
+                "pkgconf": "3.0.7-1",
                 "xorgproto": "2025.1-1",
             },
         }
@@ -499,7 +656,11 @@ def main() -> None:
         'supply_chain.get("hyprland")' in launcher
         and '"build spec hyprland component"' in launcher
         and '"build spec hyprland build packages"' in launcher
-        and hyprland_identity in launcher,
+        and hyprland_identity in launcher
+        and 'supply_chain.get("aquamarine")' in launcher
+        and '"build spec aquamarine component"' in launcher
+        and aquamarine["pkgbuildSha256"] in launcher
+        and aquamarine["binarySha256"] in launcher,
         "native launcher accepts and pins the patched Hyprland component",
     )
     check(
@@ -551,7 +712,7 @@ def main() -> None:
     check("try-omarchy-guest-work" in container, "guest cache has a project-scoped Docker volume")
     containerfile = read(GUEST / "Containerfile")
     check(
-        "arch-install-scripts e2fsprogs git python rust=1:1.98.0-1 zstd" in containerfile,
+        "arch-install-scripts e2fsprogs git python rust=1:1.98.1-1 zstd" in containerfile,
         "guest builder pins Rust for source-built components",
     )
 
@@ -564,6 +725,13 @@ def main() -> None:
     )
 
     configure = read(GUEST / "scripts/configure-rootfs.sh")
+    check(
+        '"$root/usr/local/bin/omarchy-arch-aarch64"' in configure
+        and '"$root/usr/local/bin/omarchy-pkg-unavailable-arm"' in configure
+        and '"$root/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable"' in configure
+        and "aarch64-unavailable-packages" in configure,
+        "rootfs configuration marks the aarch64 availability helpers executable",
+    )
     check("factory-overlay" in configure and "native-overlay" in configure, "rootfs receives only native factory overlays")
     check(
         "compat/ttfx-arm64" not in configure and not (GUEST / "compat/ttfx-arm64").exists(),
@@ -926,6 +1094,13 @@ def main() -> None:
     check(
         "**Hyprland**" in third_party_notices and "BSD-3-Clause" in third_party_notices,
         "third-party notices cover the patched Hyprland redistribution",
+    )
+    check(
+        "**aquamarine**" in third_party_notices
+        and "hyprwm/aquamarine" in third_party_notices
+        and "PKGBUILD" in third_party_notices
+        and "IgnorePkg" in third_party_notices,
+        "third-party notices cover the rebuilt aquamarine ABI pin",
     )
     check(
         "**Glaze**" in third_party_notices and "MIT" in third_party_notices,

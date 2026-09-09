@@ -191,6 +191,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let savePortForwarding: ([PortForwardMapping]) -> String?
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
+    private let memoryChoiceMiB: () -> Int
+    private let setMemoryChoiceMiB: (Int) -> Void
+    private let hostMemoryMiB: () -> Int
     private let launch: () -> Void
     private let canResetStorage: Bool
     private let storageLocation: () -> String?
@@ -271,6 +274,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         savePortForwarding: @escaping ([PortForwardMapping]) -> String? = { _ in nil },
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
+        memoryChoiceMiB: @escaping () -> Int = { MemoryPolicy.defaultMemoryMiB },
+        setMemoryChoiceMiB: @escaping (Int) -> Void = { _ in },
+        hostMemoryMiB: @escaping () -> Int = { MemoryPolicy.hostMemoryMiB() },
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -295,10 +301,13 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.savePortForwarding = savePortForwarding
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
+        self.memoryChoiceMiB = memoryChoiceMiB
+        self.setMemoryChoiceMiB = setMemoryChoiceMiB
+        self.hostMemoryMiB = hostMemoryMiB
         self.launch = launch
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 760),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 832),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -324,12 +333,13 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func prepareForPresentation(visibleFrame: NSRect?) {
         render()
         if let visibleFrame {
-            // The menu carries six rows once a resettable VM can choose where it
-            // lives. At 690 the launch button cleared the bottom edge by 15pt,
-            // which any difference in system font metrics turned into a button
-            // clipped off the window.
+            // The memory row added one 72pt row to the menu that previously
+            // fit at 760. At 690 the launch button cleared the bottom edge by
+            // 15pt, which any difference in system font metrics turned into a
+            // button clipped off the window; on displays shorter than the
+            // window the content scrolls rather than clips.
             let availableHeight = max(480, visibleFrame.height - 32)
-            window.setContentSize(NSSize(width: 600, height: min(760, availableHeight)))
+            window.setContentSize(NSSize(width: 600, height: min(832, availableHeight)))
         }
     }
 
@@ -560,6 +570,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
         let immersiveRow = immersiveSettingRow(isEnabled: immersiveMode())
 
+        let memoryPresentation = StartMenuPresentation.memory(
+            preferredMiB: memoryChoiceMiB(),
+            hostMemoryMiB: hostMemoryMiB()
+        )
+        let memoryRow = memorySettingRow(presentation: memoryPresentation)
+
         let storageStatus = storageLocationStatus()
         var storageRow: NSView?
         if let storagePath = storageLocation() {
@@ -616,7 +632,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [portForwardingRow, immersiveRow])
+        integrationRowViews.append(contentsOf: [memoryRow, portForwardingRow, immersiveRow])
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1146,6 +1162,83 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return row
+    }
+
+    private func memorySettingRow(presentation: StartMenuMemoryPresentation) -> NSView {
+        let symbol = NSImageView()
+        symbol.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
+        symbol.contentTintColor = OmarchyStartMenuTheme.accent
+        symbol.identifier = NSUserInterfaceItemIdentifier("memory-symbol")
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 26),
+            symbol.heightAnchor.constraint(equalToConstant: 26),
+        ])
+
+        let title = NSTextField(labelWithString: "Memory")
+        title.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
+        title.textColor = OmarchyStartMenuTheme.foreground
+        title.identifier = NSUserInterfaceItemIdentifier("memory-title")
+
+        let detail = NSTextField(wrappingLabelWithString: presentation.detail)
+        detail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        detail.textColor = OmarchyStartMenuTheme.muted
+        detail.maximumNumberOfLines = 2
+        detail.identifier = NSUserInterfaceItemIdentifier("memory-caption")
+
+        let labels = NSStackView(views: [title, detail])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 3
+        labels.translatesAutoresizingMaskIntoConstraints = false
+
+        let popup = NSPopUpButton()
+        popup.addItems(withTitles: presentation.choiceTitles)
+        // Each item carries its own MiB value, so the selection callback needs
+        // no separate index-to-value state that a re-render could desync.
+        for (item, choiceMiB) in zip(popup.itemArray, presentation.choicesMiB) {
+            item.tag = choiceMiB
+        }
+        popup.selectItem(at: presentation.selectedIndex)
+        popup.target = self
+        popup.action = #selector(changeMemoryChoice(_:))
+        popup.isEnabled = presentation.isAdjustable
+            && !microphoneRequestInFlight
+            && !cameraRequestInFlight
+            && !launchInProgress
+            && !resetInProgress
+        popup.identifier = NSUserInterfaceItemIdentifier("memory-popup")
+        popup.setAccessibilityLabel("Memory")
+        popup.setAccessibilityTitleUIElement(title)
+        popup.setAccessibilityHelp(presentation.detail)
+        popup.translatesAutoresizingMaskIntoConstraints = false
+
+        let row = NSView()
+        row.identifier = NSUserInterfaceItemIdentifier("memory-row")
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(symbol)
+        row.addSubview(labels)
+        row.addSubview(popup)
+        NSLayoutConstraint.activate([
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
+            symbol.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            symbol.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            labels.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
+            labels.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: popup.leadingAnchor, constant: -12),
+            popup.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            popup.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+        ])
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return row
+    }
+
+    @objc private func changeMemoryChoice(_ sender: NSPopUpButton) {
+        guard !launchInProgress, !resetInProgress else { return }
+        guard let choiceMiB = sender.selectedItem?.tag, choiceMiB > 0 else { return }
+        setMemoryChoiceMiB(choiceMiB)
     }
 
     @objc private func beginAccessibilityRequest() {
