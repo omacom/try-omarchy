@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Fold a host-chosen UI locale (tryomarchy.locale=<value> on the kernel
+# command line) into this boot's graphical session, without ever touching
+# /etc/locale.conf: LANG stays en_US.UTF-8 for anyone who never sets the
+# token. /run/environment.d is the runtime tier of environment.d (see
+# environment.d(5)): systemd-environment-d-generator folds it into the user
+# manager's environment the same way factory-overlay's 90-try-omarchy.conf
+# already delivers XMODIFIERS, and /run is cleared every boot, so this
+# generator still never writes persistent state.
+
+set -eu
+
+[ "$#" -eq 3 ] || exit 64
+normal_output=$1
+[ -d "$normal_output" ] && [ ! -L "$normal_output" ] || exit 1
+
+command_line=""
+IFS= read -r command_line </proc/cmdline || exit 1
+locale=""
+set -f
+for argument in $command_line; do
+  case $argument in
+    tryomarchy.locale=*)
+      locale=${argument#tryomarchy.locale=}
+      ;;
+  esac
+done
+[ -n "$locale" ] || exit 0
+
+# Allowlist: only locales configure-rootfs.sh actually generates into
+# /etc/locale.gen. The kernel command line is attacker-influenced in
+# principle and this value ends up in the session environment, so anything
+# else is ignored rather than trusted or shell-interpolated.
+case $locale in
+  en_US.UTF-8 | zh_TW.UTF-8) ;;
+  *) exit 0 ;;
+esac
+
+environment_d=/run/environment.d
+if [ -e "$environment_d" ] || [ -L "$environment_d" ]; then
+  [ -d "$environment_d" ] && [ ! -L "$environment_d" ] || exit 1
+else
+  mkdir "$environment_d"
+fi
+printf 'LANG=%s\n' "$locale" >"$environment_d/91-try-omarchy-locale.conf"
