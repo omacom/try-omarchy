@@ -37,6 +37,16 @@ struct StartMenuPortForwardingPresentation: Equatable {
     let grantedStatusLabel: String
 }
 
+struct StartMenuLanguagePresentation: Equatable {
+    let detail: String
+    /// True once a non-default guest locale is selected. Only affects the
+    /// row's status dot color, mirroring how `sharedFolder` and
+    /// `portForwarding` treat "the optional setting is turned on."
+    let isNonDefault: Bool
+    let statusLabel: String
+    let actionTitle: String
+}
+
 /// Pure presentation rules for the start menu. Keeping user-visible state out
 /// of AppKit makes the important behavior testable without relying on window
 /// positions, font metrics, run-loop timing, or the current display size.
@@ -224,5 +234,22 @@ enum StartMenuPresentation {
         isEnabled
             ? "Omarchy opens Full Screen with the Mac menu bar and Dock hidden."
             : "Omarchy opens in a window with the Mac menu bar and Dock available."
+    }
+
+    static func language(state: LanguageMenuState) -> StartMenuLanguagePresentation {
+        guard let selected = state.selectedLocale else {
+            return StartMenuLanguagePresentation(
+                detail: "Omarchy boots in English, this Mac’s system default.",
+                isNonDefault: false,
+                statusLabel: "○  English",
+                actionTitle: "Switch to \(GuestLocaleCatalog.traditionalChinese.displayName)"
+            )
+        }
+        return StartMenuLanguagePresentation(
+            detail: "Omarchy boots in \(selected.displayName).",
+            isNonDefault: true,
+            statusLabel: "●  \(selected.displayName)",
+            actionTitle: "Use English (Default)"
+        )
     }
 }
