@@ -184,6 +184,12 @@ creates the account on first boot.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain
   unchanged.
+- Traditional Chinese is available to opt into without changing the default
+  session: `zh_TW.UTF-8` is generated alongside `en_US.UTF-8`, fcitx5 is
+  seeded with US and Chewing (Bopomofo) input, a fontconfig rule prefers
+  Traditional Chinese Han glyph variants for `zh-TW` text, and Chromium is
+  launched with the Wayland IME flag it needs to receive fcitx5 input at all.
+  `LANG` and `KEYMAP` stay `en_US`/`us` for a user who never touches the IME.
 
 Nothing is overwritten while the app runs. The app bundle and packaged factory
 disk remain unchanged. Normal user launches use one private writable disk under
