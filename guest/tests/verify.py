@@ -1512,7 +1512,9 @@ def main() -> None:
         'o.exec_on_start("/usr/local/bin/omarchy-native-display-sync")'
         in monitor_fragment
         and 'omarchy_kernel_option_enabled("omarchy.qemu_virgl=1")' in monitor_fragment
-        and "cursor = { invisible = true }" in monitor_fragment,
+        and "cursor = { invisible = true }" in monitor_fragment
+        and 'hl.on("config.reloaded", function()' in monitor_fragment
+        and 'hl.exec_cmd("/usr/local/bin/omarchy-native-display-sync --once")' in monitor_fragment,
         "ARM VirGL profile starts display sync and uses the host-composited cursor",
     )
     with tempfile.TemporaryDirectory() as temporary:
@@ -1582,6 +1584,8 @@ HOTPLUG=1
         environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
         environment["HYPRCTL_LOG"] = str(reload_log)
         environment["OMARCHY_DISPLAY_SYNC_DRM_ROOT"] = str(drm_root)
+        monitor_config = temporary_path / "monitors.lua"
+        environment["OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG"] = str(monitor_config)
         subprocess.run(
             [str(display_sync), "--from-stdin"],
             input=events,
@@ -1598,6 +1602,59 @@ HOTPLUG=1
                 'eval hl.monitor({ output = "", mode = "modeline 149 1920 2008 2052 2200 1080 1084 1089 1125 -hsync -vsync", scale = "1" })',
             ],
             "native display sync handles QEMU DisplayID and legacy EDID hotplug modes",
+        )
+
+        expected_auto = reload_log.read_text(encoding="utf-8").splitlines()[:2]
+
+        def sync_once():
+            reload_log.write_text("", encoding="utf-8")
+            subprocess.run(
+                [str(display_sync), "--once"],
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                timeout=5,
+                check=True,
+            )
+            return reload_log.read_text(encoding="utf-8").splitlines()
+
+        check(
+            sync_once() == expected_auto,
+            "config reload resync applies live modes without waiting for a hotplug event",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 1.25 -- user zoom\n")
+        expected_zoom = [re.sub(r'scale = "[^"]+"', 'scale = "1.25"', line) for line in expected_auto]
+        check(sync_once() == expected_zoom, "reload resync preserves explicit user zoom")
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_zoom,
+            "hotplug resync also preserves explicit user zoom",
+        )
+        # A later configuration reload must not reuse the prior zoom or EDID.
+        monitor_config.write_text("local omarchy_monitor_scale = 2\n")
+        (connector / "edid").write_bytes(legacy_edid)
+        expected_resized = expected_auto[1].replace('scale = "1"', 'scale = "2"')
+        check(
+            sync_once() == [expected_resized, expected_resized],
+            "resync rereads a resized display and a newly selected zoom",
+        )
+        # 1920x1080 cannot use exactly 1.7: select a valid nearby scale (5/3).
+        monitor_config.write_text("local omarchy_monitor_scale = 1.7\n")
+        check(
+            all('scale = "1.666667"' in line for line in sync_once()),
+            "resized displays select the nearest scale with integral logical dimensions",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [expected_auto[1], expected_auto[1]],
+            "returning to automatic zoom restores live EDID density scaling",
         )
 
     shell_files = [

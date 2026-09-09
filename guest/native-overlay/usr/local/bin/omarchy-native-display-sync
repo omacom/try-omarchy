@@ -3,10 +3,12 @@
 set -euo pipefail
 
 drm_root=${OMARCHY_DISPLAY_SYNC_DRM_ROOT:-/sys/class/drm}
+monitor_config=${OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.lua}
 
 preferred_mode_from_edid() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "$monitor_config" <<'PY'
 import pathlib
+import re
 import sys
 from math import hypot
 
@@ -70,15 +72,30 @@ def scale_for_mode(
     physical_width_mm: int,
     physical_height_mm: int,
 ) -> str:
-    if physical_width_mm <= 0 or physical_height_mm <= 0:
-        return "auto"
+    # Omarchy's scaling controls write a numeric local in monitors.lua. Read it
+    # on each resync so a running hotplug watcher also sees later zoom changes.
+    # Auto/missing settings retain the live EDID's density-based scale.
+    requested = None
+    try:
+        config = pathlib.Path(sys.argv[2]).read_text()
+        match = re.search(
+            r"^\s*local\s+omarchy_monitor_scale\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?:--[^\n]*)?$",
+            config,
+            re.MULTILINE,
+        )
+        if match and 0.25 <= float(match.group(1)) <= 4:
+            requested = float(match.group(1))
+    except OSError:
+        pass
 
-    diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
-    if diagonal_inches <= 0:
-        return "auto"
-
-    ppi = hypot(width, height) / diagonal_inches
-    requested = 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
+    if requested is None:
+        if physical_width_mm <= 0 or physical_height_mm <= 0:
+            return "auto"
+        diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
+        if diagonal_inches <= 0:
+            return "auto"
+        ppi = hypot(width, height) / diagonal_inches
+        requested = 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
 
     # Hyprland requires the scaled logical dimensions to land on whole pixels.
     # It searches scale values in 1/120 increments around the requested value;
@@ -304,6 +321,13 @@ reload_on_display_change() {
     apply_preferred_modes
   fi
 }
+
+# Config reloads can restore Aquamarine's cached preferred mode without a
+# DRM hotplug event. Re-read the live EDID once, without starting a watcher.
+if [[ ${1:-} == --once ]]; then
+  apply_preferred_modes
+  exit 0
+fi
 
 if [[ ${1:-} == --from-stdin ]]; then
   reload_on_display_change

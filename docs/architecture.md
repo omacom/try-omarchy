@@ -278,3 +278,19 @@ installer uses the declared sources and authenticates downloaded vendor
 artifacts against an explicit signing identity. Invoking an optional installer
 is the user's
 decision to cross that post-build boundary.
+
+### Guest display synchronization
+
+QEMU publishes the Cocoa window's current backing-pixel dimensions through
+Virtio GPU EDID. The guest's `omarchy-native-display-sync` helper applies those
+live timings at startup and on DRM hotplug events. The Hyprland monitor fragment
+also invokes the helper with `--once` after `config.reloaded`: a configuration
+reload can restore a cached preferred mode without emitting a hotplug event,
+leaving the rendered desktop and absolute pointer coordinates out of sync.
+
+Both paths reread Omarchy's numeric `omarchy_monitor_scale` setting from
+`~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set). An automatic or
+absent setting uses the live EDID's pixel density. If a resized display cannot
+represent the requested zoom exactly, the helper selects the nearest supported
+scale with integral logical dimensions. Explicit per-output monitor rules still
+take precedence over the helper's catch-all rule.
