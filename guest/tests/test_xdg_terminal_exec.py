@@ -60,7 +60,7 @@ class XdgTerminalExecTests(unittest.TestCase):
         environment.pop("XDG_CURRENT_DESKTOP", None)
         environment.update(env)
         return subprocess.run(
-            [str(HELPER), *arguments],
+            [environment.pop("XDG_TERMINAL_TEST_HELPER", str(HELPER)), *arguments],
             check=False,
             env=environment,
             stdin=subprocess.DEVNULL,
@@ -153,6 +153,54 @@ class XdgTerminalExecTests(unittest.TestCase):
         result = self.run_helper()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text(encoding="utf-8"), "alacritty:\n")
+
+    def test_factory_wrappers_require_executable_package_binary(self) -> None:
+        source = HELPER.parents[4] / "native-overlay/usr/local/bin/alacritty"
+        package_bin = self.root / "usr/bin"
+        package_bin.mkdir(parents=True)
+        helper = self.root / "xdg-terminal-exec"
+        helper.write_text(
+            HELPER.read_text().replace("/usr/local/bin/", f"{self.commands}/")
+            .replace("/usr/bin/", f"{package_bin}/")
+        )
+        helper.chmod(0o755)
+        self.write_command("foot")
+        for name, desktop_id in (("alacritty", "Alacritty.desktop"), ("kitty", "kitty.desktop")):
+            wrapper = self.commands / name
+            real = package_bin / name
+            wrapper.write_text(
+                source.read_text().replace("alacritty", name)
+                .replace(f"real=/usr/bin/{name}", f"real={real}")
+            )
+            wrapper.chmod(0o755)
+            self.write_list(desktop_id, "foot.desktop")
+            for availability in ("missing", "not-executable", "installed"):
+                with self.subTest(terminal=name, availability=availability):
+                    if availability != "missing":
+                        real.write_text(
+                            '#!/bin/bash\n'
+                            'printf "%s\\n" "$LIBGL_ALWAYS_SOFTWARE:$*" >"$XDG_TERMINAL_TEST_LOG"\n'
+                        )
+                        real.chmod(0o755 if availability == "installed" else 0o644)
+                    cmdline = self.root / "cmdline"
+                    cmdline.write_text("omarchy.qemu_virgl=1\n")
+                    environment = {
+                        "OMARCHY_ALACRITTY_CMDLINE": str(cmdline),
+                        "XDG_TERMINAL_TEST_HELPER": str(helper),
+                        "LIBGL_ALWAYS_SOFTWARE": "0",
+                    }
+                    printed = self.run_helper("--print-id", **environment)
+                    expected = desktop_id if availability == "installed" else "foot.desktop"
+                    self.assertEqual(printed.returncode, 0, printed.stderr)
+                    self.assertEqual(printed.stdout.strip(), expected)
+                    launched = self.run_helper("--title=hello world", "echo", "ok", **environment)
+                    self.assertEqual(launched.returncode, 0, launched.stderr)
+                    expected_launch = (
+                        "1:--title=hello world -e echo ok\n" if name == "alacritty"
+                        else "1:--title=hello world -- echo ok\n"
+                    ) if availability == "installed" else "foot:--title=hello world -e echo ok\n"
+                    self.assertEqual(self.log.read_text(), expected_launch)
+                    self.log.write_text("")
 
     def test_desktop_specific_preference_file(self) -> None:
         self.write_command("kitty", "foot")

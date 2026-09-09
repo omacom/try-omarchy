@@ -42,10 +42,16 @@ list_preferences() {
 }
 
 selected_desktop_id() {
-  local desktop_id command_name
+  local desktop_id command_name resolved
   while IFS= read -r desktop_id; do
     command_name=$(command_for_desktop "$desktop_id") || continue
-    if command -v "$command_name" >/dev/null 2>&1; then
+    resolved=$(command -v "$command_name") || continue
+    case "$resolved" in
+      /usr/local/bin/alacritty|/usr/local/bin/kitty)
+        [[ -x /usr/bin/$command_name ]] || continue
+        ;;
+    esac
+    if [[ -n $resolved ]]; then
       printf '%s\n' "$desktop_id"
       return 0
     fi
