@@ -77,6 +77,7 @@ chmod 0755 \
   "$root/usr/bin/omarchy-screensaver" \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
   "$root/usr/local/bin/alacritty" \
+  "$root/usr/local/bin/kitty" \
   "$root/usr/local/bin/omarchy-arch-aarch64" \
   "$root/usr/local/bin/omarchy-pkg-unavailable-arm" \
   "$root/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable" \

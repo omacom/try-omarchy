@@ -41,6 +41,10 @@ struct StartMenuPortForwardingPresentation: Equatable {
 /// of AppKit makes the important behavior testable without relying on window
 /// positions, font metrics, run-loop timing, or the current display size.
 enum StartMenuPresentation {
+    static func resources(_ resources: VMResources) -> String {
+        "\(resources.cpuCount) processor cores · \(resources.memoryGiB) GiB memory"
+    }
+
     static let incompatibleWorkspaceDetail = "The saved VM uses a storage or boot format this version can’t use, or its data folder contains multiple saved VMs. Reset Omarchy to create a compatible VM. Resetting permanently erases everything in the VM."
 
     static let bootRecoveryConfirmationTitle = "Prepare this saved VM once?"

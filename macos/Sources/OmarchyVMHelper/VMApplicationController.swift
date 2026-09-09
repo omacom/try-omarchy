@@ -54,7 +54,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let sharedFolderStore: SharedFolderPreferenceStore
     private let portForwardingStore: PortForwardingPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
-    private let memoryPreferenceStore: MemoryPreferenceStore
+    private let resourcePreferenceStore: VMResourcePreferenceStore
+    private let resourceLimits: VMResourceLimits
     private let storageLocationStore: StorageLocationPreferenceStore
     private let volumeProbe: VolumeProbing
     private let volumeRootDetector: VolumeRootDetecting
@@ -93,7 +94,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         sharedFolderStore: SharedFolderPreferenceStore = SharedFolderPreferenceStore(),
         portForwardingStore: PortForwardingPreferenceStore = PortForwardingPreferenceStore(),
         fullscreenPreferenceStore: FullscreenPreferenceStore = FullscreenPreferenceStore(),
-        memoryPreferenceStore: MemoryPreferenceStore = MemoryPreferenceStore(),
+        resourcePreferenceStore: VMResourcePreferenceStore = VMResourcePreferenceStore(),
+        resourceLimits: VMResourceLimits = .current,
         storageLocationStore: StorageLocationPreferenceStore = StorageLocationPreferenceStore(),
         volumeProbe: VolumeProbing = URLVolumeProbe(),
         volumeRootDetector: VolumeRootDetecting = FileManagerVolumeRootDetector(),
@@ -108,7 +110,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.sharedFolderStore = sharedFolderStore
         self.portForwardingStore = portForwardingStore
         self.fullscreenPreferenceStore = fullscreenPreferenceStore
-        self.memoryPreferenceStore = memoryPreferenceStore
+        self.resourcePreferenceStore = resourcePreferenceStore
+        self.resourceLimits = resourceLimits
         self.storageLocationStore = storageLocationStore
         self.volumeProbe = volumeProbe
         self.volumeRootDetector = volumeRootDetector
@@ -199,21 +202,20 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             savePortForwarding: { [weak self] mappings in
                 self?.savePortForwarding(mappings)
             },
+            resources: { [weak self, resourceLimits] in
+                guard let self else { return resourceLimits.defaults }
+                return self.resourceLimits.resolve(self.resourcePreferenceStore.load())
+            },
+            resourceLimits: resourceLimits,
+            saveResources: { [weak self] resources in
+                self?.resourcePreferenceStore.save(resources)
+            },
             immersiveMode: { [weak self] in
                 self?.fullscreenPreferenceStore.load().isImmersive ?? true
             },
             setImmersiveMode: { [weak self] isImmersive in
                 self?.fullscreenPreferenceStore.save(
                     FullscreenPreferences(isImmersive: isImmersive)
-                )
-            },
-            memoryChoiceMiB: { [weak self] in
-                self?.memoryPreferenceStore.load().memoryMiB
-                    ?? MemoryPolicy.defaultMemoryMiB
-            },
-            setMemoryChoiceMiB: { [weak self] memoryMiB in
-                self?.memoryPreferenceStore.save(
-                    MemoryPreferences(memoryMiB: memoryMiB)
                 )
             },
             launch: { [weak self] in
@@ -425,13 +427,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             baseEnvironment: forwarding.environment,
             preferences: fullscreenPreferenceStore.load()
         )
-        let memory = MemoryLaunchConfiguration.make(
+        let resources = VMResourceLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
-            preferences: memoryPreferenceStore.load(),
-            hostMemoryMiB: MemoryPolicy.hostMemoryMiB()
+            preferences: resourcePreferenceStore.load(),
+            limits: resourceLimits
         )
         let storage = StorageLocationLaunchConfiguration.make(
-            baseEnvironment: memory.environment,
+            baseEnvironment: resources.environment,
             preference: storageLocationStore.load(),
             metrics: bundledMetrics,
             probe: volumeProbe,

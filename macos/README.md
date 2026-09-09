@@ -87,15 +87,20 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
-Guest memory follows the same preference pattern: the start menu's **Memory**
-row stores its choice in `UserDefaults` and publishes it to the launcher as
-`OMARCHY_QEMU_GPU_MEMORY_MIB`. The app only ever exports a value it resolved
-against this host (non-default choices must leave macOS 8 GiB), while the
-launcher independently enforces the guest's 2048 MiB manifest minimum and, for
-values above the 4096 default, a 4 GiB host floor — so a hand-set environment
-value gets the loose safety rule, not the menu's conservative one. Storage
-resets strip the variable like the other integration settings; memory is a
-boot-time `-m` allocation and never part of the guest image or VM data.
+The Resources editor stores CPU count and RAM in the versioned
+`vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
+existing `memoryPreferences` choice without rewriting it. CPU choices range
+from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB default and
+6/8/12/16 GiB choices with 8 GiB of host headroom. Saved values that no longer
+fit resolve independently to their defaults without rewriting storage.
+
+The app exports `OMARCHY_QEMU_GPU_CPUS` and the established
+`OMARCHY_QEMU_GPU_MEMORY_MIB`, replacing inherited overrides with the displayed
+selection. The launcher validates both before touching VM storage. Direct
+script invocations retain the 2048 MiB minimum and the 4 GiB host floor for
+allocations above the default. Storage-only resets strip both keys; recovery
+keeps its small allocation. Changes apply on the next launch without rebuilding
+or re-signing the app.
 
 Port forwarding is one versioned generic mapping list. The editor's **Add SSH**
 action only inserts the ordinary TCP `2222 → 22` preset; users may edit it like

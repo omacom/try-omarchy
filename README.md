@@ -147,6 +147,18 @@ Every launch begins at the start menu. While that menu is open, Try Omarchy beha
 Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
 Shutting down Omarchy closes the app and leaves it closed.
 
+## Virtual machine resources
+
+Choose **Resources → Configure…** on the start menu to adjust processor cores
+and memory for the next launch. Processor cores range from 4 to all the cores
+on this Mac; the default remains up to 8 cores. Memory keeps the existing 4 GiB
+default and offers 6, 8, 12, or 16 GiB when at least 8 GiB remains for macOS.
+
+**Save** remembers both choices. **Cancel** leaves them unchanged, and
+**Use Defaults** restores the draft until you save. Existing memory preferences
+are carried forward. A choice that no longer fits a smaller Mac falls back to
+its default without erasing the saved choice.
+
 ## 1Password
 
 Install 1Password from the Omarchy menu. On ARM64 guests, Try Omarchy downloads
@@ -293,8 +305,8 @@ Secure Enclave key representation.
 
 ## Giving Omarchy more memory
 
-Use **Memory** on the start menu to pick how much of the Mac's RAM the guest
-boots with. The default is 4 GiB, and the menu only offers larger allocations
+Use **Resources → Configure…** on the start menu to pick how much of the Mac's
+RAM the guest boots with. The default is 4 GiB, and the menu only offers larger allocations
 (6, 8, 12, or 16 GiB) that leave macOS at least 8 GiB for itself, so an 8 GiB
 Mac shows the default alone. The choice is not tied to installation: change it
 before any launch, and it applies the next time Omarchy starts. Memory is a
