@@ -144,6 +144,13 @@ done < <(find "$source_dir/bin" -maxdepth 1 -type f | sort)
 # Seed new users exactly like omarchy-settings does.
 rm -rf "$root/etc/skel/.config"
 copy_tree "$source_dir/config" "$root/etc/skel/.config"
+# The host pinch device must not turn short gestures into tap clicks. Keep this
+# in the user's input overrides so upstream runtime trees stay untouched.
+cat >> "$root/etc/skel/.config/hypr/input.lua" <<'EOF'
+
+-- Try Omarchy's host pinch device carries gestures only.
+dofile("/usr/share/try-omarchy/pinch-input.lua")
+EOF
 install_file 0644 "$source_dir/default/bashrc" "$root/etc/skel/.bashrc"
 mkdir -p "$root/etc/skel/.local/share/applications"
 copy_contents "$source_dir/applications" "$root/etc/skel/.local/share/applications"

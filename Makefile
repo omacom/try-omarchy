@@ -53,6 +53,8 @@ doctor:
 	@printf 'Toolchain ready: %s (%s)\n' "$$(sw_vers -productVersion)" "$$(uname -m)"
 
 test:
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-pinch.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-virtio-pinch.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-build-cache.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
 	@$(ROOT)/guest/test
@@ -62,6 +64,7 @@ test:
 	@cd $(ROOT)/macos && SWIFT_MODULECACHE_PATH=$(ROOT)/macos/.build/module-cache/swift CLANG_MODULE_CACHE_PATH=$(ROOT)/macos/.build/module-cache/clang swift test --disable-sandbox
 	@$(ROOT)/macos/Tests/qemu-port-forwarding.test.sh
 	@$(ROOT)/macos/Tests/run-qemu-ssh-contract.test.sh
+	@$(ROOT)/macos/Tests/qemu-memory-contract.test.sh
 	@$(ROOT)/macos/Tests/qemu-power-actions.test.sh
 	@$(ROOT)/macos/Tests/qemu-persistent-storage.test.sh
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/resize-vm-disk.test.py"

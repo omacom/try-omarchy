@@ -151,7 +151,8 @@ for device in \
   virtio-net-pci \
   virtio-rng-pci \
   virtio-serial-pci \
-  virtio-tablet-pci; do
+  virtio-tablet-pci \
+  virtio-pinch-pci; do
   require_qemu_device "$device"
 done
 for marker in guest_owner_uid guest_owner_gid; do
@@ -526,6 +527,8 @@ if (
     fail("upstream identity is not pinned")
 
 supply_chain_keys = {
+    "aquamarine",
+    "hyprtoolkit",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
     "hyprland",
@@ -592,8 +595,58 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "edd58c17fc115b375d8e8b9b5eb7eb78008e89c05867b3ed2f2834287badcae8":
+if hyprland_identity != "ae82ce3f989eff555f1faa2400ff0ecb3d7b52b4797c6e3f4fca29959e5a7790":
     fail("factory Hyprland component is not the reviewed rounded-border build")
+aquamarine = exact_keys(
+    supply_chain.get("aquamarine"),
+    {
+        "binarySha256",
+        "license",
+        "packagingCommit",
+        "packagingRepository",
+        "pkgbuild",
+        "pkgbuildSha256",
+        "pkgrel",
+        "repository",
+        "sha256",
+        "url",
+        "version",
+    },
+    "build spec aquamarine component",
+)
+if aquamarine != {
+    "version": "0.14.0",
+    "pkgrel": "2",
+    "repository": "https://github.com/hyprwm/aquamarine",
+    "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+    "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+    "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+    "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+    "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+    "license": "BSD-3-Clause",
+    "binarySha256": "7da003aa60e008e9f514c312f01c1e967983e2c46732d58953735bfaee3fd8aa",
+}:
+    fail("factory aquamarine component is not the reviewed libaquamarine.so=13 rebuild")
+hyprtoolkit = exact_keys(
+    supply_chain.get("hyprtoolkit"),
+    set(aquamarine),
+    "build spec hyprtoolkit component",
+)
+if hyprtoolkit != {
+    "version": "0.5.4",
+    "pkgrel": "6.1",
+    "repository": "https://github.com/hyprwm/hyprtoolkit",
+    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
+    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
+    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
+    "pkgbuildSha256": "803f1db19ad1d42e48b638e35256d3dabbe19d1d0b4b3fd584eedf20121256ce",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
+    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
+    "license": "BSD-3-Clause",
+    "binarySha256": "dc814fad9723bfcf66dbd29b7f8c5cc96fd63a1ff623909e466dd9d011c0cba8"
+}:
+    fail("factory hyprtoolkit component is not the reviewed libaquamarine.so=13 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},
@@ -642,11 +695,11 @@ if ttfx != {
     "url": "https://github.com/omacom-io/ttfx/archive/refs/tags/v0.3.2.tar.gz",
     "sha256": "d0c0df4867e7f03142fb7f77c66670d0e8da15534239c1a7abfd89f19dfc00f6",
     "cargoLockSha256": "49e2091962fc4d425b4cf3bde1a105719b5b50eed0583ec90e85922adb45e2ce",
-    "binarySha256": "9171a07c752b202a21f80a4ad336a9d093be06a6c96b062e8b5e0c158d2a86d2",
+    "binarySha256": "d034cc5b9a8d410ce93113ef0a5d27b5ee2327948562bf2b0e756eebd326fa8f",
     "target": "aarch64-unknown-linux-gnu",
-    "rustPackageVersion": "rust 1:1.98.0-1",
-    "rustcVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Arch Linux rust 1:1.98.0-1)",
-    "cargoVersion": "cargo 1.98.0 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.0-1)",
+    "rustPackageVersion": "rust 1:1.98.1-1",
+    "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1)",
+    "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
     "reportedVersion": "ttfx 0.3.2",
     "license": "MIT",
     "licenseSha256": "175441de2eb9a0d3f0627c404ad71929336fd98d75926cc27b9e364d35cc7977",
@@ -1384,6 +1437,36 @@ else
   echo '[qemu-gpu] Nested virtualization is unavailable; using the compatible EL1 path.' >&2
 fi
 
+# Guest memory is a boot-time allocation. The Swift app resolves the user's
+# stored choice against this host before exporting it; re-check independently
+# here so a hand-set environment value can never start a guest below the
+# manifest's minimumMemoryMiB or starve the host. The 4096 default matches the
+# manifest's recommendedMemoryMiB, both verified at build time. The host cap
+# applies only above the default: 4096 has always booted unconditionally, and
+# hosts smaller than 8 GiB exist (CI runners), so gating the default on host
+# size would be a regression, not a safeguard.
+memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-4096}
+# Seven digits bound the value below any real host while keeping the
+# arithmetic far from 64-bit wraparound; forcing base 10 stops bash from
+# reading a leading zero as octal while QEMU would read the same string as
+# decimal.
+[[ $memory_mib =~ ^[0-9]{1,7}$ ]] || fail "OMARCHY_QEMU_GPU_MEMORY_MIB must be a whole number of MiB"
+memory_mib=$((10#$memory_mib))
+(( memory_mib >= 2048 )) || fail "the ARM guest requires at least 2048 MiB of memory"
+if (( memory_mib > 4096 )); then
+  host_memory_bytes=$(sysctl -n hw.memsize 2>/dev/null) || fail "cannot determine the host memory size"
+  [[ $host_memory_bytes =~ ^[0-9]+$ ]] || fail "host memory size is invalid: $host_memory_bytes"
+  host_memory_mib=$((host_memory_bytes / 1048576))
+  (( memory_mib + 4096 <= host_memory_mib )) || {
+    fail "OMARCHY_QEMU_GPU_MEMORY_MIB must leave the host at least 4096 MiB (host has ${host_memory_mib} MiB)"
+  }
+fi
+if (( memory_mib % 1024 == 0 )); then
+  memory_display="$((memory_mib / 1024)) GiB"
+else
+  memory_display="${memory_mib} MiB"
+fi
+
 if [[ $QEMU_SELECTED_STORAGE_MODE == persistent && -n $QEMU_PERSISTENT_STORAGE_ROOT ]]; then
   console_log="$QEMU_PERSISTENT_STORAGE_ROOT/console.log"
 else
@@ -1401,7 +1484,7 @@ qemu_args=(
   # one: Linux otherwise probes the dead device and prints a misleading failure.
   -cpu 'host,pmu=off'
   -smp "$vcpu_count,sockets=1,cores=$vcpu_count,threads=1"
-  -m 4G
+  -m "${memory_mib}M"
   -nodefaults
   # Reboot the guest inside this QEMU process, but let shutdown close the app.
   -action 'reboot=reset,shutdown=poweroff'
@@ -1427,6 +1510,7 @@ qemu_args=(
   -display "cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
+  -device 'virtio-pinch-pci,romfile='
   -object 'rng-random,id=omarchy-rng,filename=/dev/urandom'
   -device 'virtio-rng-pci,rng=omarchy-rng'
   -device virtio-balloon-pci
@@ -1491,10 +1575,10 @@ fi
 }
 
 if [[ $QEMU_SELECTED_STORAGE_MODE == persistent ]]; then
-  echo "[qemu-gpu] Starting the persistent ARM64 VirGL guest with $vcpu_count vCPUs and 4 GiB RAM." >&2
+  echo "[qemu-gpu] Starting the persistent ARM64 VirGL guest with $vcpu_count vCPUs and $memory_display RAM." >&2
   echo "[qemu-gpu] User data: $QEMU_PERSISTENT_STORAGE_DIRECTORY" >&2
 else
-  echo "[qemu-gpu] Starting a disposable ARM64 VirGL guest with $vcpu_count vCPUs and 4 GiB RAM." >&2
+  echo "[qemu-gpu] Starting a disposable ARM64 VirGL guest with $vcpu_count vCPUs and $memory_display RAM." >&2
 fi
 if [[ -n $shared_folder ]]; then
   echo "[qemu-gpu] Shared folder: $shared_folder (guest ~/$shared_folder_name)" >&2

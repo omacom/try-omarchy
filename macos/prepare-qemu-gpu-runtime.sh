@@ -415,7 +415,8 @@ verify_runtime_tree() {
     'name "intel-hda"' \
     'name "hda-micro"' \
     'name "virtio-net-pci"' \
-    'name "virtio-9p-pci"'; do
+    'name "virtio-9p-pci"' \
+    'name "virtio-pinch-pci"'; do
     [[ $device_help == *"$device"* ]] || die "relocated QEMU is missing device $device"
   done
 
