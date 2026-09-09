@@ -763,9 +763,11 @@ def main() -> None:
     )
     fcitx5_profile = read(GUEST / "fragments/fcitx5-profile.ini")
     check(
-        fcitx5_profile.index("Name=keyboard-us") < fcitx5_profile.index("Name=chewing")
-        and "DefaultIM=keyboard-us" in fcitx5_profile,
-        "US keyboard stays the default input method, so a user who never triggers the IME sees no change",
+        "[Groups/0/Items/0]\nName=keyboard-us" in fcitx5_profile
+        and "[Groups/0/Items/1]\nName=chewing" in fcitx5_profile,
+        "keyboard-us sits at item index 0 ahead of chewing, so a user who never triggers the IME "
+        "(an inactive input context) still lands on plain US input, even though fcitx5 resolves "
+        "and rewrites the group's actual default input method to chewing",
     )
     check(
         'chromium_flags="$root/etc/skel/.config/chromium-flags.conf"' in configure
