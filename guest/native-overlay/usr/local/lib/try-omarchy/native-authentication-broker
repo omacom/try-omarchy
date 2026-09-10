@@ -1,11 +1,12 @@
 #!/usr/bin/python3 -I
-"""Root-only broker for signed Try Omarchy Touch ID sudo approvals."""
+"""Root-only broker for signed Try Omarchy authentication approvals."""
 
 from __future__ import annotations
 
 import base64
 import binascii
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -97,14 +98,14 @@ def validate_request(request: dict[str, object]) -> None:
         set(request) != REQUEST_FIELDS
         or request.get("type") != "authorize"
         or request.get("version") != PROTOCOL_VERSION
-        or request.get("operation") not in {"disable", "enroll", "sudo"}
-        or request.get("service") != "sudo"
+        or request.get("operation") not in {"disable", "enroll", "sudo", "onepassword-unlock"}
         or not isinstance(request.get("requestId"), str)
         or not isinstance(request.get("challenge"), str)
         or not isinstance(request.get("guestId"), str)
         or not isinstance(request.get("user"), str)
         or not isinstance(request.get("requestingUser"), str)
         or not isinstance(request.get("tty"), str)
+        or not isinstance(request.get("service"), str)
     ):
         raise AuthorizationError("invalid authentication request")
     try:
@@ -117,6 +118,15 @@ def validate_request(request: dict[str, object]) -> None:
         or not HEX_32_PATTERN.fullmatch(request["guestId"])
     ):
         raise AuthorizationError("invalid request identity")
+    if request["operation"] == "onepassword-unlock":
+        if (request["service"] != "com.1password.1Password.unlock"
+            or not ACCOUNT_PATTERN.fullmatch(request["user"])
+            or request["requestingUser"] != request["user"]
+            or request["tty"]):
+            raise AuthorizationError("invalid 1Password unlock context")
+        return
+    if request["service"] != "sudo":
+        raise AuthorizationError("invalid sudo authentication service")
     if request["operation"] in {"disable", "enroll"}:
         if request["user"] or request["requestingUser"] or request["tty"]:
             raise AuthorizationError("control request carries sudo context")
@@ -392,6 +402,10 @@ def exchange(request: dict[str, object], timeout: float = 65) -> dict[str, objec
             or stat.S_IMODE(info.st_mode) != 0o600
         ):
             raise AuthorizationError("authentication endpoint is not a root-only character device")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise AuthorizationError("another Touch ID request is in progress") from error
         return exchange_on_descriptor(descriptor, request, timeout)
     finally:
         os.close(descriptor)
@@ -620,7 +634,26 @@ def authenticate_pam() -> bool:
         return False
 
 
+def authenticate_onepassword(user: str) -> None:
+    if os.getuid() != 0 or os.geteuid() != 0:
+        raise AuthorizationError("1Password authorization requires the root agent")
+    pinned_public_key, guest_id = load_state()
+    request = make_request(
+        "onepassword-unlock", guest_id=guest_id, user=user, requesting_user=user,
+        service="com.1password.1Password.unlock",
+    )
+    response = exchange(request)
+    verify_approval(request, response, pinned_public_key=pinned_public_key)
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "onepassword-unlock":
+        try:
+            authenticate_onepassword(sys.argv[2])
+            return 0
+        except (AuthorizationError, OSError, subprocess.SubprocessError, TimeoutError):
+            print("Touch ID approval unavailable; use the normal password prompt.", file=sys.stderr)
+            return 1
     if len(sys.argv) != 2 or sys.argv[1] not in {"disable", "enroll", "migrate", "pam"}:
         print(
             "usage: native-authentication-broker disable|enroll|migrate|pam",

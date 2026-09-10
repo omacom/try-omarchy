@@ -262,6 +262,12 @@ Loopback binding prevents devices on Wi-Fi, Ethernet, or the wider LAN from
 connecting. It does not isolate the listener from other users or processes on
 the same Mac; guest SSH authentication is still required.
 
+### Touch ID for 1Password
+
+An optional process-scoped integration can use the Mac's Touch ID to unlock
+1Password inside the guest. Existing synced passwords and passkeys stay managed
+by 1Password. See [setup and authorization boundaries](docs/onepassword-touch-id.md).
+
 ### Touch ID for sudo
 
 The native authentication bridge can enroll this Mac and use
