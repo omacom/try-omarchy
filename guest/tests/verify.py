@@ -1253,16 +1253,25 @@ def main() -> None:
         "SSH generator requests only the boot-scoped vendor sshd unit",
     )
 
-    locale_generator_path = (
+    old_locale_generator_path = (
         GUEST
         / "native-overlay/usr/lib/systemd/system-generators/try-omarchy-locale"
     )
-    locale_generator = read(locale_generator_path)
-    locale_generator_code = "\n".join(
-        line
-        for line in locale_generator.splitlines()
-        if not line.strip().startswith("#")
+    check(
+        not old_locale_generator_path.exists(),
+        "the old locale system-generator is gone -- only one mechanism may own LANG",
     )
+
+    locale_script_path = GUEST / "native-overlay/usr/local/bin/try-omarchy-locale"
+    locale_script = read(locale_script_path)
+    locale_script_code = "\n".join(
+        line for line in locale_script.splitlines() if not line.strip().startswith("#")
+    )
+    locale_unit_path = (
+        GUEST / "native-overlay/usr/lib/systemd/system/try-omarchy-locale.service"
+    )
+    locale_unit = read(locale_unit_path)
+
     locale_gen_format = re.search(
         r"printf '([^']*)' >\"\$root/etc/locale\.gen\"", configure
     )
@@ -1276,7 +1285,7 @@ def main() -> None:
         else []
     )
     locale_allowlist_match = re.search(
-        r"case \$locale in\n\s*([^\n]+)\) ;;\n\s*\*\) exit 0 ;;\n", locale_generator
+        r"case \$candidate in\n\s*([^\n]+)\) locale=\$candidate ;;\n", locale_script
     )
     allowlisted_locales = (
         sorted(token.strip() for token in locale_allowlist_match.group(1).split("|"))
@@ -1287,33 +1296,65 @@ def main() -> None:
         locale_gen_format is not None
         and locale_allowlist_match is not None
         and generated_locales == allowlisted_locales,
-        "locale generator's allowlist cannot drift from the locales configure-rootfs.sh actually "
+        "locale script's allowlist cannot drift from the locales configure-rootfs.sh actually "
         "generates, or a chosen language silently gets no LANG",
     )
     check(
-        locale_generator_path.is_file()
-        and locale_generator_path.stat().st_mode & stat.S_IXUSR != 0
-        and "tryomarchy.locale=" in locale_generator
-        and "/proc/cmdline" in locale_generator,
-        "locale generator is an executable that reads the host-chosen locale from the kernel command line",
+        locale_script_path.is_file()
+        and locale_script_path.stat().st_mode & stat.S_IXUSR != 0
+        and "tryomarchy.locale=" in locale_script
+        and "TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/proc/cmdline" in locale_script,
+        "locale script is an executable that reads the host-chosen locale from the kernel command line",
     )
     check(
-        "/run/environment.d" in locale_generator_code
-        and "/etc" not in locale_generator_code,
-        "locale generator writes only to the runtime tier, never to /etc, like its sibling ssh generator",
+        "eval" not in locale_script and "$(" not in locale_script,
+        "the kernel command line is never shell-interpolated",
     )
     check(
-        "LANG=%s" in locale_generator
-        and "LC_ALL" not in locale_generator
-        and "KEYMAP" not in locale_generator,
-        "locale generator sets LANG only, never LC_ALL or the console keymap",
+        'TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf' in locale_script
+        and locale_script.count('>"$locale_conf"') == 1,
+        "locale script writes LANG to /etc/locale.conf, and to nowhere else, now that a real unit "
+        "(not a generator) is the one setting it",
     )
     check(
-        locale_generator.index('[ -n "$locale" ] || exit 0')
-        < locale_generator.index(
-            'printf \'LANG=%s\\n\' "$locale" >"$environment_d/91-try-omarchy-locale.conf"'
-        ),
-        "an absent locale token leaves an english boot untouched: the generator exits before writing anything",
+        "LANG=%s" in locale_script_code
+        and "LC_ALL" not in locale_script_code
+        and "KEYMAP" not in locale_script_code,
+        "locale script sets LANG only, never LC_ALL or the console keymap",
+    )
+    check(
+        "locale=en_US.UTF-8" in locale_script and "exit 0" not in locale_script,
+        "an absent locale token still writes the image's default English locale -- unlike the old "
+        "generator, this script never exits early -- which is what lets switching back to English "
+        "in the launcher win on a persistent VM instead of leaving a stale locale behind",
+    )
+    check(
+        '[ ! -L "$locale_conf" ] || exit 1' in locale_script,
+        "locale script refuses to write through a symlink",
+    )
+
+    check(
+        locale_unit_path.is_file()
+        and "Type=oneshot" in locale_unit
+        and "RemainAfterExit=yes" in locale_unit
+        and "ExecStart=/usr/local/bin/try-omarchy-locale" in locale_unit
+        and "WantedBy=multi-user.target" in locale_unit,
+        "try-omarchy-locale.service is a oneshot unit (not a generator) that runs the locale script",
+    )
+    check(
+        "Before=sddm.service display-manager.service getty@tty1.service" in locale_unit,
+        "the unit orders itself before both entry points a login session can start from: SDDM "
+        "(sddm.service, aliased to display-manager.service once enabled) and a console login "
+        "(getty@tty1.service) -- the same two units omarchy-provision-owner.service, this project's "
+        "pinned upstream first-boot unit, already orders itself Before= (and briefly Conflicts=) for "
+        "the same reason, so this ordering is proven to work in this codebase, not merely asserted",
+    )
+    check(
+        "multi-user.target.wants/try-omarchy-locale.service" in configure
+        and "ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service" in configure,
+        "configure-rootfs.sh enables the unit itself: it runs before arch-chroot, with no "
+        "systemd/D-Bus available to run `systemctl enable` the way finalize-rootfs.sh does for "
+        "sddm.service and omarchy-provision-owner.service, so it links the .wants symlink directly",
     )
 
     manifest_writer = read(GUEST / "scripts/write-guest-manifest.py")

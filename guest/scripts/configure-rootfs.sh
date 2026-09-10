@@ -148,6 +148,15 @@ EOF
 printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
 printf 'LANG=en_US.UTF-8\n' >"$root/etc/locale.conf"
 printf 'KEYMAP=us\n' >"$root/etc/vconsole.conf"
+# try-omarchy-locale.service rewrites LANG in /etc/locale.conf from the
+# kernel command line on every boot (see the unit and its ExecStart= script
+# for why this must be a real unit rather than a system generator). This
+# script runs before arch-chroot, with no systemd/D-Bus available to run
+# `systemctl enable`, so it links the unit into multi-user.target.wants
+# itself -- the same symlink that command would create.
+mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
+ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service \
+  "$root/etc/systemd/system/multi-user.target.wants/try-omarchy-locale.service"
 # An unprovisioned machine receives a new identity from systemd on first boot.
 : >"$root/etc/machine-id"
 ln -sfn /usr/share/zoneinfo/UTC "$root/etc/localtime"
