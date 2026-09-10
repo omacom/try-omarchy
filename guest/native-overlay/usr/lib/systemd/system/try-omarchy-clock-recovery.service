@@ -1,0 +1,16 @@
+[Unit]
+Description=Recover Try Omarchy guest time after host sleep
+ConditionKernelCommandLine=omarchy.qemu_virgl=1
+ConditionPathExists=/sys/class/rtc/rtc0/since_epoch
+After=systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/try-omarchy/guest-clock-recover
+TimeoutStartSec=10
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_TIME
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX

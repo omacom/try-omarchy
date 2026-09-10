@@ -264,6 +264,10 @@ the same Mac; guest SSH authentication is still required.
 
 ### Touch ID for sudo
 
+Guest clock recovery handles time lost during Mac sleep so fresh signed
+approvals remain usable after wake. Existing VMs need the
+[guest clock recovery installer](docs/guest-clock-recovery.md).
+
 The native authentication bridge can enroll this Mac and use
 Touch ID as a sufficient authentication method for guest `sudo`. Open
 **Omarchy Menu → Setup → Security → Touch ID for sudo**, or run:
