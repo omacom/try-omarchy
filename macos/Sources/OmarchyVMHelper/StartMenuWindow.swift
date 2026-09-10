@@ -783,8 +783,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             permissionCard,
             integrationHeading,
             integrationCard,
-            resetSection,
             launchButton,
+            resetSection,
             footerContainer,
         ])
         stack.orientation = .vertical
@@ -795,8 +795,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(16, after: permissionCard)
         stack.setCustomSpacing(6, after: integrationHeading)
         stack.setCustomSpacing(12, after: integrationCard)
-        stack.setCustomSpacing(12, after: resetSection)
-        stack.setCustomSpacing(8, after: launchButton)
+        stack.setCustomSpacing(12, after: launchButton)
+        stack.setCustomSpacing(8, after: resetSection)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let document = StartMenuDocumentView()
