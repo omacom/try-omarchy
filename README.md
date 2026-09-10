@@ -373,6 +373,41 @@ all of that app's factory-image changes to an existing VM, and an in-guest
 update should not be assumed to reproduce them. A confirmed reset is the
 deliberate, destructive way to start again from the newest bundled factory.
 
+### Repairing update holds in an older guest
+
+Older guests may fail Omarchy Update with conflicting `libaquamarine.so`
+dependencies. New factory images hold the compatible Hyprland, aquamarine,
+and Hyprtoolkit packages together, along with the direct-boot kernel and
+headers. Updating the Mac app does not add these holds to an existing guest.
+
+Copy `guest/scripts/repair-update-holds.py` from this source checkout into the
+guest, then run it **inside Omarchy**, with the updater closed:
+
+```sh
+python3 repair-update-holds.py          # preview only
+sudo python3 repair-update-holds.py --apply
+```
+
+The command adds missing holds to both `/usr/share/try-omarchy/pacman.conf`
+and `/etc/pacman.conf`. The first file is essential: Omarchy's pre-refresh
+hook restores it over the second before updating. Existing holds, comments,
+repository definitions, and unrelated settings are retained in each file.
+Keep any custom settings you want to survive an update in the saved share
+copy too; the existing update hook still replaces the active configuration.
+
+The repair prints a backup directory under
+`/var/lib/try-omarchy/update-holds-backup.*`, preserving both original files
+under their relative paths. To undo it, close the updater and restore each
+backup to its original location with `sudo cp -p`. Running the repair again
+makes no changes when the holds are already present. It refuses to write
+while pacman has a transaction lock.
+
+Then retry **Update → Omarchy**. This command only repairs the hold list; it
+does not install, downgrade, or upgrade packages, and cannot repair packages
+that were already upgraded into an incompatible combination. If dependency
+errors remain, retain the full error output for diagnosis instead of removing
+the kernel or compositor holds.
+
 ### Growing an existing VM disk
 
 To add capacity without resetting the VM, shut down Omarchy and run the
