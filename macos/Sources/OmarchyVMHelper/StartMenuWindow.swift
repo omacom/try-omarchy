@@ -210,6 +210,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var pendingResetSpaceEstimate: String?
     private var resetConfirmationPrompt: ResetConfirmationPrompt?
     private weak var startMenuScrollView: NSScrollView?
+    private var preferredContentHeight: CGFloat = 832
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
     private weak var immersiveCaption: NSTextField?
@@ -333,15 +334,22 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func prepareForPresentation(visibleFrame: NSRect?) {
+        let scrollOffset = startMenuScrollView?.contentView.bounds.origin.y ?? 0
         render()
         if let visibleFrame {
-            // The resources row adds one 72pt row to the menu that previously
-            // fit at 760. At 690 the launch button cleared the bottom edge by
-            // 15pt, which any difference in system font metrics turned into a
-            // button clipped off the window; on displays shorter than the
-            // window the content scrolls rather than clips.
-            let availableHeight = max(480, visibleFrame.height - 32)
-            window.setContentSize(NSSize(width: 600, height: min(832, availableHeight)))
+            let availableContent = window.contentRect(
+                forFrameRect: visibleFrame.insetBy(dx: 0, dy: 16)
+            )
+            window.setContentSize(NSSize(
+                width: 600,
+                height: min(preferredContentHeight, max(1, availableContent.height))
+            ))
+            content.layoutSubtreeIfNeeded()
+            if let scrollView = startMenuScrollView, let document = scrollView.documentView {
+                let maximumOffset = max(0, document.frame.height - scrollView.contentView.bounds.height)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(scrollOffset, maximumOffset)))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
     }
 
@@ -711,12 +719,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         reset.heightAnchor.constraint(equalToConstant: 30).isActive = true
         reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 154).isActive = true
 
-        let resetViews: [NSView] = [reset]
-        let resetSection = NSStackView(views: resetViews)
-        resetSection.orientation = .vertical
-        resetSection.alignment = .centerX
-        resetSection.spacing = 4
-
         let launchButtonTitle = launchInProgress ? "Launching Omarchy…" : "Launch Omarchy"
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
@@ -769,12 +771,17 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         footer.allowsEditingTextAttributes = true
         footer.translatesAutoresizingMaskIntoConstraints = false
 
-        let footerContainer = NSView()
-        footerContainer.addSubview(footer)
+        footer.identifier = NSUserInterfaceItemIdentifier("start-menu-attribution")
+        let secondaryActions = NSView()
+        secondaryActions.addSubview(reset)
+        secondaryActions.addSubview(footer)
         NSLayoutConstraint.activate([
-            footer.centerXAnchor.constraint(equalTo: footerContainer.centerXAnchor),
-            footer.topAnchor.constraint(equalTo: footerContainer.topAnchor),
-            footer.bottomAnchor.constraint(equalTo: footerContainer.bottomAnchor),
+            reset.centerXAnchor.constraint(equalTo: secondaryActions.centerXAnchor),
+            reset.topAnchor.constraint(equalTo: secondaryActions.topAnchor),
+            reset.bottomAnchor.constraint(equalTo: secondaryActions.bottomAnchor),
+            footer.trailingAnchor.constraint(equalTo: secondaryActions.trailingAnchor),
+            footer.centerYAnchor.constraint(equalTo: reset.centerYAnchor),
+            footer.leadingAnchor.constraint(greaterThanOrEqualTo: reset.trailingAnchor, constant: 12),
         ])
 
         let stack = NSStackView(views: [
@@ -783,9 +790,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             permissionCard,
             integrationHeading,
             integrationCard,
-            resetSection,
-            launchButton,
-            footerContainer,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -794,10 +798,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(6, after: permissionHeading)
         stack.setCustomSpacing(16, after: permissionCard)
         stack.setCustomSpacing(6, after: integrationHeading)
-        stack.setCustomSpacing(12, after: integrationCard)
-        stack.setCustomSpacing(12, after: resetSection)
-        stack.setCustomSpacing(8, after: launchButton)
         stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let actions = NSStackView(views: [launchButton, secondaryActions])
+        actions.orientation = .vertical
+        actions.alignment = .leading
+        actions.spacing = 12
+        actions.identifier = NSUserInterfaceItemIdentifier("start-menu-actions")
+        actions.translatesAutoresizingMaskIntoConstraints = false
 
         let document = StartMenuDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
@@ -813,28 +821,32 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         scrollView.identifier = NSUserInterfaceItemIdentifier("start-menu-scroll")
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(scrollView)
+        content.addSubview(actions)
         startMenuScrollView = scrollView
 
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: content.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -12),
+            actions.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 42),
+            actions.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -42),
+            actions.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
             document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
             document.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
             stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 42),
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -42),
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 26),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             permissionCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             integrationCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            resetSection.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            launchButton.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            footerContainer.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            secondaryActions.widthAnchor.constraint(equalTo: actions.widthAnchor),
+            launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
 
         content.layoutSubtreeIfNeeded()
         document.layoutSubtreeIfNeeded()
+        preferredContentHeight = ceil(stack.fittingSize.height + actions.fittingSize.height + 58)
         let maximumOffset = max(
             0,
             document.frame.height - scrollView.contentView.bounds.height

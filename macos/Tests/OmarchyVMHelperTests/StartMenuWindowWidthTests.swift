@@ -89,13 +89,63 @@ struct StartMenuWindowWidthTests {
         try expectDetailsFit(["permission-detail-externaldrive"], in: menu)
     }
 
+    @Test("Launch stays visible without scrolling on short and tall displays")
+    func actionsStayVisible() throws {
+        _ = NSApplication.shared
+        for screenHeight: CGFloat in [500, 700, 900, 1400] {
+            let menu = makeMenu(storageState: { StorageLocationMenuState(
+                containerPath: nil, stateRoot: nil, displayPath: "Default location",
+                volumeName: nil, isDefault: true, isExternal: false,
+                problem: nil, warning: nil, isEnvironmentOverride: false
+            ) }, permissionsGranted: false)
+            defer { menu.dismiss() }
+            let screen = NSRect(x: 0, y: 0, width: 1440, height: screenHeight)
+            menu.prepareForPresentation(visibleFrame: screen)
+            let content = try #require(menu.window.contentView)
+            content.layoutSubtreeIfNeeded()
+            let scroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content) as? NSScrollView)
+            let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+            let reset = try #require(descendant(withIdentifier: "reset-button", in: content))
+            let launchFrame = launch.convert(launch.bounds, to: content)
+            let resetFrame = reset.convert(reset.bounds, to: content)
+            let attribution = try #require(descendant(withIdentifier: "start-menu-attribution", in: content))
+            let attributionFrame = try #require(attribution.superview).convert(
+                attribution.alignmentRect(forFrame: attribution.frame), to: content
+            )
+            #expect(abs(resetFrame.midX - launchFrame.midX) < 0.5)
+            #expect(abs(attributionFrame.maxX - launchFrame.maxX) < 0.5)
+            // AppKit can round an odd-height label to a half-point center offset.
+            #expect(abs(attributionFrame.midY - resetFrame.midY) <= 0.5)
+            #expect(attributionFrame.minX > resetFrame.maxX)
+            #expect(content.bounds.contains(launchFrame))
+            #expect(content.bounds.contains(resetFrame))
+            #expect(launchFrame.minY > resetFrame.maxY)
+            #expect(descendant(withIdentifier: "launch-button", in: scroll) == nil)
+            #expect(launch.keyEquivalent == "\r")
+            #expect(menu.window.frame.height <= screen.height - 32 + 0.5)
+            let document = try #require(scroll.documentView)
+            #expect(scroll.contentView.bounds.origin.y == 0)
+            if screenHeight == 1400 {
+                #expect(document.frame.height <= scroll.contentView.bounds.height + 0.5)
+                #expect(content.bounds.height > 832)
+            } else if screenHeight == 500 {
+                #expect(document.frame.height > scroll.contentView.bounds.height)
+            }
+            let originalLaunchFrame = launchFrame
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentView.bounds.height)))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            #expect(launch.convert(launch.bounds, to: content) == originalLaunchFrame)
+        }
+    }
+
     private func makeMenu(
-        storageState: @escaping () -> StorageLocationMenuState
+        storageState: @escaping () -> StorageLocationMenuState,
+        permissionsGranted: Bool = true
     ) -> StartMenuWindow {
         StartMenuWindow(
-            accessibilityStatus: { true },
-            microphoneStatus: { .authorized },
-            cameraStatus: { .authorized },
+            accessibilityStatus: { permissionsGranted },
+            microphoneStatus: { permissionsGranted ? .authorized : .notDetermined },
+            cameraStatus: { permissionsGranted ? .authorized : .notDetermined },
             requestAccessibility: {},
             requestMicrophone: { completion in completion(true) },
             requestCamera: { completion in completion(true) },
