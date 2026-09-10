@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Ask the Mac app to show settings over dev.tryomarchy.settings."""
+
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+
+PORT = Path("/dev/virtio-ports/dev.tryomarchy.settings")
+
+
+def open_settings(descriptor, timeout=3.0):
+    """Send one bounded request and wait for the Mac app to acknowledge it."""
+    deadline = time.monotonic() + timeout
+    pending = b"open-settings\n"
+    response = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("The Mac app did not respond. Close and reopen Try Omarchy, then try again.")
+        readable, writable, _ = select.select(
+            [] if pending else [descriptor], [descriptor] if pending else [], [], remaining
+        )
+        try:
+            if writable:
+                written = os.write(descriptor, pending)
+                if written == 0:
+                    raise OSError("The Mac settings connection closed.")
+                pending = pending[written:]
+            if readable:
+                data = os.read(descriptor, 64)
+                if not data:
+                    raise OSError("The Mac settings connection closed.")
+                response.extend(data)
+                if b"\n" in response:
+                    if response == b"opened\n":
+                        return
+                    raise OSError("The Mac app cannot open settings right now. Try again when Omarchy is running.")
+                if len(response) >= 64:
+                    raise OSError("The Mac app sent an invalid settings response.")
+        except BlockingIOError:
+            continue
+
+
+def main():
+    try:
+        descriptor = os.open(PORT, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            open_settings(descriptor)
+        finally:
+            os.close(descriptor)
+    except (OSError, TimeoutError) as error:
+        message = str(error)
+        if isinstance(error, FileNotFoundError):
+            message = "This VM needs a version of the Try Omarchy Mac app with settings access."
+        print(f"Try Omarchy Settings: {message}", file=sys.stderr)
+        try:
+            subprocess.run(["notify-send", "Try Omarchy Settings", message], check=False, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

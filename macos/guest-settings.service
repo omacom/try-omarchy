@@ -1,0 +1,17 @@
+[Unit]
+Description=Try Omarchy settings integration
+ConditionPathExists=!/etc/initrd-release
+After=local-fs.target
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=20
+ExecStartPre=/usr/bin/mkdir -p /run/try-omarchy-settings
+ExecStartPre=/usr/bin/modprobe 9pnet_virtio
+ExecStartPre=/usr/bin/mount -t 9p -o ro,trans=virtio,version=9p2000.L try-omarchy-settings /run/try-omarchy-settings
+ExecStart=/usr/bin/python3 /run/try-omarchy-settings/install.py
+ExecStopPost=-/usr/bin/umount /run/try-omarchy-settings
+ExecStopPost=-/usr/bin/rmdir /run/try-omarchy-settings

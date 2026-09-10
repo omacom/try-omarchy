@@ -172,6 +172,18 @@ install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
   "$contents/Resources/scripts/qemu-persistent-storage.sh"
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
+# Ship the same narrow settings payload to existing VMs at boot.
+settings_payload="$contents/Resources/guest-settings"
+mkdir -p "$settings_payload"
+install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
+install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
+for relative in \
+  usr/local/bin/omarchy-native-settings \
+  etc/udev/rules.d/92-omarchy-native-settings.rules \
+  usr/share/applications/try-omarchy-settings.desktop \
+  etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
+  install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
+done
 for guest_resource in \
   LICENSE.omarchy \
   SHA256SUMS \

@@ -2,16 +2,42 @@ import Darwin
 import Foundation
 
 struct VMRunLifecycle: Equatable {
+    enum SettingsAction: Equatable {
+        case restart
+        case manage
+    }
+
     private enum StopIntent: Equatable {
         case none
         case quit
         case signal(Int32)
+        case settings(SettingsAction)
     }
 
     private var stopIntent: StopIntent = .none
 
     var isStopping: Bool {
         stopIntent != .none
+    }
+
+    var settingsAction: SettingsAction? {
+        if case .settings(let action) = stopIntent { return action }
+        return nil
+    }
+
+    /// A settings shutdown can wait for Linux indefinitely. Continue protecting
+    /// that live VM through Mac sleep and disk removal until it actually exits.
+    var isTerminating: Bool {
+        isStopping && settingsAction == nil
+    }
+
+    mutating func requestSettingsAction(_ action: SettingsAction) {
+        guard !isStopping else { return }
+        stopIntent = .settings(action)
+    }
+
+    mutating func cancelSettingsAction() {
+        if settingsAction != nil { stopIntent = .none }
     }
 
     mutating func requestQuit() {

@@ -129,6 +129,11 @@ def component_files(root: Path, component: str) -> list[Path]:
         ]
         paths.extend(
             [
+                root / "guest/scripts/install-settings-integration.py",
+                root / "guest/native-overlay/usr/local/bin/omarchy-native-settings",
+                root / "guest/native-overlay/etc/udev/rules.d/92-omarchy-native-settings.rules",
+                root / "guest/native-overlay/usr/share/applications/try-omarchy-settings.desktop",
+                root / "guest/native-overlay/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc",
                 root / ".build/state/guest.json",
                 root / ".build/state/runtime.json",
                 root / "dist/guest/guest-manifest.json",

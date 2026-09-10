@@ -1,0 +1,9 @@
+{
+  "setup.try-omarchy": {
+    "icon": "",
+    "label": "Try Omarchy Settings",
+    "description": "Open the Mac app settings",
+    "action": "omarchy-native-settings",
+    "when": "test -w /dev/virtio-ports/dev.tryomarchy.settings"
+  }
+}
