@@ -3,8 +3,8 @@ import Foundation
 /// A guest locale the launcher may ask the guest to boot into.
 ///
 /// `localeToken` becomes both the value of `tryomarchy.locale=<value>` on the
-/// guest kernel command line and, once the guest's own generator reads it,
-/// the session `LANG`. It is kept byte-identical to the `LANG` values
+/// guest kernel command line and, once the guest writes it into
+/// `/etc/locale.conf`, the session `LANG`. It is kept byte-identical to the `LANG` values
 /// `configure-rootfs.sh` writes into the guest's `/etc/locale.gen`, so the
 /// same string names the locale on both sides of the boundary.
 struct GuestLocale: Equatable {

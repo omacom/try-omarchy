@@ -186,8 +186,9 @@ creates the account on first boot.
   unchanged.
 - Traditional Chinese is available to opt into from the start menu's Language
   row, without changing the default session: the choice becomes the
-  `tryomarchy.locale=zh_TW.UTF-8` kernel argument, and a guest systemd
-  generator consumes it to set `LANG` in `/run/environment.d`. `zh_TW.UTF-8`
+  `tryomarchy.locale=zh_TW.UTF-8` kernel argument, and a guest oneshot unit
+  consumes it to write `LANG` into `/etc/locale.conf` before either login
+  entry point starts, which is where the login shell takes it from. `zh_TW.UTF-8`
   is generated alongside `en_US.UTF-8`, fcitx5 is seeded with US and Chewing
   (Bopomofo) input, a fontconfig rule prefers Traditional Chinese Han glyph
   variants for `zh-TW` text, and Chromium is launched with the Wayland IME
