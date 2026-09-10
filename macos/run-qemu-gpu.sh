@@ -55,6 +55,9 @@ port_forwarding_library="$script_dir/qemu-port-forwarding.sh"
 
 [[ $(uname -m) == arm64 ]] || fail "requires an ARM64 Mac"
 [[ $(uname -s) == Darwin ]] || fail "requires macOS"
+macos_major=$(sw_vers -productVersion | cut -d. -f1)
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 26 )) || \
+  fail "requires macOS 26 or newer"
 [[ -d $guest_input && ! -L $guest_input ]] || fail "ARM guest directory is missing or unsafe: $guest_input"
 guest_dir=$(cd "$guest_input" && pwd -P)
 
@@ -807,6 +810,8 @@ arguments = command_line.split(" ")
 for required in ("root=/dev/vda", "rw", "rootwait", "console=tty0", "console=hvc0"):
     if arguments.count(required) != 1:
         fail(f"kernel command line must contain exactly one {required}")
+if any(argument.startswith("omarchy.virgl_dual_source=") for argument in arguments):
+    fail("kernel command line contains a launcher-owned VirGL capability argument")
 if any(argument.startswith("omarchy.qemu_virgl=") for argument in arguments):
     fail("kernel command line already contains a QEMU VirGL role")
 if any(argument.startswith("omarchy.shared_folder_name=") for argument in arguments):
@@ -916,6 +921,9 @@ IFS=$'\t' read -r bundle_identity source_disk_sha source_disk_bytes compressed_d
 (( expanded_disk_bytes >= source_disk_bytes )) || fail "working disk cannot be smaller than its source"
 [[ -n $kernel_command_line ]] || fail "validated kernel command line is empty"
 case " $kernel_command_line " in
+  *' omarchy.virgl_dual_source='*)
+    fail "validated kernel command line contains a launcher-owned VirGL capability argument"
+    ;;
   *' tryomarchy.ssh_access='*)
     fail "validated kernel command line contains a launcher-owned SSH activation argument"
     ;;
@@ -1429,6 +1437,11 @@ launch_kernel_command_line=$QEMU_SELECTED_KERNEL_COMMAND_LINE
 [[ -n $launch_kernel && -n $launch_initramfs && -n $launch_kernel_command_line ]] || {
   fail 'the selected VM has no complete boot kit'
 }
+case " $launch_kernel_command_line " in
+  *' omarchy.virgl_dual_source='*)
+    fail "selected kernel command line contains a launcher-owned VirGL capability argument"
+    ;;
+esac
 
 if ((reset_only)); then
   qemu_persistent_storage_release_lock
@@ -1505,7 +1518,7 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -kernel "$launch_kernel"
   -initrd "$launch_initramfs"
-  -append "$launch_kernel_command_line omarchy.qemu_virgl=1$shared_folder_kernel_argument$ssh_kernel_argument"
+  -append "$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument"
   -drive "if=none,id=omarchy-root,file=$working_disk,format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root'
   -device "$gpu_device"
@@ -1654,6 +1667,9 @@ while true; do
       audio_bridge_status=$?
     fi
     audio_bridge_pid=""
+    # QEMU can exit between the process checks, taking the bridge down normally.
+    qemu_state=$(ps -p "$qemu_pid" -o state= 2>/dev/null || true)
+    [[ -n $qemu_state && $qemu_state != *Z* ]] || break
     fail "native audio bridge exited while QEMU was running (status $audio_bridge_status)"
   fi
 

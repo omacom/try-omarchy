@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-minimum_macos_version=15.0
+minimum_macos_version=26.0
 
 usage() {
   echo "Usage: macos/verify-macos-compatibility.sh ROOT" >&2
@@ -85,7 +85,8 @@ while IFS= read -r -d '' image; do
 
   strong_imports=$(xcrun nm -u -W -j --add-dyldinfo -arch all "$image" 2>/dev/null) || \
     fail "could not inspect strong imports: $image"
-  if grep -Fxq '_strchrnul' <<<"$strong_imports"; then
+  if version_is_newer 15.4 "$minimum_macos_version" &&
+     grep -Fxq '_strchrnul' <<<"$strong_imports"; then
     fail "$image strongly imports _strchrnul, which is unavailable before macOS 15.4"
   fi
 done < <(find "$compatibility_root" -type f -print0)

@@ -41,7 +41,13 @@ mkdir -p \
   "$resources/scripts" \
   "$shim_dir"
 
-/bin/cp "$macos_dir/run-qemu-gpu.sh" "$resources/scripts/run-qemu-gpu.sh"
+# The copied launcher must never reap another app's live run directories.
+# Keep the unique prefix directly in /private/tmp for short Unix socket paths.
+sed "s|/private/tmp/omarchy-qemu-gpu\\.|/private/tmp/${test_root##*/}-run.|g" \
+  "$macos_dir/run-qemu-gpu.sh" >"$resources/scripts/run-qemu-gpu.sh"
+if grep -Fq '/private/tmp/omarchy-qemu-gpu.' "$resources/scripts/run-qemu-gpu.sh"; then
+  fail "test launcher still refers to production run directories"
+fi
 /bin/cp "$macos_dir/qemu-port-forwarding.sh" "$resources/scripts/qemu-port-forwarding.sh"
 chmod 755 "$resources/scripts/run-qemu-gpu.sh"
 chmod 644 "$resources/scripts/qemu-port-forwarding.sh"

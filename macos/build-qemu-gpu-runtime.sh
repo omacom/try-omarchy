@@ -73,7 +73,7 @@ pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
-macos_deployment_target=15.0
+macos_deployment_target=26.0
 
 keycodemap_commit=f5772a62ec52591ff6870b7e8ef32482371f22c6
 keycodemap_root="keycodemapdb-$keycodemap_commit"
@@ -92,7 +92,7 @@ ninja_archive_name=ninja-1.13.0-py3-none-macosx_10_9_universal2.whl
 ninja_url="https://files.pythonhosted.org/packages/3c/74/d02409ed2aa865e051b7edda22ad416a39d81a84980f544f8de717cab133/$ninja_archive_name"
 ninja_sha256=fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1
 
-virgl_version=1.0.33
+virgl_version=1.0.42
 setuptools_archive_name=setuptools-84.0.0-py3-none-any.whl
 setuptools_url="https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/$setuptools_archive_name"
 setuptools_sha256=51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
@@ -105,19 +105,19 @@ pip_archive_name=pip-26.2.1-py3-none-any.whl
 pip_url="https://files.pythonhosted.org/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/$pip_archive_name"
 pip_sha256=71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e
 
-virgl_archive_name=virglrenderer-1.0.33.arm64_sequoia.bottle.tar.gz
-virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.33/$virgl_archive_name"
-virgl_sha256=26ad3e927d300587024cd92276d38bf813f6228d130a1800c97f1c18688b34ba
+virgl_archive_name=virglrenderer-1.0.42.arm64_tahoe.bottle.tar.gz
+virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.42/$virgl_archive_name"
+virgl_sha256=64c37340757cf300712d8e74dc43759f81058ec58cf424094d5f79c9c82c0984
 
-angle_version=1.0.15
-angle_archive_name=angle-1.0.15.arm64_sequoia.bottle.tar.gz
-angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.15/$angle_archive_name"
-angle_sha256=2b41a696f450a941016adf8b157e754c3223b6032ac9b9f0aac4216e899074c7
+angle_version=1.0.16
+angle_archive_name=angle-1.0.16.arm64_sequoia.bottle.tar.gz
+angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.16/$angle_archive_name"
+angle_sha256=29fe2175b157a65f12879f9a12b5c8f94d0a76fafdf41ff009a2fdb4e9df525c
 
-epoxy_version=1.0.4
-epoxy_archive_name=libepoxy-1.0.4.arm64_sequoia.bottle.tar.gz
-epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.4/$epoxy_archive_name"
-epoxy_sha256=8787cc8c34921834665262dff4941216dd6717edddf2c6d5cdfe04f03b24c517
+epoxy_version=1.0.5
+epoxy_archive_name=libepoxy-1.0.5.arm64_sequoia.bottle.tar.gz
+epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.5/$epoxy_archive_name"
+epoxy_sha256=109384a1d37edf207a9b9f3d8950710c00767635b3c7ff295e3af83611876ef2
 
 die() {
   echo "qemu-source-build: $*" >&2
@@ -144,7 +144,7 @@ done
 [[ $(uname -m) == arm64 ]] || die "this source build requires Apple Silicon (arm64)"
 macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $macos_major =~ ^[0-9]+$ ]] || die "could not determine the macOS version"
-((macos_major >= 15)) || die "the pinned GPU bottles require macOS 15 or newer"
+((macos_major >= 26)) || die "the pinned GPU bottles require macOS 26 or newer"
 [[ -f $identity_patch && ! -L $identity_patch ]] || \
   die "missing Cocoa product-identity patch: $identity_patch"
 [[ -f $display_patch && ! -L $display_patch ]] || \
@@ -443,7 +443,7 @@ require_private_pkg_version glib-2.0 2.88.3
 require_private_pkg_version pixman-1 0.46.4
 require_private_pkg_version slirp 4.9.4
 require_private_pkg_version sdl2 2.32.70
-require_private_pkg_version virglrenderer 1.2.0
+require_private_pkg_version virglrenderer 1.3.0
 require_private_pkg_version epoxy 1.5.11
 
 build_dir="$source_dir/build"
@@ -482,10 +482,6 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
 
 config_host="$build_dir/config-host.h"
 [[ -f $config_host && ! -L $config_host ]] || die "QEMU configure did not create config-host.h"
-if grep -Eq '^[[:space:]]*#define[[:space:]]+HAVE_STRCHRNUL([[:space:]]+1)?[[:space:]]*$' \
-  "$config_host"; then
-  die "QEMU incorrectly enabled the macOS 15.4-only strchrnul API"
-fi
 python3 - \
   "$build_dir/compile_commands.json" \
   "-mmacosx-version-min=$macos_deployment_target" \

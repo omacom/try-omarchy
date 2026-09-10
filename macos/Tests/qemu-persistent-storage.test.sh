@@ -189,6 +189,12 @@ printf '\x28\xb5\x2f\xfdzstd-initramfs\n' >"$initramfs_zstd"
 printf '\x28\xb5\x2f\xfd' >"$initramfs_zstd_truncated"
 kernel_command_line_a='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
 kernel_command_line_b='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5'
+assert _qps_validate_kernel_command_line "$kernel_command_line_a"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=0"
+
 
 # Inspecting a new location reports "missing" without asking for, copying, or
 # materializing a factory disk. A full selection then creates the VM and pairs

@@ -51,20 +51,20 @@ dependency_bundler="$native_dir/bundle-macho-dependencies.sh"
 compatibility_verifier="$native_dir/verify-macos-compatibility.sh"
 runtime_manifest="$native_dir/runtime-files.txt"
 
-virgl_version=1.0.33
-virgl_archive_name=virglrenderer-1.0.33.arm64_sequoia.bottle.tar.gz
-virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.33/$virgl_archive_name"
-virgl_sha256=26ad3e927d300587024cd92276d38bf813f6228d130a1800c97f1c18688b34ba
+virgl_version=1.0.42
+virgl_archive_name=virglrenderer-1.0.42.arm64_tahoe.bottle.tar.gz
+virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.42/$virgl_archive_name"
+virgl_sha256=64c37340757cf300712d8e74dc43759f81058ec58cf424094d5f79c9c82c0984
 
-angle_version=1.0.15
-angle_archive_name=angle-1.0.15.arm64_sequoia.bottle.tar.gz
-angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.15/$angle_archive_name"
-angle_sha256=2b41a696f450a941016adf8b157e754c3223b6032ac9b9f0aac4216e899074c7
+angle_version=1.0.16
+angle_archive_name=angle-1.0.16.arm64_sequoia.bottle.tar.gz
+angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.16/$angle_archive_name"
+angle_sha256=29fe2175b157a65f12879f9a12b5c8f94d0a76fafdf41ff009a2fdb4e9df525c
 
-epoxy_version=1.0.4
-epoxy_archive_name=libepoxy-1.0.4.arm64_sequoia.bottle.tar.gz
-epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.4/$epoxy_archive_name"
-epoxy_sha256=8787cc8c34921834665262dff4941216dd6717edddf2c6d5cdfe04f03b24c517
+epoxy_version=1.0.5
+epoxy_archive_name=libepoxy-1.0.5.arm64_sequoia.bottle.tar.gz
+epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.5/$epoxy_archive_name"
+epoxy_sha256=109384a1d37edf207a9b9f3d8950710c00767635b3c7ff295e3af83611876ef2
 
 die() {
   echo "qemu-gpu-runtime: $*" >&2
@@ -89,7 +89,7 @@ done
 [[ $(uname -m) == arm64 ]] || die "the pinned bottles require Apple Silicon (arm64)"
 macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $macos_major =~ ^[0-9]+$ ]] || die "could not determine the macOS version"
-((macos_major >= 15)) || die "the pinned arm64_sequoia bottles require macOS 15 or newer"
+((macos_major >= 26)) || die "the pinned GPU bottles require macOS 26 or newer"
 [[ -n $source_qemu ]] || die "--source-qemu is required"
 [[ $source_qemu == /* ]] || die "--source-qemu must be an absolute path"
 [[ -f $source_qemu && ! -L $source_qemu && -x $source_qemu ]] || \
@@ -357,7 +357,7 @@ verify_runtime_tree() {
     die "could not inspect QEMU's minimum macOS version"
   [[ -n $minimum_versions ]] || die "QEMU has no minimum macOS version"
   while IFS= read -r minimum_version; do
-    [[ $minimum_version == 15.0 ]] || \
+    [[ $minimum_version == 26.0 ]] || \
       die "QEMU has unexpected minimum macOS version: $minimum_version"
   done <<<"$minimum_versions"
 
@@ -488,4 +488,4 @@ fi
 publish_dir=
 
 log "Prepared $runtime_dir"
-log "Runtime is self-contained, targets macOS 15.0, and contains ${#runtime_files[@]} pinned Mach-O images"
+log "Runtime is self-contained, targets macOS 26.0, and contains ${#runtime_files[@]} pinned Mach-O images"

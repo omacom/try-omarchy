@@ -45,7 +45,13 @@ mkdir -p \
   "$resources/scripts" \
   "$shim_dir"
 
-/bin/cp "$macos_dir/run-qemu-gpu.sh" "$resources/scripts/run-qemu-gpu.sh"
+# The copied launcher must never reap another app's live run directories.
+# Keep the unique prefix directly in /private/tmp for short Unix socket paths.
+sed "s|/private/tmp/omarchy-qemu-gpu\\.|/private/tmp/${test_root##*/}-run.|g" \
+  "$macos_dir/run-qemu-gpu.sh" >"$resources/scripts/run-qemu-gpu.sh"
+if grep -Fq '/private/tmp/omarchy-qemu-gpu.' "$resources/scripts/run-qemu-gpu.sh"; then
+  fail "test launcher still refers to production run directories"
+fi
 /bin/cp "$macos_dir/qemu-port-forwarding.sh" "$resources/scripts/qemu-port-forwarding.sh"
 chmod 755 "$resources/scripts/run-qemu-gpu.sh"
 chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
@@ -57,6 +63,9 @@ if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
    || ${1:-} == --bridge-native-camera ]]; then
+  if [[ $1 == --bridge-native-audio && ${FAKE_AUDIO_EXIT_EARLY:-0} == 1 ]]; then
+    exit 0
+  fi
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
   done
@@ -113,6 +122,7 @@ arguments = sys.argv[1:]
 is_recovery = "Try Omarchy Boot Recovery" in arguments
 log_variable = "FAKE_QEMU_RECOVERY_LOG" if is_recovery else "FAKE_QEMU_LOG"
 Path(os.environ[log_variable]).write_text("\n".join(arguments) + "\n")
+Path(os.environ[log_variable] + ".pid").write_text(str(os.getpid()))
 
 if is_recovery:
     export_path = None
@@ -288,6 +298,18 @@ if [[ $# == 2 && $1 == -n && $2 == hw.memsize ]]; then
 fi
 exec /usr/sbin/sysctl "$@"
 SH
+cat >"$shim_dir/ps" <<'SH'
+#!/bin/bash
+if [[ ${FAKE_SHUTDOWN_RACE:-0} == 1 && -f ${FAKE_QEMU_LOG:-}.pid       && $* == "-p $(cat "$FAKE_QEMU_LOG.pid") -o state="       && ! -e $FAKE_QEMU_LOG.raced ]]; then
+  state=$(/bin/ps "$@" 2>/dev/null) || exit $?
+  touch "$FAKE_QEMU_LOG.raced"
+  # Return a stale live snapshot only after QEMU and its bridges have exited.
+  sleep 0.5
+  printf '%s\n' "$state"
+  exit 0
+fi
+exec /bin/ps "$@"
+SH
 chmod 755 "$shim_dir"/*
 
 guest="$resources/guest"
@@ -452,6 +474,11 @@ assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
 assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
 assert_line_pair "$test_root/disabled/qemu.log" -m 4096M
+
+run_scenario shutdown-race 0 '' FAKE_SHUTDOWN_RACE=1
+[[ -e $test_root/shutdown-race/qemu.log.raced ]] || fail 'shutdown race was not exercised'
+run_scenario audio-exits-early 1 '' FAKE_AUDIO_EXIT_EARLY=1 FAKE_QEMU_LIFETIME=2
+assert_contains "$(<"$test_root/audio-exits-early/stderr")" 'native audio bridge exited while QEMU was running'
 
 # Exercise resource values through the real launcher and its QEMU boundary.
 run_scenario resources 0 '' FAKE_HOST_CPUS=18 \

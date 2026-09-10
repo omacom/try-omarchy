@@ -325,7 +325,7 @@ safety floor.
 ## Requirements
 
 - Apple Silicon Mac (`arm64`)
-- macOS 15 or newer
+- macOS 26 or newer
 - At least 8 GB free initially
 
 On M3 and newer Apple Silicon, Try Omarchy also exposes ARM EL2 to Linux, so
@@ -458,7 +458,7 @@ brew install pkg-config
 ```
 
 `make doctor` performs the basic preflight. `make runtime` downloads a
-checksum-pinned `arm64_sequoia` dependency set, builds QEMU for macOS 15.0,
+checksum-pinned dependency set, builds QEMU for macOS 26.0,
 and rejects any runtime image that raises that minimum or strongly imports an
 API unavailable on the declared platform. Installed Homebrew library versions
 are never copied into the app.

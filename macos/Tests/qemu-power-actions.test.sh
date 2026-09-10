@@ -25,6 +25,11 @@ action_count=$(printf '%s\n' "$qemu_arguments" | grep -Ec -- \
   fail 'QEMU must not remain open after a guest shutdown'
 }
 
+capability_argument_count=$(printf '%s\n' "$qemu_arguments" | grep -Fc -- \
+  'omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1' || true)
+[[ $capability_argument_count == 1 ]] || \
+  fail 'QEMU must advertise the corrected VirGL capability exactly once'
+
 qmp_argument_count=$(printf '%s\n' "$qemu_arguments" | grep -Fxc -- \
   '  -qmp "unix:$qmp_socket,server=on,wait=off"' || true)
 [[ $qmp_argument_count == 1 ]] || {

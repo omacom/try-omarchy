@@ -164,7 +164,7 @@ class XdgTerminalExecTests(unittest.TestCase):
         )
         helper.chmod(0o755)
         self.write_command("foot")
-        for name, desktop_id in (("alacritty", "Alacritty.desktop"), ("kitty", "kitty.desktop")):
+        for name, desktop_id in (("kitty", "kitty.desktop"),):
             wrapper = self.commands / name
             real = package_bin / name
             source = HELPER.parents[4] / f"native-overlay/usr/local/bin/{name}"

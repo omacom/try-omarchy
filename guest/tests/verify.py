@@ -1469,16 +1469,10 @@ def main() -> None:
         "native background picker override is executable",
     )
     check(cursor_restore.stat().st_mode & stat.S_IXUSR != 0, "native cursor restore helper is executable")
-    alacritty_wrapper = GUEST / "native-overlay/usr/local/bin/alacritty"
-    alacritty_wrapper_text = read(alacritty_wrapper)
-    check(alacritty_wrapper.stat().st_mode & stat.S_IXUSR != 0, "Alacritty VirGL wrapper is executable")
     check(
-        'real=/usr/bin/alacritty' in alacritty_wrapper_text
-        and "export LIBGL_ALWAYS_SOFTWARE=1" in alacritty_wrapper_text
-        and "omarchy.qemu_virgl=1" in alacritty_wrapper_text
-        and 'exec "$real" "$@"' in alacritty_wrapper_text
-        and '"$root/usr/local/bin/alacritty"' in configure,
-        "Alacritty VirGL wrapper forces software GL onto the pacman binary",
+        not (GUEST / "native-overlay/usr/local/bin/alacritty").exists()
+        and '"$root/usr/local/bin/alacritty"' not in configure,
+        "Alacritty uses the accelerated pacman binary without a software GL wrapper",
     )
     xdg_terminal = GUEST / "factory-overlay/usr/local/bin/xdg-terminal-exec"
     xdg_terminal_text = read(xdg_terminal)
@@ -1617,7 +1611,6 @@ HOTPLUG=1
         screensaver_override,
         background_switcher_override,
         cursor_restore,
-        alacritty_wrapper,
         kitty_wrapper,
         display_sync,
         mac_share,

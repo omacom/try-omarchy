@@ -44,6 +44,12 @@ while (($#)); do
   esac
 done
 
+macos_major=$(sw_vers -productVersion | cut -d. -f1)
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 26 )) || {
+  echo "build-app: macOS 26 or newer is required" >&2
+  exit 1
+}
+
 macos_dir=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$macos_dir/.." && pwd -P)
 helper="$macos_dir/.build/release/omarchy-vm-helper"
@@ -123,7 +129,7 @@ cd "$macos_dir"
 mkdir -p "$module_cache/swift" "$module_cache/clang" "$module_cache/icon"
 export SWIFT_MODULECACHE_PATH="$module_cache/swift"
 export CLANG_MODULE_CACHE_PATH="$module_cache/clang"
-export MACOSX_DEPLOYMENT_TARGET=15.0
+export MACOSX_DEPLOYMENT_TARGET=26.0
 swift build --disable-sandbox -c release -debug-info-format none
 
 rm -rf "$iconset"
@@ -168,6 +174,8 @@ install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
 install -m 0644 "$generated_icon" "$contents/Resources/TryOmarchy.icns"
 ditto "$runtime_source" "$contents/Resources/runtime"
 install -m 0755 "$macos_dir/run-qemu-gpu.sh" "$contents/Resources/scripts/run-qemu-gpu.sh"
+install -m 0755 "$repo_dir/guest/native-overlay/usr/local/sbin/try-omarchy-migrate-alacritty" \
+  "$contents/Resources/scripts/try-omarchy-migrate-alacritty"
 install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
   "$contents/Resources/scripts/qemu-persistent-storage.sh"
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \

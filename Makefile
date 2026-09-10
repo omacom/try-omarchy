@@ -47,7 +47,7 @@ help:
 doctor:
 	@[[ "$$(uname -s)" == Darwin ]] || { echo 'error: macOS is required' >&2; exit 1; }
 	@[[ "$$(uname -m)" == arm64 ]] || { echo 'error: an Apple Silicon Mac is required' >&2; exit 1; }
-	@major=$$(sw_vers -productVersion | cut -d. -f1); (( major >= 15 )) || { echo 'error: macOS 15 or newer is required' >&2; exit 1; }
+	@major=$$(sw_vers -productVersion | cut -d. -f1); (( major >= 26 )) || { echo 'error: macOS 26 or newer is required' >&2; exit 1; }
 	@for tool in curl docker pkg-config python3 swift xcrun; do command -v "$$tool" >/dev/null || { echo "error: $$tool is required" >&2; exit 1; }; done
 	@docker info >/dev/null 2>&1 || { echo 'error: Docker is installed but not running' >&2; exit 1; }
 	@printf 'Toolchain ready: %s (%s)\n' "$$(sw_vers -productVersion)" "$$(uname -m)"
