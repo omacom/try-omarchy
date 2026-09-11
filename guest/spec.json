@@ -493,6 +493,7 @@
       "bin/omarchy-provision-user",
       "bin/omarchy-screensaver",
       "bin/omarchy-theme-set",
+      "config/chromium-flags.conf",
       "config/foot/foot.ini",
       "config/hypr/hyprland.lua",
       "config/hypr/monitors.lua",

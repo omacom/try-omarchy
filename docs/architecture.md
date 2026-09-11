@@ -184,6 +184,16 @@ creates the account on first boot.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain
   unchanged.
+- Traditional Chinese is available to opt into from the start menu's Language
+  row, without changing the default session: the choice becomes the
+  `tryomarchy.locale=zh_TW.UTF-8` kernel argument, and a guest oneshot unit
+  consumes it to write `LANG` into `/etc/locale.conf` before either login
+  entry point starts, which is where the login shell takes it from. `zh_TW.UTF-8`
+  is generated alongside `en_US.UTF-8`, fcitx5 is seeded with US and Chewing
+  (Bopomofo) input, a fontconfig rule prefers Traditional Chinese Han glyph
+  variants for `zh-TW` text, and Chromium is launched with the Wayland IME
+  flag it needs to receive fcitx5 input at all. Leaving the row untouched
+  emits no kernel argument, and `LANG`/`KEYMAP` stay `en_US`/`us`.
 
 Nothing is overwritten while the app runs. The app bundle and packaged factory
 disk remain unchanged. Normal user launches use one private writable disk under

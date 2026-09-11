@@ -322,6 +322,19 @@ an environment value the menu would not offer (say 12 GiB on a 16 GiB Mac)
 is still accepted — the menu is deliberately conservative, the launcher is a
 safety floor.
 
+## Traditional Chinese
+
+Choose **Switch to Traditional Chinese (繁體中文)** next to **Language** on
+the start menu to boot Omarchy in Traditional Chinese (`zh_TW.UTF-8`);
+**Use English (Default)** switches back. The change takes effect on the next
+launch.
+
+The desktop, file manager, browser, and system dialogs are translated, and
+fcitx5 adds Chewing (Bopomofo) input, reachable with `Ctrl + Space`; the US
+keyboard layout remains the default input method. Omarchy's own setup wizard
+and menus stay in English either way: upstream Omarchy has no translation
+mechanism, and those strings are hardcoded in its shell scripts.
+
 ## Requirements
 
 - Apple Silicon Mac (`arm64`)

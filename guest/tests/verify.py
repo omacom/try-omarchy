@@ -737,6 +737,14 @@ def main() -> None:
         "compat/ttfx-arm64" not in configure and not (GUEST / "compat/ttfx-arm64").exists(),
         "obsolete no-op ttfx compatibility command is absent",
     )
+    check(
+        "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure,
+        "Traditional Chinese locale is generated alongside English so it can be opted into",
+    )
+    check(
+        "LANG=en_US.UTF-8" in configure and "KEYMAP=us" in configure,
+        "default session language and keyboard layout stay English/US for a user who never opts into zh-TW",
+    )
     check("omarchy-provision-owner.service" in configure, "first boot uses upstream owner provisioning")
     native_autologin = read(
         GUEST
@@ -746,6 +754,34 @@ def main() -> None:
         "ExecStartPost=" in native_autologin
         and "omarchy-provision-autologin-once.service" in native_autologin,
         "native provisioning keeps direct graphical login across VM boots",
+    )
+    check(
+        'install -d -m 0755 "$root/etc/skel/.config/fcitx5"' in configure
+        and "fragments/fcitx5-profile.ini" in configure
+        and '"$root/etc/skel/.config/fcitx5/profile"' in configure,
+        "every new user's skeleton home gets the fcitx5 input profile seeded, not just the package",
+    )
+    fcitx5_profile = read(GUEST / "fragments/fcitx5-profile.ini")
+    check(
+        "[Groups/0/Items/0]\nName=keyboard-us" in fcitx5_profile
+        and "[Groups/0/Items/1]\nName=chewing" in fcitx5_profile,
+        "keyboard-us sits at item index 0 ahead of chewing, so a user who never triggers the IME "
+        "(an inactive input context) still lands on plain US input, even though fcitx5 resolves "
+        "and rewrites the group's actual default input method to chewing",
+    )
+    check(
+        'chromium_flags="$root/etc/skel/.config/chromium-flags.conf"' in configure
+        and "[[ -f $chromium_flags ]] || fail" in configure
+        and 'cat "$guest_dir/fragments/chromium-flags-wayland-ime.append.conf" >>"$chromium_flags"'
+        in configure,
+        "the wayland-ime flag is appended to Chromium's existing flags, never overwriting Basecamp's upstream ones",
+    )
+    chromium_ime_flag = read(
+        GUEST / "fragments/chromium-flags-wayland-ime.append.conf"
+    )
+    check(
+        "--enable-wayland-ime" in chromium_ime_flag,
+        "Chromium launches with the flag fcitx5 needs to reach Wayland text fields",
     )
     fcitx_guard = read(
         GUEST / "native-overlay/etc/systemd/user/omarchy-fcitx5.service.d/10-guard.conf"
@@ -889,6 +925,43 @@ def main() -> None:
         "[zram0]" in zram_override
         and "compression-algorithm = lzo-rle" in zram_override,
         "factory zram uses the ARM kernel's supported lzo-rle backend",
+    )
+    cjk_fontconfig = read(
+        GUEST / "factory-overlay/etc/fonts/conf.d/30-try-omarchy.conf"
+    )
+    check(
+        all(f"<string>{lang}</string>" in cjk_fontconfig for lang in ("zh-tw", "zh-hant"))
+        and all(
+            f"<string>Noto {kind} CJK TC</string>" in cjk_fontconfig
+            for kind in ("Sans", "Serif", "Sans Mono")
+        ),
+        "zh-TW and zh-Hant text prefers Traditional Chinese Han glyphs over Simplified or Japanese variants for sans, serif, and monospace",
+    )
+    check(
+        'mode="prepend" binding="strong"' in cjk_fontconfig
+        and all(
+            f"<string>{family}</string>" in cjk_fontconfig
+            for family in ("sans-serif", "serif", "monospace")
+        ),
+        "the Traditional Chinese font preference is scoped to generic sans/serif/monospace requests and wins over later fontconfig stages",
+    )
+    environment_conf = read(
+        GUEST / "factory-overlay/usr/lib/environment.d/90-try-omarchy.conf"
+    )
+    environment_assignments = [
+        line.split("#", 1)[0].strip() for line in environment_conf.splitlines()
+    ]
+    environment_assignments = [line for line in environment_assignments if line]
+    check(
+        "XMODIFIERS=@im=fcitx" in environment_assignments,
+        "XWayland apps can still reach fcitx5, since they only speak the legacy XIM protocol",
+    )
+    check(
+        not any(
+            re.match(r"(GTK_IM_MODULE|QT_IM_MODULE)\s*=", line)
+            for line in environment_assignments
+        ),
+        "GTK4/Qt6 apps stay on native Wayland text-input-v3 for fcitx5 instead of being forced onto the legacy im-module path globally",
     )
     check(
         '"$root/usr/bin/omarchy-audio-input-set-default"' in configure
@@ -1178,6 +1251,110 @@ def main() -> None:
         and '"$wants/sshd.service"' in ssh_generator
         and "/etc" not in ssh_generator,
         "SSH generator requests only the boot-scoped vendor sshd unit",
+    )
+
+    old_locale_generator_path = (
+        GUEST
+        / "native-overlay/usr/lib/systemd/system-generators/try-omarchy-locale"
+    )
+    check(
+        not old_locale_generator_path.exists(),
+        "the old locale system-generator is gone -- only one mechanism may own LANG",
+    )
+
+    locale_script_path = GUEST / "native-overlay/usr/local/bin/try-omarchy-locale"
+    locale_script = read(locale_script_path)
+    locale_script_code = "\n".join(
+        line for line in locale_script.splitlines() if not line.strip().startswith("#")
+    )
+    locale_unit_path = (
+        GUEST / "native-overlay/usr/lib/systemd/system/try-omarchy-locale.service"
+    )
+    locale_unit = read(locale_unit_path)
+
+    locale_gen_format = re.search(
+        r"printf '([^']*)' >\"\$root/etc/locale\.gen\"", configure
+    )
+    generated_locales = (
+        sorted(
+            line.split(" ", 1)[0]
+            for line in locale_gen_format.group(1).split("\\n")
+            if line
+        )
+        if locale_gen_format
+        else []
+    )
+    locale_allowlist_match = re.search(
+        r"case \$candidate in\n\s*([^\n]+)\) locale=\$candidate ;;\n", locale_script
+    )
+    allowlisted_locales = (
+        sorted(token.strip() for token in locale_allowlist_match.group(1).split("|"))
+        if locale_allowlist_match
+        else []
+    )
+    check(
+        locale_gen_format is not None
+        and locale_allowlist_match is not None
+        and generated_locales == allowlisted_locales,
+        "locale script's allowlist cannot drift from the locales configure-rootfs.sh actually "
+        "generates, or a chosen language silently gets no LANG",
+    )
+    check(
+        locale_script_path.is_file()
+        and locale_script_path.stat().st_mode & stat.S_IXUSR != 0
+        and "tryomarchy.locale=" in locale_script
+        and "TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/proc/cmdline" in locale_script,
+        "locale script is an executable that reads the host-chosen locale from the kernel command line",
+    )
+    check(
+        "eval" not in locale_script and "$(" not in locale_script,
+        "the kernel command line is never shell-interpolated",
+    )
+    check(
+        'TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf' in locale_script
+        and locale_script.count('>"$locale_conf"') == 1,
+        "locale script writes LANG to /etc/locale.conf, and to nowhere else, now that a real unit "
+        "(not a generator) is the one setting it",
+    )
+    check(
+        "LANG=%s" in locale_script_code
+        and "LC_ALL" not in locale_script_code
+        and "KEYMAP" not in locale_script_code,
+        "locale script sets LANG only, never LC_ALL or the console keymap",
+    )
+    check(
+        "locale=en_US.UTF-8" in locale_script and "exit 0" not in locale_script,
+        "an absent locale token still writes the image's default English locale -- unlike the old "
+        "generator, this script never exits early -- which is what lets switching back to English "
+        "in the launcher win on a persistent VM instead of leaving a stale locale behind",
+    )
+    check(
+        '[ ! -L "$locale_conf" ] || exit 1' in locale_script,
+        "locale script refuses to write through a symlink",
+    )
+
+    check(
+        locale_unit_path.is_file()
+        and "Type=oneshot" in locale_unit
+        and "RemainAfterExit=yes" in locale_unit
+        and "ExecStart=/usr/local/bin/try-omarchy-locale" in locale_unit
+        and "WantedBy=multi-user.target" in locale_unit,
+        "try-omarchy-locale.service is a oneshot unit (not a generator) that runs the locale script",
+    )
+    check(
+        "Before=sddm.service display-manager.service getty@tty1.service" in locale_unit,
+        "the unit orders itself before both entry points a login session can start from: SDDM "
+        "(sddm.service, aliased to display-manager.service once enabled) and a console login "
+        "(getty@tty1.service) -- the same two units omarchy-provision-owner.service, this project's "
+        "pinned upstream first-boot unit, already orders itself Before= (and briefly Conflicts=) for "
+        "the same reason, so this ordering is proven to work in this codebase, not merely asserted",
+    )
+    check(
+        "multi-user.target.wants/try-omarchy-locale.service" in configure
+        and "ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service" in configure,
+        "configure-rootfs.sh enables the unit itself: it runs before arch-chroot, with no "
+        "systemd/D-Bus available to run `systemctl enable` the way finalize-rootfs.sh does for "
+        "sddm.service and omarchy-provision-owner.service, so it links the .wants symlink directly",
     )
 
     manifest_writer = read(GUEST / "scripts/write-guest-manifest.py")
