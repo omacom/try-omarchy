@@ -639,7 +639,7 @@ _qps_validate_kernel_command_line() {
       console=tty0) ((qps_console_zero_count += 1)) ;;
       console=hvc0) ((qps_console_hvc_count += 1)) ;;
       omarchy.qemu_virgl=*|omarchy.shared_folder_name=*|tryomarchy.ssh_access=*|\
-      tryomarchy.export_boot=*) return 1 ;;
+      tryomarchy.keyboard=*|tryomarchy.export_boot=*) return 1 ;;
     esac
   done
   (( qps_root_count == 1 && qps_rw_count == 1 && qps_rootwait_count == 1 && \
