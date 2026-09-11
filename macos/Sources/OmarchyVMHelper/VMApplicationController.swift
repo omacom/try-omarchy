@@ -218,6 +218,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                     FullscreenPreferences(isImmersive: isImmersive)
                 )
             },
+            integrationCacheURL: { [weak self] in
+                guard let self else { return nil }
+                return GuestIntegrationCache.url(storageRoot: QEMUGPUStorageSpaceEstimate.storageRootURL(
+                    environment: self.baseEnvironment, preference: self.storageLocationStore.load()
+                ))
+            },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }

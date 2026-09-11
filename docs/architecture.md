@@ -262,10 +262,10 @@ but the direct-boot kernel and matching headers, the packaged
 `try-omarchy-runtime`, and reviewed compatibility backports remain pinned in
 Try Omarchy's prioritized local repository. Reusing a disk therefore does not
 silently import a newer app's factory contents, and running the in-guest updater
-must not be described as reproducing every factory-image change. Delivering
-new Try Omarchy runtime or backport revisions to existing disks requires an
-explicitly designed in-guest migration channel; today a factory reset is the
-way to opt into the complete new factory.
+must not be described as reproducing every factory-image change. The bundled integration manager provides an explicit migration channel for
+reviewed guest integrations, with user-approved installation and per-VM status
+reporting. It does not replace the pinned kernel or reproduce every factory
+change. Factory reset remains the way to opt into the complete new factory.
 
 Optional, user-initiated installers run after the factory image has been built
 and are a separate trust boundary. They may resolve a mutable current release

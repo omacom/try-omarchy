@@ -1062,6 +1062,7 @@ audio_bridge_pid=""
 authentication_bridge_pid=""
 camera_bridge_pid=""
 clipboard_bridge_pid=""
+integration_bridge_pid=""
 
 terminate_child() {
   local pid=$1
@@ -1086,6 +1087,9 @@ cleanup() {
   local status=$?
   trap - EXIT HUP INT TERM
   set +e
+  if [[ $integration_bridge_pid =~ ^[0-9]+$ ]]; then
+    terminate_child "$integration_bridge_pid" 20
+  fi
   if [[ $qemu_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$qemu_pid" 40
   fi
@@ -1133,10 +1137,8 @@ reap_stale_work_dirs() {
   local marker=""
   local marker_value=""
   local launcher_pid=""
-  local launcher_command=""
   local qemu_marker=""
   local stale_qemu_pid=""
-  local qemu_command=""
 
   for candidate in /private/tmp/omarchy-qemu-gpu.??????; do
     [[ -d $candidate && ! -L $candidate ]] || continue
@@ -1149,20 +1151,27 @@ reap_stale_work_dirs() {
     [[ $marker_value =~ ^run-qemu-gpu:v1:([0-9]+):([0-9]+)$ ]] || continue
 
     launcher_pid=${BASH_REMATCH[1]}
-    launcher_command=$(ps -p "$launcher_pid" -o command= 2>/dev/null || true)
-    [[ $launcher_command != *"run-qemu-gpu.sh"* ]] || continue
-
+    stale_qemu_pid=""
     qemu_marker="$candidate/.qemu.pid"
     if [[ -f $qemu_marker && ! -L $qemu_marker ]]; then
       stale_qemu_pid=$(<"$qemu_marker")
-      if [[ $stale_qemu_pid =~ ^[0-9]+$ ]]; then
-        qemu_command=$(ps -p "$stale_qemu_pid" -o command= 2>/dev/null || true)
-        if [[ $qemu_command == *"$qemu_bin"* &&
-              $qemu_command == *"unix:/tmp/${candidate##*/}/qmp.sock"* ]]; then
-          continue
-        fi
-      fi
+      [[ $stale_qemu_pid =~ ^[0-9]+$ ]] || continue
     fi
+
+    # A failed ps is not evidence that a process exited. Obtain a complete UID
+    # inventory after reading the marker, and prove it contains this launcher.
+    local process_ids="" inspected_pid="" inspection_valid=0 run_is_alive=0
+    if ! process_ids=$(ps -U "$(id -u)" -o pid= 2>/dev/null); then
+      continue
+    fi
+    while read -r inspected_pid; do
+      [[ $inspected_pid =~ ^[0-9]+$ ]] || continue
+      [[ $inspected_pid != "$$" ]] || inspection_valid=1
+      if [[ $inspected_pid == "$launcher_pid" || $inspected_pid == "$stale_qemu_pid" ]]; then
+        run_is_alive=1
+      fi
+    done <<<"$process_ids"
+    (( inspection_valid == 1 && run_is_alive == 0 )) || continue
 
     echo "[qemu-gpu] Removing a verified stale disposable run: $candidate" >&2
     /bin/rm -rf "$candidate"
@@ -1352,6 +1361,7 @@ audio_bridge_socket="/tmp/${work_dir##*/}/audio.sock"
 authentication_bridge_socket="/tmp/${work_dir##*/}/authentication.sock"
 camera_bridge_socket="/tmp/${work_dir##*/}/camera.sock"
 clipboard_bridge_socket="/tmp/${work_dir##*/}/clipboard.sock"
+integration_bridge_socket="/tmp/${work_dir##*/}/integrations.sock"
 audio_route_dir="/tmp/${work_dir##*/}/audio-routes"
 mkdir -m 700 "$work_dir/audio-routes"
 
@@ -1534,6 +1544,16 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera'
 )
 
+if [[ -f $resources_dir/integrations/manifest.json ]]; then
+  integration_share_option=${resources_dir//,/,,}/integrations
+  qemu_args+=(
+    -fsdev "local,id=omarchy-updates,path=$integration_share_option,security_model=none,readonly=on"
+    -device 'virtio-9p-pci,fsdev=omarchy-updates,mount_tag=tryomarchy-updates,romfile='
+    -chardev "socket,id=omarchy-integrations,path=$integration_bridge_socket,server=on,wait=off"
+    -device 'virtserialport,bus=omarchy-serial.0,nr=5,chardev=omarchy-integrations,name=dev.tryomarchy.integrations'
+  )
+fi
+
 if [[ -n $shared_folder ]]; then
   # security_model=none performs every host operation as this Mac user and
   # ignores guest chown requests, so the Mac keeps real modes and ownership.
@@ -1639,6 +1659,17 @@ start_camera_bridge() {
 }
 start_camera_bridge
 camera_bridge_restarts=0
+
+if [[ -f $resources_dir/integrations/manifest.json ]]; then
+  integration_cache="$work_dir/integration-status.json"
+  if [[ $QEMU_SELECTED_STORAGE_MODE == persistent ]]; then
+    integration_disk_inode=$(stat -f %i "$working_disk")
+    integration_cache="${QEMU_PERSISTENT_STORAGE_DISKS_ROOT%/disks}/integration-status-$integration_disk_inode.json"
+  fi
+  "$native_bridge" --bridge-integrations "$qemu_pid" "$integration_bridge_socket" \
+    "$integration_cache" 9>&- &
+  integration_bridge_pid=$!
+fi
 
 # Bash 3.2 has no `wait -n`. The native-audio bridge is required for the guest
 # transport, so watch it alongside QEMU and fail if it exits unexpectedly.

@@ -98,7 +98,7 @@ def component_files(root: Path, component: str) -> list[Path]:
             path
             for path in regular_files(guest, {".work", "tests"})
             if path.relative_to(guest).as_posix() not in {"README.md", "test"}
-        ]
+        ] + [p for p in regular_files(root / "integrations") if p.suffix != ".md" and p.name != ".DS_Store"]
 
     if component == "runtime":
         paths = [
@@ -127,6 +127,9 @@ def component_files(root: Path, component: str) -> list[Path]:
             for path in regular_files(macos, {".build", ".swiftpm", "Tests", "patches"})
             if path.relative_to(macos).as_posix() not in excluded_names
         ]
+        paths.extend([p for p in regular_files(root / "integrations") if p.suffix != ".md" and p.name != ".DS_Store"])
+        paths.extend(regular_files(root / "guest/scripts"))
+        paths.extend(regular_files(root / "guest/native-overlay"))
         paths.extend(
             [
                 root / ".build/state/guest.json",

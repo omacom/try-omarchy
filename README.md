@@ -262,7 +262,17 @@ Loopback binding prevents devices on Wi-Fi, Ethernet, or the wider LAN from
 connecting. It does not isolate the listener from other users or processes on
 the same Mac; guest SSH authentication is still required.
 
+### Touch ID for 1Password
+
+An optional process-scoped integration can use the Mac's Touch ID to unlock
+1Password inside the guest. Existing synced passwords and passkeys stay managed
+by 1Password. See [setup and authorization boundaries](docs/onepassword-touch-id.md).
+
 ### Touch ID for sudo
+
+Guest clock recovery handles time lost during Mac sleep so fresh signed
+approvals remain usable after wake. Existing VMs need the
+[guest clock recovery installer](docs/guest-clock-recovery.md).
 
 The native authentication bridge can enroll this Mac and use
 Touch ID as a sufficient authentication method for guest `sudo`. Open
@@ -372,6 +382,60 @@ local repository. Installing a newer Try Omarchy app therefore does not apply
 all of that app's factory-image changes to an existing VM, and an in-guest
 update should not be assumed to reproduce them. A confirmed reset is the
 deliberate, destructive way to start again from the newest bundled factory.
+
+### Updating integrations in an existing VM
+
+The Mac launcher’s **VM integrations → Review…** action explains how to add
+new Try Omarchy features to an existing VM. It offers a one-time setup command
+for guests that do not yet have the integration manager. Run that command in an
+Omarchy terminal; it mounts the app’s dedicated read-only bundle and opens a
+review before requesting the Linux administrator password. SSH and personal
+folder sharing are not required.
+
+After setup, use **Omarchy Menu → Setup → Try Omarchy Integrations** or run
+`try-omarchy-integrations`. The guide offers sudo Touch ID support, recovery after
+Mac sleep, and package compatibility repairs. Touch ID pairing and the optional
+1Password integration are separate explicit choices.
+
+The app checks integration status after every VM launch. The launcher labels
+cached results **Last check**. A guest that does not respond may need setup or
+repair; a timeout is not proof that its components are absent. See
+[integration updates](docs/integration-updates.md) for scope and recovery details.
+
+### Repairing update holds in an older guest
+
+Older guests may fail Omarchy Update with conflicting `libaquamarine.so`
+dependencies. New factory images hold the compatible Hyprland, aquamarine,
+and Hyprtoolkit packages together, along with the direct-boot kernel and
+headers. Updating the Mac app does not add these holds to an existing guest.
+
+Copy `guest/scripts/repair-update-holds.py` from this source checkout into the
+guest, then run it **inside Omarchy**, with the updater closed:
+
+```sh
+python3 repair-update-holds.py          # preview only
+sudo python3 repair-update-holds.py --apply
+```
+
+The command adds missing holds to both `/usr/share/try-omarchy/pacman.conf`
+and `/etc/pacman.conf`. The first file is essential: Omarchy's pre-refresh
+hook restores it over the second before updating. Existing holds, comments,
+repository definitions, and unrelated settings are retained in each file.
+Keep any custom settings you want to survive an update in the saved share
+copy too; the existing update hook still replaces the active configuration.
+
+The repair prints a backup directory under
+`/var/lib/try-omarchy/update-holds-backup.*`, preserving both original files
+under their relative paths. To undo it, close the updater and restore each
+backup to its original location with `sudo cp -p`. Running the repair again
+makes no changes when the holds are already present. It refuses to write
+while pacman has a transaction lock.
+
+Then retry **Update → Omarchy**. This command only repairs the hold list; it
+does not install, downgrade, or upgrade packages, and cannot repair packages
+that were already upgraded into an incompatible combination. If dependency
+errors remain, retain the full error output for diagnosis instead of removing
+the kernel or compositor holds.
 
 ### Growing an existing VM disk
 

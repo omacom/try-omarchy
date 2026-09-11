@@ -172,6 +172,7 @@ install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
   "$contents/Resources/scripts/qemu-persistent-storage.sh"
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
+python3 "$repo_dir/integrations/build-bundle.py" "$contents/Resources/integrations"
 for guest_resource in \
   LICENSE.omarchy \
   SHA256SUMS \

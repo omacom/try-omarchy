@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Try Omarchy guest clock for host sleep drift
+
+[Timer]
+OnBootSec=5s
+OnUnitInactiveSec=10s
+AccuracySec=1s
+Unit=try-omarchy-clock-recovery.service
+
+[Install]
+WantedBy=timers.target

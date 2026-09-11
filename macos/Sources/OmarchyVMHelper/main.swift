@@ -19,6 +19,16 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--bridge-integrations" {
+        guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        try MainActor.assumeIsolated {
+            let bridge = try GuestIntegrationBridge(targetPID: pid, socketPath: arguments[2], cachePath: arguments[3])
+            bridge.run()
+        }
+        exit(0)
+    }
+
     if arguments.first == "--bridge-native-audio" {
         guard arguments.count == 4,
               let processIdentifier = Int32(arguments[1]),
