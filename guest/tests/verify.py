@@ -723,6 +723,16 @@ def main() -> None:
         and 'toggles/flags.lua' in materialize,
         "skel hypr toggles seed only flags.lua, not the catalog",
     )
+    apple_keyboard = read(
+        GUEST / "native-overlay/usr/share/try-omarchy/apple-keyboard-input.lua"
+    )
+    check(
+        'kb_model = "applealu_" .. geometry' in apple_keyboard
+        and "kb_layout" not in apple_keyboard
+        and "kb_variant" not in apple_keyboard
+        and 'dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")' in materialize,
+        "skel input loads Apple keyboard geometry without overriding layout",
+    )
 
     configure = read(GUEST / "scripts/configure-rootfs.sh")
     check(

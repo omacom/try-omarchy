@@ -49,6 +49,12 @@ pinch and releases them on cancellation or focus loss; the guest disables
 tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
 input contract, existing-guest setup, and integration validation.
 
+Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch and
+given to Cocoa. New and reset factory users also load an overlay that sets
+`kb_model=applealu_*`. App upgrade applies the Cocoa swap only; existing
+homes keep their current Hyprland input. See
+[Mac keyboard](mac-keyboard.md).
+
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
 session through wake. Before macOS sleeps it synchronously pauses the guest

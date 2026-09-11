@@ -891,4 +891,14 @@ export OMARCHY_QEMU_GPU_STATE_ROOT=$marker_root
 assert_fails _qps_prepare_state_root
 export OMARCHY_QEMU_GPU_STATE_ROOT=$saved_marker_state_root
 
+# Launch-time keyboard and SSH tokens must not be persisted or recovered.
+valid_command_line='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
+assert _qps_validate_kernel_command_line "$valid_command_line"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.keyboard=iso"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.ssh_access=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.export_boot=1"
+
 printf 'qemu-persistent-storage.test: PASS\n'
