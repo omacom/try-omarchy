@@ -453,6 +453,20 @@
             "afterSha256": "22062e6fc14f8405d3da23f2edc892fc22dcaf51ed4c944ee5d7c0fc3b0992bd"
           }
         ]
+      },
+      {
+        "id": "keyboard-us-acentos",
+        "description": "Add US intl with dead keys keyboard option for ANSI hardware used to write Portuguese.",
+        "reference": "https://github.com/omacom/try-omarchy/issues/194",
+        "patch": "patches/omarchy/keyboard-us-acentos.patch",
+        "patchSha256": "647d32947b57e363e04b255cb97dbb931973cc09af1a8257b71ea87f9bec18bb",
+        "targets": [
+          {
+            "path": "install/provisioning/setup-form.sh",
+            "beforeSha256": "0fbb8c3c8b151e5ff884c16d381e12fda53cc16adfd08a684d41e7327250665d",
+            "afterSha256": "cfc63b9d007e2fc1619f95d8c52699741df1099c447a5af66f3a58b62a0de36a"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [

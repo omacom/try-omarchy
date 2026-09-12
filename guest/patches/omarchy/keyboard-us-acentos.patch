@@ -1,0 +1,11 @@
+diff --git a/install/provisioning/setup-form.sh b/install/provisioning/setup-form.sh
+--- a/install/provisioning/setup-form.sh
++++ b/install/provisioning/setup-form.sh
+@@ -33,6 +33,7 @@ OMARCHY_KEYBOARD_LAYOUTS=$'English (US)|us
+ English (UK)|uk
+ English (US, Dvorak)|dvorak
+ English (US, Colemak)|colemak
++English (US, intl. with dead keys)|us-acentos
+ Azerbaijani|azerty
+ Belarusian|by
+ Belgian|be-latin1
