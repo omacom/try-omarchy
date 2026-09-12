@@ -247,6 +247,7 @@ def main() -> None:
             "geforce-now-aarch64-unavailable",
             "battlenet-aarch64-unavailable",
             "lutris-aarch64-unavailable",
+            "keyboard-us-acentos",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -290,6 +291,12 @@ def main() -> None:
     check(
         "exec omarchy-pkg-unavailable-arm Lutris" in lutris_unavailable_patch,
         "Lutris aarch64 backport fails via the shared unavailable helper",
+    )
+    keyboard_patch = read(GUEST / "patches/omarchy/keyboard-us-acentos.patch")
+    check(
+        "us-acentos" in keyboard_patch
+        and "English (US, intl. with dead keys)" in keyboard_patch,
+        "keyboard backport adds the US intl with dead keys layout",
     )
     dropbox_unavailable_patch = read(GUEST / "patches/omarchy/dropbox-aarch64-unavailable.patch")
     check(
