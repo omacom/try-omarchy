@@ -53,6 +53,7 @@ pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
+fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -72,6 +73,7 @@ pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95
 pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32aee
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
+fence_poll_patch_sha256=82a836c8f720fff09bea8c990133f88907e7ee2e0fd5b68451771065009d9743
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 macos_deployment_target=15.0
 
@@ -347,6 +349,8 @@ verify_file_sha "Try Omarchy SDL audio-device patch" \
   "$audio_device_patch" "$audio_device_patch_sha256"
 verify_file_sha "Try Omarchy 9p shared-folder patch" \
   "$shared_folder_patch" "$shared_folder_patch_sha256"
+verify_file_sha "Try Omarchy Darwin GPU fence polling patch" \
+  "$fence_poll_patch" "$fence_poll_patch_sha256"
 verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
   "$strchrnul_patch" "$strchrnul_patch_sha256"
 
@@ -361,6 +365,7 @@ patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
 patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
+patch -d "$source_dir" -p1 -f -i "$fence_poll_patch"
 patch -d "$source_dir" -p1 -f -i "$pinch_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"

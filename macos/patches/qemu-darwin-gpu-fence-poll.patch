@@ -1,0 +1,16 @@
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -1389,7 +1389,13 @@
+     virgl_renderer_poll();
+     virtio_gpu_process_cmdq(g);
+     if (!QTAILQ_EMPTY(&g->cmdq) || !QTAILQ_EMPTY(&g->fenceq)) {
++#ifdef CONFIG_DARWIN
++        /* ANGLE fences are polled on the render thread. The generic 10 ms
++         * interval exceeds an entire 120 Hz frame and stalls guest uploads. */
++        timer_mod(gl->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 1);
++#else
+         timer_mod(gl->fence_poll, qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 10);
++#endif
+     }
+ }
+ 
