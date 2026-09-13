@@ -129,7 +129,9 @@ struct NetworkLinkBridgeTests {
         #expect(rejected >= 0)
         if rejected >= 0 { close(rejected) }
         let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        let ready = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            ready.signal()
             defer { finished.signal() }
             var readiness = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
             guard poll(&readiness, 1, 2000) > 0 else {
@@ -140,14 +142,18 @@ struct NetworkLinkBridgeTests {
             guard peer >= 0 else { return }
             defer { close(peer) }
             do {
+                try LinkQMPServer.suppressSIGPIPE(descriptor: peer)
                 try LinkQMPServer.negotiate(descriptor: peer)
             } catch {
                 Issue.record("Peer validation mock failed: \(error)")
             }
         }
+        defer { #expect(finished.wait(timeout: .now() + 3) == .success) }
+        guard ready.wait(timeout: .now() + 3) == .success else {
+            throw HelperError.io("QMP peer test server did not start")
+        }
         let accepted = try QMPConnection(socketPath: connectionPath, identifierPrefix: "matching-peer", expectedPeerPID: getpid())
         accepted.close()
-        #expect(finished.wait(timeout: .now() + 3) == .success)
     }
 
     @Test("secure reader rejects writable metadata, links, and wrong owner")
@@ -190,9 +196,10 @@ private final class LinkQMPServer: @unchecked Sendable {
         client = descriptors[0]
         let server = descriptors[1]
         let finished = finished
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             defer { close(server); finished.signal() }
             do {
+                try Self.suppressSIGPIPE(descriptor: server)
                 try Self.negotiate(descriptor: server, reject: rejectNegotiation)
                 if rejectNegotiation { return }
                 for (index, isUp) in expectedUp.enumerated() {
@@ -220,6 +227,13 @@ private final class LinkQMPServer: @unchecked Sendable {
 
     func finish() {
         #expect(finished.wait(timeout: .now() + 3) == .success)
+    }
+
+    static func suppressSIGPIPE(descriptor: Int32) throws {
+        var enabled: Int32 = 1
+        guard setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+            throw HelperError.io("Cannot configure mock QMP socket")
+        }
     }
 
     static func negotiate(descriptor: Int32, reject: Bool = false) throws {
