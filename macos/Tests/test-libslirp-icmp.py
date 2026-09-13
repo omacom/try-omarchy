@@ -40,9 +40,16 @@ class ICMPPatchTests(unittest.TestCase):
 
     def test_patch_checksum_pin(self):
         script = (NATIVE / "build-qemu-gpu-runtime.sh").read_text()
-        pin = re.search(r"^slirp_patch_sha256=([0-9a-f]{64})$", script, re.M)
-        self.assertIsNotNone(pin)
-        self.assertEqual(pin.group(1), hashlib.sha256(PATCH.read_bytes()).hexdigest())
+        for variable, filename in (
+            ("slirp_patch_sha256", "libslirp-darwin-icmp-matching.patch"),
+            ("udp_patch_sha256", "libslirp-ipv4-udp-translation.patch"),
+        ):
+            with self.subTest(patch=filename):
+                patch = NATIVE / "patches" / filename
+                pin = re.search(rf"^{variable}=([0-9a-f]{{64}})$", script, re.M)
+                self.assertIsNotNone(pin)
+                self.assertEqual(pin.group(1), hashlib.sha256(patch.read_bytes()).hexdigest())
+
 
 
 if __name__ == "__main__":

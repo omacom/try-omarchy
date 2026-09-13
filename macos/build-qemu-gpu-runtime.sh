@@ -54,6 +54,7 @@ audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
+udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -74,6 +75,7 @@ pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
+udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
 slirp_source_root=libslirp-v4.9.4
 slirp_archive_name="$slirp_source_root.tar.gz"
@@ -331,6 +333,8 @@ tar -xzf "$slirp_archive" -C "$source_parent"
 tar -xzf "$meson_archive" -C "$tool_root"
 verify_file_sha "Darwin ICMP reply matching patch" "$slirp_patch" "$slirp_patch_sha256"
 patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$slirp_patch"
+verify_file_sha "IPv4 UDP reply translation patch" "$udp_patch" "$udp_patch_sha256"
+patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$udp_patch"
 tar -xzf "$qemu_archive" -C "$source_parent"
 tar -xzf "$virgl_archive" -C "$dependency_root"
 tar -xzf "$angle_archive" -C "$dependency_root"
