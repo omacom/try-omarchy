@@ -62,6 +62,8 @@ test:
 	@$(ROOT)/macos/Tests/runtime-relocation.test.sh
 	@mkdir -p $(ROOT)/macos/.build/module-cache/swift $(ROOT)/macos/.build/module-cache/clang
 	@cd $(ROOT)/macos && SWIFT_MODULECACHE_PATH=$(ROOT)/macos/.build/module-cache/swift CLANG_MODULE_CACHE_PATH=$(ROOT)/macos/.build/module-cache/clang swift test --disable-sandbox
+	@bash $(ROOT)/macos/Tests/network-helper.test.sh
+	@bash $(ROOT)/macos/Tests/qemu-networking.test.sh
 	@$(ROOT)/macos/Tests/qemu-port-forwarding.test.sh
 	@$(ROOT)/macos/Tests/run-qemu-ssh-contract.test.sh
 	@$(ROOT)/macos/Tests/qemu-memory-contract.test.sh

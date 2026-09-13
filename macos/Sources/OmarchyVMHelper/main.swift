@@ -19,6 +19,38 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--bridge-network-link" {
+        guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        try NetworkLinkBridge.run(targetPID: pid, qmpSocketPath: arguments[2], statusPath: arguments[3])
+        exit(0)
+    }
+
+    if arguments.first == "--network-service-status" {
+        print(MainActor.assumeIsolated { NetworkService.statusText })
+        exit(0)
+    }
+    if arguments.first == "--network-service-register" {
+        try MainActor.assumeIsolated { try NetworkService.prepare() }
+        print(MainActor.assumeIsolated { NetworkService.statusText })
+        exit(0)
+    }
+    if arguments.first == "--network-service-remove" || arguments.first == "--network-service-repair" {
+        Task { @MainActor in
+            do {
+                if arguments.first == "--network-service-repair" {
+                    try await NetworkService.repair()
+                } else {
+                    try await NetworkService.remove()
+                }
+                print(NetworkService.statusText)
+                exit(0)
+            } catch {
+                fputs("Networking helper operation failed: \(error.localizedDescription)\n", stderr)
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
     if arguments.first == "--bridge-native-audio" {
         guard arguments.count == 4,
               let processIdentifier = Int32(arguments[1]),

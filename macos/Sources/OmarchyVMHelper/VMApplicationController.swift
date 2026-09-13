@@ -53,6 +53,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let preferenceStore: AudioRoutingPreferenceStore
     private let sharedFolderStore: SharedFolderPreferenceStore
     private let portForwardingStore: PortForwardingPreferenceStore
+    private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
@@ -93,6 +94,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         preferenceStore: AudioRoutingPreferenceStore = AudioRoutingPreferenceStore(),
         sharedFolderStore: SharedFolderPreferenceStore = SharedFolderPreferenceStore(),
         portForwardingStore: PortForwardingPreferenceStore = PortForwardingPreferenceStore(),
+        networkStore: VMNetworkPreferenceStore = VMNetworkPreferenceStore(),
         fullscreenPreferenceStore: FullscreenPreferenceStore = FullscreenPreferenceStore(),
         resourcePreferenceStore: VMResourcePreferenceStore = VMResourcePreferenceStore(),
         resourceLimits: VMResourceLimits = .current,
@@ -109,6 +111,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.preferenceStore = preferenceStore
         self.sharedFolderStore = sharedFolderStore
         self.portForwardingStore = portForwardingStore
+        self.networkStore = networkStore
         self.fullscreenPreferenceStore = fullscreenPreferenceStore
         self.resourcePreferenceStore = resourcePreferenceStore
         self.resourceLimits = resourceLimits
@@ -209,6 +212,11 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             resourceLimits: resourceLimits,
             saveResources: { [weak self] resources in
                 self?.resourcePreferenceStore.save(resources)
+            },
+            networkPreferences: { [weak self] in self?.resolvedNetworkPreferences() ?? VMNetworkPreferences() },
+            saveNetworkPreferences: { [weak self] preferences in
+                do { try self?.networkStore.save(preferences); return nil }
+                catch { return error.localizedDescription }
             },
             immersiveMode: { [weak self] in
                 self?.fullscreenPreferenceStore.load().isImmersive ?? true
@@ -398,6 +406,16 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let storageUnavailableReason: String?
     }
 
+    private func resolvedNetworkPreferences() -> VMNetworkPreferences {
+        var preferences = networkStore.load()
+        if preferences.mode == .bridged,
+           let selected = VMBridgeInterfaces.available().first(where: { $0.name == preferences.interface }) {
+            preferences.wifiCompatibility = VMNetworkPolicy.requiresWiFiCompatibility(
+                isWiFi: selected.isWiFi, supported: VMNetworkPolicy.supportsWiFiCompatibility)
+        }
+        return preferences
+    }
+
     /// The environment every launcher invocation receives.
     ///
     /// Reset must compose this exactly as a normal launch does. When the two
@@ -421,7 +439,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         let forwarding = PortForwardLaunchConfiguration.make(
             baseEnvironment: sharing.environment,
-            mappings: portForwardingStore.load()
+            mappings: networkStore.load().mode == .nat ? portForwardingStore.load() : []
         )
         let fullscreen = FullscreenLaunchConfiguration.make(
             baseEnvironment: forwarding.environment,
@@ -440,7 +458,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             volumeRootDetector: volumeRootDetector
         )
         return ChildLaunchContext(
-            environment: storage.environment,
+            environment: VMNetworkPolicy.environment(base: storage.environment, preferences: resolvedNetworkPreferences()),
             stateRoot: storage.stateRoot,
             portForwardMappings: forwarding.mappings,
             storageUnavailableReason: storage.unavailableReason
@@ -453,6 +471,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         // too keeps a silent fallback impossible for any future caller.
         if let reason = context.storageUnavailableReason {
             throw HelperError.io(reason)
+        }
+        if context.environment[VMNetworkPolicy.modeKey] == VMNetworkMode.bridged.rawValue {
+            try NetworkService.prepare()
+            try NetworkService.verifyConnection()
         }
         try PortForwardAvailability.validate(context.portForwardMappings)
         activeStateRoot = context.stateRoot
@@ -839,6 +861,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         } else if let hostSleepControlFailure {
             startMenuWindow?.launchDidFail(errorMessage: hostSleepControlFailure)
         } else {
+            if presentation.showsStartupFailure,
+               let startMenuWindow,
+               let networkFailure = NetworkStartupFailure.message(standardError: recentStandardError) {
+                startMenuWindow.launchDidFail(errorMessage: networkFailure)
+                return
+            }
             if presentation.showsStartupFailure,
                let startMenuWindow,
                let portFailure = PortForwardStartupFailure.message(

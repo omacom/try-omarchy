@@ -203,9 +203,46 @@ first Omarchy account created during
 provisioning. Additional guest accounts can reach the same share, with each
 entry's normal Unix permission bits deciding whether they can modify it.
 
+## Networking
+
+Use **Configure…** next to **Networking** on the start menu. **NAT** shares the
+Mac's connection and is the default. **Bridged** gives the VM its own LAN
+address through a selected eligible Mac interface. Changes take effect on the
+next launch. Bridging uses a networking helper approved once through macOS
+System Settings. Use **Set Up / Repair Networking…** to register it; subsequent
+bridged launches do not request your password. QEMU continues to run as your
+user. **Remove Networking Helper** unregisters the service when it is no longer
+needed. Shut down any bridged VM before repairing or removing the helper.
+
+For repeated local development builds, use a consistent Apple Development
+signing identity (the `DEVELOPMENT_SIGN_IDENTITY` option above). Ad-hoc-signed
+helper registrations are not reliable across rebuilds on the tested macOS
+version. Approval is checked separately from a working helper connection;
+repair and launch verify that the helper belongs to the current app copy.
+
+On Wi-Fi hosts that expose the compatibility control, selecting bridging
+automatically enables temporary host-wide DHCP handling. The networking sheet
+explains this before you save the choice. It can affect other virtualization
+apps while the bridged VM runs. The previous setting is restored when the VM stops, the
+app exits, or the bridge helper fails. If the privileged supervisor itself is
+forcibly killed, restoration is retried on the next bridged launch. There is no
+separate compatibility checkbox. NAT does not change this host setting.
+
+Saved port-forwarding rules remain stored but are inactive in bridged mode.
+Services listening on the guest network interface can be reached directly from
+the LAN. **Allow SSH connections from the LAN** is a separate opt-in; switching
+from a NAT SSH mapping does not enable it automatically. Guest account setup
+and SSH authentication are still required. Only one bridged Try Omarchy session
+can run at a time on a Mac.
+
+If the selected adapter is unplugged, Omarchy starts offline and connects when
+it returns. Unplugging and reconnecting the adapter while running also recovers
+without restarting the VM. The selected adapter is preserved; the app does not
+automatically switch to NAT or another interface.
+
 ## Forwarding ports to Omarchy
 
-Use **Configure…** next to **Port forwarding** on the start menu to map a Mac
+In NAT mode, use **Configure…** next to **Port forwarding** on the start menu to map a Mac
 localhost port to a service port in Omarchy. Each mapping can use TCP or UDP;
 the same Mac port may be used once for each protocol. Forwarded ports bind only
 to `127.0.0.1`, so other devices on the network cannot connect to them. The

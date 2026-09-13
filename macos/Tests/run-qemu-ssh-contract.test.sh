@@ -32,7 +32,8 @@ case "$test_root" in
   /private/tmp/omarchy-qemu-ssh-contract.??????) ;;
   *) fail "unexpected test root: $test_root" ;;
 esac
-trap '/bin/rm -rf "$test_root"' EXIT HUP INT TERM
+stale_fixture=''
+trap '/bin/rm -rf "$test_root"; [[ -z "$stale_fixture" ]] || /bin/rm -rf "$stale_fixture"' EXIT HUP INT TERM
 
 app="$test_root/Try Omarchy.app"
 contents="$app/Contents"
@@ -47,12 +48,17 @@ mkdir -p \
 
 /bin/cp "$macos_dir/run-qemu-gpu.sh" "$resources/scripts/run-qemu-gpu.sh"
 /bin/cp "$macos_dir/qemu-port-forwarding.sh" "$resources/scripts/qemu-port-forwarding.sh"
+/bin/cp "$macos_dir/qemu-networking.sh" "$resources/scripts/qemu-networking.sh"
 chmod 755 "$resources/scripts/run-qemu-gpu.sh"
 chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 set -euo pipefail
+if [[ ${1:-} == --bridge-native-audio && ${FAKE_AUDIO_EARLY_EXIT:-0} == 1 ]]; then
+  sleep 0.05
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
@@ -95,7 +101,7 @@ case " $* " in
       'full-grab=on|off' \
       'immersive=on|off'
     ;;
-  *' -machine virt -netdev help '*) printf '%s\n' user ;;
+  *' -machine virt -netdev help '*) printf '%s\n' user stream ;;
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
   *' -device virtio-gpu-gl-pci,help '*) printf '%s\n' 'romfile=<str>' ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
@@ -287,6 +293,15 @@ if [[ $# == 2 && $1 == -n && $2 == hw.memsize ]]; then
   exit 0
 fi
 exec /usr/sbin/sysctl "$@"
+SH
+cat >"$shim_dir/ps" <<'SH'
+#!/bin/bash
+[[ ${FAKE_PROCESS_INSPECTION_UNAVAILABLE:-0} != 1 ]] || exit 77
+if [[ ${FAKE_LARGE_PROCESS_LIST:-0} == 1 && "$*" == "-axo pid=,command=" ]]; then
+  printf '999999 /bin/bash run-qemu-gpu.sh\n'
+  /usr/bin/awk 'BEGIN { for (i=0; i<10000; i++) print 800000+i, "unrelated process with enough output to fill a pipe buffer" }'
+fi
+exec /bin/ps "$@"
 SH
 chmod 755 "$shim_dir"/*
 
@@ -498,6 +513,11 @@ assert_line_pair "$test_root/nested-fallback/qemu.log" -machine \
 assert_not_contains "$nested_fallback_qemu" virtualization=on
 assert_not_contains "$nested_fallback_qemu" kernel-irqchip=on
 
+run_scenario audio-shutdown-race 0 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=0.5
+assert_not_contains "$(<"$test_root/audio-shutdown-race/stderr")" 'native audio bridge exited'
+run_scenario audio-failure 1 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=10
+assert_contains "$(<"$test_root/audio-failure/stderr")" 'native audio bridge exited while QEMU was running'
+
 run_scenario non-immersive 0 '' OMARCHY_QEMU_GPU_IMMERSIVE=0
 non_immersive_qemu=$(<"$test_root/non-immersive/qemu.log")
 assert_contains "$non_immersive_qemu" \
@@ -672,6 +692,36 @@ assert_not_contains "$(<"$test_root/reset-only/stderr")" tryomarchy.ssh_access
 assert_contains "$(<"$persistent_root/boot/kernel")" new-kernel
 assert_contains "$(<"$persistent_root/boot/initramfs")" new-initramfs
 assert_contains "$(<"$persistent_root/boot/command-line")" loglevel=5
+
+# Dry runs must construct a bridge without requesting administrator access.
+run_scenario bridge-preview 0 --ephemeral OMARCHY_QEMU_GPU_DRY_RUN=1 \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 \
+  OMARCHY_QEMU_GPU_PORT_FORWARDS=invalid-inactive-mapping
+bridge_preview=$(<"$test_root/bridge-preview/stderr")
+assert_contains "$bridge_preview" stream
+assert_not_contains "$bridge_preview" hostfwd
+assert_not_contains "$bridge_preview" tryomarchy.ssh_access=1
+run_scenario bridge-ssh-preview 0 --ephemeral OMARCHY_QEMU_GPU_DRY_RUN=1 \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 OMARCHY_NETWORK_BRIDGED_SSH=1
+assert_contains "$(<"$test_root/bridge-ssh-preview/stderr")" tryomarchy.ssh_access=1
+run_scenario bridge-invalid 1 '' OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE='../en0'
+[[ ! -s $test_root/bridge-invalid/storage.log ]] || fail 'invalid bridge touched storage'
+run_scenario bridge-reset 0 --reset-storage-only \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 OMARCHY_NETWORK_WIFI_COMPATIBILITY=1
+[[ ! -e $test_root/bridge-reset/qemu.log ]] || fail 'bridge reset started QEMU'
+
+# Failed process inspection must never authorize deletion of another run.
+stale_fixture=$(mktemp -d /private/tmp/omarchy-qemu-gpu.XXXXXX)
+printf 'run-qemu-gpu:v1:999999:1' >"$stale_fixture/.run-qemu-gpu.owner"
+printf 'keep' >"$stale_fixture/sentinel"
+run_scenario unavailable-process-list 0 '' FAKE_PROCESS_INSPECTION_UNAVAILABLE=1
+[[ -f $stale_fixture/sentinel ]] || fail 'failed process inspection removed another run'
+assert_contains "$(<"$test_root/unavailable-process-list/stderr")" 'leaving other run directories intact'
+
+# An early match must not close the pipe while the process snapshot is written.
+run_scenario large-process-list 0 '' FAKE_LARGE_PROCESS_LIST=1
+[[ -f $stale_fixture/sentinel ]] || fail 'large process list removed an active run'
+assert_not_contains "$(<"$test_root/large-process-list/stderr")" 'Broken pipe'
 
 /usr/bin/plutil -replace kernelCommandLine -string \
   'root=/dev/vda rw rootwait console=tty0 console=hvc0 tryomarchy.ssh_access=0' \
