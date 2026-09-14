@@ -483,8 +483,9 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   python3 "$meson" setup "$slirp_build" "$source_parent/$slirp_source_root" \
     --prefix="$slirp_root" --libdir=lib --buildtype=release --wrap-mode=nodownload
 "$ninja" -C "$slirp_build"
+# The explicit build above completed the test binaries using our private Ninja.
 env DYLD_LIBRARY_PATH="$slirp_build:$private_libraries" \
-  python3 "$meson" test -C "$slirp_build" --print-errorlogs
+  python3 "$meson" test -C "$slirp_build" --no-rebuild --print-errorlogs
 python3 "$meson" install -C "$slirp_build" --no-rebuild
 
 build_dir="$source_dir/build"

@@ -88,7 +88,9 @@ qemu_network_start() {
   [[ $app_pid =~ ^[0-9]+$ ]] || fail 'Invalid networking owner.'
   [[ -x $supervisor && ! -L $supervisor && -x $server && ! -L $server && -x $client && ! -L $client ]] || fail 'The bundled network helper is missing.'
   QEMU_NETWORK_STOP="$session/network.stop"
-  if ! QEMU_NETWORK_DIRECTORY=$("$client" start "$QEMU_NETWORK_INTERFACE" "$app_pid" "$QEMU_NETWORK_STOP" "$QEMU_NETWORK_COMPATIBILITY" 1); then
+  # Replace the command-substitution shell so the client remains a direct child
+  # of this launcher, as required by the daemon's process-chain authorization.
+  if ! QEMU_NETWORK_DIRECTORY=$(exec "$client" start "$QEMU_NETWORK_INTERFACE" "$app_pid" "$QEMU_NETWORK_STOP" "$QEMU_NETWORK_COMPATIBILITY" 1); then
     fail 'Bridged networking could not start. Check networking helper approval or use Set Up / Repair Networking in the launch menu.'
   fi
   case "$QEMU_NETWORK_DIRECTORY" in /private/tmp/omarchy-network.??????) ;; *) fail 'Invalid network helper response.' ;; esac
