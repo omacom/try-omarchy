@@ -751,8 +751,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             permissionCard,
             integrationHeading,
             integrationCard,
-            resetSection,
             launchButton,
+            resetSection,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -761,8 +761,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(6, after: permissionHeading)
         stack.setCustomSpacing(16, after: permissionCard)
         stack.setCustomSpacing(6, after: integrationHeading)
-        stack.setCustomSpacing(12, after: integrationCard)
-        stack.setCustomSpacing(12, after: resetSection)
+        stack.setCustomSpacing(32, after: integrationCard)
+        stack.setCustomSpacing(24, after: launchButton)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let document = StartMenuDocumentView()
@@ -791,7 +791,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 42),
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -42),
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 26),
-            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -32),
             permissionCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             integrationCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resetSection.widthAnchor.constraint(equalTo: stack.widthAnchor),
