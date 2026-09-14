@@ -1,8 +1,8 @@
 diff --git a/shell/plugins/notifications/Service.qml b/shell/plugins/notifications/Service.qml
-index 0122310..72f10b2 100644
+index 0122310..b0849b8 100644
 --- a/shell/plugins/notifications/Service.qml
 +++ b/shell/plugins/notifications/Service.qml
-@@ -50,6 +50,19 @@ Item {
+@@ -50,6 +50,18 @@ Item {
    readonly property int defaultBarSize: barVertical ? Style.bar.sizeVertical : Style.bar.sizeHorizontal
    readonly property int liveBarSize: shell && shell.bar && !shell.bar.barHidden ? Math.max(0, shell.bar.barSize) : defaultBarSize
    readonly property int barClearance: liveBarSize + Style.gapsOut
@@ -12,17 +12,16 @@ index 0122310..72f10b2 100644
 +  // lifetime only once the user can see them again. Startup remains private
 +  // until the idle service reconciles windows that predate a shell reload.
 +  readonly property var idleService: shell ? shell.firstPartyServiceFor("omarchy.idle") : null
-+  readonly property var lockService: shell ? shell.firstPartyServiceFor("omarchy.lock") : null
 +  readonly property bool screenObscured:
 +    !idleService
 +    || !idleService.screensaverStateKnown
 +    || idleService.screensaverWindowCount > 0
-+    || !lockService
-+    || lockService.locked
++    || !shell
++    || shell.screenLocked
  
    // Live Notification objects by originalId, kept OUT of the ListModels: a
    // QObject stored in a model role becomes a dangling C++ pointer when the
-@@ -956,7 +969,7 @@ Item {
+@@ -956,7 +968,7 @@ Item {
        id: popupWindow
        required property var modelData
        screen: modelData
@@ -31,7 +30,7 @@ index 0122310..72f10b2 100644
  
        WlrLayershell.namespace: "omarchy-notifications"
        WlrLayershell.layer: WlrLayer.Overlay
-@@ -1012,7 +1025,7 @@ Item {
+@@ -1012,7 +1024,7 @@ Item {
  
              readonly property real lifetime: service.durationFor(cardSlot.urgency, cardSlot.expireTimeout)
              property real remainingLifetime: 1.0
@@ -41,10 +40,10 @@ index 0122310..72f10b2 100644
              // A client updating this notification in place rewrites the row
              // under the card (see refreshPopup). New text deserves a full look,
 diff --git a/shell/plugins/services/idle/Service.qml b/shell/plugins/services/idle/Service.qml
-index 488f296..40d3b05 100644
+index 1453920..e554d9f 100644
 --- a/shell/plugins/services/idle/Service.qml
 +++ b/shell/plugins/services/idle/Service.qml
-@@ -35,6 +35,8 @@ Item {
+@@ -36,6 +36,8 @@ Item {
    property string lastEventAt: ""
    property var screensaverWindows: ({})
    property int screensaverWindowCount: 0
@@ -53,7 +52,7 @@ index 488f296..40d3b05 100644
  
    function secondsFromConfig(value, fallback) {
      return IdleModel.secondsFromConfig(value, fallback)
-@@ -115,13 +117,57 @@ Item {
+@@ -116,13 +118,57 @@ Item {
      root.screensaverWindowCount = 0
    }
  
@@ -112,7 +111,7 @@ index 488f296..40d3b05 100644
      setScreensaverWindow(address, true)
      screensaverLaunchGraceTimer.stop()
    }
-@@ -149,7 +195,8 @@ Item {
+@@ -150,7 +196,8 @@ Item {
        if (String(open[2] || "") === root.screensaverClass) root.handleScreensaverWindowOpened(open[0])
      } else if (name === "closewindow") {
        var close = eventParts(event, 1)
@@ -122,7 +121,7 @@ index 488f296..40d3b05 100644
        if (root.screensaverWindows[address]) root.handleScreensaverWindowClosed(address)
      }
    }
-@@ -280,6 +327,13 @@ Item {
+@@ -281,6 +328,13 @@ Item {
      }
    }
  
@@ -136,7 +135,7 @@ index 488f296..40d3b05 100644
    Connections {
      target: Hyprland
      function onRawEvent(event) { root.handleHyprlandEvent(event) }
-@@ -289,6 +343,20 @@ Item {
+@@ -290,6 +344,20 @@ Item {
      id: screensaverProcess
      onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "screensaver exitCode=" + exitCode + " status=" + exitStatus) }
    }
@@ -157,7 +156,7 @@ index 488f296..40d3b05 100644
    Process {
      id: lockProcess
      onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "lock exitCode=" + exitCode + " status=" + exitStatus) }
-@@ -331,6 +399,7 @@ Item {
+@@ -332,6 +400,7 @@ Item {
  
    Component.onCompleted: {
      logEvent("service-ready")
@@ -165,3 +164,71 @@ index 488f296..40d3b05 100644
      refreshStayAwakeState()
    }
  
+diff --git a/shell/shell.qml b/shell/shell.qml
+index 0cc0575..2dccb52 100644
+--- a/shell/shell.qml
++++ b/shell/shell.qml
+@@ -12,6 +12,13 @@ import "services/AuthServiceStore.js" as AuthServiceStore
+ ShellRoot {
+   id: shell
+ 
++  // Re-evaluate when the private store changes, including async service loads.
++  property int authenticationServiceRevision: 0
++  readonly property bool screenLocked: {
++    authenticationServiceRevision
++    return AuthServiceStore.screenLocked(pluginRegistry.resolveEnabledId("omarchy.lock"))
++  }
++
+   // Shared service instances. Plugins receive these via property injection
+   // rather than re-importing them as singletons — relative-path imports do
+   // not share singleton state, which silently leaves consumers with their
+@@ -935,6 +942,7 @@ ShellRoot {
+         // import retains their lifetime without adding a traversable property
+         // or QObject parent back to the host shell.
+         AuthServiceStore.put(key, inst)
++        shell.authenticationServiceRevision += 1
+       } else {
+         var snext = ({})
+         for (var sk in _services) snext[sk] = _services[sk]
+@@ -986,6 +994,7 @@ ShellRoot {
+         // A service that loses its trusted authentication capability can move
+         // back to the ordinary service map only after the isolated copy dies.
+         AuthServiceStore.destroy(id)
++        shell.authenticationServiceRevision += 1
+       }
+       ensureService(id)
+     }
+@@ -1018,6 +1027,7 @@ ShellRoot {
+       if (stillAuthenticationService && pluginRegistry.isEnabled(authenticationId)
+           && shell.isAuthenticationService(authenticationManifest, authenticationId)) continue
+       AuthServiceStore.destroy(authenticationId)
++      shell.authenticationServiceRevision += 1
+     }
+   }
+ 
+@@ -1044,8 +1054,10 @@ ShellRoot {
+     var authenticationIds = AuthServiceStore.ids()
+     for (var ai = 0; ai < authenticationIds.length; ai++) {
+       var authenticationId = authenticationIds[ai]
+-      if (!serviceKeepLoaded(authenticationId))
++      if (!serviceKeepLoaded(authenticationId)) {
+         AuthServiceStore.destroy(authenticationId)
++        shell.authenticationServiceRevision += 1
++      }
+     }
+   }
+ 
+diff --git a/shell/services/AuthServiceStore.js b/shell/services/AuthServiceStore.js
+index d3eb5a6..a292c5b 100644
+--- a/shell/services/AuthServiceStore.js
++++ b/shell/services/AuthServiceStore.js
+@@ -43,3 +43,9 @@ function destroyAll() {
+   var keys = ids()
+   for (var i = 0; i < keys.length; i++) destroy(keys[i])
+ }
++
++// Expose only lock state, never the credential-bearing service object.
++function screenLocked(id) {
++  var service = services[String(id || "")]
++  return !service || service.locked !== false
++}

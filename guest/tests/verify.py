@@ -1706,6 +1706,14 @@ HOTPLUG=1
                 capture_output=True,
             )
             staged_icons = staged_root / "usr/share/icons/hicolor/256x256/apps"
+            for upstream_path, installed_path in (
+                ("etc/xdg/kitty/kitty.conf", "etc/xdg/kitty/kitty.conf"),
+                ("etc/tmpfiles.d/omarchy-nopasswd-sudo.conf", "usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"),
+            ):
+                check(
+                    (staged_root / installed_path).read_bytes() == (source / upstream_path).read_bytes(),
+                    f"materialized 4.0.3 system integration matches upstream: {installed_path}",
+                )
             icon_names = {path.name for path in staged_icons.iterdir() if path.is_file()}
             expected_normalized_icons = {
                 "battle-net.png",
@@ -1921,13 +1929,29 @@ HOTPLUG=1
             )
             check(
                 'firstPartyServiceFor("omarchy.idle")' in notification_service
-                and 'firstPartyServiceFor("omarchy.lock")' in notification_service
+                and 'firstPartyServiceFor("omarchy.lock")' not in notification_service
+                and "|| shell.screenLocked" in notification_service
                 and "!idleService.screensaverStateKnown" in notification_service
                 and 'visible: popupModel.count > 0 && !service.screenObscured'
                 in notification_service
                 and "!card.hovered && !service.screenObscured" in notification_service,
                 "notification popups hide and pause behind screensaver and lock surfaces",
             )
+            shell_host = read(staged_omarchy / "shell/shell.qml")
+            auth_store = read(staged_omarchy / "shell/services/AuthServiceStore.js")
+            check(
+                "readonly property bool screenLocked:" in shell_host
+                and 'AuthServiceStore.screenLocked(pluginRegistry.resolveEnabledId("omarchy.lock"))'
+                in shell_host
+                and shell_host.count("shell.authenticationServiceRevision += 1") == 4
+                and "return !service || service.locked !== false" in auth_store,
+                "notification lock state stays private and refreshes across service lifecycle changes",
+            )
+            if shutil.which("node"):
+                subprocess.run(
+                    ["node", str(GUEST / "tests/notification-lock-state.test.js"), str(staged_omarchy)],
+                    check=True,
+                )
             idle_service = read(staged_omarchy / "shell/plugins/services/idle/Service.qml")
             check(
                 "property bool screensaverStateKnown: false" in idle_service
