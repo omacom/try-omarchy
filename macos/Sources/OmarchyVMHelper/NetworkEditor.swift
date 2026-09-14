@@ -31,7 +31,7 @@ final class NetworkEditor: NSObject {
         alert.informativeText = "Changes apply the next time you start Omarchy."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
-        mode.addItems(withTitles: ["Shared connection (NAT)", "Bridged — own LAN address"])
+        mode.addItems(withTitles: ["Shared connection (NAT)", "Bridged, own LAN address"])
         mode.selectItem(at: preferences.mode == .nat ? 0 : 1)
         mode.target = self; mode.action = #selector(update)
         mode.setAccessibilityLabel("Network mode")
