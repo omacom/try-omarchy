@@ -75,7 +75,7 @@ package_lock_file="$guest_dir/$package_lock_file"
 [[ -f $packages_file ]] || fail "package list not found: $packages_file"
 [[ -f $package_lock_file ]] || fail "package lock not found: $package_lock_file"
 (( EUID == 0 )) || fail "run as root (pacstrap and arch-chroot require it)"
-for command in pacstrap arch-chroot curl git gzip python3 mke2fs repo-add sha256sum zstd; do
+for command in pacstrap arch-chroot curl git gzip python3 mke2fs mount umount repo-add sha256sum zstd; do
   command -v "$command" >/dev/null || fail "$command is required; use the supplied Arch builder container"
 done
 
@@ -206,6 +206,22 @@ python3 "$guest_dir/scripts/resolve-package-lock.py" \
   --packages "$packages_file" \
   --output "$resolution_db/resolved.json" \
   --expect "$package_lock_file"
+
+# pacstrap and arch-chroot mount the kernel's shared devtmpfs, not Docker's
+# populated /dev. Some container hosts leave devtmpfs without these userspace
+# links, breaking pacman-key process substitution and mkinitcpio's /dev check.
+# Prepare that filesystem before the first package hook; links in the staged
+# rootfs would be hidden by the tools' devtmpfs mounts.
+(
+  dev_root=$(mktemp -d "$work/devtmpfs.XXXXXX")
+  trap 'rmdir "$dev_root"' EXIT
+  mount -t devtmpfs -o mode=0755,nosuid udev "$dev_root"
+  trap 'umount "$dev_root" && rmdir "$dev_root"' EXIT
+  ln -sfn /proc/self/fd "$dev_root/fd"
+  ln -sfn /proc/self/fd/0 "$dev_root/stdin"
+  ln -sfn /proc/self/fd/1 "$dev_root/stdout"
+  ln -sfn /proc/self/fd/2 "$dev_root/stderr"
+)
 
 # pacstrap reads configured CacheDir paths for host-cache mode only with -P.
 # The copied builder config is replaced by configure-rootfs below. Archives
