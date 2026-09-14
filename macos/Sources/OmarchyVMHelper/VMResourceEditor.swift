@@ -2,14 +2,13 @@ import AppKit
 
 /// Edits a draft; only Save publishes it to the next VM launch.
 @MainActor
-final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
+final class VMResourceEditor: NSObject, NSWindowDelegate {
     private let limits: VMResourceLimits
     private let saveHandler: (VMResources) -> Void
     private let closeHandler: () -> Void
     private(set) var window: NSWindow!
-    private let cpuField = NSTextField()
+    private let cpuPopup = NSPopUpButton()
     private let memoryPopup = NSPopUpButton()
-    private let cpuStepper = NSStepper()
     private let validationLabel = NSTextField(wrappingLabelWithString: "")
     private var saveButton: OmarchyActionButton!
     private var didClose = false
@@ -30,7 +29,7 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     func beginSheet(for parent: NSWindow) {
         parent.beginSheet(window)
-        window.makeFirstResponder(cpuField)
+        window.makeFirstResponder(cpuPopup)
     }
 
     func dismiss() {
@@ -44,10 +43,6 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         dismiss()
         return false
-    }
-
-    func controlTextDidChange(_ notification: Notification) {
-        updateValidation()
     }
 
     private func buildWindow() {
@@ -77,25 +72,20 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         heading.spacing = 8
         explanation.widthAnchor.constraint(equalTo: heading.widthAnchor).isActive = true
 
-        cpuField.delegate = self
-        cpuField.identifier = NSUserInterfaceItemIdentifier("vm-resources-cpu")
-        cpuField.setAccessibilityLabel("Processor cores")
-        cpuField.setAccessibilityHelp("Whole number from \(limits.cpuRange.lowerBound) to \(limits.cpuRange.upperBound)")
-        cpuField.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        cpuField.textColor = OmarchyStartMenuTheme.foreground
-        cpuField.backgroundColor = OmarchyStartMenuTheme.background
-        cpuField.alignment = .center
-        cpuField.widthAnchor.constraint(equalToConstant: 76).isActive = true
-        cpuStepper.minValue = Double(limits.cpuRange.lowerBound)
-        cpuStepper.maxValue = Double(limits.cpuRange.upperBound)
-        cpuStepper.increment = 1
-        cpuStepper.valueWraps = false
-        cpuStepper.target = self
-        cpuStepper.action = #selector(step)
-        cpuStepper.setAccessibilityLabel("Processor cores")
-        cpuStepper.identifier = NSUserInterfaceItemIdentifier("vm-resources-cpu-stepper")
-        let cpuControls = NSStackView(views: [cpuField, cpuStepper])
-        cpuControls.spacing = 8
+        for choice in limits.cpuRange {
+            let suffix = choice == limits.defaults.cpuCount
+                ? " · default"
+                : choice == limits.cpuRange.upperBound ? " · all cores" : ""
+            cpuPopup.addItem(withTitle: "\(choice) cores\(suffix)")
+            cpuPopup.lastItem?.tag = choice
+        }
+        cpuPopup.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        cpuPopup.target = self
+        cpuPopup.action = #selector(changeResources)
+        cpuPopup.isEnabled = limits.cpuRange.count > 1
+        cpuPopup.identifier = NSUserInterfaceItemIdentifier("vm-resources-cpu")
+        cpuPopup.setAccessibilityLabel("Processor cores")
+        cpuPopup.setAccessibilityHelp("Choose from \(limits.cpuRange.lowerBound) to \(limits.cpuRange.upperBound) cores, shared with macOS")
 
         for choice in limits.memoryChoicesGiB {
             memoryPopup.addItem(withTitle: MemoryPolicy.choiceTitle(
@@ -105,14 +95,16 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
         memoryPopup.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         memoryPopup.target = self
-        memoryPopup.action = #selector(changeMemory)
+        memoryPopup.action = #selector(changeResources)
         memoryPopup.isEnabled = limits.memoryChoicesGiB.count > 1
         memoryPopup.identifier = NSUserInterfaceItemIdentifier("vm-resources-memory")
         memoryPopup.setAccessibilityLabel("Memory")
         memoryPopup.setAccessibilityHelp("Higher allocations may affect macOS performance; at least 4 GiB stays available to macOS")
 
         let cpuRow = resourceRow(
-            title: "Processor cores", detail: "4–\(limits.cpuRange.upperBound) cores · all cores available", control: cpuControls
+            title: "Processor cores",
+            detail: "Shared with macOS. More cores may help demanding workloads.",
+            control: cpuPopup
         )
         let memoryRow = resourceRow(
             title: "Memory", detail: "Shared with macOS", control: memoryPopup
@@ -141,6 +133,7 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             cpuRow.widthAnchor.constraint(equalTo: rows.widthAnchor),
             memoryRow.widthAnchor.constraint(equalTo: rows.widthAnchor),
             separator.widthAnchor.constraint(equalTo: rows.widthAnchor),
+            cpuPopup.widthAnchor.constraint(equalTo: memoryPopup.widthAnchor),
         ])
 
         validationLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -224,12 +217,7 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         return button
     }
 
-    @objc private func step() {
-        cpuField.stringValue = String(cpuStepper.integerValue)
-        updateValidation()
-    }
-
-    @objc private func changeMemory() { updateValidation() }
+    @objc private func changeResources() { updateValidation() }
 
     @objc private func cancel() { dismiss() }
 
@@ -242,22 +230,19 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     @objc private func useDefaults() { setFields(limits.defaults) }
 
     private func setFields(_ resources: VMResources) {
-        cpuField.stringValue = String(resources.cpuCount)
+        cpuPopup.selectItem(withTag: resources.cpuCount)
         memoryPopup.selectItem(withTag: resources.memoryGiB)
         updateValidation()
     }
 
     private func draft() throws -> VMResources {
         try limits.validate(
-            cpuCount: cpuField.stringValue,
+            cpuCount: String(cpuPopup.selectedItem?.tag ?? 0),
             memoryGiB: String(memoryPopup.selectedItem?.tag ?? 0)
         )
     }
 
     private func updateValidation() {
-        if let cpus = Int(cpuField.stringValue), limits.cpuRange.contains(cpus) {
-            cpuStepper.integerValue = cpus
-        }
         do {
             let resources = try draft()
             let memoryMiB = resources.memoryGiB * 1024
