@@ -441,6 +441,10 @@ def main() -> None:
         "fakeroot" in requested_packages and "fakeroot" in packages,
         "factory transaction includes fakeroot for AUR package builds",
     )
+    check(
+        "rpm-tools" in requested_packages and "rpm-tools" in packages,
+        "factory transaction includes the RPM signature verifier for Vivaldi",
+    )
     yay = spec.get("supplyChain", {}).get("yay", {})
     check(
         set(yay)
@@ -982,6 +986,10 @@ def main() -> None:
         and 'cp -a "$vivaldi_key"' in register_runtime,
         "packaged Omarchy runtime owns the Vivaldi installer and signing key",
     )
+    check(
+        "depend = rpm-tools" in register_runtime,
+        "packaged Omarchy runtime keeps the Vivaldi signature verifier installed",
+    )
     register_yay = read(GUEST / "scripts/register-pinned-yay.sh")
     check(
         "register-pinned-yay.sh" in build
@@ -1117,7 +1125,9 @@ def main() -> None:
         "**Vivaldi**" in third_party_notices
         and "not redistributed" in third_party_notices
         and "signed official ARM64 RPM" not in third_party_notices
-        and "installer-only input" in third_party_notices
+        and "factory image includes the `rpm-tools`" in third_party_notices
+        and "browser payload" in third_party_notices
+        and "remains outside the factory image and factory provenance" in third_party_notices
         and "vivaldi.com/partners/linux" in third_party_notices,
         "third-party notices distinguish signed Vivaldi installation from redistribution",
     )
@@ -1158,6 +1168,9 @@ def main() -> None:
     )
     check(
         "Vivaldi must remain a user-initiated post-build install" in finalizer
+        and "pacman -Qkk rpm-tools" in finalizer
+        and "for verifier in rpm rpmkeys" in finalizer
+        and '"$verifier" --version' in finalizer
         and "pacman -Qoq \"$vivaldi_installer\"" in finalizer
         and "pacman -Qoq \"$vivaldi_key\"" in finalizer
         and "Vivaldi package key digest mismatch" in finalizer,

@@ -433,6 +433,7 @@
     "ncurses": "6.6-2",
     "neovim": "0.12.5-1",
     "nettle": "4.0-1",
+    "nettle3": "3.10.2-2",
     "networkmanager": "1.58.1-1",
     "nftables": "1:1.1.7-3",
     "noto-fonts": "1:2026.09.01-1",
@@ -504,6 +505,8 @@
     "re2": "2:2025.11.05-6",
     "readline": "8.3.003-1",
     "ripgrep": "15.2.0-1",
+    "rpm-sequoia": "1.10.2-2",
+    "rpm-tools": "6.0.1-2",
     "rubberband": "4.0.0-2",
     "sbc": "2.2-1",
     "sdbus-cpp": "2.3.1-1",
@@ -617,6 +620,6 @@
     "zram-generator": "1.2.1-1",
     "zstd": "1.5.7-3"
   },
-  "requestedFileSha256": "addad9e5b4e8c7ce1aadd3a38d45e4abad341725edd1465ca9abd3c75f659ad5",
+  "requestedFileSha256": "cac744838bd5d25e7987f4d634520d3d1b409fb7aff975bf3cf99fb3ea164934",
   "schemaVersion": 1
 }

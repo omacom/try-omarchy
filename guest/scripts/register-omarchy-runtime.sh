@@ -157,6 +157,7 @@ size = $installed_size
 arch = any
 license = MIT
 provides = omarchy=$release
+depend = rpm-tools
 EOF
 
 archive="$stage/$package_name-$package_version-any.pkg.tar.zst"
