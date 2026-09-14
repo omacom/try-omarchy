@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -34,6 +35,11 @@ class TouchIDInstallerTests(unittest.TestCase):
             sudo_policy = root / "etc/pam.d/sudo"
             original_policy = "#%PAM-1.0\nauth include system-auth\n"
             sudo_policy.write_text(original_policy, encoding="utf-8")
+            menu_relative = Path(".config/omarchy/extensions/omarchy-menu.jsonc")
+            skeleton_menu = root / "etc/skel" / menu_relative
+            skeleton_menu.parent.mkdir(parents=True)
+            original_menu = '{\n  // Existing user defaults.\n  "personal": {"label":"Personal"},\n}\n'
+            skeleton_menu.write_text(original_menu, encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -61,6 +67,23 @@ class TouchIDInstallerTests(unittest.TestCase):
                 installed = root / relative
                 self.assertTrue(installed.is_file(), relative)
                 self.assertTrue(os.access(installed, os.X_OK), relative)
+
+            # First-boot account creation copies /etc/skel, not the patched
+            # configuration template under /usr/share/omarchy.
+            home = root / "home/new-user"
+            shutil.copytree(root / "etc/skel", home)
+            menu = (home / menu_relative).read_text(encoding="utf-8")
+            self.assertIn("// Existing user defaults.", menu)
+            self.assertIn('"personal": {"label":"Personal"}', menu)
+            entry_lines = [line for line in menu.splitlines() if '"setup.security.touch-id"' in line]
+            self.assertEqual(len(entry_lines), 1, "fresh accounts must get the Touch ID menu entry")
+            entry = json.loads("{" + entry_lines[0].strip().rstrip(",") + "}")["setup.security.touch-id"]
+            self.assertEqual(entry["label"], "Touch ID for sudo")
+            self.assertEqual(entry["when"], "[[ -x /usr/local/bin/try-omarchy-touch-id ]]")
+            self.assertEqual(
+                entry["action"],
+                "omarchy-launch-floating-terminal-with-presentation /usr/local/bin/try-omarchy-touch-id",
+            )
 
 
 if __name__ == "__main__":
