@@ -129,6 +129,7 @@ def component_files(root: Path, component: str) -> list[Path]:
         ]
         paths.extend(
             [
+                root / "LICENSE",
                 root / ".build/state/guest.json",
                 root / ".build/state/runtime.json",
                 root / "dist/guest/guest-manifest.json",

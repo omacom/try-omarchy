@@ -44,8 +44,6 @@
   <string>Try Omarchy uses the Mac microphone only when software inside the virtual machine records audio.</string>
   <key>NSRemovableVolumesUsageDescription</key>
   <string>Try Omarchy stores its virtual machine on this drive only if you choose to keep it there.</string>
-  <key>NSHumanReadableCopyright</key>
-  <string>Copyright © 2026 Try Omarchy contributors</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
