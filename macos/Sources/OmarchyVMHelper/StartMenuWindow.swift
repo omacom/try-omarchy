@@ -145,33 +145,6 @@ private final class PointingHandButton: NSButton {
     }
 }
 
-private final class LinkCursorTextField: NSTextField {
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        let textRect = cell?.drawingRect(forBounds: bounds) ?? bounds
-        let fullRange = NSRange(location: 0, length: attributedStringValue.length)
-        attributedStringValue.enumerateAttribute(.link, in: fullRange) { value, range, _ in
-            guard value != nil else { return }
-            let prefixRange = NSRange(location: 0, length: range.location)
-            let prefixWidth = attributedStringValue
-                .attributedSubstring(from: prefixRange)
-                .size().width
-            let linkWidth = attributedStringValue
-                .attributedSubstring(from: range)
-                .size().width
-            addCursorRect(
-                NSRect(
-                    x: textRect.minX + prefixWidth,
-                    y: textRect.minY,
-                    width: linkWidth,
-                    height: textRect.height
-                ),
-                cursor: .pointingHand
-            )
-        }
-    }
-}
-
 @MainActor
 final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow
@@ -772,35 +745,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             launchButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 500),
         ])
 
-        let footerText = "by @martiano"
-        let footerTitle = NSMutableAttributedString(
-            string: footerText,
-            attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: OmarchyStartMenuTheme.muted,
-            ]
-        )
-        let footerNSString = footerText as NSString
-        footerTitle.addAttributes(
-            [
-                .link: URL(string: "https://x.com/martiano")!,
-                .foregroundColor: OmarchyStartMenuTheme.accent,
-            ],
-            range: footerNSString.range(of: "@martiano")
-        )
-        let footer = LinkCursorTextField(labelWithAttributedString: footerTitle)
-        footer.isSelectable = true
-        footer.allowsEditingTextAttributes = true
-        footer.translatesAutoresizingMaskIntoConstraints = false
-
-        let footerContainer = NSView()
-        footerContainer.addSubview(footer)
-        NSLayoutConstraint.activate([
-            footer.centerXAnchor.constraint(equalTo: footerContainer.centerXAnchor),
-            footer.topAnchor.constraint(equalTo: footerContainer.topAnchor),
-            footer.bottomAnchor.constraint(equalTo: footerContainer.bottomAnchor),
-        ])
-
         let stack = NSStackView(views: [
             headingStack,
             permissionHeading,
@@ -809,7 +753,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             integrationCard,
             resetSection,
             launchButton,
-            footerContainer,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -820,7 +763,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(6, after: integrationHeading)
         stack.setCustomSpacing(12, after: integrationCard)
         stack.setCustomSpacing(12, after: resetSection)
-        stack.setCustomSpacing(8, after: launchButton)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         let document = StartMenuDocumentView()
@@ -854,7 +796,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             integrationCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             resetSection.widthAnchor.constraint(equalTo: stack.widthAnchor),
             launchButton.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            footerContainer.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
 
         content.layoutSubtreeIfNeeded()
