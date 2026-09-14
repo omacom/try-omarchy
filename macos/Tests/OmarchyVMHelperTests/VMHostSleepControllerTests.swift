@@ -205,6 +205,43 @@ struct HostPowerNotificationObserverTests {
 
 @Suite("QMP host sleep control")
 struct QMPVMHostSleepControllerTests {
+    @Test("startup retries a timed-out capability negotiation on a fresh session")
+    func startupNegotiationRetry() throws {
+        let transcript = LockedQMPTranscript()
+        let failed = try Self.startServer(steps: [], transcript: transcript, ignoreCapabilities: true)
+        let recovered = try Self.startServer(steps: [], transcript: transcript)
+        let descriptors = LockedDescriptorQueue([failed.clientDescriptor, recovered.clientDescriptor])
+        let controller = try QMPVMHostSleepController(connectionFactory: {
+            guard let descriptor = descriptors.take() else {
+                throw HelperError.io("unexpected extra startup connection")
+            }
+            return try QMPConnection(
+                connectedDescriptor: descriptor,
+                identifierPrefix: "test-startup",
+                timeoutMilliseconds: 50
+            )
+        })
+        controller.close()
+        for session in [failed, recovered] {
+            #expect(session.finished.wait(timeout: .now() + 2) == .success)
+        }
+        #expect(transcript.errorDescription == nil)
+        #expect(transcript.commands == ["qmp_capabilities", "qmp_capabilities"])
+        #expect(descriptors.isEmpty)
+    }
+
+    @Test("startup stops retrying an unavailable monitor and preserves the error")
+    func startupRetryLimit() {
+        let invocations = LockedInvocationCounter()
+        #expect(throws: HelperError.io("QMP capability negotiation failed")) {
+            _ = try QMPVMHostSleepController(connectionFactory: {
+                _ = invocations.next()
+                throw HelperError.io("QMP capability negotiation failed")
+            })
+        }
+        #expect(invocations.next() == 4)
+    }
+
     @Test("bundled Cocoa controls cannot bypass QMP pause ownership")
     func cocoaPauseOwnershipContract() throws {
         let patch = try Self.source(
@@ -424,7 +461,8 @@ struct QMPVMHostSleepControllerTests {
 
     private static func startServer(
         steps: [TestStep],
-        transcript: LockedQMPTranscript
+        transcript: LockedQMPTranscript,
+        ignoreCapabilities: Bool = false
     ) throws -> TestSession {
         var descriptors: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
@@ -455,6 +493,13 @@ struct QMPVMHostSleepControllerTests {
                     )
                 }
                 transcript.append(capabilitiesCommand)
+                if ignoreCapabilities {
+                    // Keep the session open without acknowledging, until the
+                    // client's handshake deadline closes it for a fresh retry.
+                    var byte: UInt8 = 0
+                    #expect(Darwin.read(serverDescriptor, &byte, 1) == 0)
+                    return
+                }
                 try respond(
                     id: try string("id", in: capabilities),
                     result: [:],
