@@ -123,16 +123,16 @@
       "licenseSha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2"
     },
     "vivaldi": {
-      "version": "8.2.4133.33",
+      "version": "8.2.4133.52",
       "rpmRelease": 1,
-      "pkgrel": 2,
+      "pkgrel": 1,
       "repository": "https://repo.vivaldi.com/stable",
-      "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-      "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+      "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+      "rpmSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
       "signingKey": "keys/vivaldi-package-composer-key11.asc",
       "signingKeySha256": "5c67d85c0aca9c0d166edb5bc5e6ebc21d67bce4e67c645e7bd76d299fd337ef",
       "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
-      "reportedVersion": "Vivaldi 8.2.4133.33",
+      "reportedVersion": "Vivaldi 8.2.4133.52",
       "license": "Multiple, see https://www.vivaldi.com/"
     },
     "voxtype": {
@@ -460,8 +460,8 @@
         "id": "vivaldi-arm64",
         "userInitiated": true,
         "delivery": "pinned-signed-vendor-rpm",
-        "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-        "applicationSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+        "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+        "applicationSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
         "signingKey": "keys/vivaldi-package-composer-key11.asc",
         "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
         "runtimePackages": [
