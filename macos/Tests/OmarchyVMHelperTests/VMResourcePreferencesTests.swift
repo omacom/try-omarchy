@@ -8,9 +8,9 @@ struct VMResourcePreferencesTests {
         VMResourceLimits(hostCPUCount: cpus, hostMemoryBytes: memoryGiB << 30)
     }
 
-    @Test("An unchanged install keeps eight cores and four GiB, capped by host CPUs")
+    @Test("New installs use host-aware memory defaults and up to eight cores")
     func defaults() {
-        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 4))
+        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 8))
         #expect(limits(cpus: 6, memoryGiB: 8).defaults == VMResources(cpuCount: 6, memoryGiB: 4))
         #expect(limits(memoryGiB: 7).memoryChoicesGiB.contains(4))
     }
@@ -26,9 +26,9 @@ struct VMResourcePreferencesTests {
     func boundaries() throws {
         #expect(try limits().validate(cpuCount: "4", memoryGiB: "4")
             == VMResources(cpuCount: 4, memoryGiB: 4))
-        #expect(try limits().validate(cpuCount: "18", memoryGiB: "16")
-            == VMResources(cpuCount: 18, memoryGiB: 16))
-        #expect(limits(memoryGiB: 16).memoryChoicesGiB == [4, 6, 8])
+        #expect(try limits().validate(cpuCount: "18", memoryGiB: "44")
+            == VMResources(cpuCount: 18, memoryGiB: 44))
+        #expect(limits(memoryGiB: 16).memoryChoicesGiB == [4, 6, 8, 12])
         #expect(limits(memoryGiB: 8).memoryChoicesGiB == [4])
         #expect(throws: VMResourceInputError.self) {
             try limits().validate(cpuCount: "19", memoryGiB: "12")
@@ -52,9 +52,9 @@ struct VMResourcePreferencesTests {
     func smallerHost() {
         let small = limits(cpus: 8, memoryGiB: 16)
         #expect(small.resolve(VMResources(cpuCount: 18, memoryGiB: 12))
-            == VMResources(cpuCount: 8, memoryGiB: 4))
+            == VMResources(cpuCount: 8, memoryGiB: 12))
         #expect(small.resolve(VMResources(cpuCount: 6, memoryGiB: 44))
-            == VMResources(cpuCount: 6, memoryGiB: 4))
+            == VMResources(cpuCount: 6, memoryGiB: 8))
         #expect(small.resolve(VMResources(cpuCount: -1, memoryGiB: Int.max)) == small.defaults)
     }
 
@@ -126,11 +126,13 @@ struct VMResourcePreferencesTests {
         #expect(fixture.store.load() == VMResources(cpuCount: 18, memoryGiB: 8))
     }
 
-    @Test("Resources uses the existing memory menu and its host headroom")
+    @Test("Resources and the memory policy agree on choices and defaults")
     func memoryPolicyAgreement() {
         for hostGiB: UInt64 in [8, 16, 24, 48, 128] {
             #expect(limits(memoryGiB: hostGiB).memoryChoicesGiB.map { $0 * 1024 }
                 == MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: Int(hostGiB) * 1024))
+            #expect(limits(memoryGiB: hostGiB).defaults.memoryGiB * 1024
+                == MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: Int(hostGiB) * 1024))
         }
     }
 

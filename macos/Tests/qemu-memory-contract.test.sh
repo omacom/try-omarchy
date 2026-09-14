@@ -311,10 +311,25 @@ run_scenario() {
   fi
 }
 
-# The default allocation matches the guest manifest's recommendedMemoryMiB.
+# A 16 GiB Mac defaults to 8 GiB; smaller Macs keep the 4 GiB baseline.
 run_scenario default 0
-assert_line_pair "$test_root/default/qemu.log" -m 4096M
-assert_contains "$(<"$test_root/default/stderr")" '4 GiB RAM'
+assert_line_pair "$test_root/default/qemu.log" -m 8192M
+assert_contains "$(<"$test_root/default/stderr")" '8 GiB RAM'
+
+run_scenario below-default-threshold 0 FAKE_HOST_MEMSIZE=17178820608
+assert_line_pair "$test_root/below-default-threshold/qemu.log" -m 4096M
+run_scenario large-host-default 0 FAKE_HOST_MEMSIZE=51539607552
+assert_line_pair "$test_root/large-host-default/qemu.log" -m 8192M
+run_scenario explicit-four 0 OMARCHY_QEMU_GPU_MEMORY_MIB=4096
+assert_line_pair "$test_root/explicit-four/qemu.log" -m 4096M
+
+# The UI's higher choices reach QEMU without being silently reduced.
+run_scenario twelve-gib 0 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
+assert_line_pair "$test_root/twelve-gib/qemu.log" -m 12288M
+run_scenario large-host-maximum 0 FAKE_HOST_MEMSIZE=51539607552 OMARCHY_QEMU_GPU_MEMORY_MIB=45056
+assert_line_pair "$test_root/large-host-maximum/qemu.log" -m 45056M
+run_scenario above-host-maximum 1 OMARCHY_QEMU_GPU_MEMORY_MIB=12289
+assert_contains "$(<"$test_root/above-host-maximum/stderr")" 'leave the host at least 4096 MiB'
 
 # A whole-GiB choice reaches QEMU verbatim and reads as GiB in the log.
 run_scenario six-gib 0 OMARCHY_QEMU_GPU_MEMORY_MIB=6144

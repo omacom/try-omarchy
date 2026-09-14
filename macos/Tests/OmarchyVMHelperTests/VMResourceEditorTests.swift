@@ -46,11 +46,39 @@ struct VMResourceEditorTests {
         let cpu: NSTextField = try control("cpu", in: editor)
         let memory: NSPopUpButton = try control("memory", in: editor)
         #expect(cpu.stringValue == "8")
-        #expect(memory.selectedItem?.tag == 4)
+        #expect(memory.selectedItem?.tag == 8)
         #expect(saved.isEmpty)
         let cancel: NSButton = try control("cancel", in: editor)
         cancel.performClick(nil)
         #expect(saved.isEmpty)
+    }
+
+    @Test("High memory is selectable and the performance note does not block Save")
+    func highMemoryAdvisory() throws {
+        _ = NSApplication.shared
+        var saved: VMResources?
+        let host = VMResourceLimits(hostCPUCount: 8, hostMemoryBytes: 16 << 30)
+        let editor = VMResourceEditor(
+            resources: host.defaults, limits: host,
+            save: { saved = $0 }, didClose: {}
+        )
+        defer { editor.dismiss() }
+        let memory: NSPopUpButton = try control("memory", in: editor)
+        let note: NSTextField = try control("validation", in: editor)
+        let save: NSButton = try control("save", in: editor)
+        #expect(memory.selectedItem?.title == "8 GiB · default")
+        memory.selectItem(withTag: 12)
+        memory.sendAction(memory.action, to: memory.target)
+        #expect(memory.selectedItem?.title == "12 GiB · may slow macOS")
+        #expect(note.stringValue == "This leaves 4 GiB for macOS and may slow other apps.")
+        #expect(save.isEnabled)
+        memory.selectItem(withTag: 8)
+        memory.sendAction(memory.action, to: memory.target)
+        #expect(note.stringValue.isEmpty)
+        memory.selectItem(withTag: 12)
+        memory.sendAction(memory.action, to: memory.target)
+        save.performClick(nil)
+        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12))
     }
 
     @Test("A small host retains a usable default memory choice")

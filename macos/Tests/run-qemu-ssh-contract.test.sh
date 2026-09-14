@@ -466,7 +466,7 @@ assert_contains "$disabled_qemu" \
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
 assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
-assert_line_pair "$test_root/disabled/qemu.log" -m 4096M
+assert_line_pair "$test_root/disabled/qemu.log" -m 8192M
 
 # Exercise resource values through the real launcher and its QEMU boundary.
 run_scenario resources 0 '' FAKE_HOST_CPUS=18 \

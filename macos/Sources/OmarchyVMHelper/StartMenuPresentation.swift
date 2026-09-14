@@ -204,14 +204,12 @@ enum StartMenuPresentation {
             hostMemoryMiB: hostMemoryMiB
         )
         let titles = choices.map { choice in
-            choice == MemoryPolicy.defaultMemoryMiB
-                ? "\(MemoryPolicy.displayLabel(memoryMiB: choice)) · default"
-                : MemoryPolicy.displayLabel(memoryMiB: choice)
+            MemoryPolicy.choiceTitle(memoryMiB: choice, hostMemoryMiB: hostMemoryMiB)
         }
         let isAdjustable = choices.count > 1
         return StartMenuMemoryPresentation(
             detail: isAdjustable
-                ? "Give Omarchy more of this Mac’s memory. Applies on the next launch."
+                ? "Higher allocations may affect macOS performance. Applies on the next launch."
                 : "This Mac’s memory fits the \(MemoryPolicy.displayLabel(memoryMiB: MemoryPolicy.defaultMemoryMiB)) default.",
             choicesMiB: choices,
             choiceTitles: titles,

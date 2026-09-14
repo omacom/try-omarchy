@@ -981,15 +981,18 @@ vcpu_count=${OMARCHY_QEMU_GPU_CPUS-$default_vcpu_count}
   fail "OMARCHY_QEMU_GPU_CPUS must be between 4 and $host_cpu_count"
 }
 
-# Guest memory is a boot-time allocation. The Swift app resolves the user's
-# stored choice against this host before exporting it; re-check independently
-# here so a hand-set environment value can never start a guest below the
-# manifest's minimumMemoryMiB or starve the host. The 4096 default matches the
-# manifest's recommendedMemoryMiB, both verified at build time. The host cap
-# applies only above the default: 4096 has always booted unconditionally, and
-# hosts smaller than 8 GiB exist (CI runners), so gating the default on host
-# size would be a regression, not a safeguard.
-memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-4096}
+# Match the app's host-aware default and independently validate scripted
+# allocations. The guest manifest's 4096 MiB recommendation is the baseline;
+# Macs with at least 16 GiB default to 8 GiB. Keep 4 GiB for macOS above the
+# baseline, while retaining support for smaller hosts such as CI runners.
+host_memory_bytes=$(sysctl -n hw.memsize 2>/dev/null) || fail "cannot determine the host memory size"
+[[ $host_memory_bytes =~ ^[1-9][0-9]{0,17}$ ]] || fail "host memory size is invalid: $host_memory_bytes"
+host_memory_mib=$((host_memory_bytes / 1048576))
+default_memory_mib=4096
+if (( host_memory_mib >= 16384 )); then
+  default_memory_mib=8192
+fi
+memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-$default_memory_mib}
 # Seven digits bound the value below any real host while keeping the
 # arithmetic far from 64-bit wraparound; forcing base 10 stops bash from
 # reading a leading zero as octal while QEMU would read the same string as
@@ -998,9 +1001,6 @@ memory_mib=${OMARCHY_QEMU_GPU_MEMORY_MIB:-4096}
 memory_mib=$((10#$memory_mib))
 (( memory_mib >= 2048 )) || fail "the ARM guest requires at least 2048 MiB of memory"
 if (( memory_mib > 4096 )); then
-  host_memory_bytes=$(sysctl -n hw.memsize 2>/dev/null) || fail "cannot determine the host memory size"
-  [[ $host_memory_bytes =~ ^[1-9][0-9]{0,17}$ ]] || fail "host memory size is invalid: $host_memory_bytes"
-  host_memory_mib=$((host_memory_bytes / 1048576))
   (( memory_mib + 4096 <= host_memory_mib )) || {
     fail "OMARCHY_QEMU_GPU_MEMORY_MIB must leave the host at least 4096 MiB (host has ${host_memory_mib} MiB)"
   }

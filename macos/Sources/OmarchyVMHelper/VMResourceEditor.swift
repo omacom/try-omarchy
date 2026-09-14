@@ -98,8 +98,9 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         cpuControls.spacing = 8
 
         for choice in limits.memoryChoicesGiB {
-            memoryPopup.addItem(withTitle: choice == VMResourceLimits.defaultMemoryGiB
-                ? "\(choice) GiB · default" : "\(choice) GiB")
+            memoryPopup.addItem(withTitle: MemoryPolicy.choiceTitle(
+                memoryMiB: choice * 1024, hostMemoryMiB: limits.hostMemoryMiB
+            ))
             memoryPopup.lastItem?.tag = choice
         }
         memoryPopup.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
@@ -108,13 +109,13 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         memoryPopup.isEnabled = limits.memoryChoicesGiB.count > 1
         memoryPopup.identifier = NSUserInterfaceItemIdentifier("vm-resources-memory")
         memoryPopup.setAccessibilityLabel("Memory")
-        memoryPopup.setAccessibilityHelp("Larger allocations leave at least 8 GiB for macOS")
+        memoryPopup.setAccessibilityHelp("Higher allocations may affect macOS performance; at least 4 GiB stays available to macOS")
 
         let cpuRow = resourceRow(
             title: "Processor cores", detail: "4–\(limits.cpuRange.upperBound) cores · all cores available", control: cpuControls
         )
         let memoryRow = resourceRow(
-            title: "Memory", detail: "Larger allocations leave 8 GiB for macOS", control: memoryPopup
+            title: "Memory", detail: "Shared with macOS", control: memoryPopup
         )
         let separator = NSView()
         separator.wantsLayer = true
@@ -258,10 +259,15 @@ final class VMResourceEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             cpuStepper.integerValue = cpus
         }
         do {
-            _ = try draft()
-            validationLabel.stringValue = ""
+            let resources = try draft()
+            let memoryMiB = resources.memoryGiB * 1024
+            validationLabel.textColor = OmarchyStartMenuTheme.muted
+            validationLabel.stringValue = MemoryPolicy.maySlowHost(
+                memoryMiB: memoryMiB, hostMemoryMiB: limits.hostMemoryMiB
+            ) ? "This leaves \(MemoryPolicy.displayLabel(memoryMiB: limits.hostMemoryMiB - memoryMiB)) for macOS and may slow other apps." : ""
             saveButton.isEnabled = true
         } catch {
+            validationLabel.textColor = OmarchyStartMenuTheme.danger
             validationLabel.stringValue = error.localizedDescription
             saveButton.isEnabled = false
         }

@@ -9,19 +9,21 @@ struct MemoryPolicyTests {
         #expect(MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 8192) == [4096])
     }
 
-    @Test("A 16 GiB host offers up to 8 GiB")
-    func sixteenGiBHostOffersUpToEight() {
+    @Test("A 16 GiB host offers up to 12 GiB")
+    func sixteenGiBHostOffersUpToTwelve() {
         #expect(
-            MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 16384) == [4096, 6144, 8192]
+            MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 16384) == [4096, 6144, 8192, 12288]
         )
     }
 
-    @Test("A 24 GiB host offers the complete menu")
-    func twentyFourGiBHostOffersEverything() {
+    @Test("Memory choices grow with host capacity")
+    func choicesGrowWithHost() {
         #expect(
             MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 24576)
-                == [4096, 6144, 8192, 12288, 16384]
+                == [4096, 6144, 8192, 12288, 16384, 20480]
         )
+        #expect(MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 49152).last == 45056)
+        #expect(MemoryPolicy.allowedChoicesMiB(hostMemoryMiB: 131072).last == 126976)
     }
 
     @Test("Every non-default choice leaves the host its headroom")
@@ -54,8 +56,24 @@ struct MemoryPolicyTests {
     func resolutionFallsBackForUnlistedValue() {
         #expect(
             MemoryPolicy.resolvedMemoryMiB(preferredMiB: 5000, hostMemoryMiB: 65536)
-                == MemoryPolicy.defaultMemoryMiB
+                == 8192
         )
+    }
+
+    @Test("Defaults change at 16 GiB without replacing an explicit 4 GiB choice")
+    func hostAwareDefaults() {
+        #expect(MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: 16383) == 4096)
+        #expect(MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: 16384) == 8192)
+        #expect(MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: 49152) == 8192)
+        #expect(MemoryPolicy.resolvedMemoryMiB(preferredMiB: 4096, hostMemoryMiB: 16384) == 4096)
+    }
+
+    @Test("Higher allocations show an advisory when macOS has less than 8 GiB left")
+    func performanceAdvisory() {
+        #expect(MemoryPolicy.choiceTitle(memoryMiB: 8192, hostMemoryMiB: 16384) == "8 GiB · default")
+        #expect(MemoryPolicy.choiceTitle(memoryMiB: 12288, hostMemoryMiB: 16384) == "12 GiB · may slow macOS")
+        #expect(!MemoryPolicy.maySlowHost(memoryMiB: 40960, hostMemoryMiB: 49152))
+        #expect(MemoryPolicy.maySlowHost(memoryMiB: 45056, hostMemoryMiB: 49152))
     }
 
     @Test("Labels show whole GiB when exact, MiB otherwise")
@@ -67,7 +85,7 @@ struct MemoryPolicyTests {
 
 @Suite("Memory preferences")
 struct MemoryPreferenceStoreTests {
-    @Test("The guest keeps the 4 GiB default until the user changes it")
+    @Test("Legacy preferences retain their original baseline for migration")
     func defaultsToRecommendedMemory() {
         let fixture = DefaultsFixture()
 
@@ -152,8 +170,8 @@ struct StartMenuMemoryPresentationTests {
             preferredMiB: 8192,
             hostMemoryMiB: 16384
         )
-        #expect(presentation.choiceTitles == ["4 GiB · default", "6 GiB", "8 GiB"])
-        #expect(presentation.choicesMiB == [4096, 6144, 8192])
+        #expect(presentation.choiceTitles == ["4 GiB", "6 GiB", "8 GiB · default", "12 GiB · may slow macOS"])
+        #expect(presentation.choicesMiB == [4096, 6144, 8192, 12288])
         #expect(presentation.selectedIndex == 2)
         #expect(presentation.isAdjustable)
     }
@@ -178,7 +196,7 @@ struct StartMenuMemoryPresentationTests {
         )
         #expect(
             presentation.choicesMiB[presentation.selectedIndex]
-                == MemoryPolicy.defaultMemoryMiB
+                == 8192
         )
     }
 }
@@ -199,8 +217,12 @@ struct MemoryShellContractTests {
         let source = try String(contentsOf: launcher, encoding: .utf8)
 
         #expect(source.contains(
-            "${\(MemoryPolicy.environmentKey):-\(MemoryPolicy.defaultMemoryMiB)}"
+            "${\(MemoryPolicy.environmentKey):-$default_memory_mib}"
         ))
+        #expect(source.contains("default_memory_mib=4096"))
+        #expect(source.contains("host_memory_mib >= 16384"))
+        #expect(source.contains("default_memory_mib=8192"))
+        #expect(source.contains("memory_mib + \(MemoryPolicy.hostHeadroomMiB) <= host_memory_mib"))
         #expect(source.contains(
             "memory_mib >= \(MemoryPolicy.minimumMemoryMiB)"
         ))
