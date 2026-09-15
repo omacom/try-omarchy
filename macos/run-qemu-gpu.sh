@@ -1468,11 +1468,16 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
-# M3 and newer Apple Silicon can expose EL2 to this Linux guest. Probe the
-# actual Hypervisor.framework capability instead of guessing from a model name;
-# older Apple Silicon keeps the existing platform-GIC/EL1 launch path.
+# macOS 15 can pass the paused EL2 probe, then abort with HV_BAD_ARGUMENT when
+# QEMU synchronizes vCPU registers (#211). Keep it on the platform-GIC/EL1 path.
+# On macOS 26+, probe actual Hypervisor.framework support for EL2 rather than
+# guessing from a model name; older Apple Silicon still falls back to EL1.
+host_macos_version=$(sw_vers -productVersion 2>/dev/null) || host_macos_version=''
+host_macos_major=${host_macos_version%%.*}
 qemu_virtualization_args=(-machine "$qemu_machine")
-if printf '%s\n' \
+if [[ $host_macos_major =~ ^[1-9][0-9]*$ ]] && \
+  (( host_macos_major >= 26 )) && \
+  printf '%s\n' \
     '{"execute":"qmp_capabilities"}' \
     '{"execute":"quit"}' | \
   "$qemu_bin" \

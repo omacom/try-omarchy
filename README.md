@@ -17,7 +17,7 @@ Omarchy's trademark rights.
 ## Highlights
 
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
-- Nested KVM virtualization on M3 and newer Apple Silicon
+- Nested KVM virtualization on M3 and newer Apple Silicon running macOS 26+
 - Resizable native window with automatic guest resolution and HiDPI scale updates
 - Mac audio input/output selection inside Omarchy, with live routing and system-default fallback
 - FaceTime HD and other Mac cameras exposed to Omarchy as an on-demand 720p webcam
@@ -367,9 +367,11 @@ accept values between menu steps, down to the guest's 2048 MiB minimum. The
 - macOS 15 or newer
 - At least 8 GB free initially
 
-On M3 and newer Apple Silicon, Try Omarchy also exposes ARM EL2 to Linux, so
-the guest provides `/dev/kvm` for nested VMs and compatible VMMs. Older Apple
-Silicon Macs automatically keep the normal non-nested launch path.
+On M3 and newer Apple Silicon running macOS 26 or newer, Try Omarchy also
+exposes ARM EL2 to Linux, so the guest provides `/dev/kvm` for nested VMs and
+compatible VMMs. macOS 15 and older Apple Silicon Macs automatically keep the
+normal non-nested launch path. macOS 15 remains supported for running Omarchy;
+nested virtualization is disabled there to avoid a QEMU startup crash.
 
 ## Data and updates
 

@@ -105,6 +105,7 @@ case " $* " in
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
   *' -device virtio-gpu-gl-pci,help '*) printf '%s\n' 'romfile=<str>' ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
+    printf 'probe\n' >>"$FAKE_QEMU_NESTED_LOG"
     exit "${FAKE_QEMU_NESTED_STATUS:-0}"
     ;;
   *)
@@ -282,6 +283,12 @@ cat >"$shim_dir/file" <<'SH'
 #!/bin/bash
 printf '%s: Mach-O 64-bit executable arm64\n' "$1"
 SH
+cat >"$shim_dir/sw_vers" <<'SH'
+#!/bin/bash
+[[ $* == -productVersion ]] || exit 1
+printf '%s\n' "${FAKE_MACOS_VERSION-26.0}"
+exit "${FAKE_MACOS_VERSION_STATUS:-0}"
+SH
 cat >"$shim_dir/sysctl" <<'SH'
 #!/bin/bash
 if [[ $# == 2 && $1 == -n && ($2 == hw.logicalcpu || $2 == hw.ncpu) ]]; then
@@ -431,6 +438,7 @@ run_scenario() {
     FAKE_STORAGE_LOG="$scenario_dir/storage.log" \
     FAKE_PERSISTENT_ROOT="$persistent_root" \
     FAKE_QEMU_LOG="$scenario_dir/qemu.log" \
+    FAKE_QEMU_NESTED_LOG="$scenario_dir/nested.log" \
     "$@" \
     "$launcher" ${launcher_argument:+"$launcher_argument"} \
     >"$scenario_dir/stdout" 2>"$scenario_dir/stderr"; then
@@ -512,6 +520,42 @@ assert_line_pair "$test_root/nested-fallback/qemu.log" -machine \
   'virt,accel=hvf,gic-version=3'
 assert_not_contains "$nested_fallback_qemu" virtualization=on
 assert_not_contains "$nested_fallback_qemu" kernel-irqchip=on
+assert_contains "$(<"$test_root/nested-fallback/nested.log")" probe
+
+# macOS 15 can pass the paused EL2 probe but abort when a vCPU runs (#211).
+# It must never probe or launch EL2, even when QEMU would report support.
+for version in 15.0 15.7.7; do
+  scenario="nested-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,accel=hvf,gic-version=3'
+  assert_not_contains "$(<"$test_root/$scenario/qemu.log")" virtualization=on
+  assert_not_contains "$(<"$test_root/$scenario/qemu.log")" kernel-irqchip=on
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail "macOS $version probed EL2"
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'using the compatible EL1 path'
+done
+
+for version in 26.0 26.1 27.0; do
+  scenario="nested-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,gic-version=3,virtualization=on'
+  assert_line_pair "$test_root/$scenario/qemu.log" -accel 'hvf,kernel-irqchip=on'
+  assert_contains "$(<"$test_root/$scenario/nested.log")" probe
+done
+
+# An unavailable or unrecognized host version must keep the compatible path.
+for version in '' unknown; do
+  scenario="nested-unknown-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,accel=hvf,gic-version=3'
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail 'unknown macOS version probed EL2'
+done
+run_scenario nested-version-failure 0 '' FAKE_MACOS_VERSION_STATUS=1
+assert_line_pair "$test_root/nested-version-failure/qemu.log" -machine \
+  'virt,accel=hvf,gic-version=3'
+[[ ! -e $test_root/nested-version-failure/nested.log ]] || fail 'failed version query probed EL2'
 
 run_scenario audio-shutdown-race 0 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=0.5
 assert_not_contains "$(<"$test_root/audio-shutdown-race/stderr")" 'native audio bridge exited'
