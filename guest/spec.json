@@ -512,6 +512,8 @@
       "default/themed/shell.toml.tpl",
       "default/uwsm/env.d/10-omarchy",
       "default/wayland-sessions/omarchy.desktop",
+      "etc/sudoers.d/omarchy-dns",
+      "etc/sudoers.d/omarchy-theme-browser",
       "install/provisioning/omarchy-provision-owner.service",
       "install/provisioning/setup-form.sh",
       "install/user/all.sh",

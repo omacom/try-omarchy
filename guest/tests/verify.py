@@ -1719,6 +1719,16 @@ HOTPLUG=1
                 capture_output=True,
             )
             staged_icons = staged_root / "usr/share/icons/hicolor/256x256/apps"
+            for name in ("omarchy-dns", "omarchy-theme-browser"):
+                relative = Path("etc/sudoers.d") / name
+                policy = staged_root / relative
+                check(
+                    policy.is_file()
+                    and not policy.is_symlink()
+                    and policy.read_bytes() == (source / relative).read_bytes()
+                    and stat.S_IMODE(policy.stat().st_mode) == 0o440,
+                    f"menu sudoers policy preserves upstream grants with mode 0440: {name}",
+                )
             for upstream_path, installed_path in (
                 ("etc/xdg/kitty/kitty.conf", "etc/xdg/kitty/kitty.conf"),
                 ("etc/tmpfiles.d/omarchy-nopasswd-sudo.conf", "usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"),
