@@ -15,7 +15,7 @@ PACKAGE_NOTARY_PROFILE ?= $(RELEASE_NOTARY_PROFILE)
 FORCE ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor test guest runtime app build run run-ephemeral reset update-omarchy package package-preflight release release-preflight clean clean-all clean-guest
+.PHONY: help doctor test guest runtime app build run run-ephemeral reset update-omarchy version-preflight package package-preflight release release-preflight clean clean-all clean-guest
 
 help:
 	@printf '%s\n' \
@@ -111,7 +111,11 @@ update-omarchy:
 	  --refresh-package-lock "$(ROOT)/guest/packages.lock.json"
 	@$(ROOT)/guest/test --source "$(ROOT)/.build/upstream/omarchy-v$(OMARCHY_RELEASE)"
 
-package-preflight:
+version-preflight:
+	@[[ -z "$$(git -C "$(ROOT)" status --porcelain --untracked-files=all)" ]] || { echo 'error: the worktree must be clean before building a signed app' >&2; exit 1; }
+	@tag="$$(git -C "$(ROOT)" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null)"; [[ $$tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo 'error: HEAD must carry an exact vX.Y.Z release tag' >&2; exit 1; }
+
+package-preflight: version-preflight
 	@[[ "$(PACKAGE_SIGN_IDENTITY)" == "Developer ID Application:"* ]] || { echo 'error: PACKAGE_SIGN_IDENTITY must be a Developer ID Application identity' >&2; exit 1; }
 	@[[ -n "$(strip $(PACKAGE_NOTARY_PROFILE))" ]] || { echo 'error: PACKAGE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 
@@ -123,7 +127,7 @@ package: package-preflight
 	  --sign-identity "$(PACKAGE_SIGN_IDENTITY)" \
 	  --notarize-profile "$(PACKAGE_NOTARY_PROFILE)"
 
-release-preflight:
+release-preflight: version-preflight
 	@[[ "$(RELEASE_SIGN_IDENTITY)" == "Developer ID Application:"* ]] || { echo 'error: RELEASE_SIGN_IDENTITY must be a Developer ID Application identity' >&2; exit 1; }
 	@[[ -n "$(strip $(RELEASE_NOTARY_PROFILE))" ]] || { echo 'error: RELEASE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 

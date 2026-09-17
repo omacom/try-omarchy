@@ -179,6 +179,23 @@ PYTHON
 install -m 0644 "$macos_dir/network-helper/vendor/LICENSE" "$contents/Resources/network/LICENSE.socket_vmnet"
 install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
+if git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  python3 - "$contents/Info.plist" \
+    "$(git -C "$repo_dir" describe --tags --match 'v[0-9]*' --always --dirty)" \
+    "$(git -C "$repo_dir" rev-list --count HEAD)" <<'PYTHON'
+import plistlib, re, sys
+from pathlib import Path
+path, describe, count = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+release = re.fullmatch(r"v(\d+\.\d+\.\d+)", describe)
+value = plistlib.loads(path.read_bytes())
+value["CFBundleShortVersionString"] = release.group(1) if release else "0.0.0"
+value["CFBundleVersion"] = count
+value["TryOmarchyBuildDescribe"] = describe
+path.write_bytes(plistlib.dumps(value))
+PYTHON
+else
+  echo "warning: $repo_dir is not a git checkout; keeping the checked-in Info.plist version" >&2
+fi
 install -m 0644 "$macos_dir/Credits.rtf" "$contents/Resources/Credits.rtf"
 install -m 0644 "$repo_dir/LICENSE" "$contents/Resources/LICENSE"
 install -m 0644 "$generated_icon" "$contents/Resources/TryOmarchy.icns"
