@@ -47,7 +47,14 @@ def main() -> None:
         check=False,
     )
     if result.returncode:
-        raise SystemExit(result.stderr or result.stdout)
+        # pacman splits a failed resolution across both streams: `error: failed
+        # to prepare transaction` goes to stderr while the lines that name the
+        # unsatisfied dependency go to stdout. Reporting either one alone hides
+        # which package actually broke.
+        raise SystemExit(
+            "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
+            or f"pacman exited with status {result.returncode}"
+        )
 
     resolved: dict[str, str] = {}
     for line in result.stdout.splitlines():
