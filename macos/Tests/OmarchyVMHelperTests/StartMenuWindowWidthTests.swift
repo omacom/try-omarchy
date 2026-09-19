@@ -116,7 +116,7 @@ struct StartMenuWindowWidthTests {
         let title = try #require(
             descendant(withIdentifier: "permission-title-usb", in: row) as? NSTextField
         )
-        #expect(title.stringValue == "USB device")
+        #expect(title.stringValue == "USB device (experimental)")
         let firstLine = try #require(
             descendant(withIdentifier: "permission-detail-usb-0", in: row) as? NSTextField
         )

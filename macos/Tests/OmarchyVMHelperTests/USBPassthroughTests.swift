@@ -127,4 +127,20 @@ struct USBPassthroughTests {
         )
         #expect(sanitized[USBPassthroughPolicy.environmentKey] == nil)
     }
+
+    @Test("the row stays marked experimental and promises nothing macOS will not give up")
+    func rowDoesNotPromiseCapture() {
+        let attached = USBDeviceMenuState.make(
+            preference: USBDevicePreference(device: drive, isEnabled: true),
+            connected: [drive],
+            environment: [:]
+        )
+        let presentation = StartMenuPresentation.usbDevice(state: attached)
+        #expect(presentation.detail.contains("Experimental"))
+        // Without com.apple.vm.device-access, libusb_detach_kernel_driver
+        // returns LIBUSB_ERROR_ACCESS for every device macOS has a driver for,
+        // so a row saying Omarchy takes the device over would be a false promise.
+        #expect(!presentation.detail.lowercased().contains("claims"))
+        #expect(StartMenuPresentation.usbDevice(state: .disabled).detail.hasPrefix("Experimental."))
+    }
 }

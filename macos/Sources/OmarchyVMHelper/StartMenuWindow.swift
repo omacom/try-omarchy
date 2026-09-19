@@ -558,7 +558,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         }
         let usbRow = permissionRow(
             symbolName: "cable.connector",
-            title: "USB device",
+            title: "USB device (experimental)",
             detail: usbPresentation.detail,
             compactDetailLines: usbPresentation.compactDetailLines,
             granted: usbPresentation.isGranted,

@@ -73,9 +73,10 @@ final class USBDeviceEditor: NSObject {
         detail.stringValue = choices.isEmpty
             ? "No USB devices are connected to this Mac. Plug one in, then open this panel again."
             : """
-                Omarchy can only take a device macOS does not already drive, such as a dock or adapter control interface. Drives, keyboards, \
-                audio, video and iPhones stay with macOS: they appear in the VM but without their data interfaces, until this app is signed \
-                with Apple's com.apple.vm.device-access entitlement.
+                Omarchy can only take a device macOS does not already drive. Drives, keyboards, audio, video and iPhones appear in the VM \
+                without their data, because macOS keeps them until this app is signed with Apple's com.apple.vm.device-access entitlement.
+
+                Unplugging or replugging the device while Omarchy runs can freeze the window for up to 30 seconds.
                 """
         alert.buttons.first?.isEnabled = !choices.isEmpty
         stack.layoutSubtreeIfNeeded()

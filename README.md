@@ -217,29 +217,79 @@ Only one device at a time, and never a USB hub — passing a hub through would
 take every device behind it, frequently this Mac's own dock, keyboard, or
 display controls.
 
-**What macOS lets through today.** Only a device no macOS driver has claimed,
-which is rarer than it sounds. Surveying every USB device attached to one Apple
-Silicon Mac found a driver bound to all of them: hubs, docks (through
-`AppleUSBHostBillboardDevice`), HID receivers, audio interfaces, USB Ethernet
-and mass storage. What is left is hardware macOS has no driver for at all, such
-as SDR receivers, JTAG probes and custom vendor-specific boards. Those get a
-configuration and behave normally, at SuperSpeed when the device supports it.
+**What gets through depends entirely on privilege.** libusb's Darwin backend
+accepts exactly two kinds of caller for taking a device away from macOS -- a
+process holding `com.apple.vm.device-access`, or one running as root -- and
+turns every other caller away before it asks the kernel anything:
 
-Everything else enumerates in the guest but never gets a configuration: `lsusb` lists it while
-`/sys/bus/usb/devices/*/bNumInterfaces` stays empty, and no `sda`, input device
-or camera appears. In practice that rules out USB drives, keyboards and mice,
-audio and video devices, USB network adapters, and iPhones — `usbmuxd` reclaims
-a phone within milliseconds of every re-enumeration. Unplugging and replugging
-while the VM already runs does not win the race.
+```c
+/* libusb/os/darwin_usb.c, darwin_detach_kernel_driver() */
+if (0 != geteuid()) {
+  usbi_warn (ctx, "USB device capture requires either an entitlement "
+                  "(com.apple.vm.device-access) or root privilege");
+  return LIBUSB_ERROR_ACCESS;
+}
+```
 
-The missing piece is an entitlement, not code. libusb 1.0.30 ships the Darwin
-kernel-driver detach added in libusb/libusb#911, and QEMU's `usb-host` calls
-`libusb_detach_kernel_driver`, so the path is complete in this build. What it
-needs to succeed against an Apple driver is `com.apple.vm.device-access`, a
-restricted entitlement Apple grants per developer team and delivers in a
-provisioning profile; commercial virtualization apps carry it, which is why they
-can take a USB drive that this build cannot. See libusb/libusb#1014. Until this
-app is signed with that entitlement, the device classes above stay with macOS.
+**Unprivileged, which is how this app ships:** only a device no macOS driver
+has claimed, which is rarer than it sounds. Surveying every USB device attached
+to one Apple Silicon Mac found a driver bound to all of them: hubs, docks
+(through `AppleUSBHostBillboardDevice`), HID receivers, audio interfaces, USB
+Ethernet and mass storage. What is left is hardware macOS has no driver for at
+all, such as SDR receivers, JTAG probes and custom vendor-specific boards.
+Everything else enumerates in the guest but never gets a configuration: `lsusb`
+lists it while `/sys/bus/usb/devices/*/bConfigurationValue` stays empty, and no
+`sda`, input device or camera appears. Both `libusb_detach_kernel_driver` and
+`libusb_claim_interface` return `LIBUSB_ERROR_ACCESS` immediately, without the
+kernel ever being asked.
+
+**As root, this same build takes a driver-claimed device completely.** Measured
+on one Apple Silicon Mac with a SanDisk 3.2Gen1 stick, a device class macOS
+drives through `IOUSBMassStorageDriver`:
+
+```
+# inside the guest
+$ lsblk
+sda      57.3G disk
+|-sda1     200M part vfat  EFI
+`-sda2      57G part vfat  VCAUSB  /run/media/vcanuel/VCAUSB
+$ cat /sys/bus/usb/devices/2-1/speed
+5000
+$ dd if=/dev/urandom of=/run/media/vcanuel/VCAUSB/t.bin bs=1M count=256 conv=fsync
+268435456 bytes (268 MB, 256 MiB) copied, 4.17614 s, 64.3 MB/s
+```
+
+The guest binds `uas`, the volume mounts on the Omarchy desktop like any other
+drive, and writes land on the stick at SuperSpeed. Nothing in the passthrough
+path itself needs changing for this; only the privilege of the process that
+calls libusb.
+
+Neither door is free. `com.apple.vm.device-access` is restricted: Apple grants
+it per developer team, delivers it in a provisioning profile, and DTS describes
+it as meant for virtualization apps shipping on the Mac App Store. Commercial
+virtualization apps carry it, which is why they take a USB drive without
+running as root. Root is not something a desktop app should assume either --
+libusb reads the effective uid of the calling process, so it would be QEMU
+itself running as root, not a small privileged helper alongside it. Which door
+to open is a decision for whoever ships the app. See libusb/libusb#1014.
+
+**Replugging freezes the window, and a bad exit wedges the device.** Every
+capture attempt goes through libusb's `darwin_reenumerate_device()`, which polls
+an atomic for up to `DARWIN_REENUMERATE_TIMEOUT_US` — 10 seconds — on whichever
+thread called it, and QEMU calls it from the main loop. Unplugging and
+reconnecting the device while the VM runs costs one such timeout per attempt:
+measured on this build, a QEMU-side detach blocked the main loop for 10.08 s,
+and one physical replug stalled the guest's USB enumeration for 29.8 s (guest
+kernel timestamps 34.98 → 64.77). The guest keeps computing, but the window
+stops redrawing and stops accepting input until the timeout expires.
+
+A device left behind by an unclean exit stays unusable until it is physically
+reconnected. After QEMU was killed mid-reset, every bulk transfer to the stick
+timed out — from QEMU and from a plain libusb program alike, both running as
+root, with `libusb_claim_interface` still reporting success. One unplug and
+replug restored it, and the same program then completed a SCSI INQUIRY in 20 ms.
+Leave the device plugged in for the life of the VM, and replug it if a run ends
+badly.
 
 The guest needs its own tools for anything beyond enumeration: `usbutils` for
 `lsusb`, `libimobiledevice` for an iPhone.
