@@ -109,6 +109,12 @@ setuptools_archive_name=setuptools-84.0.0-py3-none-any.whl
 setuptools_url="https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/$setuptools_archive_name"
 setuptools_sha256=51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
 
+# wheel 0.48 resolves `packaging` at install time and mkvenv runs offline, so
+# the vendored set must carry it; no Mac ships it with the system Python.
+packaging_archive_name=packaging-26.3-py3-none-any.whl
+packaging_url="https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/$packaging_archive_name"
+packaging_sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+
 wheel_archive_name=wheel-0.48.0-py3-none-any.whl
 wheel_url="https://files.pythonhosted.org/packages/2e/29/69cfbb602cd91690c55d38ba9fe53e6a7e76a6fa647bf38f19c138d25449/$wheel_archive_name"
 wheel_sha256=3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
@@ -297,6 +303,7 @@ angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
 setuptools_archive="$archive_dir/$setuptools_archive_name"
 wheel_archive="$archive_dir/$wheel_archive_name"
+packaging_archive="$archive_dir/$packaging_archive_name"
 pip_archive="$archive_dir/$pip_archive_name"
 
 obtain_and_verify "libslirp source" "$slirp_url" "$slirp_sha256" "$slirp_archive"
@@ -318,6 +325,7 @@ done < <(pinned_core_bottle_manifest)
 
 obtain_and_verify "setuptools" "$setuptools_url" "$setuptools_sha256" "$setuptools_archive"
 obtain_and_verify "wheel" "$wheel_url" "$wheel_sha256" "$wheel_archive"
+obtain_and_verify "packaging" "$packaging_url" "$packaging_sha256" "$packaging_archive"
 obtain_and_verify "pip" "$pip_url" "$pip_sha256" "$pip_archive"
 
 validate_tar_root "QEMU $qemu_commit" "$qemu_archive" "$qemu_root" "$listing_dir/qemu.txt"
@@ -348,7 +356,7 @@ source_dir="$source_parent/$qemu_root"
   die "QEMU source archive is incomplete"
 
 install -m 0644 "$setuptools_archive" "$wheel_archive" "$pip_archive" \
-  "$source_dir/python/wheels/"
+  "$packaging_archive" "$source_dir/python/wheels/"
 
 mkdir -p "$source_dir/subprojects/keycodemapdb" "$source_dir/subprojects/dtc"
 tar -xzf "$keycodemap_archive" -C "$source_dir/subprojects/keycodemapdb" --strip-components=1
