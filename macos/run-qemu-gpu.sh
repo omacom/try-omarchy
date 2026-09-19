@@ -155,6 +155,22 @@ for device in \
   virtio-pinch-pci; do
   require_qemu_device "$device"
 done
+
+# Experimental opt-in host USB passthrough. Unset keeps every launch on the
+# exact device set below; a value is forwarded verbatim as usb-host properties,
+# either a device class (vendorid=0x05ac) or one exact host port
+# (hostbus=1,hostaddr=6). Anything else is refused rather than reinterpreted as
+# further QEMU options.
+usb_host_properties=${OMARCHY_QEMU_GPU_USB_HOST:-}
+if [[ -n $usb_host_properties ]]; then
+  [[ $usb_host_properties =~ ^[a-z]+=[0-9A-Fa-fx.]+(,[a-z]+=[0-9A-Fa-fx.]+)*$ ]] || {
+    fail "OMARCHY_QEMU_GPU_USB_HOST must be usb-host properties, for example vendorid=0x05ac"
+  }
+  require_qemu_device qemu-xhci
+  [[ $qemu_devices == *'name "usb-host"'* ]] || {
+    fail "staged QEMU has no libusb host passthrough; run make runtime"
+  }
+fi
 for marker in guest_owner_uid guest_owner_gid; do
   LC_ALL=C grep -aFq "$marker" "$qemu_bin" || {
     fail "staged QEMU lacks the shared-folder owner mapping; run make runtime"
@@ -1570,6 +1586,16 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera'
 )
 
+if [[ -n $usb_host_properties ]]; then
+  # One xHCI controller carries the passed-through device. macOS keeps its own
+  # drivers attached until QEMU claims the device, so a guest that never sees
+  # it means the host still owns it.
+  qemu_args+=(
+    -device 'qemu-xhci,id=omarchy-usb'
+    -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
+  )
+fi
+
 if [[ -n $shared_folder ]]; then
   # security_model=none performs every host operation as this Mac user and
   # ignores guest chown requests, so the Mac keeps real modes and ownership.
@@ -1609,6 +1635,7 @@ if [[ ${OMARCHY_QEMU_GPU_DRY_RUN:-0} == 1 ]]; then
   else
     printf '\n[qemu-gpu] shared folder: disabled' >&2
   fi
+  printf '\n[qemu-gpu] usb passthrough: %s' "${usb_host_properties:-disabled}" >&2
   printf '\n[qemu-gpu] port forwarding: %s' "$port_forwarding_summary" >&2
   printf '\n' >&2
   exit 0

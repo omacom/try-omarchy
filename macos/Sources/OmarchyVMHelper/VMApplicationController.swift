@@ -52,6 +52,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let supervisor: QEMUGPUProcessSupervisor
     private let preferenceStore: AudioRoutingPreferenceStore
     private let sharedFolderStore: SharedFolderPreferenceStore
+    private let usbDeviceStore: USBDevicePreferenceStore
     private let portForwardingStore: PortForwardingPreferenceStore
     private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
@@ -93,6 +94,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         supervisor: QEMUGPUProcessSupervisor = QEMUGPUProcessSupervisor(),
         preferenceStore: AudioRoutingPreferenceStore = AudioRoutingPreferenceStore(),
         sharedFolderStore: SharedFolderPreferenceStore = SharedFolderPreferenceStore(),
+        usbDeviceStore: USBDevicePreferenceStore = USBDevicePreferenceStore(),
         portForwardingStore: PortForwardingPreferenceStore = PortForwardingPreferenceStore(),
         networkStore: VMNetworkPreferenceStore = VMNetworkPreferenceStore(),
         fullscreenPreferenceStore: FullscreenPreferenceStore = FullscreenPreferenceStore(),
@@ -110,6 +112,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.supervisor = supervisor
         self.preferenceStore = preferenceStore
         self.sharedFolderStore = sharedFolderStore
+        self.usbDeviceStore = usbDeviceStore
         self.portForwardingStore = portForwardingStore
         self.networkStore = networkStore
         self.fullscreenPreferenceStore = fullscreenPreferenceStore
@@ -198,6 +201,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             },
             setSharedFolderEnabled: { [weak self] enabled in
                 self?.setSharedFolderEnabled(enabled)
+            },
+            usbDeviceStatus: { [weak self] in
+                self?.usbDeviceMenuState() ?? .disabled
+            },
+            connectedUSBDevices: { HostUSBDevices.connected() },
+            saveUSBDevice: { [weak self] preference in
+                self?.usbDeviceStore.save(preference)
             },
             portForwardingStatus: { [weak self] in
                 self?.portForwardingStore.load() ?? []
@@ -437,8 +447,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             preference: sharedFolderStore.load(),
             homeDirectory: Self.homeDirectory
         )
-        let forwarding = PortForwardLaunchConfiguration.make(
+        let usb = USBPassthroughLaunchConfiguration.make(
             baseEnvironment: sharing.environment,
+            preference: usbDeviceStore.load()
+        )
+        let forwarding = PortForwardLaunchConfiguration.make(
+            baseEnvironment: usb.environment,
             mappings: networkStore.load().mode == .nat ? portForwardingStore.load() : []
         )
         let fullscreen = FullscreenLaunchConfiguration.make(
@@ -555,6 +569,14 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    private func usbDeviceMenuState() -> USBDeviceMenuState {
+        USBDeviceMenuState.make(
+            preference: usbDeviceStore.load(),
+            connected: HostUSBDevices.connected(),
+            environment: baseEnvironment
+        )
     }
 
     private func setSharedFolderEnabled(_ enabled: Bool) {

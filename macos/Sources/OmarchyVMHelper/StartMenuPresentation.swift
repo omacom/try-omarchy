@@ -30,6 +30,16 @@ struct StartMenuMemoryPresentation: Equatable {
     let isAdjustable: Bool
 }
 
+struct StartMenuUSBDevicePresentation: Equatable {
+    let detail: String
+    let compactDetailLines: [String]?
+    let isGranted: Bool
+    let toggleActionTitle: String?
+    /// False while the environment owns the choice, so the buttons that would
+    /// change it render disabled rather than quietly doing nothing.
+    let actionsEnabled: Bool
+}
+
 struct StartMenuPortForwardingPresentation: Equatable {
     let detail: String
     let compactDetailLines: [String]?
@@ -157,6 +167,60 @@ enum StartMenuPresentation {
             compactDetailLines: compactDetailLines,
             isGranted: state.isEnabled && state.problem == nil,
             toggleActionTitle: state.path == nil ? nil : (state.isEnabled ? "Turn Off" : "Turn On")
+        )
+    }
+
+    static func usbDevice(
+        state: USBDeviceMenuState
+    ) -> StartMenuUSBDevicePresentation {
+        if let override = state.environmentOverride {
+            return StartMenuUSBDevicePresentation(
+                detail: "Set by \(USBPassthroughPolicy.environmentKey): \(override)",
+                compactDetailLines: [
+                    "Set by \(USBPassthroughPolicy.environmentKey)",
+                    override,
+                ],
+                isGranted: true,
+                toggleActionTitle: nil,
+                actionsEnabled: false
+            )
+        }
+        guard let device = state.device else {
+            return StartMenuUSBDevicePresentation(
+                detail: "Experimental. Give one connected Mac USB device to Omarchy instead of macOS.",
+                compactDetailLines: nil,
+                isGranted: false,
+                toggleActionTitle: nil,
+                actionsEnabled: true
+            )
+        }
+        let detail: String
+        let compactDetailLines: [String]
+        if !state.isEnabled {
+            detail = "Mac device: \(device.displayName). In Omarchy: Off."
+            compactDetailLines = [
+                "Mac device: \(device.displayName)",
+                "In Omarchy: Off",
+            ]
+        } else if state.isConnected {
+            detail = "Mac device: \(device.displayName). Omarchy claims it from macOS at startup."
+            compactDetailLines = [
+                "Mac device: \(device.displayName)",
+                "Omarchy claims it from macOS at startup",
+            ]
+        } else {
+            detail = "\(device.displayName) is not plugged in. Omarchy will start without it."
+            compactDetailLines = [
+                "\(device.displayName) is not plugged in",
+                "Omarchy will start without it",
+            ]
+        }
+        return StartMenuUSBDevicePresentation(
+            detail: detail,
+            compactDetailLines: compactDetailLines,
+            isGranted: state.isEnabled && state.isConnected,
+            toggleActionTitle: state.isEnabled ? "Turn Off" : "Turn On",
+            actionsEnabled: true
         )
     }
 

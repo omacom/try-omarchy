@@ -204,6 +204,49 @@ first Omarchy account created during
 provisioning. Additional guest accounts can reach the same share, with each
 entry's normal Unix permission bits deciding whether they can modify it.
 
+## Passing a USB device to Omarchy (experimental)
+
+Passthrough is off until you pick a device. Use **Choose…** next to **USB
+device** on the start menu to select one device currently attached to the Mac;
+the choice applies on the next launch, and **Turn On** / **Turn Off** keeps it
+without reselecting. Omarchy gets a USB 3 controller with that one device
+attached, matched on its vendor and product identifiers so it survives
+unplugging and reconnecting.
+
+Only one device at a time, and never a USB hub — passing a hub through would
+take every device behind it, frequently this Mac's own dock, keyboard, or
+display controls.
+
+**What macOS lets through today.** A device macOS is not already driving works:
+it gets a configuration and behaves normally in the guest, at SuperSpeed when
+the device supports it. That covers vendor-specific interfaces such as dock and
+adapter control endpoints, programmers, debug probes and radios.
+
+A device a built-in macOS driver has claimed does not. It enumerates in the
+guest but never gets a configuration: `lsusb` lists it while
+`/sys/bus/usb/devices/*/bNumInterfaces` stays empty, and no `sda`, input device
+or camera appears. In practice that rules out USB drives, keyboards and mice,
+audio and video devices, USB network adapters, and iPhones — `usbmuxd` reclaims
+a phone within milliseconds of every re-enumeration. Unplugging and replugging
+while the VM already runs does not win the race.
+
+The missing piece is an entitlement, not code. libusb 1.0.30 ships the Darwin
+kernel-driver detach added in libusb/libusb#911, and QEMU's `usb-host` calls
+`libusb_detach_kernel_driver`, so the path is complete in this build. What it
+needs to succeed against an Apple driver is `com.apple.vm.device-access`, a
+restricted entitlement Apple grants per developer team and delivers in a
+provisioning profile; commercial virtualization apps carry it, which is why they
+can take a USB drive that this build cannot. See libusb/libusb#1014. Until this
+app is signed with that entitlement, the device classes above stay with macOS.
+
+The guest needs its own tools for anything beyond enumeration: `usbutils` for
+`lsusb`, `libimobiledevice` for an iPhone.
+
+For scripted launches, `OMARCHY_QEMU_GPU_USB_HOST` overrides the saved choice
+with a raw `usb-host` property list — `vendorid=0x05ac`, or
+`hostbus=1,hostaddr=6` to pin one physical port. The start menu shows when the
+environment owns the choice and leaves its buttons disabled.
+
 ## Networking
 
 Use **Configure…** next to **Networking** on the start menu. **NAT** shares the

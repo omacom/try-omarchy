@@ -2,7 +2,10 @@ import AppKit
 import Testing
 @testable import OmarchyVMHelper
 
-@Suite("Start menu width", .serialized)
+/// Every test that lays out a whole `StartMenuWindow` belongs in this one
+/// suite: `.serialized` keeps them apart, and two menus laid out at once on
+/// the main actor disturb each other's content size.
+@Suite("Start menu layout", .serialized)
 @MainActor
 struct StartMenuWindowWidthTests {
     @Test("reset confirmation requires the exact application name")
@@ -89,8 +92,65 @@ struct StartMenuWindowWidthTests {
         try expectDetailsFit(["permission-detail-externaldrive"], in: menu)
     }
 
+    @Test("the USB row renders, names the chosen device, and keeps its text inside the menu")
+    func usbRowRendersAndFits() throws {
+        _ = NSApplication.shared
+        let menu = makeMenu(
+            storageState: { .defaultLocation },
+            usbState: {
+                USBDeviceMenuState(
+                    device: USBDeviceIdentity(vendorId: 0x05AC, productId: 0x12A8, name: "iPhone"),
+                    isEnabled: true,
+                    isConnected: true,
+                    environmentOverride: nil
+                )
+            }
+        )
+        menu.prepareForPresentation(visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+        defer { menu.dismiss() }
+
+        let content = try #require(menu.window.contentView)
+        content.layoutSubtreeIfNeeded()
+        let row = try #require(descendant(withIdentifier: "permission-row-usb", in: content))
+        #expect(descendant(withIdentifier: "permission-symbol-usb", in: row) != nil)
+        let title = try #require(
+            descendant(withIdentifier: "permission-title-usb", in: row) as? NSTextField
+        )
+        #expect(title.stringValue == "USB device")
+        let firstLine = try #require(
+            descendant(withIdentifier: "permission-detail-usb-0", in: row) as? NSTextField
+        )
+        #expect(firstLine.stringValue.contains("iPhone"))
+        for index in 0..<2 {
+            let line = try #require(
+                descendant(withIdentifier: "permission-detail-usb-\(index)", in: row)
+            )
+            let frame = try #require(line.superview)
+                .convert(line.alignmentRect(forFrame: line.frame), to: row)
+            #expect(frame.minX >= row.bounds.minX)
+            #expect(frame.maxX <= row.bounds.maxX - 124 - 12 + 0.5)
+        }
+    }
+
+    @Test("the USB row still renders before any device has been chosen")
+    func usbRowRendersWhileEmpty() throws {
+        _ = NSApplication.shared
+        let menu = makeMenu(storageState: { .defaultLocation })
+        menu.prepareForPresentation(visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+        defer { menu.dismiss() }
+
+        let content = try #require(menu.window.contentView)
+        content.layoutSubtreeIfNeeded()
+        let row = try #require(descendant(withIdentifier: "permission-row-usb", in: content))
+        let detail = try #require(
+            descendant(withIdentifier: "permission-detail-usb", in: row) as? NSTextField
+        )
+        #expect(detail.stringValue.contains("Experimental"))
+    }
+
     private func makeMenu(
-        storageState: @escaping () -> StorageLocationMenuState
+        storageState: @escaping () -> StorageLocationMenuState,
+        usbState: @escaping () -> USBDeviceMenuState = { .disabled }
     ) -> StartMenuWindow {
         StartMenuWindow(
             accessibilityStatus: { true },
@@ -113,6 +173,9 @@ struct StartMenuWindowWidthTests {
             sharedFolderStatus: { .disabled },
             chooseSharedFolder: { _ in nil },
             setSharedFolderEnabled: { _ in },
+            usbDeviceStatus: usbState,
+            connectedUSBDevices: { [] },
+            saveUSBDevice: { _ in },
             portForwardingStatus: { [] },
             immersiveMode: { true },
             setImmersiveMode: { _ in },

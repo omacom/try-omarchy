@@ -401,6 +401,7 @@ epoxy_root="$dependency_root/libepoxy/$epoxy_version"
 glib_root="$dependency_root/$PINNED_GLIB_ROOT"
 pixman_root="$dependency_root/$PINNED_PIXMAN_ROOT"
 slirp_root="$dependency_root/$PINNED_LIBSLIRP_ROOT"
+libusb_root="$dependency_root/$PINNED_LIBUSB_ROOT"
 sdl2_root="$dependency_root/$PINNED_SDL2_ROOT"
 sdl3_root="$dependency_root/$PINNED_SDL3_ROOT"
 gettext_root="$dependency_root/$PINNED_GETTEXT_ROOT"
@@ -410,7 +411,7 @@ lz4_root="$dependency_root/$PINNED_LZ4_ROOT"
 xz_root="$dependency_root/$PINNED_XZ_ROOT"
 for directory in \
   "$virgl_root" "$angle_root" "$epoxy_root" \
-  "$glib_root" "$pixman_root" "$slirp_root" "$sdl2_root" "$sdl3_root" \
+  "$glib_root" "$pixman_root" "$slirp_root" "$libusb_root" "$sdl2_root" "$sdl3_root" \
   "$gettext_root" "$pcre2_root" "$zstd_root" "$lz4_root" "$xz_root"; do
   [[ -d $directory && ! -L $directory ]] || die "missing extracted dependency: $directory"
 done
@@ -440,6 +441,9 @@ done
 for pc_file in "$pcre2_root"/lib/pkgconfig/*.pc; do
   sed -i '' "s|@@HOMEBREW_CELLAR@@/$PINNED_PCRE2_ROOT|$pcre2_root|g" "$pc_file"
 done
+for pc_file in "$libusb_root"/lib/pkgconfig/*.pc; do
+  sed -i '' "s|@@HOMEBREW_CELLAR@@/$PINNED_LIBUSB_ROOT|$libusb_root|g" "$pc_file"
+done
 sed -i '' \
   -e "s|^prefix=@@HOMEBREW_PREFIX@@$|prefix=$sdl2_root|" \
   -e "s|^libdir=@@HOMEBREW_PREFIX@@/lib$|libdir=$sdl2_root/lib|" \
@@ -456,8 +460,8 @@ ninja="$tool_root/ninja-$ninja_version.data/scripts/ninja"
 [[ -f $ninja && ! -L $ninja ]] || die "pinned Ninja wheel is missing its executable"
 chmod 0755 "$ninja"
 
-pkg_config_libdir="$virgl_root/lib/pkgconfig:$epoxy_root/lib/pkgconfig:$angle_root/lib/pkgconfig:$glib_root/lib/pkgconfig:$pixman_root/lib/pkgconfig:$slirp_root/lib/pkgconfig:$sdl2_root/lib/pkgconfig:$pcre2_root/lib/pkgconfig"
-private_libraries="$virgl_root/lib:$epoxy_root/lib:$angle_root/lib:$glib_root/lib:$pixman_root/lib:$slirp_root/lib:$sdl2_root/lib:$gettext_root/lib:$pcre2_root/lib"
+pkg_config_libdir="$virgl_root/lib/pkgconfig:$epoxy_root/lib/pkgconfig:$angle_root/lib/pkgconfig:$glib_root/lib/pkgconfig:$pixman_root/lib/pkgconfig:$slirp_root/lib/pkgconfig:$sdl2_root/lib/pkgconfig:$pcre2_root/lib/pkgconfig:$libusb_root/lib/pkgconfig"
+private_libraries="$virgl_root/lib:$epoxy_root/lib:$angle_root/lib:$glib_root/lib:$pixman_root/lib:$slirp_root/lib:$sdl2_root/lib:$gettext_root/lib:$pcre2_root/lib:$libusb_root/lib"
 
 require_private_pkg_version() {
   local package=$1
@@ -477,6 +481,7 @@ require_private_pkg_version slirp 4.9.4
 require_private_pkg_version sdl2 2.32.70
 require_private_pkg_version virglrenderer 1.2.0
 require_private_pkg_version epoxy 1.5.11
+require_private_pkg_version libusb-1.0 1.0.30
 
 # Build against the same pinned private GLib used by QEMU; never use host libraries.
 slirp_build="$source_parent/$slirp_source_root/build"
@@ -498,7 +503,7 @@ python3 "$meson" install -C "$slirp_build" --no-rebuild
 
 build_dir="$source_dir/build"
 mkdir "$build_dir"
-log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p) for macOS $macos_deployment_target and newer"
+log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p, libusb) for macOS $macos_deployment_target and newer"
 (
   cd "$build_dir"
   env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
@@ -522,6 +527,7 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
       --enable-sdl \
       --audio-drv-list=sdl \
       --enable-virtfs \
+      --enable-libusb \
       --disable-debug-info \
       --disable-werror \
       --disable-download \
