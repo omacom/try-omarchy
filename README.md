@@ -217,13 +217,15 @@ Only one device at a time, and never a USB hub — passing a hub through would
 take every device behind it, frequently this Mac's own dock, keyboard, or
 display controls.
 
-**What macOS lets through today.** A device macOS is not already driving works:
-it gets a configuration and behaves normally in the guest, at SuperSpeed when
-the device supports it. That covers vendor-specific interfaces such as dock and
-adapter control endpoints, programmers, debug probes and radios.
+**What macOS lets through today.** Only a device no macOS driver has claimed,
+which is rarer than it sounds. Surveying every USB device attached to one Apple
+Silicon Mac found a driver bound to all of them: hubs, docks (through
+`AppleUSBHostBillboardDevice`), HID receivers, audio interfaces, USB Ethernet
+and mass storage. What is left is hardware macOS has no driver for at all, such
+as SDR receivers, JTAG probes and custom vendor-specific boards. Those get a
+configuration and behave normally, at SuperSpeed when the device supports it.
 
-A device a built-in macOS driver has claimed does not. It enumerates in the
-guest but never gets a configuration: `lsusb` lists it while
+Everything else enumerates in the guest but never gets a configuration: `lsusb` lists it while
 `/sys/bus/usb/devices/*/bNumInterfaces` stays empty, and no `sda`, input device
 or camera appears. In practice that rules out USB drives, keyboards and mice,
 audio and video devices, USB network adapters, and iPhones — `usbmuxd` reclaims
