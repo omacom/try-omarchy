@@ -167,9 +167,7 @@ if [[ -n $usb_host_properties ]]; then
     fail "OMARCHY_QEMU_GPU_USB_HOST must be usb-host properties, for example vendorid=0x05ac"
   }
   require_qemu_device qemu-xhci
-  [[ $qemu_devices == *'name "usb-host"'* ]] || {
-    fail "staged QEMU has no libusb host passthrough; run make runtime"
-  }
+  require_qemu_device usb-host
 fi
 for marker in guest_owner_uid guest_owner_gid; do
   LC_ALL=C grep -aFq "$marker" "$qemu_bin" || {
@@ -1587,9 +1585,9 @@ qemu_args=(
 )
 
 if [[ -n $usb_host_properties ]]; then
-  # One xHCI controller carries the passed-through device. macOS keeps its own
-  # drivers attached until QEMU claims the device, so a guest that never sees
-  # it means the host still owns it.
+  # One xHCI controller carries the passed-through device. Whether macOS lets
+  # go of a device it drives itself depends on QEMU's privilege, not on these
+  # arguments; the README has the measurements.
   qemu_args+=(
     -device 'qemu-xhci,id=omarchy-usb'
     -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"

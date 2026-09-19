@@ -187,7 +187,7 @@ enum StartMenuPresentation {
         }
         guard let device = state.device else {
             return StartMenuUSBDevicePresentation(
-                detail: "Experimental. Show one connected Mac USB device to Omarchy. macOS keeps most devices for itself.",
+                detail: "Optional. Pass one connected Mac USB device to Omarchy. macOS keeps most devices for itself.",
                 compactDetailLines: nil,
                 isGranted: false,
                 toggleActionTitle: nil,
@@ -203,10 +203,10 @@ enum StartMenuPresentation {
                 "In Omarchy: Off",
             ]
         } else if state.isConnected {
-            detail = "Mac device: \(device.displayName). Experimental: it appears in Omarchy, but macOS keeps its data."
+            detail = "Mac device: \(device.displayName). It appears in Omarchy, but macOS keeps its data."
             compactDetailLines = [
                 "Mac device: \(device.displayName)",
-                "Experimental: macOS keeps its data",
+                "Appears in Omarchy; macOS keeps its data",
             ]
         } else {
             detail = "\(device.displayName) is not plugged in. Omarchy will start without it."

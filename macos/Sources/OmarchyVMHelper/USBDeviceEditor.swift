@@ -24,11 +24,10 @@ final class USBDeviceEditor: NSObject {
     ) {
         // A device saved earlier stays selectable while it is unplugged, so
         // reopening this panel cannot silently forget it.
-        let saved = preference.device
-        let savedIsConnected = saved.map { device in
-            connected.contains { $0.vendorId == device.vendorId && $0.productId == device.productId }
-        } ?? true
-        choices = savedIsConnected ? connected : connected + [saved!]
+        let unplugged = preference.device.flatMap { saved in
+            connected.contains { $0.matches(saved) } ? nil : saved
+        }
+        choices = connected + (unplugged.map { [$0] } ?? [])
         self.save = save
         self.didClose = didClose
         super.init()
@@ -37,26 +36,31 @@ final class USBDeviceEditor: NSObject {
         alert.informativeText = "Experimental. The chosen device applies the next time you start Omarchy."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.isEnabled = !choices.isEmpty
 
         for device in connected {
             devices.addItem(withTitle: device.displayName)
         }
-        if !savedIsConnected, let saved {
-            devices.addItem(withTitle: "Not connected: \(saved.displayName)")
+        if let unplugged {
+            devices.addItem(withTitle: "Not connected: \(unplugged.displayName)")
         }
-        if let saved,
-           let index = choices.firstIndex(where: {
-               $0.vendorId == saved.vendorId && $0.productId == saved.productId
-           }) {
+        if let saved = preference.device,
+           let index = choices.firstIndex(where: { $0.matches(saved) }) {
             devices.selectItem(at: index)
         }
         devices.setAccessibilityLabel("USB device")
         devices.isEnabled = !choices.isEmpty
-        devices.target = self
-        devices.action = #selector(update)
 
         detail.font = .systemFont(ofSize: 12)
         detail.textColor = .secondaryLabelColor
+        detail.stringValue = choices.isEmpty
+            ? "No USB devices are connected to this Mac. Plug one in, then open this panel again."
+            : """
+                Omarchy can only take a device macOS does not already drive. Drives, keyboards, audio, video and iPhones appear in the VM \
+                without their data; macOS keeps them.
+
+                Unplugging or replugging the device while Omarchy runs can freeze the window for up to 30 seconds.
+                """
 
         let rows: [NSView] = [devices, detail]
         for row in rows { stack.addArrangedSubview(row) }
@@ -65,22 +69,9 @@ final class USBDeviceEditor: NSObject {
         stack.spacing = 12
         stack.setContentHuggingPriority(.required, for: .vertical)
         for row in rows { row.widthAnchor.constraint(equalToConstant: 430).isActive = true }
-        alert.accessoryView = stack
-        update()
-    }
-
-    @objc private func update() {
-        detail.stringValue = choices.isEmpty
-            ? "No USB devices are connected to this Mac. Plug one in, then open this panel again."
-            : """
-                Omarchy can only take a device macOS does not already drive. Drives, keyboards, audio, video and iPhones appear in the VM \
-                without their data, because macOS keeps them until this app is signed with Apple's com.apple.vm.device-access entitlement.
-
-                Unplugging or replugging the device while Omarchy runs can freeze the window for up to 30 seconds.
-                """
-        alert.buttons.first?.isEnabled = !choices.isEmpty
         stack.layoutSubtreeIfNeeded()
         stack.setFrameSize(NSSize(width: 430, height: stack.fittingSize.height))
+        alert.accessoryView = stack
         alert.layout()
     }
 

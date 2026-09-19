@@ -145,7 +145,7 @@ struct StartMenuWindowWidthTests {
         let detail = try #require(
             descendant(withIdentifier: "permission-detail-usb", in: row) as? NSTextField
         )
-        #expect(detail.stringValue.contains("Experimental"))
+        #expect(detail.stringValue.hasPrefix("Optional."))
     }
 
     private func makeMenu(

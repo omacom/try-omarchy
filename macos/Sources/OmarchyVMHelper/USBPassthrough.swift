@@ -21,6 +21,12 @@ struct USBDeviceIdentity: Equatable, Codable {
     var displayName: String {
         name.isEmpty ? identifierText : "\(name) · \(identifierText)"
     }
+
+    /// Same hardware regardless of the product string, which one enumeration
+    /// may report and another leave empty.
+    func matches(_ other: USBDeviceIdentity) -> Bool {
+        vendorId == other.vendorId && productId == other.productId
+    }
 }
 
 /// What the guest is allowed to take over on the next launch.
@@ -108,9 +114,7 @@ enum HostUSBDevices {
             guard USBPassthroughPolicy.isValid(device) else { continue }
             // Two identical devices collapse into one entry: QEMU matches on
             // the pair and would claim whichever it finds first either way.
-            guard !devices.contains(where: {
-                $0.vendorId == vendorId && $0.productId == productId
-            }) else { continue }
+            guard !devices.contains(where: { $0.matches(device) }) else { continue }
             devices.append(device)
         }
         return devices.sorted {
@@ -182,11 +186,7 @@ struct USBDeviceMenuState: Equatable {
         return Self(
             device: preference.device,
             isEnabled: preference.isEnabled && preference.device != nil,
-            isConnected: preference.device.map { saved in
-                connected.contains {
-                    $0.vendorId == saved.vendorId && $0.productId == saved.productId
-                }
-            } ?? false,
+            isConnected: preference.device.map { saved in connected.contains { $0.matches(saved) } } ?? false,
             environmentOverride: (override?.isEmpty == false) ? override : nil
         )
     }

@@ -210,8 +210,8 @@ Passthrough is off until you pick a device. Use **Choose…** next to **USB
 device** on the start menu to select one device currently attached to the Mac;
 the choice applies on the next launch, and **Turn On** / **Turn Off** keeps it
 without reselecting. Omarchy gets a USB 3 controller with that one device
-attached, matched on its vendor and product identifiers so it survives
-unplugging and reconnecting.
+attached, matched on its vendor and product identifiers rather than on a bus
+address, which changes on every re-enumeration.
 
 Only one device at a time, and never a USB hub — passing a hub through would
 take every device behind it, frequently this Mac's own dock, keyboard, or

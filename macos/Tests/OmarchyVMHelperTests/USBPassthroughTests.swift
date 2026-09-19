@@ -7,7 +7,7 @@ struct USBPassthroughTests {
     private let iPhone = USBDeviceIdentity(vendorId: 0x05AC, productId: 0x12A8, name: "iPhone")
     private let drive = USBDeviceIdentity(vendorId: 0x05E3, productId: 0x0764, name: "USB Storage")
 
-    @Test("the launcher receives the vendor/product pair the launcher script accepts")
+    @Test("the launcher script receives the vendor/product pair it validates")
     func publishesTheChosenDevice() {
         let configuration = USBPassthroughLaunchConfiguration.make(
             baseEnvironment: [:],
@@ -128,19 +128,18 @@ struct USBPassthroughTests {
         #expect(sanitized[USBPassthroughPolicy.environmentKey] == nil)
     }
 
-    @Test("the row stays marked experimental and promises nothing macOS will not give up")
-    func rowDoesNotPromiseCapture() {
+    @Test("the row promises nothing macOS will not give up")
+    func rowSaysMacOSKeepsTheDevice() {
         let attached = USBDeviceMenuState.make(
             preference: USBDevicePreference(device: drive, isEnabled: true),
             connected: [drive],
             environment: [:]
         )
-        let presentation = StartMenuPresentation.usbDevice(state: attached)
-        #expect(presentation.detail.contains("Experimental"))
-        // Without com.apple.vm.device-access, libusb_detach_kernel_driver
-        // returns LIBUSB_ERROR_ACCESS for every device macOS has a driver for,
-        // so a row saying Omarchy takes the device over would be a false promise.
-        #expect(!presentation.detail.lowercased().contains("claims"))
-        #expect(StartMenuPresentation.usbDevice(state: .disabled).detail.hasPrefix("Experimental."))
+        // Unprivileged, libusb_detach_kernel_driver returns LIBUSB_ERROR_ACCESS
+        // for every device macOS has a driver for, so a row saying Omarchy
+        // takes the device over would be a false promise.
+        let detail = StartMenuPresentation.usbDevice(state: attached).detail
+        #expect(detail.contains("macOS keeps"))
+        #expect(!detail.lowercased().contains("claims"))
     }
 }
