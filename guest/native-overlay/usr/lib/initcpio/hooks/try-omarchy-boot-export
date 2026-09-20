@@ -36,9 +36,14 @@ try_omarchy_boot_export_size_is_safe() (
 run_latehook() {
   try_omarchy_boot_export_requested || return 0
 
-  # mkinitcpio's base init mounts the selected root filesystem at /new_root
-  # before late hooks run.
-  old_root=/new_root
+  # mkinitcpio's base init mounts the selected root filesystem before late
+  # hooks run: at /sysroot since mkinitcpio 39, which keeps /new_root only as a
+  # compatibility symlink to it, and at /new_root itself on older releases.
+  # The checks below reject a symlinked root, so prefer the real mount point.
+  old_root=/sysroot
+  if [ ! -d "$old_root" ] || [ -L "$old_root" ]; then
+    old_root=/new_root
+  fi
   boot_directory=$old_root/boot
   kernel_source=$boot_directory/Image
   initramfs_source=$boot_directory/initramfs-linux.img

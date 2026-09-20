@@ -43,17 +43,25 @@ class BootExportStaticTests(unittest.TestCase):
 
     def test_runtime_hook_reads_the_root_mounted_by_mkinitcpio(self) -> None:
         source = RUNTIME_HOOK.read_text(encoding="utf-8")
+        self.assertIn("old_root=/sysroot\n", source)
         self.assertIn("old_root=/new_root\n", source)
-        self.assertNotIn("old_root=/sysroot\n", source)
+        self.assertLess(
+            source.index("old_root=/sysroot\n"),
+            source.index("old_root=/new_root\n"),
+        )
 
 
 class BootExportRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.old_root = self.root / "new_root"
+        self.old_root = self.root / "sysroot"
         self.boot = self.old_root / "boot"
         self.boot.mkdir(parents=True)
+        # mkinitcpio 39 and later mount the root at /sysroot and keep
+        # /new_root as a compatibility symlink to it.
+        self.compatibility_root = self.root / "new_root"
+        self.compatibility_root.symlink_to(self.old_root)
         self.export = self.root / "export"
         self.cmdline = self.root / "cmdline"
         self.log = self.root / "commands.log"
@@ -103,7 +111,8 @@ class BootExportRuntimeTests(unittest.TestCase):
         source = RUNTIME_HOOK.read_text(encoding="utf-8")
         source = source.replace("/proc/cmdline", str(self.cmdline))
         source = source.replace("/usr/bin/stat", str(self.fake_bin / "stat"))
-        source = source.replace("/new_root", str(self.old_root))
+        source = source.replace("/sysroot", str(self.old_root))
+        source = source.replace("/new_root", str(self.compatibility_root))
         source = source.replace("/run/try-omarchy-boot-export", str(self.export))
         test_hook.write_text(source, encoding="utf-8")
 
@@ -191,6 +200,37 @@ run_latehook
         self.assertEqual(log.count("sync:"), 4)
         self.assertLess(log.rfind("sync:"), log.find("umount:"))
         self.assertLess(log.find("umount:"), log.find("poweroff:-f"))
+
+    def test_compatibility_symlink_does_not_block_the_export(self) -> None:
+        self._write_boot_files()
+        self.assertTrue(self.compatibility_root.is_symlink())
+
+        result = self._run_hook("root=/dev/vda tryomarchy.export_boot=1")
+
+        # The mocked poweroff returns, so the hook deliberately reports failure
+        # instead of allowing this recovery boot to continue.
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.export / "complete").read_text(encoding="ascii"),
+            "try-omarchy-boot-export-v1\n",
+        )
+
+    def test_export_reads_new_root_on_older_mkinitcpio(self) -> None:
+        self._write_boot_files()
+        self.compatibility_root.unlink()
+        self.old_root.rename(self.compatibility_root)
+
+        result = self._run_hook("root=/dev/vda tryomarchy.export_boot=1")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            (self.export / "kernel").read_bytes(),
+            b"installed kernel\n".ljust(64, b"\0"),
+        )
+        self.assertEqual(
+            (self.export / "complete").read_text(encoding="ascii"),
+            "try-omarchy-boot-export-v1\n",
+        )
 
     def test_mount_failure_powers_off_without_writing_an_export(self) -> None:
         self._write_boot_files()
