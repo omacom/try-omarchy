@@ -7,6 +7,27 @@ fail() {
   exit 1
 }
 
+ensure_rpm_verifier() {
+  if command -v rpmkeys >/dev/null && command -v rpm >/dev/null; then
+    return 0
+  fi
+
+  [[ -z $package_output ]] || fail "rpm-tools is required for standalone package builds"
+  echo "Installing rpm-tools to verify Vivaldi's signature..."
+  local status
+  if omarchy-pkg-add rpm-tools; then
+    if ! command -v rpmkeys >/dev/null || ! command -v rpm >/dev/null; then
+      fail "rpm-tools installation reported success, but rpm and rpmkeys are not both available. Run: sudo pacman -S rpm-tools"
+    fi
+  else
+    status=$?
+    echo "The package installer exited with status $status before Vivaldi was downloaded." >&2
+    echo "Run this in an Omarchy terminal to see the package-manager error and install the verifier:" >&2
+    echo "  sudo pacman -S --needed rpm-tools" >&2
+    fail "could not install the RPM signature verifier; signature verification cannot be skipped"
+  fi
+}
+
 spec=/usr/share/try-omarchy/build-spec.json
 key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
 package_output=
@@ -97,10 +118,7 @@ if installed=$(pacman -Q vivaldi 2>/dev/null); then
 fi
 fi
 
-if ! command -v rpmkeys >/dev/null || ! command -v rpm >/dev/null; then
-  [[ -z $package_output ]] || fail "rpm-tools is required for standalone package builds"
-  omarchy-pkg-add rpm-tools || fail "could not install the RPM signature verifier"
-fi
+ensure_rpm_verifier
 
 work=$(mktemp -d /tmp/try-omarchy-vivaldi.XXXXXX)
 cleanup() {

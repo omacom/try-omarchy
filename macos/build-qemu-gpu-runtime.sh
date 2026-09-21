@@ -7,7 +7,7 @@ usage() {
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
 Build the pinned QEMU/VirGL source stack with Try Omarchy's Cocoa identity,
-dynamic-display, immersive-mode, and pause-ownership patches, then relocate,
+dynamic-display, immersive-mode, pause-ownership, and pinch-zoom patches, then relocate,
 sign, validate, and
 atomically stage it at:
   macos/.build/qemu-gpu-runtime
@@ -49,6 +49,7 @@ display_patch="$native_dir/patches/qemu-cocoa-dynamic-display.patch"
 immersive_patch="$native_dir/patches/qemu-cocoa-immersive-mode.patch"
 full_grab_patch="$native_dir/patches/qemu-cocoa-full-grab-focus.patch"
 pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
+pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
@@ -58,6 +59,8 @@ hdr_patch="$native_dir/patches/qemu-cocoa-hdr.patch"
 sdr_white_patch="$native_dir/patches/qemu-cocoa-sdr-white.patch"
 virgl_macos_patch="$native_dir/patches/virglrenderer-macos-1.0.33.patch"
 virgl_video_patch="$native_dir/patches/virglrenderer-angle-video.patch"
+slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
+udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -74,12 +77,23 @@ display_patch_sha256=1ce59350b6b8e6842bc0c9ca34c97f54cb75e85e2d7b35e5b483858654c
 immersive_patch_sha256=2462463932f7db0d659f754f7f9c182884564dbcd7d4b8e523f1b57f0bd9fe5b
 full_grab_patch_sha256=d94aaa7b8b8b97eb25a5ace2b3a1268985e1b16e4e6201847b926b8ee709dbfb
 pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95aebd49c78a8f0
+pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32aee
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 video_shmem_patch_sha256="d14639df4b08d31cf54828386eab022fd8408e7072aa9517db225dec24243af4"
 hdr_patch_sha256=e8aa5f27a8bdfc14cceb4069f3eeeb78fd5432bb57c506216f30541f4944fc0a
 sdr_white_patch_sha256=d0246389c826698db014ed9da6687fedc81012dfe4542f783a6c85611ea49eb2
+udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
+slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
+slirp_source_root=libslirp-v4.9.4
+slirp_archive_name="$slirp_source_root.tar.gz"
+slirp_url="https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.4/$slirp_archive_name"
+slirp_sha256=3998863b020aeda34bddc567097c6efba55a78cdf6eeee6bcd42c11ef23967da
+meson_root=meson-1.9.0
+meson_archive_name="$meson_root.tar.gz"
+meson_url="https://github.com/mesonbuild/meson/releases/download/1.9.0/$meson_archive_name"
+meson_sha256=cd27277649b5ed50d19875031de516e270b22e890d9db65ed9af57d18ebc498d
 macos_deployment_target=15.0
 
 keycodemap_commit=f5772a62ec52591ff6870b7e8ef32482371f22c6
@@ -180,6 +194,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa full-grab patch: $full_grab_patch"
 [[ -f $pause_ownership_patch && ! -L $pause_ownership_patch ]] || \
   die "missing Cocoa pause-ownership patch: $pause_ownership_patch"
+[[ -f $pinch_patch && ! -L $pinch_patch ]] || \
+  die "missing Cocoa pinch-zoom patch: $pinch_patch"
 [[ -f $audio_device_patch && ! -L $audio_device_patch ]] || \
   die "missing SDL audio-device patch: $audio_device_patch"
 [[ -f $texture_patch && ! -L $texture_patch ]] || \
@@ -297,6 +313,8 @@ validate_tar_root() {
   done <"$listing"
 }
 
+slirp_archive="$archive_dir/$slirp_archive_name"
+meson_archive="$archive_dir/$meson_archive_name"
 qemu_archive="$archive_dir/$qemu_archive_name"
 keycodemap_archive="$archive_dir/$keycodemap_archive_name"
 dtc_archive="$archive_dir/$dtc_archive_name"
@@ -311,6 +329,8 @@ wheel_archive="$archive_dir/$wheel_archive_name"
 pip_archive="$archive_dir/$pip_archive_name"
 packaging_archive="$archive_dir/$packaging_archive_name"
 
+obtain_and_verify "libslirp source" "$slirp_url" "$slirp_sha256" "$slirp_archive"
+obtain_and_verify "Meson" "$meson_url" "$meson_sha256" "$meson_archive"
 obtain_and_verify "QEMU $qemu_commit" "$qemu_url" "$qemu_sha256" "$qemu_archive"
 obtain_and_verify "keycodemapdb $keycodemap_commit" "$keycodemap_url" "$keycodemap_sha256" "$keycodemap_archive"
 obtain_and_verify "dtc $dtc_commit" "$dtc_url" "$dtc_sha256" "$dtc_archive"
@@ -349,6 +369,14 @@ verify_file_sha "VirGL ANGLE video support" "$virgl_video_patch" "$virgl_video_p
 patch -d "$source_parent/$virgl_source_root" -p1 -f -i "$virgl_macos_patch"
 patch -d "$source_parent/$virgl_source_root" -p1 -f -i "$virgl_video_patch"
 
+validate_tar_root "libslirp source" "$slirp_archive" "$slirp_source_root" "$listing_dir/slirp.txt"
+validate_tar_root "Meson" "$meson_archive" "$meson_root" "$listing_dir/meson.txt"
+tar -xzf "$slirp_archive" -C "$source_parent"
+tar -xzf "$meson_archive" -C "$tool_root"
+verify_file_sha "Darwin ICMP reply matching patch" "$slirp_patch" "$slirp_patch_sha256"
+patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$slirp_patch"
+verify_file_sha "IPv4 UDP reply translation patch" "$udp_patch" "$udp_patch_sha256"
+patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$udp_patch"
 tar -xzf "$qemu_archive" -C "$source_parent"
 tar -xzf "$virgl_archive" -C "$dependency_root"
 tar -xzf "$angle_archive" -C "$dependency_root"
@@ -379,6 +407,8 @@ verify_file_sha "Try Omarchy Cocoa full-grab patch" \
   "$full_grab_patch" "$full_grab_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pause-ownership patch" \
   "$pause_ownership_patch" "$pause_ownership_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa pinch-zoom patch" \
+  "$pinch_patch" "$pinch_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio-device patch" \
   "$audio_device_patch" "$audio_device_patch_sha256"
 verify_file_sha "Try Omarchy 9p shared-folder patch" \
@@ -388,7 +418,7 @@ verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
 
 verify_file_sha "Try Omarchy native video shared-memory patch" "$video_shmem_patch" "$video_shmem_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, and Darwin compatibility patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, and pinch patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -406,6 +436,7 @@ verify_file_sha "Cocoa HDR and paired virtio metadata" "$hdr_patch" "$hdr_patch_
 patch -d "$source_dir" -p1 -f -i "$hdr_patch"
 verify_file_sha "Cocoa SDR panel white" "$sdr_white_patch" "$sdr_white_patch_sha256"
 patch -d "$source_dir" -p1 -f -i "$sdr_white_patch"
+patch -d "$source_dir" -p1 -f -i "$pinch_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
@@ -489,6 +520,24 @@ require_private_pkg_version slirp 4.9.4
 require_private_pkg_version sdl2 2.32.70
 require_private_pkg_version virglrenderer 1.2.0
 require_private_pkg_version epoxy 1.5.11
+
+# Build against the same pinned private GLib used by QEMU; never use host libraries.
+slirp_build="$source_parent/$slirp_source_root/build"
+meson="$tool_root/$meson_root/meson.py"
+log "Building patched libslirp 4.9.4 for macOS $macos_deployment_target"
+env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
+  PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
+  DYLD_LIBRARY_PATH="$private_libraries" \
+  PATH="$(dirname "$ninja"):$PATH" \
+  CFLAGS="-mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new" \
+  LDFLAGS="-mmacosx-version-min=$macos_deployment_target -Wl,-headerpad_max_install_names" \
+  python3 "$meson" setup "$slirp_build" "$source_parent/$slirp_source_root" \
+    --prefix="$slirp_root" --libdir=lib --buildtype=release --wrap-mode=nodownload
+"$ninja" -C "$slirp_build"
+# The explicit build above completed the test binaries using our private Ninja.
+env DYLD_LIBRARY_PATH="$slirp_build:$private_libraries" \
+  python3 "$meson" test -C "$slirp_build" --no-rebuild --print-errorlogs
+python3 "$meson" install -C "$slirp_build" --no-rebuild
 
 build_dir="$source_dir/build"
 mkdir "$build_dir"
@@ -602,6 +651,7 @@ log "Relocating, capability-gating, signing, and publishing the runtime"
 "$prepare_runtime" \
   --source-qemu "$qemu_binary" \
   --source-virgl "$virgl_build_dir/src/libvirglrenderer.1.dylib" \
+  --source-slirp "$slirp_root/lib/libslirp.0.dylib" \
   --archive-dir "$archive_dir"
 
 log "Pinned patched runtime is ready; scratch source and archives will now be removed"

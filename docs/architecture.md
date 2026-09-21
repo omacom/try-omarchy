@@ -36,12 +36,22 @@ is updated. Graphics travel from Linux through virtio-gpu and VirGL to the
 native Cocoa window. Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
 
-Before the real VM starts, the launcher asks the bundled QEMU to create a tiny
-disposable HVF machine with ARM virtualization extensions and Apple's platform
-GICv3. On M3 and newer Apple Silicon that probe succeeds, so the real guest
-starts at EL2 and Linux exposes `/dev/kvm`; on older chips the launcher keeps
-the existing platform-GIC/EL1 configuration. The pinned QEMU 11.1.1 runtime
-contains the upstream HVF vGIC and nested-virtualization implementation.
+On macOS 26 or newer, before the real VM starts, the launcher asks the bundled
+QEMU to create a tiny disposable HVF machine with ARM virtualization extensions
+and Apple's platform GICv3. When that probe succeeds on M3 and newer Apple
+Silicon, the real guest starts at EL2 and Linux exposes `/dev/kvm`; on older
+chips the launcher keeps the existing platform-GIC/EL1 configuration. macOS 15
+skips the probe and always uses EL1: its paused probe can succeed even though
+QEMU later aborts with `HV_BAD_ARGUMENT` when synchronizing vCPU registers.
+An unavailable or unrecognized host version also keeps the EL1 configuration.
+The pinned QEMU 11.1.1 runtime contains the upstream HVF vGIC and
+nested-virtualization implementation.
+
+Trackpad magnification uses a dedicated indirect virtio touchpad alongside the
+ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each
+pinch and releases them on cancellation or focus loss; the guest disables
+tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
+input contract, existing-guest setup, and integration validation.
 
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
@@ -165,7 +175,15 @@ creates the account on first boot.
 - The guest normally consumes upstream Arch Linux ARM packages. Hyprland is the
   documented exception: an upstream package is reproducibly rebuilt with a
   guarded rounded-border coverage patch for the VM graphics path, then held in
-  the guest's immutable local repository.
+  the guest's immutable local repository. While that pin still needs
+  `libaquamarine.so=13`, the factory rebuilds `aquamarine 0.14.0-2` from the
+  reviewed Arch PKGBUILD and upstream tarball, then rebuilds Hyprtoolkit
+  against that library. Both packages are provided by the disposable builder
+  repository and held alongside Hyprland on guest `IgnorePkg`; mixing the
+  newer mirror Hyprtoolkit with the older aquamarine cannot resolve. Source
+  and library hashes are verified, and build paths are remapped for repeatable
+  output. The ABI builder must pass from an empty cache before refreshing the
+  transaction lock.
 - The final Arch Linux ARM pacman files live under `/usr/share/try-omarchy/`.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain

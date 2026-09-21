@@ -17,7 +17,7 @@ Omarchy's trademark rights.
 ## Highlights
 
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
-- Nested KVM virtualization on M3 and newer Apple Silicon
+- Nested KVM virtualization on M3 and newer Apple Silicon running macOS 26+
 - Hardware video decoding through the Mac's VideoToolbox media engine
 - HDR10 output for YouTube in Vivaldi and local files in mpv
 - Resizable native window with automatic guest resolution and HiDPI scale updates
@@ -154,6 +154,19 @@ Every launch begins at the start menu. While that menu is open, Try Omarchy beha
 Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
 Shutting down Omarchy closes the app and leaves it closed.
 
+## Virtual machine resources
+
+Choose **Resources → Configure…** on the start menu to adjust processor cores
+and memory for the next launch. Processor cores range from 4 to all the cores
+on this Mac; the default remains up to 8 cores. Memory defaults to 8 GiB on
+Macs with at least 16 GiB of RAM, and 4 GiB on smaller Macs. Custom allocations
+can leave as little as 4 GiB for macOS; higher choices carry a performance note.
+
+**Save** remembers both choices. **Cancel** leaves them unchanged, and
+**Use Defaults** restores the draft until you save. Existing memory preferences
+are carried forward. A choice that no longer fits a smaller Mac falls back to
+its default without erasing the saved choice.
+
 ## 1Password
 
 Install 1Password from the Omarchy menu. On ARM64 guests, Try Omarchy downloads
@@ -198,9 +211,46 @@ first Omarchy account created during
 provisioning. Additional guest accounts can reach the same share, with each
 entry's normal Unix permission bits deciding whether they can modify it.
 
+## Networking
+
+Use **Configure…** next to **Networking** on the start menu. **NAT** shares the
+Mac's connection and is the default. **Bridged** gives the VM its own LAN
+address through a selected eligible Mac interface. Changes take effect on the
+next launch. Bridging uses a networking helper approved once through macOS
+System Settings. Use **Set Up / Repair Networking…** to register it; subsequent
+bridged launches do not request your password. QEMU continues to run as your
+user. **Remove Networking Helper** unregisters the service when it is no longer
+needed. Shut down any bridged VM before repairing or removing the helper.
+
+For repeated local development builds, use a consistent Apple Development
+signing identity (the `DEVELOPMENT_SIGN_IDENTITY` option above). Ad-hoc-signed
+helper registrations are not reliable across rebuilds on the tested macOS
+version. Approval is checked separately from a working helper connection;
+repair and launch verify that the helper belongs to the current app copy.
+
+On Wi-Fi hosts that expose the compatibility control, selecting bridging
+automatically enables temporary host-wide DHCP handling. The networking sheet
+explains this before you save the choice. It can affect other virtualization
+apps while the bridged VM runs. The previous setting is restored when the VM stops, the
+app exits, or the bridge helper fails. If the privileged supervisor itself is
+forcibly killed, restoration is retried on the next bridged launch. There is no
+separate compatibility checkbox. NAT does not change this host setting.
+
+Saved port-forwarding rules remain stored but are inactive in bridged mode.
+Services listening on the guest network interface can be reached directly from
+the LAN. **Allow SSH connections from the LAN** is a separate opt-in; switching
+from a NAT SSH mapping does not enable it automatically. Guest account setup
+and SSH authentication are still required. Only one bridged Try Omarchy session
+can run at a time on a Mac.
+
+If the selected adapter is unplugged, Omarchy starts offline and connects when
+it returns. Unplugging and reconnecting the adapter while running also recovers
+without restarting the VM. The selected adapter is preserved; the app does not
+automatically switch to NAT or another interface.
+
 ## Forwarding ports to Omarchy
 
-Use **Configure…** next to **Port forwarding** on the start menu to map a Mac
+In NAT mode, use **Configure…** next to **Port forwarding** on the start menu to map a Mac
 localhost port to a service port in Omarchy. Each mapping can use TCP or UDP;
 the same Mac port may be used once for each protocol. Forwarded ports bind only
 to `127.0.0.1`, so other devices on the network cannot connect to them. The
@@ -298,15 +348,37 @@ or changing the enrolled Touch ID fingerprint set requires re-pairing. Disabling
 removes the guest enrollment and, while the host bridge is available, its wrapped
 Secure Enclave key representation.
 
+## Giving Omarchy more memory
+
+Use **Resources → Configure…** on the start menu to pick how much of the Mac's
+RAM the guest boots with. Macs with at least 16 GiB default to 8 GiB; smaller
+Macs default to 4 GiB. The menu offers 4, 6, 8, 12 GiB and then continues in
+4 GiB steps, leaving at least 4 GiB for macOS. For example, a 16 GiB Mac can
+allocate up to 12 GiB, and a 48 GiB Mac up to 44 GiB. Higher choices that leave less
+than 8 GiB for macOS are marked “may slow macOS.” An 8 GiB Mac offers 4 GiB only.
+Existing saved choices, including 4 GiB, are preserved. The choice is not tied to installation: change it
+before any launch, and it applies the next time Omarchy starts. Memory is a
+boot-time QEMU setting, never part of the guest image or VM data, so switching
+allocations never needs a reset and never touches your files. A stored choice
+that no longer fits the Mac it runs on falls back to the default.
+
+Scripted launches can set `OMARCHY_QEMU_GPU_MEMORY_MIB` (a whole number of
+MiB) instead. Scripted launches use the same host-aware default and leave
+at least 4 GiB for macOS for allocations above the 4 GiB baseline. They also
+accept values between menu steps, down to the guest's 2048 MiB minimum. The
+4 GiB baseline remains available on smaller hosts such as CI runners.
+
 ## Requirements
 
 - Apple Silicon Mac (`arm64`)
 - macOS 15 or newer
 - At least 8 GB free initially
 
-On M3 and newer Apple Silicon, Try Omarchy also exposes ARM EL2 to Linux, so
-the guest provides `/dev/kvm` for nested VMs and compatible VMMs. Older Apple
-Silicon Macs automatically keep the normal non-nested launch path.
+On M3 and newer Apple Silicon running macOS 26 or newer, Try Omarchy also
+exposes ARM EL2 to Linux, so the guest provides `/dev/kvm` for nested VMs and
+compatible VMMs. macOS 15 and older Apple Silicon Macs automatically keep the
+normal non-nested launch path. macOS 15 remains supported for running Omarchy;
+nested virtualization is disabled there to avoid a QEMU startup crash.
 
 ## Data and updates
 
@@ -318,6 +390,17 @@ with that disk. A newer app's bundled factory image is used only to create a
 new VM, after a confirmed **Reset Omarchy**, or for an ephemeral launch.
 Before Reset is enabled, the confirmation sheet requires typing `Try Omarchy`
 exactly; cancelling the sheet returns to the start menu without changing the VM.
+
+### Guest console log
+
+Each persistent launch writes the guest console to
+`~/Library/Application Support/Try Omarchy/VM/v1/console.log`, and moves the
+previous launch's log aside to `console.log.1` first. This is the record to
+read when Omarchy fails to boot, loses its network, or hangs, because a fault
+that forces a reboot is otherwise gone by the time you can look. An ephemeral
+launch keeps its log with the rest of its temporary state and discards it on
+exit. The log holds whatever the guest prints to its console, so treat it as
+guest data and review it before attaching it to a bug report.
 
 VMs created before paired boot files were introduced are preserved too. On the
 first launch that needs them, Try Omarchy explains the transition in a
@@ -423,7 +506,7 @@ brew install pkg-config
 ```
 
 `make doctor` performs the basic preflight. `make runtime` downloads a
-checksum-pinned `arm64_sequoia` dependency set, builds QEMU for macOS 15.0,
+checksum-pinned `arm64_sequoia` dependency set, builds QEMU and patched libslirp for macOS 15.0,
 and rejects any runtime image that raises that minimum or strongly imports an
 API unavailable on the declared platform. Installed Homebrew library versions
 are never copied into the app.

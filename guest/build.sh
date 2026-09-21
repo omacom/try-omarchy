@@ -75,7 +75,7 @@ package_lock_file="$guest_dir/$package_lock_file"
 [[ -f $packages_file ]] || fail "package list not found: $packages_file"
 [[ -f $package_lock_file ]] || fail "package lock not found: $package_lock_file"
 (( EUID == 0 )) || fail "run as root (pacstrap and arch-chroot require it)"
-for command in pacstrap arch-chroot curl git gzip python3 mke2fs repo-add sha256sum zstd; do
+for command in pacstrap arch-chroot curl git gzip python3 mke2fs mount umount repo-add sha256sum zstd; do
   command -v "$command" >/dev/null || fail "$command is required; use the supplied Arch builder container"
 done
 
@@ -91,6 +91,7 @@ fi
 root=$(mktemp -d "$work/rootfs.XXXXXX")
 resolution_db=$(mktemp -d "$work/pacman-db.XXXXXX")
 pinned_repo=""
+abi_pin_repo=""
 chmod 0755 "$resolution_db"
 cleanup() {
   if (( keep_rootfs )); then
@@ -101,6 +102,9 @@ cleanup() {
   rm -rf "$resolution_db"
   if [[ -n $pinned_repo ]]; then
     rm -rf "$pinned_repo"
+  fi
+  if [[ -n $abi_pin_repo ]]; then
+    rm -rf "$abi_pin_repo"
   fi
 }
 trap cleanup EXIT
@@ -162,30 +166,35 @@ if ((${#pinned_records[@]})); then
     "$pinned_repo/"*.pkg.tar.zst >/dev/null
 fi
 
-# Preserve the pinned repository configuration exactly, adding only builder
-# options. The generated file is temporary build input; configure-rootfs later
-# installs Omarchy's unmodified pacman configuration into the guest.
-options_sections=0
-pinned_repo_inserted=0
-while IFS= read -r line || [[ -n $line ]]; do
-  if [[ -n $pinned_repo && $line =~ ^\[[^]]+\]$ && $line != "[options]" && $pinned_repo_inserted == 0 ]]; then
-    printf '[try-omarchy-pinned-cache]\n'
-    printf 'SigLevel = Required DatabaseOptional\n'
-    printf 'Server = file://%s\n\n' "$pinned_repo"
-    pinned_repo_inserted=1
-  fi
-  printf '%s\n' "$line"
-  if [[ $line == "[options]" ]]; then
-    printf 'CacheDir = %s\n' "$package_cache"
-    if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
-      printf 'DisableSandbox\n'
-    fi
-    options_sections=$((options_sections + 1))
-  fi
-done <"$upstream_pacman_config" >"$pacman_config"
-(( options_sections == 1 )) || fail "pinned pacman configuration must contain one [options] section"
-(( ${#pinned_records[@]} == 0 || pinned_repo_inserted == 1 )) \
-  || fail "pinned pacman configuration does not contain a repository section"
+# Guest pacman.conf is installed unchanged by configure-rootfs. The builder copy
+# may add reviewed ABI pins (packages mirrors no longer publish) and must drop
+# those names from IgnorePkg so the empty-root transaction can install them once.
+abi_pin_count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("inputs", {}).get("abiPackagePins", [])))' "$spec")
+builder_conf_args=(
+  python3 "$guest_dir/scripts/write-builder-pacman-conf.py"
+  --spec "$spec"
+  --guest-dir "$guest_dir"
+  --guest-config "$upstream_pacman_config"
+  --package-lock "$package_lock_file"
+  --output "$pacman_config"
+  --package-cache "$package_cache"
+)
+if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
+  builder_conf_args+=(--disable-sandbox)
+fi
+if (( abi_pin_count > 0 )); then
+  abi_pin_repo=$(mktemp -d "$work/abi-pin-repo.XXXXXX")
+  "$guest_dir/scripts/build-pinned-abi-packages.sh" \
+    --spec "$spec" \
+    --guest-dir "$guest_dir" \
+    --output-repo "$abi_pin_repo" \
+    --work "$work" || fail "could not rebuild the reviewed ABI pins"
+  builder_conf_args+=(--abi-repo "$abi_pin_repo")
+fi
+if [[ -n $pinned_repo ]]; then
+  builder_conf_args+=(--pinned-cache-repo "$pinned_repo")
+fi
+"${builder_conf_args[@]}" || fail "could not derive the factory builder pacman configuration"
 
 # Resolve against an empty target database and require the reviewed transitive
 # version lock before any multi-gigabyte package transaction begins.
@@ -197,6 +206,22 @@ python3 "$guest_dir/scripts/resolve-package-lock.py" \
   --packages "$packages_file" \
   --output "$resolution_db/resolved.json" \
   --expect "$package_lock_file"
+
+# pacstrap and arch-chroot mount the kernel's shared devtmpfs, not Docker's
+# populated /dev. Some container hosts leave devtmpfs without these userspace
+# links, breaking pacman-key process substitution and mkinitcpio's /dev check.
+# Prepare that filesystem before the first package hook; links in the staged
+# rootfs would be hidden by the tools' devtmpfs mounts.
+(
+  dev_root=$(mktemp -d "$work/devtmpfs.XXXXXX")
+  trap 'rmdir "$dev_root"' EXIT
+  mount -t devtmpfs -o mode=0755,nosuid udev "$dev_root"
+  trap 'umount "$dev_root" && rmdir "$dev_root"' EXIT
+  ln -sfn /proc/self/fd "$dev_root/fd"
+  ln -sfn /proc/self/fd/0 "$dev_root/stdin"
+  ln -sfn /proc/self/fd/1 "$dev_root/stdout"
+  ln -sfn /proc/self/fd/2 "$dev_root/stderr"
+)
 
 # pacstrap reads configured CacheDir paths for host-cache mode only with -P.
 # The copied builder config is replaced by configure-rootfs below. Archives

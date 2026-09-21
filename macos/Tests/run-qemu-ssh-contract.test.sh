@@ -32,7 +32,8 @@ case "$test_root" in
   /private/tmp/omarchy-qemu-ssh-contract.??????) ;;
   *) fail "unexpected test root: $test_root" ;;
 esac
-trap '/bin/rm -rf "$test_root"' EXIT HUP INT TERM
+stale_fixture=''
+trap '/bin/rm -rf "$test_root"; [[ -z "$stale_fixture" ]] || /bin/rm -rf "$stale_fixture"' EXIT HUP INT TERM
 
 app="$test_root/Try Omarchy.app"
 contents="$app/Contents"
@@ -47,12 +48,17 @@ mkdir -p \
 
 /bin/cp "$macos_dir/run-qemu-gpu.sh" "$resources/scripts/run-qemu-gpu.sh"
 /bin/cp "$macos_dir/qemu-port-forwarding.sh" "$resources/scripts/qemu-port-forwarding.sh"
+/bin/cp "$macos_dir/qemu-networking.sh" "$resources/scripts/qemu-networking.sh"
 chmod 755 "$resources/scripts/run-qemu-gpu.sh"
 chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 set -euo pipefail
+if [[ ${1:-} == --bridge-native-audio && ${FAKE_AUDIO_EARLY_EXIT:-0} == 1 ]]; then
+  sleep 0.05
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
@@ -84,7 +90,7 @@ case " $* " in
     for device in \
       hda-micro intel-hda omarchy-video-shmem virtconsole virtserialport virtio-balloon-pci \
       virtio-9p-pci virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci \
-      virtio-net-pci virtio-rng-pci virtio-serial-pci virtio-tablet-pci; do
+      virtio-net-pci virtio-rng-pci virtio-serial-pci virtio-tablet-pci virtio-pinch-pci; do
       printf 'name "%s"\n' "$device"
     done
     ;;
@@ -96,13 +102,14 @@ case " $* " in
       'full-grab=on|off' \
       'immersive=on|off'
     ;;
-  *' -machine virt -netdev help '*) printf '%s\n' user ;;
+  *' -machine virt -netdev help '*) printf '%s\n' user stream ;;
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
   *' -device virtio-gpu-gl-pci,help '*)
     printf '%s\n' 'romfile=<str>'
     if [[ ${FAKE_QEMU_HDR:-0} == 1 ]]; then printf '%s\n' 'x-omarchy-hdr=<bool>'; fi
     ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
+    printf 'probe\n' >>"$FAKE_QEMU_NESTED_LOG"
     exit "${FAKE_QEMU_NESTED_STATUS:-0}"
     ;;
   *)
@@ -173,6 +180,7 @@ QEMU_PERSISTENT_STORAGE_QEMU_ADD_FD='fd=9,set=77,opaque=omarchy-persistent-lock'
 QEMU_SELECTED_DISK=''
 QEMU_SELECTED_STORAGE_MODE=''
 QEMU_PERSISTENT_STORAGE_DIRECTORY=''
+QEMU_PERSISTENT_STORAGE_ROOT=''
 QEMU_PERSISTENT_STORAGE_IDENTITY=''
 QEMU_SELECTED_KERNEL=''
 QEMU_SELECTED_INITRAMFS=''
@@ -197,6 +205,7 @@ qemu_persistent_storage_select_existing() {
   printf 'reuse\n' >>"$FAKE_STORAGE_LOG"
   QEMU_SELECTED_STORAGE_MODE=persistent
   QEMU_PERSISTENT_STORAGE_DIRECTORY=$FAKE_PERSISTENT_ROOT
+  QEMU_PERSISTENT_STORAGE_ROOT=$FAKE_PERSISTENT_ROOT
   QEMU_PERSISTENT_STORAGE_IDENTITY=${FAKE_SAVED_IDENTITY:-saved-vm}
   if [[ -f $FAKE_PERSISTENT_ROOT/boot/kernel && \
         -f $FAKE_PERSISTENT_ROOT/boot/initramfs && \
@@ -232,6 +241,7 @@ qemu_persistent_storage_select() {
     chmod 600 "$QEMU_SELECTED_DISK"
     QEMU_SELECTED_STORAGE_MODE=ephemeral
     QEMU_PERSISTENT_STORAGE_DIRECTORY=''
+    QEMU_PERSISTENT_STORAGE_ROOT=''
     QEMU_PERSISTENT_STORAGE_IDENTITY=''
     QEMU_SELECTED_KERNEL=$8
     QEMU_SELECTED_INITRAMFS=$9
@@ -254,6 +264,7 @@ qemu_persistent_storage_select() {
   printf '%s\n' "${10}" >"$FAKE_PERSISTENT_ROOT/boot/command-line"
   QEMU_SELECTED_STORAGE_MODE=persistent
   QEMU_PERSISTENT_STORAGE_DIRECTORY=$FAKE_PERSISTENT_ROOT
+  QEMU_PERSISTENT_STORAGE_ROOT=$FAKE_PERSISTENT_ROOT
   QEMU_PERSISTENT_STORAGE_IDENTITY=${FAKE_SAVED_IDENTITY:-saved-vm}
   QEMU_SELECTED_KERNEL="$FAKE_PERSISTENT_ROOT/boot/kernel"
   QEMU_SELECTED_INITRAMFS="$FAKE_PERSISTENT_ROOT/boot/initramfs"
@@ -276,13 +287,32 @@ cat >"$shim_dir/file" <<'SH'
 #!/bin/bash
 printf '%s: Mach-O 64-bit executable arm64\n' "$1"
 SH
+cat >"$shim_dir/sw_vers" <<'SH'
+#!/bin/bash
+[[ $* == -productVersion ]] || exit 1
+printf '%s\n' "${FAKE_MACOS_VERSION-26.0}"
+exit "${FAKE_MACOS_VERSION_STATUS:-0}"
+SH
 cat >"$shim_dir/sysctl" <<'SH'
 #!/bin/bash
 if [[ $# == 2 && $1 == -n && ($2 == hw.logicalcpu || $2 == hw.ncpu) ]]; then
-  printf '8\n'
+  printf '%s\n' "${FAKE_HOST_CPUS:-8}"
+  exit 0
+fi
+if [[ $# == 2 && $1 == -n && $2 == hw.memsize ]]; then
+  printf '%s\n' "${FAKE_HOST_MEMORY_BYTES:-51539607552}"
   exit 0
 fi
 exec /usr/sbin/sysctl "$@"
+SH
+cat >"$shim_dir/ps" <<'SH'
+#!/bin/bash
+[[ ${FAKE_PROCESS_INSPECTION_UNAVAILABLE:-0} != 1 ]] || exit 77
+if [[ ${FAKE_LARGE_PROCESS_LIST:-0} == 1 && "$*" == "-axo pid=,command=" ]]; then
+  printf '999999 /bin/bash run-qemu-gpu.sh\n'
+  /usr/bin/awk 'BEGIN { for (i=0; i<10000; i++) print 800000+i, "unrelated process with enough output to fill a pipe buffer" }'
+fi
+exec /bin/ps "$@"
 SH
 chmod 755 "$shim_dir"/*
 
@@ -407,10 +437,12 @@ run_scenario() {
   mkdir -p "$scenario_dir"
   : >"$scenario_dir/storage.log"
   if env \
+    -u OMARCHY_QEMU_GPU_CPUS -u OMARCHY_QEMU_GPU_MEMORY_MIB \
     PATH="$shim_dir:/usr/bin:/bin:/usr/sbin:/sbin" \
     FAKE_STORAGE_LOG="$scenario_dir/storage.log" \
     FAKE_PERSISTENT_ROOT="$persistent_root" \
     FAKE_QEMU_LOG="$scenario_dir/qemu.log" \
+    FAKE_QEMU_NESTED_LOG="$scenario_dir/nested.log" \
     "$@" \
     "$launcher" ${launcher_argument:+"$launcher_argument"} \
     >"$scenario_dir/stdout" 2>"$scenario_dir/stderr"; then
@@ -431,6 +463,8 @@ assert_line_pair "$test_root/disabled/qemu.log" -machine \
 assert_line_pair "$test_root/disabled/qemu.log" -accel 'hvf,kernel-irqchip=on'
 assert_not_contains "$disabled_qemu" gic-version=2
 assert_line_pair "$test_root/disabled/qemu.log" -netdev 'user,id=omarchy-net'
+assert_line_pair "$test_root/disabled/qemu.log" -chardev \
+  "stdio,id=omarchy-hvc0,signal=off,logfile=$persistent_root/console.log,logappend=off"
 assert_line_pair "$test_root/disabled/qemu.log" -kernel "$persistent_root/boot/kernel"
 assert_line_pair "$test_root/disabled/qemu.log" -initrd "$persistent_root/boot/initramfs"
 assert_not_contains "$disabled_qemu" hostfwd
@@ -443,6 +477,46 @@ assert_contains "$disabled_qemu" \
   'virtserialport,bus=omarchy-serial.0,nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication'
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
+assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
+assert_line_pair "$test_root/disabled/qemu.log" -m 8192M
+
+# Exercise resource values through the real launcher and its QEMU boundary.
+run_scenario resources 0 '' FAKE_HOST_CPUS=18 \
+  OMARCHY_QEMU_GPU_CPUS=18 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
+assert_line_pair "$test_root/resources/qemu.log" -smp '18,sockets=1,cores=18,threads=1'
+assert_line_pair "$test_root/resources/qemu.log" -m 12288M
+assert_contains "$(<"$test_root/resources/stderr")" '18 vCPUs and 12 GiB RAM'
+
+run_scenario resource-minimum 0 '' OMARCHY_QEMU_GPU_CPUS=4 OMARCHY_QEMU_GPU_MEMORY_MIB=2048
+assert_line_pair "$test_root/resource-minimum/qemu.log" -smp '4,sockets=1,cores=4,threads=1'
+assert_line_pair "$test_root/resource-minimum/qemu.log" -m 2048M
+run_scenario resource-maximum-memory 0 '' OMARCHY_QEMU_GPU_MEMORY_MIB=45056
+assert_line_pair "$test_root/resource-maximum-memory/qemu.log" -m 45056M
+run_scenario smaller-host-defaults 0 '' FAKE_HOST_CPUS=6 FAKE_HOST_MEMORY_BYTES=7516192768
+assert_line_pair "$test_root/smaller-host-defaults/qemu.log" -smp '6,sockets=1,cores=6,threads=1'
+assert_line_pair "$test_root/smaller-host-defaults/qemu.log" -m 4096M
+
+run_scenario too-many-cpus 1 '' OMARCHY_QEMU_GPU_CPUS=9
+assert_contains "$(<"$test_root/too-many-cpus/stderr")" 'must be between 4 and 8'
+[[ ! -s $test_root/too-many-cpus/storage.log ]] || fail 'invalid CPU count touched storage'
+run_scenario too-much-memory 1 '' OMARCHY_QEMU_GPU_MEMORY_MIB=46080
+assert_contains "$(<"$test_root/too-much-memory/stderr")" 'must leave the host at least 4096 MiB'
+[[ ! -s $test_root/too-much-memory/storage.log ]] || fail 'invalid memory touched storage'
+run_scenario insufficient-host-cpus 1 '' FAKE_HOST_CPUS=2
+assert_contains "$(<"$test_root/insufficient-host-cpus/stderr")" 'at least four host CPUs'
+run_scenario host-memory-reserve 1 '' FAKE_HOST_MEMORY_BYTES=8589934592 OMARCHY_QEMU_GPU_MEMORY_MIB=5120
+assert_contains "$(<"$test_root/host-memory-reserve/stderr")" 'must leave the host at least 4096 MiB'
+
+invalid_index=0
+for invalid_resource in '' 0 -1 1.5 abc 08 1+2 18446744073709551620; do
+  invalid_index=$((invalid_index + 1))
+  for resource_key in OMARCHY_QEMU_GPU_CPUS; do
+    scenario="invalid-resource-$resource_key-$invalid_index"
+    run_scenario "$scenario" 1 '' "$resource_key=$invalid_resource"
+    [[ ! -s $test_root/$scenario/storage.log ]] || fail 'malformed resource value touched storage'
+    [[ ! -e $test_root/$scenario/qemu.log ]] || fail 'malformed resource value started QEMU'
+  done
+done
 
 run_scenario hdr-capable 0 '' FAKE_QEMU_HDR=1
 hdr_qemu=$(<"$test_root/hdr-capable/qemu.log")
@@ -456,6 +530,47 @@ assert_line_pair "$test_root/nested-fallback/qemu.log" -machine \
   'virt,accel=hvf,gic-version=3'
 assert_not_contains "$nested_fallback_qemu" virtualization=on
 assert_not_contains "$nested_fallback_qemu" kernel-irqchip=on
+assert_contains "$(<"$test_root/nested-fallback/nested.log")" probe
+
+# macOS 15 can pass the paused EL2 probe but abort when a vCPU runs (#211).
+# It must never probe or launch EL2, even when QEMU would report support.
+for version in 15.0 15.7.7; do
+  scenario="nested-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,accel=hvf,gic-version=3'
+  assert_not_contains "$(<"$test_root/$scenario/qemu.log")" virtualization=on
+  assert_not_contains "$(<"$test_root/$scenario/qemu.log")" kernel-irqchip=on
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail "macOS $version probed EL2"
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'using the compatible EL1 path'
+done
+
+for version in 26.0 26.1 27.0; do
+  scenario="nested-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,gic-version=3,virtualization=on'
+  assert_line_pair "$test_root/$scenario/qemu.log" -accel 'hvf,kernel-irqchip=on'
+  assert_contains "$(<"$test_root/$scenario/nested.log")" probe
+done
+
+# An unavailable or unrecognized host version must keep the compatible path.
+for version in '' unknown; do
+  scenario="nested-unknown-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,accel=hvf,gic-version=3'
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail 'unknown macOS version probed EL2'
+done
+run_scenario nested-version-failure 0 '' FAKE_MACOS_VERSION_STATUS=1
+assert_line_pair "$test_root/nested-version-failure/qemu.log" -machine \
+  'virt,accel=hvf,gic-version=3'
+[[ ! -e $test_root/nested-version-failure/nested.log ]] || fail 'failed version query probed EL2'
+
+run_scenario audio-shutdown-race 0 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=0.5
+assert_not_contains "$(<"$test_root/audio-shutdown-race/stderr")" 'native audio bridge exited'
+run_scenario audio-failure 1 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=10
+assert_contains "$(<"$test_root/audio-failure/stderr")" 'native audio bridge exited while QEMU was running'
 
 run_scenario non-immersive 0 '' OMARCHY_QEMU_GPU_IMMERSIVE=0
 non_immersive_qemu=$(<"$test_root/non-immersive/qemu.log")
@@ -472,7 +587,12 @@ printf 'new-initramfs\n' >"$guest/initramfs-linux.img"
 /usr/bin/plutil -replace kernelCommandLine -string \
   'root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog' \
   "$guest/launch.plist"
+printf 'previous boot console\n' >"$persistent_root/console.log"
 run_scenario enabled 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2223:22
+[[ -f $persistent_root/console.log.1 ]] || \
+  fail 'expected the previous console log to be rotated to console.log.1'
+[[ $(<"$persistent_root/console.log.1") == 'previous boot console' ]] || \
+  fail 'console.log.1 did not retain the previous boot output'
 enabled_qemu=$(<"$test_root/enabled/qemu.log")
 assert_line_pair "$test_root/enabled/qemu.log" -netdev \
   'user,id=omarchy-net,hostfwd=tcp:127.0.0.1:2223-:22'
@@ -602,7 +722,10 @@ assert_contains "$mixed_qemu" 'hostfwd=udp:127.0.0.1:2222-:22'
 [[ $(grep -o 'tryomarchy.ssh_access=1' "$test_root/mixed/qemu.log" | wc -l | tr -d ' ') == 1 ]] || \
   fail 'mixed forwarding must append exactly one SSH activation token'
 
-run_scenario ephemeral 0 --ephemeral OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2224:22
+run_scenario ephemeral 0 --ephemeral OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2224:22 \
+  FAKE_HOST_CPUS=18 OMARCHY_QEMU_GPU_CPUS=18 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
+assert_line_pair "$test_root/ephemeral/qemu.log" -smp '18,sockets=1,cores=18,threads=1'
+assert_line_pair "$test_root/ephemeral/qemu.log" -m 12288M
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" \
   'user,id=omarchy-net,hostfwd=tcp:127.0.0.1:2224-:22'
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" tryomarchy.ssh_access=1
@@ -623,6 +746,36 @@ assert_not_contains "$(<"$test_root/reset-only/stderr")" tryomarchy.ssh_access
 assert_contains "$(<"$persistent_root/boot/kernel")" new-kernel
 assert_contains "$(<"$persistent_root/boot/initramfs")" new-initramfs
 assert_contains "$(<"$persistent_root/boot/command-line")" loglevel=5
+
+# Dry runs must construct a bridge without requesting administrator access.
+run_scenario bridge-preview 0 --ephemeral OMARCHY_QEMU_GPU_DRY_RUN=1 \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 \
+  OMARCHY_QEMU_GPU_PORT_FORWARDS=invalid-inactive-mapping
+bridge_preview=$(<"$test_root/bridge-preview/stderr")
+assert_contains "$bridge_preview" stream
+assert_not_contains "$bridge_preview" hostfwd
+assert_not_contains "$bridge_preview" tryomarchy.ssh_access=1
+run_scenario bridge-ssh-preview 0 --ephemeral OMARCHY_QEMU_GPU_DRY_RUN=1 \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 OMARCHY_NETWORK_BRIDGED_SSH=1
+assert_contains "$(<"$test_root/bridge-ssh-preview/stderr")" tryomarchy.ssh_access=1
+run_scenario bridge-invalid 1 '' OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE='../en0'
+[[ ! -s $test_root/bridge-invalid/storage.log ]] || fail 'invalid bridge touched storage'
+run_scenario bridge-reset 0 --reset-storage-only \
+  OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0 OMARCHY_NETWORK_WIFI_COMPATIBILITY=1
+[[ ! -e $test_root/bridge-reset/qemu.log ]] || fail 'bridge reset started QEMU'
+
+# Failed process inspection must never authorize deletion of another run.
+stale_fixture=$(mktemp -d /private/tmp/omarchy-qemu-gpu.XXXXXX)
+printf 'run-qemu-gpu:v1:999999:1' >"$stale_fixture/.run-qemu-gpu.owner"
+printf 'keep' >"$stale_fixture/sentinel"
+run_scenario unavailable-process-list 0 '' FAKE_PROCESS_INSPECTION_UNAVAILABLE=1
+[[ -f $stale_fixture/sentinel ]] || fail 'failed process inspection removed another run'
+assert_contains "$(<"$test_root/unavailable-process-list/stderr")" 'leaving other run directories intact'
+
+# An early match must not close the pipe while the process snapshot is written.
+run_scenario large-process-list 0 '' FAKE_LARGE_PROCESS_LIST=1
+[[ -f $stale_fixture/sentinel ]] || fail 'large process list removed an active run'
+assert_not_contains "$(<"$test_root/large-process-list/stderr")" 'Broken pipe'
 
 /usr/bin/plutil -replace kernelCommandLine -string \
   'root=/dev/vda rw rootwait console=tty0 console=hvc0 tryomarchy.ssh_access=0' \

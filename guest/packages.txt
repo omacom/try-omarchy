@@ -54,6 +54,7 @@ qt6-imageformats
 qt6-wayland
 quickshell
 ripgrep
+rpm-tools
 sddm
 sed
 shared-mime-info

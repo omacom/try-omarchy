@@ -14,6 +14,17 @@ code.
 - **Hyprland** — BSD-3-Clause; the reviewed v0.56.1 source and rounded-border
   coverage and client SDR-white patches are pinned in `guest/spec.json`. The guest package retains
   Hyprland's upstream license and dependency metadata.
+- **aquamarine** — BSD-3-Clause; Arch Linux ARM currently publishes only
+  `libaquamarine.so=14`, while the pinned Hyprland still requires `.so=13`. The
+  factory therefore rebuilds `aquamarine 0.14.0-2` from the reviewed Arch
+  PKGBUILD and `hyprwm/aquamarine` v0.14.0 tarball (pinned in `guest/spec.json`)
+  for factory builds. The finished guest holds aquamarine and Hyprtoolkit on
+  `IgnorePkg` with Hyprland so updates cannot mix incompatible ABIs.
+- **Hyprtoolkit** — BSD-3-Clause; the factory rebuilds the reviewed
+  `hyprwm/hyprtoolkit` v0.5.4 source using the Arch 0.5.4-6 recipe adapted for
+  aarch64 and package release 6.1, linked against aquamarine 0.14. Source,
+  recipe, packaging commit, and library hashes are pinned in `guest/spec.json`;
+  the package retains its upstream license.
 - **Glaze** — MIT; the pinned v7.2.0 headers are used by the Hyprland build, and
   their verified upstream license is retained in the rebuilt guest package.
 - **ANGLE, VirGLRenderer, libepoxy, SDL, libslirp, GLib, Pixman, and other QEMU
@@ -56,9 +67,11 @@ code.
   user explicitly selects Vivaldi, the guest downloads the exact official ARM64
   RPM pinned in `guest/spec.json`, verifies its checksum and signature against
   Vivaldi's pinned package-composer key, and repackages the verified payload as
-  a Pacman-owned local package. This installer-only input remains outside the
-  factory image and factory provenance. Vivaldi permits open-source Linux
-  distributions to integrate its browser; see <https://vivaldi.com/partners/linux/>.
+  a Pacman-owned local package. The factory image includes the `rpm-tools`
+  signature verifier and its locked dependencies; the Vivaldi browser payload
+  remains outside the factory image and factory provenance. Vivaldi permits
+  open-source Linux distributions to integrate its browser; see
+  <https://vivaldi.com/partners/linux/>.
 
 See `guest/spec.json`, `guest/packages.lock.json`, and
 `macos/build-qemu-gpu-runtime.sh` for exact source identities and checksums.

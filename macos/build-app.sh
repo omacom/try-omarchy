@@ -163,8 +163,24 @@ mkdir -p \
   "$contents/Resources/guest" \
   "$contents/Resources/runtime/bin" \
   "$contents/Resources/scripts"
+bash "$macos_dir/network-helper/build.sh" "$contents/Resources/network"
+mkdir -p "$contents/Library/LaunchDaemons"
+install -m 0644 "$macos_dir/network-helper/dev.tryomarchy.network.plist" "$contents/Library/LaunchDaemons/dev.tryomarchy.network.plist"
+python3 - "$contents/Library/LaunchDaemons/dev.tryomarchy.network.plist" <<'PYTHON'
+import os, plistlib, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+service = os.environ.get("OMARCHY_NETWORK_SERVICE_NAME", "dev.tryomarchy.network")
+value = plistlib.loads(path.read_bytes())
+value["Label"] = service
+value["MachServices"] = {service: True}
+path.write_bytes(plistlib.dumps(value))
+PYTHON
+install -m 0644 "$macos_dir/network-helper/vendor/LICENSE" "$contents/Resources/network/LICENSE.socket_vmnet"
 install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
+install -m 0644 "$macos_dir/Credits.rtf" "$contents/Resources/Credits.rtf"
+install -m 0644 "$repo_dir/LICENSE" "$contents/Resources/LICENSE"
 install -m 0644 "$generated_icon" "$contents/Resources/TryOmarchy.icns"
 ditto "$runtime_source" "$contents/Resources/runtime"
 install -m 0755 "$macos_dir/run-qemu-gpu.sh" "$contents/Resources/scripts/run-qemu-gpu.sh"
@@ -172,6 +188,7 @@ install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
   "$contents/Resources/scripts/qemu-persistent-storage.sh"
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
+install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
 for guest_resource in \
   LICENSE.omarchy \
   SHA256SUMS \
@@ -207,9 +224,15 @@ for library in "$contents/Resources/runtime/lib"/*.dylib; do
   codesign "${sign_options[@]}" "$library"
 done
 codesign "${sign_options[@]}" "$contents/Resources/runtime/bin/zstd"
+for network_binary in socket_vmnet omarchy-network-supervisor omarchy-network-client; do
+  codesign "${sign_options[@]}" "$contents/Resources/network/$network_binary"
+done
 codesign "${qemu_sign_options[@]}" \
   --entitlements "$macos_dir/qemu-hvf.entitlements" \
   "$bundled_qemu"
+
+bash "$macos_dir/network-helper/build-daemon.sh" "$contents"
+codesign "${sign_options[@]}" "$contents/MacOS/omarchy-network-daemon"
 codesign "${app_sign_options[@]}" \
   --entitlements "$macos_dir/omarchy-vm-helper.entitlements" \
   "$contents/MacOS/omarchy-vm-helper"

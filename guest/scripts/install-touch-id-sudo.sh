@@ -78,6 +78,11 @@ install -m 0755 "$control_source" "$root/usr/local/sbin/try-omarchy-touch-id-con
 install -m 0644 "$rule_source" \
   "$root/etc/udev/rules.d/93-omarchy-native-authentication.rules"
 
+# New accounts inherit /etc/skel, which materialization copies before the
+# reviewed menu backport is applied to /usr/share/omarchy/config. Install the
+# entry in the account defaults too, alongside the command it exposes.
+"$menu_installer_source" "$root/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc"
+
 if [[ -z $root ]]; then
   if ! /usr/local/lib/try-omarchy/native-authentication-broker migrate; then
     /usr/local/sbin/try-omarchy-touch-id-control disable || true

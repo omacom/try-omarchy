@@ -21,6 +21,20 @@ read_spec() {
 
 locale-gen
 passwd --lock root >/dev/null
+# Check the effective sudoers policy and the package-owned menu grants before
+# publishing an image. Materialization runs as root in the ARM64 builder.
+visudo --check
+for name in omarchy-dns omarchy-theme-browser; do
+  policy="/etc/sudoers.d/$name"
+  [[ $(stat -c '%u:%g:%a' "$policy") == 0:0:440 ]] || {
+    echo "Unsafe ownership or permissions on $policy" >&2
+    exit 1
+  }
+  [[ $(pacman -Qoq "$policy") == try-omarchy-runtime ]] || {
+    echo "Menu sudoers policy is not owned by the Omarchy runtime: $policy" >&2
+    exit 1
+  }
+done
 systemctl enable NetworkManager.service
 systemctl enable systemd-resolved.service
 systemctl enable systemd-timesyncd.service
@@ -73,6 +87,18 @@ if pacman -Qq vivaldi >/dev/null 2>&1; then
   echo "Vivaldi must remain a user-initiated post-build install" >&2
   exit 1
 fi
+# Ship the signature verifier so selecting Vivaldi never needs a separate
+# dependency bootstrap. Execute both tools to catch missing shared libraries.
+pacman -Qkk rpm-tools >/dev/null || {
+  echo "Factory Vivaldi signature verifier package is missing or incomplete" >&2
+  exit 1
+}
+for verifier in rpm rpmkeys; do
+  "$verifier" --version >/dev/null || {
+    echo "Factory Vivaldi signature verifier cannot run: $verifier" >&2
+    exit 1
+  }
+done
 vivaldi_installer=/usr/local/lib/try-omarchy/install-vivaldi-arm64
 vivaldi_key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
 [[ -x $vivaldi_installer && ! -L $vivaldi_installer ]] || {

@@ -1,0 +1,553 @@
+--- a/src/udp.c
++++ b/src/udp.c
+@@ -44,6 +44,37 @@
+ 
+ static uint8_t udp_tos(struct socket *so);
+ 
++/* Keep translated destinations separate without changing ordinary UDP mappings. */
++static bool udp_virtual_destination(Slirp *slirp, struct in_addr addr)
++{
++    return (addr.s_addr & slirp->vnetwork_mask.s_addr) ==
++               slirp->vnetwork_addr.s_addr || addr.s_addr == 0xffffffff;
++}
++
++static struct socket *udp_lookup4(Slirp *slirp,
++                                  const struct sockaddr_storage *local,
++                                  const struct sockaddr_storage *remote)
++{
++    const struct sockaddr_in *peer = (const struct sockaddr_in *)remote;
++    struct socket *so, *match = NULL;
++    for (so = slirp->udb.so_next; so != &slirp->udb; so = so->so_next) {
++        if (!sockaddr_equal(&so->lhost.ss, local)) {
++            continue;
++        }
++        if (so->so_state & SS_HOSTFWD) {
++            return so;
++        }
++        if (sockaddr_equal(&so->fhost.ss, remote) ||
++            (so->so_ffamily == AF_INET &&
++             !udp_virtual_destination(slirp, so->so_faddr) &&
++             !udp_virtual_destination(slirp, peer->sin_addr))) {
++            match = so;
++            break;
++        }
++    }
++    return match;
++}
++
+ void udp_init(Slirp *slirp)
+ {
+     slirp->udb.so_next = slirp->udb.so_prev = &slirp->udb;
+@@ -170,7 +201,12 @@
+     /*
+      * Locate pcb for datagram.
+      */
+-    so = solookup(&slirp->udp_last_so, &slirp->udb, &lhost, NULL);
++    struct sockaddr_storage remote = { 0 };
++    struct sockaddr_in *remote4 = (struct sockaddr_in *)&remote;
++    remote4->sin_family = AF_INET;
++    remote4->sin_addr = ip->ip_dst;
++    remote4->sin_port = uh->uh_dport;
++    so = udp_lookup4(slirp, &lhost, &remote);
+ 
+     if (so == NULL) {
+         /*
+--- a/meson.build
++++ b/meson.build
+@@ -288,3 +288,13 @@
+     dependencies: libslirp_deps)
+   test('icmp-darwin', icmpdarwintest)
+ endif
++
++if host_system != 'windows'
++  udp_translation_test = executable('udptranslationtest', 'test/udp-translation-test.c',
++    link_with: [lib],
++    c_args: cargs,
++    link_args: vflag,
++    include_directories: ['src'],
++    dependencies: libslirp_deps)
++  test('udp-translation', udp_translation_test)
++endif
+--- /dev/null
++++ b/test/udp-translation-test.c
+@@ -0,0 +1,480 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2021-2022, 2024 Samuel Thibault
++ *
++ * Adapted from the libslirp ping test and UDP wire test.  The test is
++ * deliberately standalone: it uses only guest Ethernet frames and host
++ * loopback UDP sockets, and does not require a VM, privileges, or a network.
++ */
++
++#include <arpa/inet.h>
++#include <assert.h>
++#include <errno.h>
++#include <netinet/in.h>
++#include <poll.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <unistd.h>
++
++#include "libslirp.h"
++
++#define GUEST_PORT 40000
++#define PACKET_MAX 2048
++#define PUMP_MS 10
++#define PUMP_STEPS 250
++
++struct timer {
++    SlirpTimerId id;
++    void *cb_opaque;
++    int64_t expire;
++    struct timer *next;
++};
++
++struct case_state {
++    Slirp *slirp;
++    int host_fd[2];
++    int host_port[2];
++    struct sockaddr_in host_peer[2];
++    socklen_t host_peer_len[2];
++    const char *tag[2];
++    const char *reply[2];
++    struct in_addr guest_dst[2];
++    int received[2];
++    int emitted;
++    int bad;
++    int npoll;
++    int64_t now_ns;
++    struct timer *timers;
++    struct pollfd *fds;
++    int nfds;
++};
++
++static struct case_state *active;
++
++static void fail_case(const char *what)
++{
++    fprintf(stderr, "udp-translation-test: %s\n", what);
++    active->bad = 1;
++}
++
++static void checksum(uint8_t *data, size_t size, uint8_t *out)
++{
++    uint32_t sum = 0;
++    size_t i;
++
++    out[0] = out[1] = 0;
++    for (i = 0; i + 1 < size; i += 2)
++        sum += ((uint16_t)data[i] << 8) | data[i + 1];
++    if (i < size)
++        sum += (uint16_t)data[i] << 8;
++    sum = (sum & 0xffff) + (sum >> 16);
++    sum = (sum & 0xffff) + (sum >> 16);
++    sum = ~sum;
++    out[0] = sum >> 8;
++    out[1] = sum;
++}
++
++static slirp_ssize_t send_packet(const void *buf, size_t len, void *opaque)
++{
++    const uint8_t *p = buf;
++    size_t payload_len;
++    int i;
++
++    (void)opaque;
++    if (len < 14) return (slirp_ssize_t)len;
++    if (p[12] == 0x08 &&
++        p[13] == 0x06) {
++        /* ARP */
++        /* We expect receiving an ARP request for our address */
++
++        /* Ethernet address type */
++        assert(p[14] == 0x00);
++        assert(p[15] == 0x01);
++
++        /* IPv4 address type */
++        assert(p[16] == 0x08);
++        assert(p[17] == 0x00);
++
++        /* Ethernet addresses are 6 bytes long */
++        assert(p[18] == 0x06);
++
++        /* IPv4 addresses are 4 bytes long */
++        assert(p[19] == 0x04);
++
++        /* Opcode: ARP request */
++        assert(p[20] == 0x00);
++        assert(p[21] == 0x01);
++
++        /* Ok, reply! */
++        uint8_t myframe[] = {
++            /*** Ethernet ***/
++            /* dst */
++            0x52, 0x55, 0x0a, 0x00, 0x02, 0x02,
++            /* src */
++            0x52, 0x55, 0x0a, 0x00, 0x02, 0x0e,
++            /* Type: ARP */
++            0x08, 0x06,
++
++            /* ether,   IPv4,       */
++            0x00, 0x01, 0x08, 0x00,
++            /* elen, IPlen */
++            0x06, 0x04,
++            /* ARP reply */
++            0x00, 0x02,
++
++            /* Our ethernet address */
++            0x52, 0x55, 0x0a, 0x00, 0x02, 0x0e,
++            /* Our IP address */
++            0x0a, 0x00, 0x02, 0x0e,
++
++            /* Host ethernet address */
++            0x52, 0x55, 0x0a, 0x00, 0x02, 0x02,
++            /* Host IP address */
++            0x0a, 0x00, 0x02, 0x02,
++        };
++
++        slirp_input(active->slirp, myframe, sizeof(myframe));
++    }
++
++    if (len < 14 || p[12] != 0x08 || p[13] != 0x00)
++        return (slirp_ssize_t)len;
++    if (len < 42 || p[23] != 17)
++        return (slirp_ssize_t)len;
++
++    unsigned udp_len = (unsigned)p[38] << 8 | p[39];
++    if (udp_len < 8 || udp_len > len - 34) {
++        fail_case("invalid UDP length");
++        return (slirp_ssize_t)len;
++    }
++    payload_len = udp_len - 8;
++    for (i = 0; i < 2; i++) {
++        const char *reply = active->reply[i];
++        size_t reply_len = strlen(reply);
++
++        if (payload_len == reply_len && !memcmp(p + 42, reply, reply_len)) {
++            struct in_addr expected = active->guest_dst[i];
++
++            if (memcmp(p + 26, &expected.s_addr, sizeof(expected.s_addr)))
++                fail_case("guest-facing source address was translated incorrectly");
++            if (((int)p[34] << 8 | p[35]) != active->host_port[i])
++                fail_case("guest-facing source port was translated incorrectly");
++            const uint8_t guest_addr[] = {10, 0, 2, 14};
++            if (memcmp(p + 30, guest_addr, sizeof(guest_addr)) ||
++                ((unsigned)p[36] << 8 | p[37]) != GUEST_PORT)
++                fail_case("guest-facing destination endpoint was incorrect");
++            active->received[i]++;
++            active->emitted++;
++            return (slirp_ssize_t)len;
++        }
++    }
++    return (slirp_ssize_t)len;
++}
++
++static void guest_error(const char *msg, void *opaque)
++{
++    (void)opaque;
++    fprintf(stderr, "udp-translation-test: guest error: %s\n", msg);
++    active->bad = 1;
++}
++
++static int64_t clock_get_ns(void *opaque)
++{
++    (void)opaque;
++    return active->now_ns;
++}
++
++static void *timer_new_opaque(SlirpTimerId id, void *cb_opaque, void *opaque)
++{
++    struct timer *timer = calloc(1, sizeof(*timer));
++    (void)opaque;
++    if (timer) {
++        timer->id = id;
++        timer->cb_opaque = cb_opaque;
++    }
++    return timer;
++}
++
++static void timer_free(void *opaque_timer, void *opaque)
++{
++    struct timer *timer = opaque_timer;
++    struct timer **cursor;
++    (void)opaque;
++
++    for (cursor = &active->timers; *cursor; cursor = &(*cursor)->next) {
++        if (*cursor == timer) {
++            *cursor = timer->next;
++            break;
++        }
++    }
++    free(timer);
++}
++
++static void timer_mod(void *opaque_timer, int64_t expire_ms, void *opaque)
++{
++    struct timer *timer = opaque_timer;
++    struct timer **cursor;
++    (void)opaque;
++
++    timer->expire = expire_ms * 1000000;
++    for (cursor = &active->timers; *cursor; cursor = &(*cursor)->next)
++        if (timer->expire < (*cursor)->expire)
++            break;
++    timer->next = *cursor;
++    *cursor = timer;
++}
++
++static void timer_check(void)
++{
++    while (active->timers && active->timers->expire <= active->now_ns) {
++        struct timer *timer = active->timers;
++        active->timers = timer->next;
++        slirp_handle_timer(active->slirp, timer->id, timer->cb_opaque);
++    }
++}
++
++static void register_poll_socket(slirp_os_socket fd, void *opaque)
++{
++    (void)fd;
++    (void)opaque;
++    active->npoll++;
++}
++
++static void unregister_poll_socket(slirp_os_socket fd, void *opaque)
++{
++    (void)fd;
++    (void)opaque;
++    active->npoll--;
++}
++
++static void notify(void *opaque)
++{
++    (void)opaque;
++}
++
++static int add_poll_cb(slirp_os_socket fd, int events, void *opaque)
++{
++    short poll_events = 0;
++    (void)opaque;
++    if (active->nfds >= active->npoll)
++        return -1;
++    if (events & SLIRP_POLL_IN)
++        poll_events |= POLLIN;
++    if (events & SLIRP_POLL_OUT)
++        poll_events |= POLLOUT;
++    if (events & SLIRP_POLL_PRI)
++        poll_events |= POLLPRI;
++    active->fds[active->nfds].fd = fd;
++    active->fds[active->nfds].events = poll_events;
++    active->fds[active->nfds].revents = 0;
++    return active->nfds++;
++}
++
++static int get_revents_cb(int index, void *opaque)
++{
++    (void)opaque;
++    return active->fds[index].revents;
++}
++
++static void pump(void)
++{
++    uint32_t timeout = PUMP_MS;
++    int result;
++
++    timer_check();
++    active->fds = calloc((size_t)(active->npoll > 0 ? active->npoll : 1),
++                         sizeof(*active->fds));
++    active->nfds = 0;
++    slirp_pollfds_fill_socket(active->slirp, &timeout, add_poll_cb, NULL);
++    result = poll(active->fds, (nfds_t)active->nfds, PUMP_MS);
++    slirp_pollfds_poll(active->slirp, result < 0, get_revents_cb, NULL);
++    free(active->fds);
++    active->fds = NULL;
++    active->now_ns += (int64_t)PUMP_MS * 1000000;
++}
++
++static int make_socket(int *port)
++{
++    struct sockaddr_in addr = {0};
++    socklen_t addr_len = sizeof(addr);
++    int fd = socket(AF_INET, SOCK_DGRAM, 0);
++
++    if (fd < 0)
++        return -1;
++    addr.sin_family = AF_INET;
++    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
++        getsockname(fd, (struct sockaddr *)&addr, &addr_len) < 0) {
++        close(fd);
++        return -1;
++    }
++    *port = ntohs(addr.sin_port);
++    return fd;
++}
++
++static int receive_request(int index)
++{
++    uint8_t buf[128];
++    struct sockaddr_in peer;
++    socklen_t peer_len = sizeof(peer);
++    ssize_t got = recvfrom(active->host_fd[index], buf, sizeof(buf), MSG_DONTWAIT,
++                           (struct sockaddr *)&peer, &peer_len);
++
++    if (got < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
++        return 0;
++    if (got < 0 || (size_t)got != strlen(active->tag[index]) ||
++        memcmp(buf, active->tag[index], (size_t)got)) {
++        fail_case("host socket received an unexpected request");
++        return -1;
++    }
++    active->host_peer[index] = peer;
++    active->host_peer_len[index] = peer_len;
++    return 1;
++}
++
++static int send_reply(int index)
++{
++    const char *reply = active->reply[index];
++    if (sendto(active->host_fd[index], reply, strlen(reply), 0,
++               (struct sockaddr *)&active->host_peer[index],
++               active->host_peer_len[index]) != (ssize_t)strlen(reply)) {
++        fail_case("host socket reply failed");
++        return -1;
++    }
++    return 1;
++}
++
++static void build_udp_frame(uint8_t *frame, struct in_addr destination,
++                            int destination_port, const char *tag)
++{
++    size_t payload_len = strlen(tag);
++    size_t ip_len = 20 + 8 + payload_len;
++    size_t frame_len = 14 + ip_len;
++
++    memset(frame, 0, frame_len);
++    memcpy(frame, "RU\x0a\x00\x02\x02RU\x0a\x00\x02\x0e", 12);
++    frame[12] = 0x08;
++    frame[13] = 0x00;
++    frame[14] = 0x45;
++    frame[16] = ip_len >> 8;
++    frame[17] = ip_len;
++    frame[18] = 0;
++    frame[19] = 1;
++    frame[22] = 64;
++    frame[23] = 17;
++    frame[26] = 10;
++    frame[27] = 0;
++    frame[28] = 2;
++    frame[29] = 14;
++    memcpy(frame + 30, &destination.s_addr, 4);
++    frame[34] = GUEST_PORT >> 8;
++    frame[35] = GUEST_PORT & 0xff;
++    frame[36] = destination_port >> 8;
++    frame[37] = destination_port & 0xff;
++    frame[38] = (8 + payload_len) >> 8;
++    frame[39] = 8 + payload_len;
++    memcpy(frame + 42, tag, payload_len);
++    checksum(frame + 14, 20, frame + 24);
++}
++
++static int run_case(const char *name, const char *tag_a, const char *tag_b,
++                    const char *dst_a, const char *dst_b)
++{
++    SlirpConfig config = {
++        .version = 6,
++        .restricted = false,
++        .in_enabled = true,
++        .vnetwork = { .s_addr = htonl(0x0a000200) },
++        .vnetmask = { .s_addr = htonl(0xffffff00) },
++        .vhost = { .s_addr = htonl(0x0a000202) },
++        .vdhcp_start = { .s_addr = htonl(0x0a00020f) },
++        .vnameserver = { .s_addr = htonl(0x0a000203) },
++        .disable_host_loopback = false,
++        .enable_emu = false,
++        .disable_dns = false,
++    };
++    static const struct SlirpCb callbacks = {
++        .send_packet = send_packet,
++        .guest_error = guest_error,
++        .clock_get_ns = clock_get_ns,
++        .timer_new_opaque = timer_new_opaque,
++        .timer_free = timer_free,
++        .timer_mod = timer_mod,
++        .register_poll_socket = register_poll_socket,
++        .unregister_poll_socket = unregister_poll_socket,
++        .notify = notify,
++    };
++    uint8_t frame[PACKET_MAX];
++    struct in_addr destination;
++    struct case_state state = { .host_fd = {-1, -1}, .tag = {tag_a, tag_b},
++                                .reply = {"reply-A", "reply-B"} };
++    int i, sent_a = 0, sent_b = 0, replied = 0;
++
++    active = &state;
++    if (inet_pton(AF_INET, dst_a, &state.guest_dst[0]) != 1 ||
++        inet_pton(AF_INET, dst_b, &state.guest_dst[1]) != 1)
++        return 1;
++    state.host_fd[0] = make_socket(&state.host_port[0]);
++    state.host_fd[1] = make_socket(&state.host_port[1]);
++    if (state.host_fd[0] < 0 || state.host_fd[1] < 0) {
++        fprintf(stderr, "udp-translation-test: %s: socket setup failed\n", name);
++        return 1;
++    }
++    state.slirp = slirp_new(&config, &callbacks, NULL);
++    if (!state.slirp) {
++        fprintf(stderr, "udp-translation-test: %s: slirp setup failed\n", name);
++        return 1;
++    }
++    inet_pton(AF_INET, dst_a, &destination);
++    build_udp_frame(frame, destination, state.host_port[0], tag_a);
++    slirp_input(state.slirp, frame, 14 + 20 + 8 + strlen(tag_a));
++    inet_pton(AF_INET, dst_b, &destination);
++    build_udp_frame(frame, destination, state.host_port[1], tag_b);
++    slirp_input(state.slirp, frame, 14 + 20 + 8 + strlen(tag_b));
++
++    for (i = 0; i < PUMP_STEPS && state.emitted < 2; i++) {
++        pump();
++        if (!sent_a)
++            sent_a = receive_request(0) > 0;
++        if (!sent_b)
++            sent_b = receive_request(1) > 0;
++        if (sent_a && sent_b && !replied) {
++            if (!strcmp(dst_a, "127.0.0.1") && !strcmp(dst_b, "127.0.0.1") &&
++                state.host_peer[0].sin_port != state.host_peer[1].sin_port)
++                fail_case("ordinary destinations did not share a host source port");
++            send_reply(1);
++            send_reply(0);
++            replied = 1;
++        }
++    }
++    if (state.received[0] != 1 || state.received[1] != 1)
++        fail_case("did not receive exactly one intact reply per guest flow");
++    printf("%s: %s\n", name, state.bad ? "FAIL" : "PASS");
++    slirp_cleanup(state.slirp);
++    close(state.host_fd[0]);
++    close(state.host_fd[1]);
++    while (state.timers) {
++        struct timer *timer = state.timers;
++        state.timers = timer->next;
++        free(timer);
++    }
++    active = NULL;
++    return state.bad;
++}
++
++int main(void)
++{
++    int failed = 0;
++
++    /* Ordinary destinations preserve the shared host source port. */
++    failed |= run_case("ordinary-loopback", "ordinary-A", "ordinary-B",
++                       "127.0.0.1", "127.0.0.1");
++    /* Cross-destination case: the second reply is deliberately emitted first. */
++    failed |= run_case("virtual-destinations", "tag-A", "tag-B",
++                       "10.0.2.2", "127.0.0.1");
++    failed |= run_case("reverse-order", "tag-A", "tag-B", "127.0.0.1", "10.0.2.2");
++    failed |= run_case("virtual-two-ports", "tag-A", "tag-B", "10.0.2.2", "10.0.2.2");
++    return failed ? EXIT_FAILURE : EXIT_SUCCESS;
++}

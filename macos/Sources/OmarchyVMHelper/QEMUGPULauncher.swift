@@ -37,9 +37,12 @@ enum QEMUGPURuntimeEnvironment {
             AudioLaunchConfiguration.inputDeviceNameKey,
             SharedFolderPolicy.environmentKey,
             PortForwardPolicy.environmentKey,
+            VMResourceLaunchConfiguration.cpuEnvironmentKey,
+            VMResourceLaunchConfiguration.memoryEnvironmentKey,
         ] {
             environment.removeValue(forKey: key)
         }
+        for key in VMNetworkPolicy.keys { environment.removeValue(forKey: key) }
         return environment
     }
 }

@@ -6,7 +6,7 @@
     "filesystemLabel": "omarchy-factory",
     "filesystemUuid": "89054943-1f4e-4f14-b934-d6db3fba4254",
     "sizeMiB": 6144,
-    "sourceDateEpoch": 1788130066
+    "sourceDateEpoch": 1788886195
   },
   "guest": {
     "profile": "factory",
@@ -23,10 +23,10 @@
   },
   "upstream": {
     "repository": "https://github.com/basecamp/omarchy",
-    "commit": "346e69e1cec6c4e8924531874af6ba010a1bc99e",
-    "tree": "24ff1b25bf85aeffa234c95c3474b7703a062c08",
-    "treeSha256": "677f90b302dc1c622a3342ca2929084475caafb12db62790f13a9f4aea8f49ae",
-    "release": "4.0.2",
+    "commit": "0534987009061cbe2dacdde4ad564092ab698d12",
+    "tree": "139193701d7ddc948c12dfa2d15de070546ee520",
+    "treeSha256": "21d4d4edec113126aaa65d04adb7d5a422f4b18d685c1e2e08fa5c51b621fa60",
+    "release": "4.0.3",
     "version": "4.0.0.alpha",
     "channel": "quattro",
     "license": "MIT"
@@ -67,11 +67,24 @@
         "make": "4.4.1-3",
         "meson": "1.12.0-1",
         "ninja": "1.13.2-3",
-        "pkgconf": "3.0.6-1",
+        "pkgconf": "3.0.7-1",
         "xorgproto": "2025.1-1"
       },
       "clientSdrWhitePatch": "patches/hyprland/client-sdr-white.patch",
       "clientSdrWhitePatchSha256": "e0ee4857e88043f8ff11eaf421d7c54f8c0955d1331e329873fbd85caf7a7a56"
+    },
+    "aquamarine": {
+      "version": "0.14.0",
+      "pkgrel": "2",
+      "repository": "https://github.com/hyprwm/aquamarine",
+      "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
+      "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+      "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
+      "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+      "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
+      "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
+      "license": "BSD-3-Clause",
+      "binarySha256": "7da003aa60e008e9f514c312f01c1e967983e2c46732d58953735bfaee3fd8aa"
     },
     "mise": {
       "version": "2026.8.11",
@@ -91,11 +104,11 @@
       "url": "https://github.com/omacom-io/ttfx/archive/refs/tags/v0.3.2.tar.gz",
       "sha256": "d0c0df4867e7f03142fb7f77c66670d0e8da15534239c1a7abfd89f19dfc00f6",
       "cargoLockSha256": "49e2091962fc4d425b4cf3bde1a105719b5b50eed0583ec90e85922adb45e2ce",
-      "binarySha256": "9171a07c752b202a21f80a4ad336a9d093be06a6c96b062e8b5e0c158d2a86d2",
+      "binarySha256": "d034cc5b9a8d410ce93113ef0a5d27b5ee2327948562bf2b0e756eebd326fa8f",
       "target": "aarch64-unknown-linux-gnu",
-      "rustPackageVersion": "rust 1:1.98.0-1",
-      "rustcVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18) (Arch Linux rust 1:1.98.0-1)",
-      "cargoVersion": "cargo 1.98.0 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.0-1)",
+      "rustPackageVersion": "rust 1:1.98.1-1",
+      "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01) (Arch Linux rust 1:1.98.1-1)",
+      "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05) (Arch Linux rust 1:1.98.1-1)",
       "reportedVersion": "ttfx 0.3.2",
       "license": "MIT",
       "licenseSha256": "175441de2eb9a0d3f0627c404ad71929336fd98d75926cc27b9e364d35cc7977",
@@ -112,16 +125,16 @@
       "licenseSha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2"
     },
     "vivaldi": {
-      "version": "8.2.4133.33",
+      "version": "8.2.4133.52",
       "rpmRelease": 1,
       "pkgrel": 3,
       "repository": "https://repo.vivaldi.com/stable",
-      "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-      "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+      "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+      "rpmSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
       "signingKey": "keys/vivaldi-package-composer-key11.asc",
       "signingKeySha256": "5c67d85c0aca9c0d166edb5bc5e6ebc21d67bce4e67c645e7bd76d299fd337ef",
       "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
-      "reportedVersion": "Vivaldi 8.2.4133.33",
+      "reportedVersion": "Vivaldi 8.2.4133.52",
       "license": "Multiple, see https://www.vivaldi.com/"
     },
     "voxtype": {
@@ -184,6 +197,19 @@
       "patch": "video/ffmpeg-full-bitstream.patch",
       "patchSha256": "57301544bb9fd26bf50b1cc07288b58257201993e73bd71d53513045815a325a",
       "license": "GPL-3.0-or-later"
+    },
+    "hyprtoolkit": {
+      "version": "0.5.4",
+      "pkgrel": "6.1",
+      "repository": "https://github.com/hyprwm/hyprtoolkit",
+      "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
+      "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
+      "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
+      "pkgbuildSha256": "803f1db19ad1d42e48b638e35256d3dabbe19d1d0b4b3fd584eedf20121256ce",
+      "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
+      "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
+      "license": "BSD-3-Clause",
+      "binarySha256": "dc814fad9723bfcf66dbd29b7f8c5cc96fd63a1ff623909e466dd9d011c0cba8"
     }
   },
   "themes": [
@@ -197,7 +223,18 @@
   "inputs": {
     "packages": "packages.txt",
     "packageLock": "packages.lock.json",
-    "pacmanConfig": "pacman.aarch64.conf"
+    "pacmanConfig": "pacman.aarch64.conf",
+    "packageRepositorySnapshot": "https://pkgmirror.sametimetomorrow.net/aarch64/repos/2026/09/15",
+    "abiPackagePins": [
+      {
+        "name": "aquamarine",
+        "version": "0.14.0-2"
+      },
+      {
+        "name": "hyprtoolkit",
+        "version": "0.5.4-6.1"
+      }
+    ]
   },
   "authenticity": {
     "verbatimRuntimeTrees": [
@@ -289,12 +326,12 @@
         "description": "Expose Vivaldi in Install/Remove/Default Browser menus for the Try Omarchy ARM64 installer.",
         "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/default/omarchy/omarchy-menu.jsonc",
         "patch": "patches/omarchy/vivaldi-menu-entries.patch",
-        "patchSha256": "29fe08729d6285b07682fadd8cecc4687ba2f93aa8bda4d8eb13ff75001d5852",
+        "patchSha256": "dafcf0d53dfa81d615a9fe146f9f254412897160489613e04c2c6540485e0d8e",
         "targets": [
           {
             "path": "default/omarchy/omarchy-menu.jsonc",
-            "beforeSha256": "027096cc20b52f3073c7d61ad43ff1fc8fddeb127b05b41c129b0a97826cecb2",
-            "afterSha256": "ec8a95d63b83a5c47dd0c1e3aceadb949b1f16895f8be855e756912731964ee8"
+            "beforeSha256": "8c791cfc457d6c50b90a6636a6f28c9415a2fa6e4edf84826906457b75649689",
+            "afterSha256": "78d817a76be7ce7d204e15c2617df72f897efe90e22f9af4e255bdf17fbfbedb"
           }
         ]
       },
@@ -317,17 +354,27 @@
         "description": "Hide and pause notification popups while the screensaver or lock surface obscures the session.",
         "reference": "https://github.com/basecamp/omarchy/pull/8247",
         "patch": "patches/omarchy/notification-screen-privacy.patch",
-        "patchSha256": "11248cba5a641f8174d3cb51974f56950cacf868ebf2b90b7c45021ba9cfeaf1",
+        "patchSha256": "ef15ce2d15e2258d7725c4198857f524fd42913a606300136f6474713342b558",
         "targets": [
           {
             "path": "shell/plugins/notifications/Service.qml",
             "beforeSha256": "11665542e70df80ccd3c785a6143dee2daefd2082e4f75c740adc2c9947cf7c2",
-            "afterSha256": "e1f17b537e06c4e5d904f3c7ca0292ece330503f684430272d490fa78815bf04"
+            "afterSha256": "9c0b1d36f8a658be47966c271adbe012167702dbded0abd0def2d24786943d82"
           },
           {
             "path": "shell/plugins/services/idle/Service.qml",
-            "beforeSha256": "c61f91b55adf864e4ce571526644727b7a2e9f672964af8098b9fd9a4913eee2",
-            "afterSha256": "43f7d1dbf07885316ea7cb58b4513ad4ff5287abe5da1b91b85daace6b940b46"
+            "beforeSha256": "50f5c81e2e94fab32395a5bc3cce982e30a10ab1b3f56cc58f29055951518a51",
+            "afterSha256": "bd400cfb396bfcb61f8d051debc263761e4a12ae22890ac5616adbe783e57a29"
+          },
+          {
+            "path": "shell/shell.qml",
+            "beforeSha256": "4a4b7694e5b9e0bd952ce0efa2d6dc2cea44cdfa98cc2f442e40fe41cbc1beab",
+            "afterSha256": "9e39e81551ae99bd5e2e9e33721075f7c91caf95dbe8af0e5a36e8eb9150e087"
+          },
+          {
+            "path": "shell/services/AuthServiceStore.js",
+            "beforeSha256": "f47026ea2b8a0f23d5d4b3f0a9f47f60e94d7d81d2930b4486334c92575c8ccc",
+            "afterSha256": "d0e3c0e5fa040cc356e630aaf8b4795714203d1d9a700def7b5793e7d81bebea"
           }
         ]
       },
@@ -344,6 +391,90 @@
             "afterSha256": "8e8102cb08ff4fde4f89c64a7febeca0ba142c309e20e581ae0cf295f6e7f093"
           }
         ]
+      },
+      {
+        "id": "pkg-add-aarch64-unavailable",
+        "description": "Refuse known aarch64-unavailable packages from omarchy-pkg-add with the shared message.",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-pkg-add",
+        "patch": "patches/omarchy/omarchy-pkg-add-aarch64-unavailable.patch",
+        "patchSha256": "da90db1be0f3b32426ad55991d971d71cb5811f598957fe55c3d9284aa0803df",
+        "targets": [
+          {
+            "path": "bin/omarchy-pkg-add",
+            "beforeSha256": "76bf74a1e4e65d07a29c06ebc5a621bf36662efc0a175ffc53b723bd80339a3e",
+            "afterSha256": "f9cfab3be6f9dbdc5a60915ea9eea55d0a44e3828a7ec0d098a3f7a48398a3c3"
+          }
+        ]
+      },
+      {
+        "id": "pkg-aur-add-aarch64-unavailable",
+        "description": "Refuse known aarch64-unavailable packages from omarchy-pkg-aur-add with the shared message.",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-pkg-aur-add",
+        "patch": "patches/omarchy/omarchy-pkg-aur-add-aarch64-unavailable.patch",
+        "patchSha256": "58578eb598d9fded75fe5ff7ea64afb1a887faf6c8bd12adfa9eda2f2c2ff675",
+        "targets": [
+          {
+            "path": "bin/omarchy-pkg-aur-add",
+            "beforeSha256": "ec2f57b0d153bb814cae344618f61603282cbedce0012647b2c391d9000cd5f6",
+            "afterSha256": "8d230a2628a27ae690ef3b630f8c1e8bba6ba8a74254e175717509cfc21a802b"
+          }
+        ]
+      },
+      {
+        "id": "dropbox-aarch64-unavailable",
+        "description": "Stop the Dropbox installer on aarch64 before tray setup, using the shared unavailable message.",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-install-service-dropbox",
+        "patch": "patches/omarchy/dropbox-aarch64-unavailable.patch",
+        "patchSha256": "c97a991a7ced28b0d02ce89497522a50198f6f9744fa5a44213e62c84bc422a5",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-service-dropbox",
+            "beforeSha256": "90f36082ab995dc5e124996da15d551d058892eedbc7d290c93ded4f495ba6af",
+            "afterSha256": "29b93859659093ef24338ee37136cf12ac61a9abd9dc9e0aa8b76033614be8f7"
+          }
+        ]
+      },
+      {
+        "id": "geforce-now-aarch64-unavailable",
+        "description": "Fail GeForce NOW install on aarch64 with the shared pacman/AUR unavailable message (vendor installer is x86_64-only).",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-install-gaming-geforce-now",
+        "patch": "patches/omarchy/geforce-now-aarch64-unavailable.patch",
+        "patchSha256": "64c3f52d990982c3003040289f91d6b9f718b9ffd3992a72ea6c37e9ad1037bd",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-gaming-geforce-now",
+            "beforeSha256": "c039bf511dc66a86af93c52b5445485ee9b592a7f54006e6dcdf637b35f0577c",
+            "afterSha256": "55821a3cc43f9161b58fb27f568cd1c58809e43cb2329f46e613a3c06e0eb884"
+          }
+        ]
+      },
+      {
+        "id": "battlenet-aarch64-unavailable",
+        "description": "Fail Battle.net Install on aarch64 before umu-launcher/Wine setup (installer-only; not a global wine denylist).",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-install-gaming-battlenet",
+        "patch": "patches/omarchy/battlenet-aarch64-unavailable.patch",
+        "patchSha256": "6b8475d9b1e5c4e88117889fc3588babd0afc4b9f96b475176f998fe50db7052",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-gaming-battlenet",
+            "beforeSha256": "7d687f439d9ea1b5de6cc7b5c8c054e8276fe3357e9792a67a6c5304e06dcfbb",
+            "afterSha256": "afdbbe9c9c1fdcbe158964f153f60923c19d74be08340bbcad8a07f0180e8f26"
+          }
+        ]
+      },
+      {
+        "id": "lutris-aarch64-unavailable",
+        "description": "Fail Lutris Install on aarch64 before Wine/umu package pulls (installer-only; not a global wine denylist).",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-install-gaming-lutris",
+        "patch": "patches/omarchy/lutris-aarch64-unavailable.patch",
+        "patchSha256": "912fdc52fc4f44264d364efbc78d30e79c270664d96fbce280db3addc83eca3b",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-gaming-lutris",
+            "beforeSha256": "b742e54d9bda2da2a8e98e6b236fcd050302919e4e25836bedf3f8dfcf3edbc8",
+            "afterSha256": "22062e6fc14f8405d3da23f2edc892fc22dcaf51ed4c944ee5d7c0fc3b0992bd"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [
@@ -351,8 +482,8 @@
         "id": "vivaldi-arm64",
         "userInitiated": true,
         "delivery": "pinned-signed-vendor-rpm",
-        "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-        "applicationSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+        "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+        "applicationSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
         "signingKey": "keys/vivaldi-package-composer-key11.asc",
         "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
         "runtimePackages": [
@@ -393,6 +524,8 @@
       "default/themed/shell.toml.tpl",
       "default/uwsm/env.d/10-omarchy",
       "default/wayland-sessions/omarchy.desktop",
+      "etc/sudoers.d/omarchy-dns",
+      "etc/sudoers.d/omarchy-theme-browser",
       "install/provisioning/omarchy-provision-owner.service",
       "install/provisioning/setup-form.sh",
       "install/user/all.sh",
