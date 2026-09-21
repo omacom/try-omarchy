@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 GUEST = Path(__file__).resolve().parents[1]
@@ -83,6 +84,39 @@ class BuilderPacmanConfigTests(unittest.TestCase):
         self.lock["hyprtoolkit"] = "0.5.4-6"
         with self.assertRaisesRegex(SystemExit, "does not match lock"):
             builder.load_abi_pins(self.spec, self.lock)
+
+    def test_complete_signed_cache_includes_epochs_and_both_archive_formats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "cache"
+            cache.mkdir()
+            for name in ("mesa-1:26.2.2-1-aarch64.pkg.tar.xz", "rpm-tools-6.0.1-2-aarch64.pkg.tar.zst"):
+                (cache / name).write_text("package")
+                (cache / (name + ".sig")).write_text("signature")
+            repository = Path(directory) / "repository"
+            with patch.object(builder.subprocess, "run") as run:
+                self.assertTrue(builder.prepare_locked_cache(
+                    cache, repository,
+                    {"mesa": "1:26.2.2-1", "rpm-tools": "6.0.1-2",
+                     "aquamarine": "0.14.0-2", "omarchy-keyring": "20251027-1"},
+                    {"aquamarine"},
+                ))
+            run.assert_called_once()
+            self.assertEqual(len(list(repository.iterdir())), 4)
+
+    def test_incomplete_or_unsigned_cache_keeps_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            (cache / "mesa-1:26.2.2-1-aarch64.pkg.tar.xz").touch()
+            repository = cache / "repository"
+            with patch.object(builder.subprocess, "run") as run:
+                self.assertFalse(builder.prepare_locked_cache(
+                    cache, repository, {"mesa": "1:26.2.2-1"}, set(),
+                ))
+                self.assertFalse(builder.prepare_locked_cache(
+                    cache, repository, {"missing": "1-1"}, set(),
+                ))
+            run.assert_not_called()
+            self.assertFalse(repository.exists())
 
 
 if __name__ == "__main__":

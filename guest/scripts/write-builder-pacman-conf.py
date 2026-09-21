@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -96,6 +97,49 @@ def strip_ignore_pkg(line: str, drop: set[str]) -> str | None:
     return "IgnorePkg = " + " ".join(packages)
 
 
+def prepare_locked_cache(
+    cache: Path, repository: Path, lock: dict[str, str], abi_names: set[str]
+) -> bool:
+    """Expose a complete signed transaction cache ahead of the live mirrors.
+
+    Pacman still verifies package signatures and resolve-package-lock still
+    requires the exact dependency closure. An incomplete cache keeps the dated
+    snapshot; it must never silently resolve a mixture of package generations.
+    """
+    archives = []
+    for name, version in sorted(lock.items()):
+        # The Omarchy keyring bootstraps its own signing trust through the
+        # separately configured [omarchy] repository. Keep that existing policy
+        # scoped there; every package in this cache repo requires trusted signing.
+        if name in abi_names or name == "omarchy-keyring":
+            continue
+        matches = [
+            path
+            for path in cache.glob(f"{name}-{version}-*.pkg.tar.*")
+            if path.suffix in {".xz", ".zst"}
+            and path.is_file() and not path.is_symlink()
+            and Path(str(path) + ".sig").is_file()
+            and not Path(str(path) + ".sig").is_symlink()
+        ]
+        if len(matches) != 1:
+            return False
+        archives.append(matches[0])
+    if not archives:
+        return False
+    repository.mkdir(parents=True, exist_ok=True)
+    if any(repository.iterdir()):
+        fail(f"locked cache repository must be empty: {repository}")
+    for archive in archives:
+        for path in (archive, Path(str(archive) + ".sig")):
+            os.link(path, repository / path.name)
+    subprocess.run(
+        ["repo-add", str(repository / "try-omarchy-pinned-cache.db.tar.gz"),
+         *[str(repository / path.name) for path in archives]],
+        check=True, stdout=subprocess.DEVNULL,
+    )
+    return True
+
+
 def write_builder_config(
     *,
     guest_config: Path,
@@ -119,7 +163,10 @@ def write_builder_config(
             repository = section.group(1)
         # External downloaders need the invoking builder user's access to the
         # temporary database, cache, and locally rebuilt package repositories.
-        if repository_snapshot and line.startswith("DownloadUser"):
+        if (
+            (repository_snapshot or abi_repo or pinned_cache_repo)
+            and line.startswith("DownloadUser")
+        ):
             continue
         # The archive limits concurrent requests more strictly than live mirrors.
         if repository_snapshot and line.startswith("ParallelDownloads"):
@@ -190,6 +237,7 @@ def main() -> None:
     parser.add_argument("--package-lock", required=True, type=Path)
     parser.add_argument("--abi-repo", type=Path)
     parser.add_argument("--pinned-cache-repo", type=Path)
+    parser.add_argument("--locked-cache-repo", type=Path)
     parser.add_argument("--package-cache", type=Path)
     parser.add_argument("--disable-sandbox", action="store_true")
     args = parser.parse_args()
@@ -212,13 +260,23 @@ def main() -> None:
     elif abi_repo is not None:
         fail("--abi-repo was provided without abiPackagePins")
 
+    pinned_cache_repo = args.pinned_cache_repo
+    if args.locked_cache_repo is not None and args.package_cache is not None:
+        if prepare_locked_cache(
+            args.package_cache, args.locked_cache_repo, lock_packages,
+            {pin["name"] for pin in pins},
+        ):
+            pinned_cache_repo = args.locked_cache_repo
+            repository_snapshot = None
+            print("Using the complete signed package cache for the locked transaction")
+
     write_builder_config(
         guest_config=args.guest_config,
         output=args.output,
         package_cache=args.package_cache,
         disable_sandbox=args.disable_sandbox,
         abi_repo=abi_repo if pins else None,
-        pinned_cache_repo=args.pinned_cache_repo,
+        pinned_cache_repo=pinned_cache_repo,
         drop_ignore={pin["name"] for pin in pins},
         repository_snapshot=repository_snapshot,
     )

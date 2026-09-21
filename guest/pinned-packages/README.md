@@ -11,6 +11,15 @@ signatures remain required, and the complete resolved transaction must match
 the installed guest retains its normal mirror configuration. When updating
 the snapshot, refresh and review the lockfile together with it.
 
+When the persistent package cache contains every locked package and its detached
+signature (excluding the two locally rebuilt ABI pins and Omarchy's keyring), the builder creates a
+temporary signed-package repository from that exact set. It takes precedence
+over live mirrors, so a warm build does not depend on the archive being online.
+Pacman still verifies signatures and the resolved transaction must still match
+the entire lockfile. Missing or unsigned cached packages keep the dated archive
+path; the builder never refreshes the lock implicitly. The Omarchy keyring keeps
+using the separate `[omarchy]` repository and its existing bootstrap trust policy.
+
 - `aquamarine/PKGBUILD` adapts Arch `0.14.0-2` packaging for aarch64.
 - `hyprtoolkit/PKGBUILD` adapts Arch `0.5.4-6` packaging for aarch64 and uses
   package release `6.1` to distinguish the rebuild against aquamarine 0.14.

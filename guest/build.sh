@@ -92,6 +92,7 @@ root=$(mktemp -d "$work/rootfs.XXXXXX")
 resolution_db=$(mktemp -d "$work/pacman-db.XXXXXX")
 pinned_repo=""
 abi_pin_repo=""
+locked_cache_repo=$(mktemp -d "$work/locked-cache-repo.XXXXXX")
 chmod 0755 "$resolution_db"
 cleanup() {
   if (( keep_rootfs )); then
@@ -100,6 +101,7 @@ cleanup() {
     rm -rf "$root"
   fi
   rm -rf "$resolution_db"
+  rm -rf "$locked_cache_repo"
   if [[ -n $pinned_repo ]]; then
     rm -rf "$pinned_repo"
   fi
@@ -178,6 +180,7 @@ builder_conf_args=(
   --package-lock "$package_lock_file"
   --output "$pacman_config"
   --package-cache "$package_cache"
+  --locked-cache-repo "$locked_cache_repo"
 )
 if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
   builder_conf_args+=(--disable-sandbox)
