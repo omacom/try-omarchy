@@ -89,8 +89,8 @@ struct StartMenuWindowWidthTests {
         try expectDetailsFit(["permission-detail-externaldrive"], in: menu)
     }
 
-    @Test("Launch and Reset remain outside the scrolling settings")
-    func actionsStayOutsideSettings() throws {
+    @Test("Launch stays fixed while Reset follows integrations in the scrolling settings")
+    func launchStaysOutsideSettings() throws {
         _ = NSApplication.shared
         let menu = makeMenu(storageState: { StorageLocationMenuState(
             containerPath: nil, stateRoot: nil, displayPath: "Default location",
@@ -103,16 +103,22 @@ struct StartMenuWindowWidthTests {
         let scroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content))
         let actions = try #require(descendant(withIdentifier: "start-menu-actions", in: content) as? NSStackView)
         let launch = try #require(descendant(withIdentifier: "launch-button", in: actions) as? NSButton)
-        let reset = try #require(descendant(withIdentifier: "reset-button", in: actions) as? NSButton)
+        let resetCard = try #require(descendant(withIdentifier: "reset-card", in: scroll))
+        let reset = try #require(descendant(withIdentifier: "reset-button", in: resetCard) as? NSButton)
+        let settings = try #require(resetCard.superview as? NSStackView)
+        let integrations = try #require(descendant(withIdentifier: "integration-card", in: scroll))
+        let integrationIndex = try #require(settings.arrangedSubviews.firstIndex(of: integrations))
+        let resetIndex = try #require(settings.arrangedSubviews.firstIndex(of: resetCard))
 
         #expect(scroll.superview === content)
         #expect(actions.superview === content)
         #expect(descendant(withIdentifier: "launch-button", in: scroll) == nil)
-        #expect(descendant(withIdentifier: "reset-button", in: scroll) == nil)
+        #expect(descendant(withIdentifier: "reset-button", in: actions) == nil)
         #expect(descendant(withIdentifier: "permission-card", in: scroll) != nil)
         #expect(descendant(withIdentifier: "integration-card", in: scroll) != nil)
         #expect(actions.arrangedSubviews.first === launch)
-        #expect(actions.arrangedSubviews.last === reset.superview)
+        #expect(actions.arrangedSubviews.count == 1)
+        #expect(resetIndex > integrationIndex)
         #expect(launch.keyEquivalent == "\r")
         #expect(launch.isEnabled)
         #expect(reset.isEnabled)

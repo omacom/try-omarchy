@@ -747,9 +747,17 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             launchButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 500),
         ])
 
-        let resetSection = NSStackView(views: [reset])
-        resetSection.orientation = .vertical
-        resetSection.alignment = .centerX
+        let resetHeading = sectionHeading("RESET")
+        let resetDetail = NSTextField(wrappingLabelWithString: "Erase this VM and return it to factory settings.")
+        resetDetail.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        resetDetail.textColor = OmarchyStartMenuTheme.muted
+        let resetRow = NSStackView(views: [resetDetail, reset])
+        resetRow.orientation = .horizontal
+        resetRow.alignment = .centerY
+        resetRow.spacing = 16
+        resetRow.translatesAutoresizingMaskIntoConstraints = false
+        resetRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
+        let resetCard = themedCard(containing: resetRow, identifier: "reset-card")
 
         let stack = NSStackView(views: [
             headingStack,
@@ -757,6 +765,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             permissionCard,
             integrationHeading,
             integrationCard,
+            resetHeading,
+            resetCard,
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -765,9 +775,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(6, after: permissionHeading)
         stack.setCustomSpacing(16, after: permissionCard)
         stack.setCustomSpacing(6, after: integrationHeading)
+        stack.setCustomSpacing(6, after: resetHeading)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let actions = NSStackView(views: [launchButton, resetSection])
+        let actions = NSStackView(views: [launchButton])
         actions.orientation = .vertical
         actions.alignment = .leading
         actions.spacing = 12
@@ -807,7 +818,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             permissionCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             integrationCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            resetSection.widthAnchor.constraint(equalTo: actions.widthAnchor),
+            resetCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
 
