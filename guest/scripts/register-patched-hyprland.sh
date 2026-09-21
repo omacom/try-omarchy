@@ -424,9 +424,9 @@ section = None
 for line in source:
     if re.fullmatch(r"\[[A-Za-z0-9@._+-]+\]", line):
         section = line[1:-1]
-    # Keep try-omarchy-abi-pins so Hyprland build deps can still resolve
-    # libaquamarine.so=13 while ALA only publishes .so=14.
-    if section in {"omarchy", "try-omarchy-pinned-cache"} or line.startswith("IgnorePkg"):
+    # Keep both the ABI pins and signed package cache: the pinned Hyprland
+    # package and libaquamarine.so=13 are no longer on the rolling mirrors.
+    if section == "omarchy" or line.startswith("IgnorePkg"):
         continue
     output.append(line)
 
