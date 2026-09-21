@@ -270,6 +270,11 @@ class BuildCacheTests(unittest.TestCase):
                 "macos/Info.plist", "LICENSE", ".build/state/guest.json",
                 ".build/state/runtime.json", "dist/guest/guest-manifest.json",
                 "dist/guest/SHA256SUMS",
+                "guest/scripts/install-settings-integration.py",
+                "guest/native-overlay/usr/local/bin/omarchy-native-settings",
+                "guest/native-overlay/etc/udev/rules.d/92-omarchy-native-settings.rules",
+                "guest/native-overlay/usr/share/applications/try-omarchy-settings.desktop",
+                "guest/native-overlay/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc",
                 *(f"macos/.build/qemu-gpu-runtime/{name}" for name in build_cache.RUNTIME_FILES),
             ):
                 path = root / relative
