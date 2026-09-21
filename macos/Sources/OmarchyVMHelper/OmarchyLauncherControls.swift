@@ -127,7 +127,7 @@ final class OmarchyActionButton: NSButton {
                     : OmarchyStartMenuTheme.foreground
                 border = isPointerDown || isPointerInside
                     ? OmarchyStartMenuTheme.danger
-                    : OmarchyStartMenuTheme.lighterBackground
+                    : OmarchyStartMenuTheme.danger.withAlphaComponent(0.5)
             }
         }
 
