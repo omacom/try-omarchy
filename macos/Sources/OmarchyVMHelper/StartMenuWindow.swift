@@ -748,13 +748,35 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         ])
 
         let resetHeading = sectionHeading("RESET")
+        let resetSymbol = NSImageView()
+        resetSymbol.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
+        resetSymbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
+        resetSymbol.contentTintColor = OmarchyStartMenuTheme.accent
+        resetSymbol.identifier = NSUserInterfaceItemIdentifier("reset-symbol")
+        resetSymbol.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            resetSymbol.widthAnchor.constraint(equalToConstant: 26),
+            resetSymbol.heightAnchor.constraint(equalToConstant: 26),
+        ])
+        let resetTitle = NSTextField(labelWithString: "Factory reset")
+        resetTitle.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
+        resetTitle.textColor = OmarchyStartMenuTheme.foreground
         let resetDetail = NSTextField(wrappingLabelWithString: "Erase this VM and return it to factory settings.")
-        resetDetail.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        resetDetail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         resetDetail.textColor = OmarchyStartMenuTheme.muted
-        let resetRow = NSStackView(views: [resetDetail, reset])
+        resetDetail.maximumNumberOfLines = 2
+        let resetLabels = NSStackView(views: [resetTitle, resetDetail])
+        resetLabels.orientation = .vertical
+        resetLabels.alignment = .leading
+        resetLabels.spacing = 3
+        resetLabels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        resetLabels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        resetDetail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        resetDetail.trailingAnchor.constraint(lessThanOrEqualTo: resetLabels.trailingAnchor).isActive = true
+        let resetRow = NSStackView(views: [resetSymbol, resetLabels, reset])
         resetRow.orientation = .horizontal
         resetRow.alignment = .centerY
-        resetRow.spacing = 16
+        resetRow.spacing = 12
         resetRow.translatesAutoresizingMaskIntoConstraints = false
         resetRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
         let resetCard = themedCard(containing: resetRow, identifier: "reset-card")
