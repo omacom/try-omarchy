@@ -1471,6 +1471,50 @@ HOTPLUG=1
             "returning to automatic zoom restores live EDID density scaling",
         )
 
+        # At 4122x2586, Omarchy rounds its 4x preset up to a clean scale of 6
+        # and persists that effective value, which exceeds the preset range.
+        resized_displayid = bytearray(displayid)
+        resized_displayid[12:14] = (4122 - 1).to_bytes(2, "little")
+        resized_displayid[20:22] = (2586 - 1).to_bytes(2, "little")
+        resized_displayid[28] = (-sum(resized_displayid[1:28])) & 0xFF
+        resized_displayid[127] = (-sum(resized_displayid[:127])) & 0xFF
+        qemu_edid[21:23] = bytes([47, 29])
+        qemu_edid[127] = (-sum(qemu_edid[:127])) & 0xFF
+        qemu_edid[256:384] = resized_displayid
+        (connector / "edid").write_bytes(qemu_edid)
+        (legacy_connector / "edid").write_bytes(qemu_edid)
+        monitor_config.write_text("local omarchy_monitor_scale = 6\n")
+        expected_large_zoom = [
+            'eval hl.monitor({ output = "", mode = "modeline 1236 4122 5402 5555 5914 2586 2600 2614 2686 -hsync -vsync", scale = "6" })'
+        ] * 2
+        check(
+            sync_once() == expected_large_zoom,
+            "reload resync preserves effective zoom above the preset range",
+        )
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_large_zoom,
+            "hotplug resync preserves effective zoom above the preset range",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 5\n")
+        check(
+            sync_once() == expected_large_zoom,
+            "resync considers clean scales above the requested zoom",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [line.replace('scale = "6"', 'scale = "2"') for line in expected_large_zoom],
+            "automatic zoom remains available after a large explicit zoom",
+        )
+
     shell_files = [
         GUEST / "test",
         screensaver_override,

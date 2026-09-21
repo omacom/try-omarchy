@@ -10,7 +10,7 @@ preferred_mode_from_edid() {
 import pathlib
 import re
 import sys
-from math import hypot
+from math import gcd, hypot, isfinite, isqrt
 
 data = pathlib.Path(sys.argv[1]).read_bytes()
 if (
@@ -83,8 +83,10 @@ def scale_for_mode(
             config,
             re.MULTILINE,
         )
-        if match and 0.25 <= float(match.group(1)) <= 4:
-            requested = float(match.group(1))
+        if match:
+            saved_scale = float(match.group(1))
+            if isfinite(saved_scale) and saved_scale >= 0.25:
+                requested = saved_scale
     except OSError:
         pass
 
@@ -101,13 +103,17 @@ def scale_for_mode(
     # It searches scale values in 1/120 increments around the requested value;
     # choose the closest clean value here so an explicit dynamic scale does not
     # trigger its stale-physical-size fallback or a warning notification.
-    requested_120 = round(requested * 120)
+    # Omarchy persists the effective clean scale, which can exceed its 4x
+    # preset. Enumerate divisors instead of imposing a preset-based upper bound.
+    common_120 = gcd(width * 120, height * 120)
+    requested_120 = round(min(requested, common_120 / 120) * 120)
     clean_120 = min(
         (
             candidate
-            for candidate in range(30, 481)
-            if (width * 120) % candidate == 0
-            and (height * 120) % candidate == 0
+            for divisor in range(1, isqrt(common_120) + 1)
+            if common_120 % divisor == 0
+            for candidate in (divisor, common_120 // divisor)
+            if candidate >= 30
         ),
         key=lambda candidate: (abs(candidate - requested_120), -candidate),
     )
