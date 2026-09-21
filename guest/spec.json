@@ -213,6 +213,7 @@
     "packages": "packages.txt",
     "packageLock": "packages.lock.json",
     "pacmanConfig": "pacman.aarch64.conf",
+    "packageRepositorySnapshot": "https://pkgmirror.sametimetomorrow.net/aarch64/repos/2026/09/15",
     "abiPackagePins": [
       {
         "name": "aquamarine",
@@ -381,6 +382,20 @@
         ]
       },
       {
+        "id": "update-restart-arm-kernel",
+        "description": "Recognize package-owned ARM kernel module metadata and explicitly distinguish matching, changed, and unknown kernel reboot states.",
+        "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-update-restart",
+        "patch": "patches/omarchy/update-restart-arm-kernel.patch",
+        "patchSha256": "307efd205ff1e7ab83c10043be81ee2024ae30df006ed93c4fd33d3ac8660a20",
+        "targets": [
+          {
+            "path": "bin/omarchy-update-restart",
+            "beforeSha256": "7bc95f8a0a3ae35cfd81453e08194f5660c27cf59528c7d95b4345f362030b60",
+            "afterSha256": "c791af27312db4cf4f11ec4d112a3e4f50654d82143368166bf385c25f92f5d9"
+          }
+        ]
+      },
+      {
         "id": "pkg-add-aarch64-unavailable",
         "description": "Refuse known aarch64-unavailable packages from omarchy-pkg-add with the shared message.",
         "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-pkg-add",
@@ -463,6 +478,20 @@
             "afterSha256": "22062e6fc14f8405d3da23f2edc892fc22dcaf51ed4c944ee5d7c0fc3b0992bd"
           }
         ]
+      },
+      {
+        "id": "keyboard-us-acentos",
+        "description": "Add US International with dead keys and distinguish the Brazilian ABNT2 keyboard option.",
+        "reference": "https://github.com/omacom/try-omarchy/issues/194",
+        "patch": "patches/omarchy/keyboard-us-acentos.patch",
+        "patchSha256": "e81e1bd6b23816ecc2d2360b446e29c27947314d3cc5b3181d38982b8c16ec0d",
+        "targets": [
+          {
+            "path": "install/provisioning/setup-form.sh",
+            "beforeSha256": "0fbb8c3c8b151e5ff884c16d381e12fda53cc16adfd08a684d41e7327250665d",
+            "afterSha256": "5e2288809a3d9cc2cf91ca955be97b5fdcf6e786b7e8e3be6ea1a1b19abda15c"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [
@@ -512,6 +541,8 @@
       "default/themed/shell.toml.tpl",
       "default/uwsm/env.d/10-omarchy",
       "default/wayland-sessions/omarchy.desktop",
+      "etc/sudoers.d/omarchy-dns",
+      "etc/sudoers.d/omarchy-theme-browser",
       "install/provisioning/omarchy-provision-owner.service",
       "install/provisioning/setup-form.sh",
       "install/user/all.sh",

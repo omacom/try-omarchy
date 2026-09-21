@@ -114,6 +114,11 @@ for relative in etc/xdg/kitty/kitty.conf usr/lib/tmpfiles.d/omarchy-nopasswd-sud
   install -Dm0644 "$root/$relative" "$stage/$relative"
 done
 
+# Keep the upstream menu helpers' scoped passwordless grants package-owned.
+for name in omarchy-dns omarchy-theme-browser; do
+  install -Dm0440 "$root/etc/sudoers.d/$name" "$stage/etc/sudoers.d/$name"
+done
+
 # The VM-specific screensaver override is one of the packaged Omarchy commands
 # below. Keep its cursor-policy helper in the same package so reinstalling or
 # verifying the runtime cannot leave that command with an unowned dependency.

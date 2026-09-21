@@ -1,0 +1,9 @@
+#!/bin/bash
+set -euo pipefail
+# Mount only the app's dedicated read-only bundle, never a personal shared folder.
+mountpoint=/mnt/try-omarchy-updates
+if ! mountpoint -q "$mountpoint"; then
+  sudo mkdir -p "$mountpoint"
+  sudo mount -t 9p -o trans=virtio,version=9p2000.L,ro tryomarchy-updates "$mountpoint"
+fi
+exec /usr/bin/python3 -I "$mountpoint/updater.py" review

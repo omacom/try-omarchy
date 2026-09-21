@@ -2,10 +2,16 @@
 
 set -eu
 
+printf '%s\n' \
+  "Testing Touch ID for sudo. Approve the Touch ID prompt on your Mac." \
+  "Password fallback is disabled for this test; no guest password will be requested." \
+  ""
 sudo -k
 if SUDO_ASKPASS=/bin/false sudo -A true; then
-  echo "sudo authenticated without a guest password. Touch ID was used if its prompt appeared."
+  echo "Test passed: sudo authenticated without a guest password."
+  echo "If you approved the Touch ID prompt, Touch ID completed this test."
 else
-  echo "Touch ID sudo check failed; password fallback was not accepted." >&2
+  printf '\n%s\n' "Touch ID authentication did not complete." >&2
+  echo "Password fallback is disabled for this test. Your guest password remains available for normal sudo commands." >&2
   exit 1
 fi

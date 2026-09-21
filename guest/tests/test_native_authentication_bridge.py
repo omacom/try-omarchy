@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Protocol tests for signed, sudo-only native authentication."""
+"""Protocol tests for signed native authentication."""
 
 from __future__ import annotations
 
@@ -127,6 +127,25 @@ class NativeAuthenticationProtocolTests(unittest.TestCase):
         ).stdout
         response["signature"] = base64.b64encode(signature).decode("ascii")
         return response
+
+    def test_onepassword_approval_is_bound_to_action_and_identity(self):
+        request = self.request()
+        request.update(operation="onepassword-unlock", service="com.1password.1Password.unlock", tty="")
+        broker.validate_request(request)
+        response = self.approved_response(request)
+        broker.verify_approval(request, response, pinned_public_key=self.public_key, now=response["issuedAt"])
+        for field, value in [("service", "sudo"), ("requestingUser", "other"), ("tty", "/dev/pts/4")]:
+            changed = {**request, field: value}
+            with self.subTest(field=field), self.assertRaises(broker.AuthorizationError):
+                broker.validate_request(changed)
+        for field, value in [("user", "other"), ("challenge", "cd" * 32), ("requestId", "33333333-3333-4333-8333-333333333333")]:
+            changed = {**request, field: value}
+            # Re-labeling a signed response cannot authorize another request.
+            forged = {**response, field: value}
+            with self.subTest(field=field), self.assertRaises(broker.AuthorizationError):
+                broker.verify_approval(changed, forged, pinned_public_key=self.public_key, now=response["issuedAt"])
+        with self.assertRaises(broker.AuthorizationError):
+            broker.verify_approval(request, response, pinned_public_key=self.public_key, now=response["expiresAt"] + 1)
 
     def test_request_encoding_matches_the_host_schema(self) -> None:
         request = self.request()

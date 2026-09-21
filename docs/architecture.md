@@ -36,18 +36,27 @@ is updated. Graphics travel from Linux through virtio-gpu and VirGL to the
 native Cocoa window. Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
 
-Before the real VM starts, the launcher asks the bundled QEMU to create a tiny
-disposable HVF machine with ARM virtualization extensions and Apple's platform
-GICv3. On M3 and newer Apple Silicon that probe succeeds, so the real guest
-starts at EL2 and Linux exposes `/dev/kvm`; on older chips the launcher keeps
-the existing platform-GIC/EL1 configuration. The pinned QEMU 11.1.1 runtime
-contains the upstream HVF vGIC and nested-virtualization implementation.
+On macOS 26 or newer, before the real VM starts, the launcher asks the bundled
+QEMU to create a tiny disposable HVF machine with ARM virtualization extensions
+and Apple's platform GICv3. When that probe succeeds on M3 and newer Apple
+Silicon, the real guest starts at EL2 and Linux exposes `/dev/kvm`; on older
+chips the launcher keeps the existing platform-GIC/EL1 configuration. The
+launcher rejects hosts older than macOS 26, as required by the pinned GPU
+runtime, before probing or starting QEMU.
+The pinned QEMU 11.1.1 runtime contains the upstream HVF vGIC and
+nested-virtualization implementation.
 
 Trackpad magnification uses a dedicated indirect virtio touchpad alongside the
 ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each
 pinch and releases them on cancellation or focus loss; the guest disables
 tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
 input contract, existing-guest setup, and integration validation.
+
+Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch and
+given to Cocoa. New and reset factory users also load an overlay that sets
+`kb_model=applealu_*`. App upgrade applies the Cocoa swap only; existing
+homes keep their current Hyprland input. See
+[Mac keyboard](mac-keyboard.md).
 
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
@@ -262,10 +271,10 @@ but the direct-boot kernel and matching headers, the packaged
 `try-omarchy-runtime`, and reviewed compatibility backports remain pinned in
 Try Omarchy's prioritized local repository. Reusing a disk therefore does not
 silently import a newer app's factory contents, and running the in-guest updater
-must not be described as reproducing every factory-image change. Delivering
-new Try Omarchy runtime or backport revisions to existing disks requires an
-explicitly designed in-guest migration channel; today a factory reset is the
-way to opt into the complete new factory.
+must not be described as reproducing every factory-image change. The bundled integration manager provides an explicit migration channel for
+reviewed guest integrations, with user-approved installation and per-VM status
+reporting. It does not replace the pinned kernel or reproduce every factory
+change. Factory reset remains the way to opt into the complete new factory.
 
 Optional, user-initiated installers run after the factory image has been built
 and are a separate trust boundary. They may resolve a mutable current release
@@ -278,3 +287,19 @@ installer uses the declared sources and authenticates downloaded vendor
 artifacts against an explicit signing identity. Invoking an optional installer
 is the user's
 decision to cross that post-build boundary.
+
+### Guest display synchronization
+
+QEMU publishes the Cocoa window's current backing-pixel dimensions through
+Virtio GPU EDID. The guest's `omarchy-native-display-sync` helper applies those
+live timings at startup and on DRM hotplug events. The Hyprland monitor fragment
+also invokes the helper with `--once` after `config.reloaded`: a configuration
+reload can restore a cached preferred mode without emitting a hotplug event,
+leaving the rendered desktop and absolute pointer coordinates out of sync.
+
+Both paths reread Omarchy's numeric `omarchy_monitor_scale` setting from
+`~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set). An automatic or
+absent setting uses the live EDID's pixel density. If a resized display cannot
+represent the requested zoom exactly, the helper selects the nearest supported
+scale with integral logical dimensions. Explicit per-output monitor rules still
+take precedence over the helper's catch-all rule.

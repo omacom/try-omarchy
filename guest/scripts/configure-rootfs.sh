@@ -76,7 +76,6 @@ chmod 0755 \
   "$root/usr/bin/omarchy-audio-input-set-default" \
   "$root/usr/bin/omarchy-screensaver" \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
-  "$root/usr/local/bin/alacritty" \
   "$root/usr/local/bin/xdg-terminal-exec" \
   "$root/usr/local/bin/kitty" \
   "$root/usr/local/bin/omarchy-arch-aarch64" \
@@ -92,6 +91,7 @@ chmod 0755 \
   "$root/usr/local/bin/try-omarchy-touch-id-test" \
   "$root/usr/local/lib/try-omarchy/native-authentication-broker" \
   "$root/usr/local/sbin/try-omarchy-touch-id-control" \
+  "$root/usr/local/sbin/try-omarchy-migrate-alacritty" \
   "$root/usr/local/sbin/try-omarchy-touch-id-enroll" \
   "$root/usr/local/lib/try-omarchy/install-vivaldi-arm64" \
   "$root/usr/lib/systemd/system-generators/try-omarchy-ssh-access"
@@ -180,6 +180,15 @@ find "$root/var/cache/pacman/pkg" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev
 mkdir -p "$root/usr/local/lib/try-omarchy"
 install -m 0755 "$guest_dir/scripts/finalize-rootfs.sh" "$root/usr/local/lib/try-omarchy/finalize-rootfs"
 install -m 0644 "$spec" "$root/usr/share/try-omarchy/build-spec.json"
+
+# Fresh guests report integration status from their first boot. Older guests
+# receive the same bundle through the app's explicit bootstrap flow.
+python3 "$guest_dir/../integrations/build-bundle.py" "$root/usr/local/share/try-omarchy/integrations"
+install -m 0755 "$guest_dir/../integrations/try-omarchy-integrations" "$root/usr/local/bin/try-omarchy-integrations"
+install -m 0644 "$guest_dir/../integrations/try-omarchy-integrations.service" "$root/usr/lib/systemd/system/try-omarchy-integrations.service"
+mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
+ln -s /usr/lib/systemd/system/try-omarchy-integrations.service "$root/etc/systemd/system/multi-user.target.wants/try-omarchy-integrations.service"
+python3 "$root/usr/local/share/try-omarchy/integrations/updater.py" stage-menu "$root/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc"
 
 # Record content digests before the user overlay is copied into $HOME. This is
 # the machine-readable proof that the compositor/shell runtime came from the

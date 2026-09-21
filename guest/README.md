@@ -62,6 +62,23 @@ direct-boot kernel and matching headers are held, while the packaged
 repository. A separate migration channel is required before those
 Try-Omarchy-specific revisions can advance on an existing disk without reset.
 
+The kernel reboot check recognizes package-owned `modules.builtin` metadata as
+well as `vmlinuz` under `/usr/lib/modules/<release>/`. Arch Linux ARM does not
+place `vmlinuz` there, so requiring that file alone produces a false kernel-update
+prompt after every no-op update. A matching release suppresses that prompt;
+unrecognized layouts report that kernel reboot status could not be determined
+instead of claiming either a match or an update. Other reboot and service-restart
+reasons still apply. This check ships as the `update-restart-arm-kernel` reviewed
+backport, with a fixture from the pinned upstream command for regression tests.
+
+The factory includes the pinned upstream `omarchy-dns` and
+`omarchy-theme-browser` sudoers drop-ins, owned by `try-omarchy-runtime` with
+root ownership and mode `0440`. These grant wheel users passwordless access
+only to the upstream DNS presets and browser theme-color helper, so those menu
+actions do not fall back to a polkit password prompt. Other sudo operations
+retain their existing password or opt-in Touch ID authentication. As with other
+factory changes, replacing the Mac app does not add these files to an existing VM.
+
 The default Tokyo Night wallpaper is seeded as a per-user background at
 `native-overlay/etc/skel/.config/omarchy/backgrounds/tokyo-night/try-omarchy-wallpaper.jpg`.
 Omarchy checks that directory before the packaged theme backgrounds during

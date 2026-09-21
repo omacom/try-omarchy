@@ -150,6 +150,9 @@ cat >> "$root/etc/skel/.config/hypr/input.lua" <<'EOF'
 
 -- Try Omarchy's host pinch device carries gestures only.
 dofile("/usr/share/try-omarchy/pinch-input.lua")
+
+-- Match Apple keyboard geometry (ansi/iso/jis) from the host cmdline.
+dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")
 EOF
 install_file 0644 "$source_dir/default/bashrc" "$root/etc/skel/.bashrc"
 mkdir -p "$root/etc/skel/.local/share/applications"
@@ -191,6 +194,12 @@ install_file 0644 "$source_dir/etc/fastfetch/config.jsonc" "$root/etc/fastfetch/
 install_file 0644 "$source_dir/etc/xdg/kitty/kitty.conf" "$root/etc/xdg/kitty/kitty.conf"
 install_file 0644 "$source_dir/etc/tmpfiles.d/omarchy-nopasswd-sudo.conf" \
   "$root/usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"
+
+# Let the menu's DNS and browser-theme helpers use their narrowly scoped
+# upstream passwordless grants instead of falling back to a polkit prompt.
+for name in omarchy-dns omarchy-theme-browser; do
+  install_file 0440 "$source_dir/etc/sudoers.d/$name" "$root/etc/sudoers.d/$name"
+done
 
 # Preserve the application metadata and artwork used by Quickshell's real app
 # provider. Normalize display-style artwork names to the lowercase, hyphenated

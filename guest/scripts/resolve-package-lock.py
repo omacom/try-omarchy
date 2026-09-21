@@ -47,7 +47,7 @@ def main() -> None:
         check=False,
     )
     if result.returncode:
-        raise SystemExit(result.stderr or result.stdout)
+        raise SystemExit(result.stderr + result.stdout)
 
     resolved: dict[str, str] = {}
     for line in result.stdout.splitlines():

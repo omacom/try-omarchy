@@ -32,5 +32,10 @@ end
 if omarchy_kernel_option_enabled("omarchy.qemu_virgl=1") then
   hl.config({ cursor = { invisible = true } })
   o.exec_on_start("/usr/local/bin/omarchy-native-display-sync")
+  -- A config reload restores the cached preferred mode without a DRM hotplug.
+  -- Apply the live EDID after the reload has completed, using the same helper.
+  hl.on("config.reloaded", function()
+    hl.exec_cmd("/usr/local/bin/omarchy-native-display-sync --once")
+  end)
 end
 -- END OMARCHY ARM QEMU VIRGL PROFILE

@@ -26,7 +26,7 @@ def fail(message: str) -> None:
     raise SystemExit(f"install-touch-id-menu-entry: {message}")
 
 
-def install(path: Path) -> None:
+def install(path: Path, previous_entry: str | None = None) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         info = path.stat(follow_symlinks=False)
@@ -45,7 +45,7 @@ def install(path: Path) -> None:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         fail("menu extension is not UTF-8")
-    if ENTRY_ID in text:
+    if ENTRY_ID in text and (previous_entry is None or text.count(previous_entry) != 1):
         return
 
     opening = text.find("{")
@@ -53,7 +53,10 @@ def install(path: Path) -> None:
         fail("menu extension does not start with a JSONC object")
     if text.rstrip()[-1:] != "}":
         fail("menu extension is not a JSONC object")
-    updated = text[: opening + 1] + "\n" + ENTRY + text[opening + 1 :]
+    if ENTRY_ID in text:
+        updated = text.replace(previous_entry, ENTRY, 1)
+    else:
+        updated = text[: opening + 1] + "\n" + ENTRY + text[opening + 1 :]
 
     directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     temporary = f".{path.name}.{secrets.token_hex(8)}"

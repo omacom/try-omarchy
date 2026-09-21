@@ -189,6 +189,12 @@ printf '\x28\xb5\x2f\xfdzstd-initramfs\n' >"$initramfs_zstd"
 printf '\x28\xb5\x2f\xfd' >"$initramfs_zstd_truncated"
 kernel_command_line_a='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
 kernel_command_line_b='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5'
+assert _qps_validate_kernel_command_line "$kernel_command_line_a"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=0"
+
 
 # Inspecting a new location reports "missing" without asking for, copying, or
 # materializing a factory disk. A full selection then creates the VM and pairs
@@ -890,5 +896,15 @@ saved_marker_state_root=$OMARCHY_QEMU_GPU_STATE_ROOT
 export OMARCHY_QEMU_GPU_STATE_ROOT=$marker_root
 assert_fails _qps_prepare_state_root
 export OMARCHY_QEMU_GPU_STATE_ROOT=$saved_marker_state_root
+
+# Launch-time keyboard and SSH tokens must not be persisted or recovered.
+valid_command_line='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
+assert _qps_validate_kernel_command_line "$valid_command_line"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.keyboard=iso"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.ssh_access=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.export_boot=1"
 
 printf 'qemu-persistent-storage.test: PASS\n'
