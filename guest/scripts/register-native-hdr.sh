@@ -32,8 +32,8 @@ hdr, spec_path, cache, build = map(pathlib.Path, sys.argv[1:])
 spec = json.loads(spec_path.read_text())
 meta = json.loads((hdr/'sources.json').read_text())
 assert spec['image']['architecture'] == 'aarch64'
-assert (meta['version'], meta['kernelVersion'], meta['kernelRelease']) == ('1.0.0', '7.2.2', '7.2.2-2-aarch64-ARCH')
-assert meta['linuxBaseUrl'] == 'https://raw.githubusercontent.com/gregkh/linux/v7.2.2/drivers/gpu/drm/virtio/'
+assert (meta['version'], meta['kernelVersion'], meta['kernelRelease']) == ('1.0.0', '7.2.6', '7.2.6-1-aarch64-ARCH')
+assert meta['linuxBaseUrl'] == 'https://raw.githubusercontent.com/gregkh/linux/v7.2.6/drivers/gpu/drm/virtio/'
 assert set(meta['patches']) == {'virtio-gpu-hdr.patch', 'mesa-es3-norm16.patch', 'mpv-wayland-color.patch'}
 def verify(path, digest):
     return path.is_file() and not path.is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest() == digest
@@ -57,14 +57,14 @@ def fetch(name, url, digest):
 kernel = build/'kernel'; kernel.mkdir()
 for name, digest in linux.items():
     assert pathlib.Path(name).name == name
-    source = fetch('linux-7.2.2-'+name, meta['linuxBaseUrl']+name, digest)
+    source = fetch('linux-7.2.6-'+name, meta['linuxBaseUrl']+name, digest)
     (kernel/name).write_bytes(source.read_bytes())
 fetch('mesa-26.2.1.tar.xz', meta['mesa']['url'], meta['mesa']['sha256'])
 fetch('mpv-0.41.0.tar.gz', meta['mpv']['url'], meta['mpv']['sha256'])
 (build/'epoch').write_text(str(spec['image']['sourceDateEpoch']))
 (build/'build-packages').write_text('\n'.join(n+'='+v for n,v in sorted(meta['buildPackages'].items()))+'\n')
 PYTHON
-kernel_release=7.2.2-2-aarch64-ARCH
+kernel_release=7.2.6-1-aarch64-ARCH
 kernel_headers="$root/usr/lib/modules/$kernel_release/build"
 [[ $(cat "$kernel_headers/include/config/kernel.release") == "$kernel_release" ]] || fail "matching kernel headers required"
 # Extra generators belong to the disposable builder, not the staged guest.
@@ -151,15 +151,15 @@ PYTHON
 install -m644 "$hdr/environment.sh" "$stage/usr/local/lib/omarchy-hdr/environment.sh"
 sources="$stage/usr/share/try-omarchy/native-hdr-source"
 licenses="$stage/usr/share/licenses/try-omarchy-native-hdr"
-mkdir -p "$sources/linux-7.2.2-virtio" "$licenses"
+mkdir -p "$sources/linux-7.2.6-virtio" "$licenses"
 cp "$work/download-cache/mesa-26.2.1.tar.xz" "$work/download-cache/mpv-0.41.0.tar.gz" "$sources/"
 cp -a "$hdr" "$sources/"
 cp "$0" "$sources/register-native-hdr.sh"
-python3 - "$hdr/linux-source-sha256.json" "$work/download-cache" "$sources/linux-7.2.2-virtio" <<'PYTHON'
+python3 - "$hdr/linux-source-sha256.json" "$work/download-cache" "$sources/linux-7.2.6-virtio" <<'PYTHON'
 import json, pathlib, sys
 manifest, cache, output = map(pathlib.Path, sys.argv[1:])
 for name in json.loads(manifest.read_text()):
-    (output/name).write_bytes((cache/('linux-7.2.2-'+name)).read_bytes())
+    (output/name).write_bytes((cache/('linux-7.2.6-'+name)).read_bytes())
 PYTHON
 cp "$build/mpv-0.41.0/LICENSE.GPL" "$licenses/GPL-2.0"
 cp "$build/mpv-0.41.0/LICENSE.LGPL" "$licenses/LGPL-2.1"

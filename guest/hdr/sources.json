@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
-  "kernelVersion": "7.2.2",
-  "kernelRelease": "7.2.2-2-aarch64-ARCH",
-  "linuxBaseUrl": "https://raw.githubusercontent.com/gregkh/linux/v7.2.2/drivers/gpu/drm/virtio/",
+  "kernelVersion": "7.2.6",
+  "kernelRelease": "7.2.6-1-aarch64-ARCH",
+  "linuxBaseUrl": "https://raw.githubusercontent.com/gregkh/linux/v7.2.6/drivers/gpu/drm/virtio/",
   "linuxManifestSha256": "6b93280bdb830b9643ac47458f924a1887dff5d46577f2432ebfbf2bd6444e8d",
   "mesa": {
     "version": "26.2.1",

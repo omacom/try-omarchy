@@ -62,6 +62,16 @@ class NativeHDRTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256((hdr / "linux-source-sha256.json").read_bytes()).hexdigest(),
                          metadata["linuxManifestSha256"])
 
+    def test_hdr_driver_matches_the_locked_guest_kernel(self):
+        metadata = json.loads((GUEST / "hdr/sources.json").read_text())
+        packages = json.loads((GUEST / "packages.lock.json").read_text())["packages"]
+        kernel = packages["linux-aarch64"]
+        self.assertEqual(packages["linux-aarch64-headers"], kernel)
+        self.assertEqual(metadata["kernelVersion"], kernel.rsplit("-", 1)[0])
+        self.assertEqual(metadata["kernelRelease"], kernel + "-aarch64-ARCH")
+        self.assertEqual(metadata["linuxBaseUrl"],
+                         f"https://raw.githubusercontent.com/gregkh/linux/v{metadata['kernelVersion']}/drivers/gpu/drm/virtio/")
+
 
 if __name__ == "__main__":
     unittest.main()
