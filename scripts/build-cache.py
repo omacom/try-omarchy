@@ -16,6 +16,8 @@ import sys
 import tempfile
 from typing import Any
 
+from app_version import build_version
+
 
 SCHEMA_VERSION = 2
 GUEST_ARTIFACTS = {
@@ -216,7 +218,11 @@ def fingerprint(root: Path, component: str, command: list[str]) -> str:
 
     paths = component_files(root, component)
     if component == "app":
+        digest.update(
+            json.dumps(build_version(root), sort_keys=True, separators=(",", ":")).encode()
+        )
         paths.extend(app_external_files(root))
+        paths.append(Path(__file__).with_name("app_version.py").resolve())
     paths.append(Path(__file__).resolve())
 
     seen: set[str] = set()

@@ -57,6 +57,7 @@ test:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-pinch.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-virtio-pinch.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-build-cache.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
 	@$(ROOT)/guest/test
 	@$(ROOT)/macos/Tests/macos-compatibility.test.sh
@@ -112,8 +113,7 @@ update-omarchy:
 	@$(ROOT)/guest/test --source "$(ROOT)/.build/upstream/omarchy-v$(OMARCHY_RELEASE)"
 
 version-preflight:
-	@[[ -z "$$(git -C "$(ROOT)" status --porcelain --untracked-files=all)" ]] || { echo 'error: the worktree must be clean before building a signed app' >&2; exit 1; }
-	@tag="$$(git -C "$(ROOT)" describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null)"; [[ $$tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo 'error: HEAD must carry an exact vX.Y.Z release tag' >&2; exit 1; }
+	@python3 "$(ROOT)/scripts/app_version.py" --root "$(ROOT)" --require-release
 
 package-preflight: version-preflight
 	@[[ "$(PACKAGE_SIGN_IDENTITY)" == "Developer ID Application:"* ]] || { echo 'error: PACKAGE_SIGN_IDENTITY must be a Developer ID Application identity' >&2; exit 1; }

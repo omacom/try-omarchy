@@ -8,8 +8,20 @@ Releases are Apple Silicon-only and require macOS 15 or newer.
 make doctor
 make test
 make build
-make release
+# Choose the next version and tag the clean commit being packaged.
+git tag -a vX.Y.Z -m "vX.Y.Z"
+make package
 ```
+
+Replace `vX.Y.Z` with the intended release version. Both `make package` and
+`make release` require a clean checkout, including untracked files, with an
+exact `vX.Y.Z` tag on HEAD. Neither command selects the next version or checks
+whether that version has already been published. Ignored build output does
+not make the checkout dirty.
+
+After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
+the GitHub release manually using that existing tag and attach
+`dist/TryOmarchy.dmg`. Packaging does not create tags or publish GitHub releases.
 
 When the release updates Omarchy itself, first run:
 
