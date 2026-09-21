@@ -129,7 +129,9 @@ meson setup "$build/mpv-build" "$build/mpv-0.41.0" --native-file "$build/native.
   --prefix=/usr/local/lib/omarchy-hdr/mpv --buildtype=release \
   -Dlibmpv=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled \
   -Dwayland=enabled -Degl-wayland=enabled -Dvaapi=enabled -Dpipewire=enabled
-ninja -C "$build/mpv-build" -j"$jobs"
+# Only the player is packaged. The default target also runs the guest-linked
+# binary to generate protocol metadata on the builder, which lacks guest libs.
+ninja -C "$build/mpv-build" -j"$jobs" mpv
 install -Dm755 "$build/mpv-build/mpv" "$stage/usr/local/lib/omarchy-hdr/mpv/bin/mpv"
 python3 - "$stage/usr/local/lib/omarchy-hdr" "$root" "$build" <<'PYTHON'
 import pathlib, re, subprocess, sys

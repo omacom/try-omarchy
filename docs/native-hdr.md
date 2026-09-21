@@ -106,7 +106,7 @@ checks; measuring the physical panel luminance requires a colorimeter.
 the guest builder. `guest/hdr/sources.json` pins source archives, patches, kernel
 source files and additional build tools. The output package contains:
 
-- A virtio-gpu module for **7.2.2-2-aarch64-ARCH**, under `updates/omarchy-hdr`.
+- A virtio-gpu module for **7.2.6-1-aarch64-ARCH**, under `updates/omarchy-hdr`.
 - Private Mesa 26.2.1 and mpv 0.41.0 under `/usr/local/lib/omarchy-hdr`.
 - Corresponding source archives, patches, build recipe and license notices.
 - Source and binary hashes in `/usr/share/try-omarchy/native-hdr.json`.
