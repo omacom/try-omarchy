@@ -68,6 +68,9 @@ final class NetworkEditor: NSObject {
         macAddress.isSelectable = true
         macHelp.font = .systemFont(ofSize: 12)
         macHelp.textColor = .secondaryLabelColor
+        if identity.isEphemeral {
+            macHelp.stringValue = "Ephemeral VMs receive a new MAC address on each launch."
+        }
         copyMAC.target = self; copyMAC.action = #selector(copyAddress)
         regenerateMAC.target = self; regenerateMAC.action = #selector(regenerateAddress)
         macControls.addArrangedSubview(copyMAC)
@@ -120,9 +123,12 @@ final class NetworkEditor: NSObject {
         do {
             currentMAC = try identity.read()
             canReplaceMAC = !currentMAC.isEmpty && identity.canReplace()
-            regenerateMAC.toolTip = canReplaceMAC ? nil : "Shut down the VM before changing its MAC address."
+            regenerateMAC.toolTip = identity.isEphemeral
+                ? "Ephemeral MAC addresses cannot be changed here."
+                : (canReplaceMAC ? nil : "Shut down the VM before changing its MAC address.")
             macAddress.stringValue = currentMAC.isEmpty
-                ? "MAC address: assigned on the first bridged launch."
+                ? (identity.isEphemeral ? "MAC address: assigned on each bridged launch."
+                    : "MAC address: assigned on the first bridged launch.")
                 : "MAC address: \(currentMAC)"
         } catch {
             currentMAC = ""
