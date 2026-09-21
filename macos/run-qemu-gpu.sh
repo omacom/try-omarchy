@@ -55,6 +55,9 @@ port_forwarding_library="$script_dir/qemu-port-forwarding.sh"
 
 [[ $(uname -m) == arm64 ]] || fail "requires an ARM64 Mac"
 [[ $(uname -s) == Darwin ]] || fail "requires macOS"
+macos_major=$(sw_vers -productVersion | cut -d. -f1)
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 26 )) || \
+  fail "requires macOS 26 or newer"
 [[ -d $guest_input && ! -L $guest_input ]] || fail "ARM guest directory is missing or unsafe: $guest_input"
 guest_dir=$(cd "$guest_input" && pwd -P)
 
@@ -807,6 +810,8 @@ arguments = command_line.split(" ")
 for required in ("root=/dev/vda", "rw", "rootwait", "console=tty0", "console=hvc0"):
     if arguments.count(required) != 1:
         fail(f"kernel command line must contain exactly one {required}")
+if any(argument.startswith("omarchy.virgl_dual_source=") for argument in arguments):
+    fail("kernel command line contains a launcher-owned VirGL capability argument")
 if any(argument.startswith("omarchy.qemu_virgl=") for argument in arguments):
     fail("kernel command line already contains a QEMU VirGL role")
 if any(argument.startswith("omarchy.shared_folder_name=") for argument in arguments):
@@ -916,6 +921,9 @@ IFS=$'\t' read -r bundle_identity source_disk_sha source_disk_bytes compressed_d
 (( expanded_disk_bytes >= source_disk_bytes )) || fail "working disk cannot be smaller than its source"
 [[ -n $kernel_command_line ]] || fail "validated kernel command line is empty"
 case " $kernel_command_line " in
+  *' omarchy.virgl_dual_source='*)
+    fail "validated kernel command line contains a launcher-owned VirGL capability argument"
+    ;;
   *' tryomarchy.ssh_access='*)
     fail "validated kernel command line contains a launcher-owned SSH activation argument"
     ;;
@@ -1176,17 +1184,32 @@ reap_stale_work_dirs() {
     launcher_command=$(printf '%s\n' "$process_snapshot" | awk -v pid="$launcher_pid" '$1 == pid { $1=""; print }')
     [[ $launcher_command != *"run-qemu-gpu.sh"* ]] || continue
 
+    stale_qemu_pid=""
     qemu_marker="$candidate/.qemu.pid"
     if [[ -f $qemu_marker && ! -L $qemu_marker ]]; then
       stale_qemu_pid=$(<"$qemu_marker")
-      if [[ $stale_qemu_pid =~ ^[0-9]+$ ]]; then
-        qemu_command=$(printf '%s\n' "$process_snapshot" | awk -v pid="$stale_qemu_pid" '$1 == pid { $1=""; print }')
-        if [[ $qemu_command == *"$qemu_bin"* &&
-              $qemu_command == *"unix:/tmp/${candidate##*/}/qmp.sock"* ]]; then
-          continue
-        fi
+      [[ $stale_qemu_pid =~ ^[0-9]+$ ]] || continue
+      qemu_command=$(printf '%s\n' "$process_snapshot" | awk -v pid="$stale_qemu_pid" '$1 == pid { $1=""; print }')
+      if [[ $qemu_command == *"$qemu_bin"* &&
+            $qemu_command == *"unix:/tmp/${candidate##*/}/qmp.sock"* ]]; then
+        continue
       fi
     fi
+
+    # A failed ps is not evidence that a process exited. Obtain a complete UID
+    # inventory after reading the marker, and prove it contains this launcher.
+    local process_ids="" inspected_pid="" inspection_valid=0 run_is_alive=0
+    if ! process_ids=$(ps -U "$(id -u)" -o pid= 2>/dev/null); then
+      continue
+    fi
+    while read -r inspected_pid; do
+      [[ $inspected_pid =~ ^[0-9]+$ ]] || continue
+      [[ $inspected_pid != "$$" ]] || inspection_valid=1
+      if [[ $inspected_pid == "$launcher_pid" || $inspected_pid == "$stale_qemu_pid" ]]; then
+        run_is_alive=1
+      fi
+    done <<<"$process_ids"
+    (( inspection_valid == 1 && run_is_alive == 0 )) || continue
 
     echo "[qemu-gpu] Removing a verified stale disposable run: $candidate" >&2
     /bin/rm -rf "$candidate"
@@ -1454,6 +1477,11 @@ launch_kernel_command_line=$QEMU_SELECTED_KERNEL_COMMAND_LINE
 [[ -n $launch_kernel && -n $launch_initramfs && -n $launch_kernel_command_line ]] || {
   fail 'the selected VM has no complete boot kit'
 }
+case " $launch_kernel_command_line " in
+  *' omarchy.virgl_dual_source='*)
+    fail "selected kernel command line contains a launcher-owned VirGL capability argument"
+    ;;
+esac
 
 if ((reset_only)); then
   qemu_persistent_storage_release_lock
@@ -1473,11 +1501,16 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
-# M3 and newer Apple Silicon can expose EL2 to this Linux guest. Probe the
-# actual Hypervisor.framework capability instead of guessing from a model name;
-# older Apple Silicon keeps the existing platform-GIC/EL1 launch path.
+# macOS 15 can pass the paused EL2 probe, then abort with HV_BAD_ARGUMENT when
+# QEMU synchronizes vCPU registers (#211). Keep it on the platform-GIC/EL1 path.
+# On macOS 26+, probe actual Hypervisor.framework support for EL2 rather than
+# guessing from a model name; older Apple Silicon still falls back to EL1.
+host_macos_version=$(sw_vers -productVersion 2>/dev/null) || host_macos_version=''
+host_macos_major=${host_macos_version%%.*}
 qemu_virtualization_args=(-machine "$qemu_machine")
-if printf '%s\n' \
+if [[ $host_macos_major =~ ^[1-9][0-9]*$ ]] && \
+  (( host_macos_major >= 26 )) && \
+  printf '%s\n' \
     '{"execute":"qmp_capabilities"}' \
     '{"execute":"quit"}' | \
   "$qemu_bin" \
@@ -1541,7 +1574,7 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -kernel "$launch_kernel"
   -initrd "$launch_initramfs"
-  -append "$launch_kernel_command_line omarchy.qemu_virgl=1$shared_folder_kernel_argument$ssh_kernel_argument"
+  -append "$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument"
   -drive "if=none,id=omarchy-root,file=$working_disk,format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root'
   -device "$gpu_device"
@@ -1724,6 +1757,7 @@ while true; do
       audio_bridge_status=$?
     fi
     audio_bridge_pid=""
+    # QEMU can exit between the process checks, taking the bridge down normally.
     for ((attempt = 0; attempt < 20; attempt++)); do
       qemu_state=$(ps -p "$qemu_pid" -o state= 2>/dev/null || true)
       [[ -n $qemu_state && $qemu_state != *Z* ]] || break

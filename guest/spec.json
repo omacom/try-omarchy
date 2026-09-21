@@ -213,6 +213,7 @@
     "packages": "packages.txt",
     "packageLock": "packages.lock.json",
     "pacmanConfig": "pacman.aarch64.conf",
+    "packageRepositorySnapshot": "https://pkgmirror.sametimetomorrow.net/aarch64/repos/2026/09/15",
     "abiPackagePins": [
       {
         "name": "aquamarine",
@@ -512,6 +513,8 @@
       "default/themed/shell.toml.tpl",
       "default/uwsm/env.d/10-omarchy",
       "default/wayland-sessions/omarchy.desktop",
+      "etc/sudoers.d/omarchy-dns",
+      "etc/sudoers.d/omarchy-theme-browser",
       "install/provisioning/omarchy-provision-owner.service",
       "install/provisioning/setup-form.sh",
       "install/user/all.sh",

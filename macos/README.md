@@ -21,7 +21,7 @@ make test
 `make build` creates both first.
 
 The staged runtime is a complete, checksum-pinned Apple Silicon closure built
-for macOS 15.0. Runtime and app assembly do not resolve libraries or `zstd`
+for macOS 26.0. Runtime and app assembly do not resolve libraries or `zstd`
 from the host Homebrew prefix, so building on a newer macOS release cannot
 silently raise the app's deployment target.
 

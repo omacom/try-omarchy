@@ -131,11 +131,11 @@ def main() -> None:
     )
     check(spec["runtime"]["storage"]["expandedSizeMiB"] == 24576, "working disk expands to 24 GiB")
     check(
-        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins"},
+        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins", "packageRepositorySnapshot"},
         "spec has a minimal input set",
     )
     for key, value in spec["inputs"].items():
-        if key == "abiPackagePins":
+        if key in {"abiPackagePins", "packageRepositorySnapshot"}:
             continue
         check((GUEST / value).is_file(), f"spec input exists: {value}")
     abi_pins = spec["inputs"]["abiPackagePins"]
@@ -1482,16 +1482,10 @@ def main() -> None:
         "native background picker override is executable",
     )
     check(cursor_restore.stat().st_mode & stat.S_IXUSR != 0, "native cursor restore helper is executable")
-    alacritty_wrapper = GUEST / "native-overlay/usr/local/bin/alacritty"
-    alacritty_wrapper_text = read(alacritty_wrapper)
-    check(alacritty_wrapper.stat().st_mode & stat.S_IXUSR != 0, "Alacritty VirGL wrapper is executable")
     check(
-        'real=/usr/bin/alacritty' in alacritty_wrapper_text
-        and "export LIBGL_ALWAYS_SOFTWARE=1" in alacritty_wrapper_text
-        and "omarchy.qemu_virgl=1" in alacritty_wrapper_text
-        and 'exec "$real" "$@"' in alacritty_wrapper_text
-        and '"$root/usr/local/bin/alacritty"' in configure,
-        "Alacritty VirGL wrapper forces software GL onto the pacman binary",
+        not (GUEST / "native-overlay/usr/local/bin/alacritty").exists()
+        and '"$root/usr/local/bin/alacritty"' not in configure,
+        "Alacritty uses the accelerated pacman binary without a software GL wrapper",
     )
     xdg_terminal = GUEST / "factory-overlay/usr/local/bin/xdg-terminal-exec"
     xdg_terminal_text = read(xdg_terminal)
@@ -1630,7 +1624,6 @@ HOTPLUG=1
         screensaver_override,
         background_switcher_override,
         cursor_restore,
-        alacritty_wrapper,
         kitty_wrapper,
         display_sync,
         mac_share,
@@ -1719,6 +1712,16 @@ HOTPLUG=1
                 capture_output=True,
             )
             staged_icons = staged_root / "usr/share/icons/hicolor/256x256/apps"
+            for name in ("omarchy-dns", "omarchy-theme-browser"):
+                relative = Path("etc/sudoers.d") / name
+                policy = staged_root / relative
+                check(
+                    policy.is_file()
+                    and not policy.is_symlink()
+                    and policy.read_bytes() == (source / relative).read_bytes()
+                    and stat.S_IMODE(policy.stat().st_mode) == 0o440,
+                    f"menu sudoers policy preserves upstream grants with mode 0440: {name}",
+                )
             for upstream_path, installed_path in (
                 ("etc/xdg/kitty/kitty.conf", "etc/xdg/kitty/kitty.conf"),
                 ("etc/tmpfiles.d/omarchy-nopasswd-sudo.conf", "usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"),

@@ -76,7 +76,6 @@ chmod 0755 \
   "$root/usr/bin/omarchy-audio-input-set-default" \
   "$root/usr/bin/omarchy-screensaver" \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
-  "$root/usr/local/bin/alacritty" \
   "$root/usr/local/bin/xdg-terminal-exec" \
   "$root/usr/local/bin/kitty" \
   "$root/usr/local/bin/omarchy-arch-aarch64" \
@@ -92,6 +91,7 @@ chmod 0755 \
   "$root/usr/local/bin/try-omarchy-touch-id-test" \
   "$root/usr/local/lib/try-omarchy/native-authentication-broker" \
   "$root/usr/local/sbin/try-omarchy-touch-id-control" \
+  "$root/usr/local/sbin/try-omarchy-migrate-alacritty" \
   "$root/usr/local/sbin/try-omarchy-touch-id-enroll" \
   "$root/usr/local/lib/try-omarchy/install-vivaldi-arm64" \
   "$root/usr/lib/systemd/system-generators/try-omarchy-ssh-access"

@@ -192,6 +192,12 @@ install_file 0644 "$source_dir/etc/xdg/kitty/kitty.conf" "$root/etc/xdg/kitty/ki
 install_file 0644 "$source_dir/etc/tmpfiles.d/omarchy-nopasswd-sudo.conf" \
   "$root/usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"
 
+# Let the menu's DNS and browser-theme helpers use their narrowly scoped
+# upstream passwordless grants instead of falling back to a polkit prompt.
+for name in omarchy-dns omarchy-theme-browser; do
+  install_file 0440 "$source_dir/etc/sudoers.d/$name" "$root/etc/sudoers.d/$name"
+done
+
 # Preserve the application metadata and artwork used by Quickshell's real app
 # provider. Normalize display-style artwork names to the lowercase, hyphenated
 # icon identifiers used by the desktop files and accepted by GTK's icon cache.

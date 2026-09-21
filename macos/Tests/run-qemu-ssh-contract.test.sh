@@ -46,7 +46,13 @@ mkdir -p \
   "$resources/scripts" \
   "$shim_dir"
 
-/bin/cp "$macos_dir/run-qemu-gpu.sh" "$resources/scripts/run-qemu-gpu.sh"
+# The copied launcher must never reap another app's live run directories.
+# Keep the unique prefix directly in /private/tmp for short Unix socket paths.
+sed "s|/private/tmp/omarchy-qemu-gpu\\.|/private/tmp/${test_root##*/}-run.|g" \
+  "$macos_dir/run-qemu-gpu.sh" >"$resources/scripts/run-qemu-gpu.sh"
+if grep -Fq '/private/tmp/omarchy-qemu-gpu.' "$resources/scripts/run-qemu-gpu.sh"; then
+  fail "test launcher still refers to production run directories"
+fi
 /bin/cp "$macos_dir/qemu-port-forwarding.sh" "$resources/scripts/qemu-port-forwarding.sh"
 /bin/cp "$macos_dir/qemu-networking.sh" "$resources/scripts/qemu-networking.sh"
 chmod 755 "$resources/scripts/run-qemu-gpu.sh"
@@ -63,6 +69,9 @@ if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
    || ${1:-} == --bridge-native-camera ]]; then
+  if [[ $1 == --bridge-native-audio && ${FAKE_AUDIO_EXIT_EARLY:-0} == 1 ]]; then
+    exit 0
+  fi
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
   done
@@ -105,12 +114,14 @@ case " $* " in
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
   *' -device virtio-gpu-gl-pci,help '*) printf '%s\n' 'romfile=<str>' ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
+    printf 'probe\n' >>"$FAKE_QEMU_NESTED_LOG"
     exit "${FAKE_QEMU_NESTED_STATUS:-0}"
     ;;
   *)
     exec /usr/bin/python3 - "$@" <<'PY'
 import os
 from pathlib import Path
+import signal
 import socket
 import sys
 import time
@@ -119,6 +130,7 @@ arguments = sys.argv[1:]
 is_recovery = "Try Omarchy Boot Recovery" in arguments
 log_variable = "FAKE_QEMU_RECOVERY_LOG" if is_recovery else "FAKE_QEMU_LOG"
 Path(os.environ[log_variable]).write_text("\n".join(arguments) + "\n")
+Path(os.environ[log_variable] + ".pid").write_text(str(os.getpid()))
 
 if is_recovery:
     export_path = None
@@ -157,7 +169,18 @@ if os.environ.get("FAKE_QEMU_SKIP_SOCKETS") != "1":
         server.listen(1)
         servers.append(server)
 
-time.sleep(float(os.environ.get("FAKE_QEMU_LIFETIME", "0.20")))
+if os.environ.get("FAKE_QEMU_WAIT_FOR_TERMINATION") == "1":
+    # Failure scenarios need QEMU alive until launcher cleanup, regardless of
+    # host speed. The alarm only bounds a broken launcher/test, not success.
+    def timed_out(signum, frame):
+        Path(os.environ[log_variable] + ".timed-out").touch()
+        raise SystemExit("fake QEMU timed out waiting for launcher cleanup")
+
+    signal.signal(signal.SIGALRM, timed_out)
+    signal.alarm(60)
+    signal.pause()
+else:
+    time.sleep(float(os.environ.get("FAKE_QEMU_LIFETIME", "0.20")))
 for server in servers:
     server.close()
 raise SystemExit(int(os.environ.get("FAKE_QEMU_STATUS", "0")))
@@ -282,6 +305,12 @@ cat >"$shim_dir/file" <<'SH'
 #!/bin/bash
 printf '%s: Mach-O 64-bit executable arm64\n' "$1"
 SH
+cat >"$shim_dir/sw_vers" <<'SH'
+#!/bin/bash
+[[ $* == -productVersion ]] || exit 1
+printf '%s\n' "${FAKE_MACOS_VERSION-26.0}"
+exit "${FAKE_MACOS_VERSION_STATUS:-0}"
+SH
 cat >"$shim_dir/sysctl" <<'SH'
 #!/bin/bash
 if [[ $# == 2 && $1 == -n && ($2 == hw.logicalcpu || $2 == hw.ncpu) ]]; then
@@ -297,9 +326,20 @@ SH
 cat >"$shim_dir/ps" <<'SH'
 #!/bin/bash
 [[ ${FAKE_PROCESS_INSPECTION_UNAVAILABLE:-0} != 1 ]] || exit 77
+if [[ ${FAKE_PS_DELAY:-0} != 0 && $* == *' -o state=' ]]; then
+  sleep "$FAKE_PS_DELAY"
+fi
 if [[ ${FAKE_LARGE_PROCESS_LIST:-0} == 1 && "$*" == "-axo pid=,command=" ]]; then
   printf '999999 /bin/bash run-qemu-gpu.sh\n'
   /usr/bin/awk 'BEGIN { for (i=0; i<10000; i++) print 800000+i, "unrelated process with enough output to fill a pipe buffer" }'
+fi
+if [[ ${FAKE_SHUTDOWN_RACE:-0} == 1 && -f ${FAKE_QEMU_LOG:-}.pid       && $* == "-p $(cat "$FAKE_QEMU_LOG.pid") -o state="       && ! -e $FAKE_QEMU_LOG.raced ]]; then
+  state=$(/bin/ps "$@" 2>/dev/null) || exit $?
+  touch "$FAKE_QEMU_LOG.raced"
+  # Return a stale live snapshot only after QEMU and its bridges have exited.
+  sleep 0.5
+  printf '%s\n' "$state"
+  exit 0
 fi
 exec /bin/ps "$@"
 SH
@@ -431,6 +471,7 @@ run_scenario() {
     FAKE_STORAGE_LOG="$scenario_dir/storage.log" \
     FAKE_PERSISTENT_ROOT="$persistent_root" \
     FAKE_QEMU_LOG="$scenario_dir/qemu.log" \
+    FAKE_QEMU_NESTED_LOG="$scenario_dir/nested.log" \
     "$@" \
     "$launcher" ${launcher_argument:+"$launcher_argument"} \
     >"$scenario_dir/stdout" 2>"$scenario_dir/stderr"; then
@@ -438,6 +479,7 @@ run_scenario() {
   else
     actual_status=$?
   fi
+  [[ ! -e $scenario_dir/qemu.log.timed-out ]] || fail "$scenario timed out waiting for launcher cleanup"
   if [[ $actual_status != "$expected_status" ]]; then
     /bin/cat "$scenario_dir/stderr" >&2 || true
     fail "$scenario expected status $expected_status, got $actual_status"
@@ -467,6 +509,13 @@ assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
 assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
 assert_line_pair "$test_root/disabled/qemu.log" -m 8192M
+
+run_scenario shutdown-race 0 '' FAKE_SHUTDOWN_RACE=1
+[[ -e $test_root/shutdown-race/qemu.log.raced ]] || fail 'shutdown race was not exercised'
+# Slow process checks deliberately exceed the old two-second QEMU lifetime.
+run_scenario audio-exits-early 1 '' \
+  FAKE_AUDIO_EXIT_EARLY=1 FAKE_QEMU_WAIT_FOR_TERMINATION=1 FAKE_PS_DELAY=0.1
+assert_contains "$(<"$test_root/audio-exits-early/stderr")" 'native audio bridge exited while QEMU was running'
 
 # Exercise resource values through the real launcher and its QEMU boundary.
 run_scenario resources 0 '' FAKE_HOST_CPUS=18 \
@@ -512,10 +561,45 @@ assert_line_pair "$test_root/nested-fallback/qemu.log" -machine \
   'virt,accel=hvf,gic-version=3'
 assert_not_contains "$nested_fallback_qemu" virtualization=on
 assert_not_contains "$nested_fallback_qemu" kernel-irqchip=on
+assert_contains "$(<"$test_root/nested-fallback/nested.log")" probe
+
+# The pinned GPU runtime requires macOS 26. Reject older hosts before any
+# storage changes, nested-virtualization probes, or QEMU launches.
+for version in 15.0 15.7.7; do
+  scenario="unsupported-macos-$version"
+  run_scenario "$scenario" 1 '' FAKE_MACOS_VERSION="$version"
+  [[ ! -s $test_root/$scenario/storage.log ]] || fail "macOS $version touched storage"
+  [[ ! -e $test_root/$scenario/qemu.log ]] || fail "macOS $version started QEMU"
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail "macOS $version probed EL2"
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 26 or newer'
+done
+
+for version in 26.0 26.1 27.0; do
+  scenario="nested-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,gic-version=3,virtualization=on'
+  assert_line_pair "$test_root/$scenario/qemu.log" -accel 'hvf,kernel-irqchip=on'
+  assert_contains "$(<"$test_root/$scenario/nested.log")" probe
+done
+
+# An unavailable or unrecognized host version cannot satisfy the OS minimum.
+for version in '' unknown; do
+  scenario="unknown-macos-$version"
+  run_scenario "$scenario" 1 '' FAKE_MACOS_VERSION="$version"
+  [[ ! -s $test_root/$scenario/storage.log ]] || fail 'unknown macOS version touched storage'
+  [[ ! -e $test_root/$scenario/qemu.log ]] || fail 'unknown macOS version started QEMU'
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail 'unknown macOS version probed EL2'
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 26 or newer'
+done
+run_scenario nested-version-failure 1 '' FAKE_MACOS_VERSION_STATUS=1
+[[ ! -s $test_root/nested-version-failure/storage.log ]] || fail 'failed version query touched storage'
+[[ ! -e $test_root/nested-version-failure/qemu.log ]] || fail 'failed version query started QEMU'
+[[ ! -e $test_root/nested-version-failure/nested.log ]] || fail 'failed version query probed EL2'
 
 run_scenario audio-shutdown-race 0 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=0.5
 assert_not_contains "$(<"$test_root/audio-shutdown-race/stderr")" 'native audio bridge exited'
-run_scenario audio-failure 1 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_LIFETIME=10
+run_scenario audio-failure 1 '' FAKE_AUDIO_EARLY_EXIT=1 FAKE_QEMU_WAIT_FOR_TERMINATION=1
 assert_contains "$(<"$test_root/audio-failure/stderr")" 'native audio bridge exited while QEMU was running'
 
 run_scenario non-immersive 0 '' OMARCHY_QEMU_GPU_IMMERSIVE=0
