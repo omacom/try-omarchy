@@ -94,23 +94,33 @@ final class QMPVMHostSleepController: VMHostSleepControlling {
     /// insert an ordinary pause between our STOP transition and matching cont.
     private var sleepConnection: QMPConnection?
 
-    init(socketPath: String) throws {
+    convenience init(socketPath: String) throws {
         let factory: ConnectionFactory = {
             try QMPConnection(
                 socketPath: socketPath,
                 identifierPrefix: "omarchy-host-power"
             )
         }
-        makeConnection = factory
-        let probe = try factory()
-        probe.close()
+        try self.init(connectionFactory: factory)
     }
 
     init(connectionFactory: @escaping ConnectionFactory, validateImmediately: Bool = true) throws {
         makeConnection = connectionFactory
         if validateImmediately {
-            let probe = try connectionFactory()
-            probe.close()
+            // The launcher sees the socket before QEMU finishes initializing
+            // its monitor. A cold start can time out during the greeting or
+            // capability negotiation even though the VM is healthy. Retry
+            // with a fresh session; a failed QMP handshake closes its socket.
+            // Keep this bounded so a broken monitor still fails startup.
+            for attempt in 0..<3 {
+                do {
+                    let probe = try connectionFactory()
+                    probe.close()
+                    break
+                } catch {
+                    if attempt == 2 { throw error }
+                }
+            }
         }
     }
 

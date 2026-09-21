@@ -43,7 +43,7 @@ runtime="$test_root/runtime with spaces"
 missing_runtime="$test_root/missing-runtime"
 mkdir -p "$runtime/bin" "$runtime/lib" "$missing_runtime/bin" "$missing_runtime/lib"
 
-clang -arch arm64 -mmacosx-version-min=15.0 -dynamiclib \
+clang -arch arm64 -mmacosx-version-min=26.0 -dynamiclib \
   -Wl,-headerpad_max_install_names \
   -Wl,-install_name,/private/omarchy-build/libfixture.dylib \
   -x c - -o "$runtime/lib/libfixture.dylib" <<'EOF'
@@ -51,7 +51,7 @@ int omarchy_fixture_value(void) { return 42; }
 EOF
 
 for output in "$runtime/bin/fixture" "$missing_runtime/bin/fixture"; do
-  clang -arch arm64 -mmacosx-version-min=15.0 \
+  clang -arch arm64 -mmacosx-version-min=26.0 \
     -Wl,-headerpad_max_install_names \
     -Wl,-rpath,/private/omarchy-build \
     "$runtime/lib/libfixture.dylib" -x c - -o "$output" <<'EOF'

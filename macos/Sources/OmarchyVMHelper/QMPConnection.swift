@@ -27,12 +27,14 @@ final class QMPConnection: @unchecked Sendable {
     init(
         socketPath: String,
         identifierPrefix: String,
-        timeoutMilliseconds: Int32 = 2_000
+        timeoutMilliseconds: Int32 = 2_000,
+        expectedPeerPID: pid_t? = nil
     ) throws {
         let descriptor = try Self.connectSecureSocket(path: socketPath)
         self.descriptor = descriptor
         self.identifierPrefix = identifierPrefix
         do {
+            try Self.validatePeer(descriptor: descriptor, expectedPID: expectedPeerPID)
             try negotiateCapabilities(timeoutMilliseconds: timeoutMilliseconds)
         } catch {
             Darwin.close(descriptor)
@@ -47,11 +49,13 @@ final class QMPConnection: @unchecked Sendable {
     init(
         connectedDescriptor descriptor: Int32,
         identifierPrefix: String,
-        timeoutMilliseconds: Int32 = 2_000
+        timeoutMilliseconds: Int32 = 2_000,
+        expectedPeerPID: pid_t? = nil
     ) throws {
         self.descriptor = descriptor
         self.identifierPrefix = identifierPrefix
         do {
+            try Self.validatePeer(descriptor: descriptor, expectedPID: expectedPeerPID)
             try negotiateCapabilities(timeoutMilliseconds: timeoutMilliseconds)
         } catch {
             Darwin.close(descriptor)
@@ -184,6 +188,17 @@ final class QMPConnection: @unchecked Sendable {
         guard !closed else { return }
         closed = true
         Darwin.close(descriptor)
+    }
+
+    private static func validatePeer(descriptor: Int32, expectedPID: pid_t?) throws {
+        guard let expectedPID else { return }
+        var peerPID: pid_t = 0
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        guard expectedPID > 1,
+              getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &peerPID, &length) == 0,
+              length == MemoryLayout<pid_t>.size, peerPID == expectedPID else {
+            throw HelperError.io("QMP socket peer does not match the target process")
+        }
     }
 
     private static func connectSecureSocket(path: String) throws -> Int32 {

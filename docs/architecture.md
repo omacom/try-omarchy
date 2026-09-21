@@ -36,12 +36,15 @@ is updated. Graphics travel from Linux through virtio-gpu and VirGL to the
 native Cocoa window. Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
 
-Before the real VM starts, the launcher asks the bundled QEMU to create a tiny
-disposable HVF machine with ARM virtualization extensions and Apple's platform
-GICv3. On M3 and newer Apple Silicon that probe succeeds, so the real guest
-starts at EL2 and Linux exposes `/dev/kvm`; on older chips the launcher keeps
-the existing platform-GIC/EL1 configuration. The pinned QEMU 11.1.1 runtime
-contains the upstream HVF vGIC and nested-virtualization implementation.
+On macOS 26 or newer, before the real VM starts, the launcher asks the bundled
+QEMU to create a tiny disposable HVF machine with ARM virtualization extensions
+and Apple's platform GICv3. When that probe succeeds on M3 and newer Apple
+Silicon, the real guest starts at EL2 and Linux exposes `/dev/kvm`; on older
+chips the launcher keeps the existing platform-GIC/EL1 configuration. The
+launcher rejects hosts older than macOS 26, as required by the pinned GPU
+runtime, before probing or starting QEMU.
+The pinned QEMU 11.1.1 runtime contains the upstream HVF vGIC and
+nested-virtualization implementation.
 
 Trackpad magnification uses a dedicated indirect virtio touchpad alongside the
 ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each

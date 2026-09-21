@@ -7,7 +7,6 @@ struct VMResources: Codable, Equatable {
 
 struct VMResourceLimits: Equatable {
     static let minimumCPUCount = 4
-    static let defaultMemoryGiB = MemoryPolicy.defaultMemoryMiB / 1024
     static let bytesPerGiB: UInt64 = 1 << 30
 
     let hostCPUCount: Int
@@ -24,14 +23,19 @@ struct VMResourceLimits: Equatable {
         Self.minimumCPUCount...max(Self.minimumCPUCount, hostCPUCount)
     }
 
+    var hostMemoryMiB: Int { Int(hostMemoryBytes / (1 << 20)) }
+
     var memoryChoicesGiB: [Int] {
         MemoryPolicy.allowedChoicesMiB(
-            hostMemoryMiB: Int(hostMemoryBytes / (1 << 20))
+            hostMemoryMiB: hostMemoryMiB
         ).map { $0 / 1024 }
     }
 
     var defaults: VMResources {
-        VMResources(cpuCount: min(8, cpuRange.upperBound), memoryGiB: Self.defaultMemoryGiB)
+        VMResources(
+            cpuCount: min(8, cpuRange.upperBound),
+            memoryGiB: MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: hostMemoryMiB) / 1024
+        )
     }
 
     /// Resolve each value independently when a saved choice no longer fits
@@ -93,8 +97,7 @@ struct VMResourcePreferenceStore {
             let memoryMiB = MemoryPreferenceStore(defaults: defaults).load().memoryMiB
             return VMResources(
                 cpuCount: 8,
-                memoryGiB: (MemoryPolicy.choicesMiB.contains(memoryMiB)
-                    ? memoryMiB : MemoryPolicy.defaultMemoryMiB) / 1024
+                memoryGiB: memoryMiB % 1024 == 0 ? memoryMiB / 1024 : 0
             )
         }
         guard let data = defaults.data(forKey: Self.key),

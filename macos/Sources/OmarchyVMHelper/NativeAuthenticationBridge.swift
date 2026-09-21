@@ -9,6 +9,7 @@ enum NativeAuthenticationOperation: String, Equatable {
     case disable
     case enroll
     case sudo
+    case onePasswordUnlock = "onepassword-unlock"
 
     var localizedReason: String {
         switch self {
@@ -18,6 +19,8 @@ enum NativeAuthenticationOperation: String, Equatable {
             "Pair this Try Omarchy guest for Touch ID sudo testing"
         case .sudo:
             "Approve sudo in the focused Try Omarchy guest"
+        case .onePasswordUnlock:
+            "Unlock 1Password in the focused Try Omarchy guest"
         }
     }
 }
@@ -55,21 +58,25 @@ struct NativeAuthenticationRequest: Equatable {
               let user = object["user"] as? String,
               let requestingUser = object["requestingUser"] as? String,
               let service = object["service"] as? String,
-              service == "sudo",
               let tty = object["tty"] as? String else {
             throw HelperError.io("guest sent an invalid authentication request")
         }
 
         switch operation {
         case .disable, .enroll:
-            guard user.isEmpty, requestingUser.isEmpty, tty.isEmpty else {
+            guard service == "sudo", user.isEmpty, requestingUser.isEmpty, tty.isEmpty else {
                 throw HelperError.io("guest sent an invalid authentication control request")
             }
         case .sudo:
-            guard isAccountName(user),
+            guard service == "sudo", isAccountName(user),
                   isAccountName(requestingUser),
                   isInteractiveTTY(tty) else {
                 throw HelperError.io("guest sent invalid sudo authentication context")
+            }
+        case .onePasswordUnlock:
+            guard service == "com.1password.1Password.unlock",
+                  isAccountName(user), requestingUser == user, tty.isEmpty else {
+                throw HelperError.io("guest sent invalid 1Password unlock context")
             }
         }
 
@@ -239,7 +246,7 @@ final class SecureEnclaveAuthorizationSigner: HostAuthorizationSigning, @uncheck
         if request.operation == .disable {
             throw HelperError.io("disable request reached the signing path")
         }
-        if request.operation == .sudo && !keyAlreadyExists {
+        if request.operation != .enroll && !keyAlreadyExists {
             fputs("[authentication-bridge] Touch ID sudo is not enrolled for this Mac.\n", stderr)
             return nil
         }

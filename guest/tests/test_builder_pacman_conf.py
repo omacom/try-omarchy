@@ -49,6 +49,36 @@ class BuilderPacmanConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "hyprtoolkit"):
                 builder.ensure_abi_repo(pins, repo)
 
+    def test_snapshot_only_replaces_arm_mirrors_in_builder(self):
+        guest_config = GUEST / "pacman.aarch64.conf"
+        original = guest_config.read_text()
+        snapshot = self.spec["inputs"]["packageRepositorySnapshot"]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "pacman.conf"
+            builder.write_builder_config(
+                guest_config=guest_config,
+                output=output,
+                package_cache=None,
+                disable_sandbox=False,
+                abi_repo=None,
+                pinned_cache_repo=None,
+                drop_ignore=set(),
+                repository_snapshot=snapshot,
+            )
+            config = output.read_text()
+        self.assertEqual(guest_config.read_text(), original)
+        self.assertEqual(config.count(f"Server = {snapshot}/$repo"), 4)
+        self.assertNotIn("Include = /etc/pacman.d/mirrorlist", config)
+        self.assertIn("SigLevel = Required DatabaseOptional", config)
+        self.assertIn("ParallelDownloads = 1", config)
+        self.assertIn("ParallelDownloads = 5", original)
+        self.assertIn("XferCommand = /usr/bin/curl", config)
+        self.assertIn("--retry 8", config)
+        self.assertNotIn("XferCommand", original)
+        self.assertNotIn("DownloadUser", config)
+        self.assertIn("DownloadUser = alpm", original)
+        self.assertIn("Server = https://pkgs.omarchy.org/$arch", config)
+
     def test_mirror_toolkit_version_cannot_replace_the_reviewed_pin(self):
         self.lock["hyprtoolkit"] = "0.5.4-6"
         with self.assertRaisesRegex(SystemExit, "does not match lock"):

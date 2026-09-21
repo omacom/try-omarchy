@@ -42,6 +42,7 @@ enum QEMUGPURuntimeEnvironment {
         ] {
             environment.removeValue(forKey: key)
         }
+        for key in VMNetworkPolicy.keys { environment.removeValue(forKey: key) }
         return environment
     }
 }

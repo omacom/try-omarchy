@@ -47,6 +47,25 @@ struct NativeAuthenticationBridgeTests {
         )
     }
 
+    @Test("1Password unlock is separated from sudo and other 1Password actions")
+    func onePasswordRequestSchema() throws {
+        let line = Data(
+            #"{"challenge":"\#(challenge)","guestId":"\#(guestID)","operation":"onepassword-unlock","requestId":"\#(requestID)","requestingUser":"test","service":"com.1password.1Password.unlock","tty":"","type":"authorize","user":"test","version":3}"#.utf8
+        )
+        let request = try NativeAuthenticationRequest.decode(line)
+        #expect(request.operation == .onePasswordUnlock)
+        #expect(request.operation.localizedReason == "Unlock 1Password in the focused Try Omarchy guest")
+        for (field, value) in [
+            ("service", "sudo"), ("service", "com.1password.1Password.authorizeCLI"),
+            ("requestingUser", "other"), ("tty", "/dev/pts/4"), ("operation", "sudo"),
+        ] {
+            var object = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+            object[field] = value
+            let invalid = try JSONSerialization.data(withJSONObject: object)
+            #expect(throws: HelperError.self) { try NativeAuthenticationRequest.decode(invalid) }
+        }
+    }
+
     @Test("enrollment cannot smuggle sudo context")
     func enrollmentSchema() throws {
         let valid = Data(

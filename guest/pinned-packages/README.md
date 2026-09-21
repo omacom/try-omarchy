@@ -3,6 +3,14 @@
 Recipes here are factory-build inputs for the compatible Hyprland dependency
 set that Arch Linux ARM's rolling repositories no longer provide together.
 
+The factory's ARM repositories use the dated archive in
+`inputs.packageRepositorySnapshot` in `guest/spec.json`. This keeps the
+upstream Hyprland package on the ABI expected by these rebuilds. Package
+signatures remain required, and the complete resolved transaction must match
+`guest/packages.lock.json`. The archive is only used by the factory builder;
+the installed guest retains its normal mirror configuration. When updating
+the snapshot, refresh and review the lockfile together with it.
+
 - `aquamarine/PKGBUILD` adapts Arch `0.14.0-2` packaging for aarch64.
 - `hyprtoolkit/PKGBUILD` adapts Arch `0.5.4-6` packaging for aarch64 and uses
   package release `6.1` to distinguish the rebuild against aquamarine 0.14.

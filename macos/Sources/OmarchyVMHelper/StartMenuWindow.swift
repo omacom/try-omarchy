@@ -145,33 +145,6 @@ private final class PointingHandButton: NSButton {
     }
 }
 
-private final class LinkCursorTextField: NSTextField {
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        let textRect = cell?.drawingRect(forBounds: bounds) ?? bounds
-        let fullRange = NSRange(location: 0, length: attributedStringValue.length)
-        attributedStringValue.enumerateAttribute(.link, in: fullRange) { value, range, _ in
-            guard value != nil else { return }
-            let prefixRange = NSRange(location: 0, length: range.location)
-            let prefixWidth = attributedStringValue
-                .attributedSubstring(from: prefixRange)
-                .size().width
-            let linkWidth = attributedStringValue
-                .attributedSubstring(from: range)
-                .size().width
-            addCursorRect(
-                NSRect(
-                    x: textRect.minX + prefixWidth,
-                    y: textRect.minY,
-                    width: linkWidth,
-                    height: textRect.height
-                ),
-                cursor: .pointingHand
-            )
-        }
-    }
-}
-
 @MainActor
 final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow
@@ -192,6 +165,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let resources: () -> VMResources
     private let resourceLimits: VMResourceLimits
     private let saveResources: (VMResources) -> Void
+    private let networkPreferences: () -> VMNetworkPreferences
+    private let saveNetworkPreferences: (VMNetworkPreferences) -> String?
+    private var networkEditor: NetworkEditor?
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
     private let launch: () -> Void
@@ -278,6 +254,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resources: @escaping () -> VMResources = { VMResourceLimits.current.defaults },
         resourceLimits: VMResourceLimits = .current,
         saveResources: @escaping (VMResources) -> Void = { _ in },
+        networkPreferences: @escaping () -> VMNetworkPreferences = { VMNetworkPreferences() },
+        saveNetworkPreferences: @escaping (VMNetworkPreferences) -> String? = { _ in nil },
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
         launch: @escaping () -> Void
@@ -305,6 +283,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.resources = resources
         self.resourceLimits = resourceLimits
         self.saveResources = saveResources
+        self.networkPreferences = networkPreferences
+        self.saveNetworkPreferences = saveNetworkPreferences
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
         self.launch = launch
@@ -563,6 +543,22 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 100
         )
 
+        let network = networkPreferences()
+        let bridgeAvailable = VMBridgeInterfaces.available().contains { $0.name == network.interface }
+        let networkWarning = network.mode == .bridged
+            ? (!bridgeAvailable ? "Adapter unavailable — Omarchy will start offline" : NetworkService.service.status != .enabled ? "Setup required" : nil)
+            : nil
+        let networkingRow = permissionRow(
+            symbolName: "network", title: "Networking",
+            detail: networkWarning ?? (network.mode == .nat ? "Uses your Mac’s connection" :
+                "Bridged via \(network.interface)"),
+            granted: network.mode == .bridged,
+            statusLabels: ("Bridged", "Shared (NAT)"),
+            statusTint: networkWarning == nil ? OmarchyStartMenuTheme.foreground : .systemOrange,
+            actions: [("Configure…", #selector(beginNetworkConfiguration))],
+            minimumHeight: 75,
+            rowIdentifier: "networking"
+        )
         let portMappings = portForwardingStatus()
         let portForwardingPresentation = StartMenuPresentation.portForwarding(
             mappings: portMappings
@@ -570,14 +566,15 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let portForwardingRow = permissionRow(
             symbolName: "network",
             title: "Port forwarding",
-            detail: portForwardingPresentation.detail,
-            compactDetailLines: portForwardingPresentation.compactDetailLines,
-            granted: portForwardingPresentation.isGranted,
+            detail: network.mode == .nat ? portForwardingPresentation.detail : "Inactive in bridged mode. Your saved rules are kept.",
+            compactDetailLines: network.mode == .nat ? portForwardingPresentation.compactDetailLines : nil,
+            granted: network.mode == .nat && portForwardingPresentation.isGranted,
             statusLabels: (
                 portForwardingPresentation.grantedStatusLabel,
                 "○  Off"
             ),
             actions: [("Configure…", #selector(beginPortForwardingConfiguration))],
+            actionsEnabled: network.mode == .nat,
             minimumHeight: 90
         )
         let immersiveRow = immersiveSettingRow(isEnabled: immersiveMode())
@@ -648,7 +645,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [resourceRow, portForwardingRow, immersiveRow])
+        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, immersiveRow])
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -750,39 +747,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             launchButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 500),
         ])
 
-        let footerText = "by @martiano"
-        let footerTitle = NSMutableAttributedString(
-            string: footerText,
-            attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: OmarchyStartMenuTheme.muted,
-            ]
-        )
-        let footerNSString = footerText as NSString
-        footerTitle.addAttributes(
-            [
-                .link: URL(string: "https://x.com/martiano")!,
-                .foregroundColor: OmarchyStartMenuTheme.accent,
-            ],
-            range: footerNSString.range(of: "@martiano")
-        )
-        let footer = LinkCursorTextField(labelWithAttributedString: footerTitle)
-        footer.isSelectable = true
-        footer.allowsEditingTextAttributes = true
-        footer.translatesAutoresizingMaskIntoConstraints = false
-
-        footer.identifier = NSUserInterfaceItemIdentifier("start-menu-attribution")
-        let secondaryActions = NSView()
-        secondaryActions.addSubview(reset)
-        secondaryActions.addSubview(footer)
-        NSLayoutConstraint.activate([
-            reset.centerXAnchor.constraint(equalTo: secondaryActions.centerXAnchor),
-            reset.topAnchor.constraint(equalTo: secondaryActions.topAnchor),
-            reset.bottomAnchor.constraint(equalTo: secondaryActions.bottomAnchor),
-            footer.trailingAnchor.constraint(equalTo: secondaryActions.trailingAnchor),
-            footer.centerYAnchor.constraint(equalTo: reset.centerYAnchor),
-            footer.leadingAnchor.constraint(greaterThanOrEqualTo: reset.trailingAnchor, constant: 12),
-        ])
+        let resetSection = NSStackView(views: [reset])
+        resetSection.orientation = .vertical
+        resetSection.alignment = .centerX
 
         let stack = NSStackView(views: [
             headingStack,
@@ -800,7 +767,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         stack.setCustomSpacing(6, after: integrationHeading)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let actions = NSStackView(views: [launchButton, secondaryActions])
+        let actions = NSStackView(views: [launchButton, resetSection])
         actions.orientation = .vertical
         actions.alignment = .leading
         actions.spacing = 12
@@ -840,7 +807,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             permissionCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             integrationCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            secondaryActions.widthAnchor.constraint(equalTo: actions.widthAnchor),
+            resetSection.widthAnchor.constraint(equalTo: actions.widthAnchor),
             launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
 
@@ -914,15 +881,18 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         detailAction: Selector? = nil,
         granted: Bool,
         statusLabels: (granted: String, denied: String),
+        statusTint: NSColor? = nil,
         actions: [(String, Selector)],
         actionsEnabled: Bool = true,
-        minimumHeight: CGFloat = 68
+        minimumHeight: CGFloat = 68,
+        rowIdentifier: String? = nil
     ) -> NSView {
+        let identifier = rowIdentifier ?? symbolName
         let symbol = NSImageView()
         symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
         symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .medium)
         symbol.contentTintColor = OmarchyStartMenuTheme.accent
-        symbol.identifier = NSUserInterfaceItemIdentifier("permission-symbol-\(symbolName)")
+        symbol.identifier = NSUserInterfaceItemIdentifier("permission-symbol-\(identifier)")
         symbol.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             symbol.widthAnchor.constraint(equalToConstant: 26),
@@ -932,15 +902,15 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let name = NSTextField(labelWithString: title)
         name.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
         name.textColor = OmarchyStartMenuTheme.foreground
-        name.identifier = NSUserInterfaceItemIdentifier("permission-title-\(symbolName)")
+        name.identifier = NSUserInterfaceItemIdentifier("permission-title-\(identifier)")
 
         var explanations: [NSView] = []
         if let compactDetailLines {
             for (index, line) in compactDetailLines.enumerated() {
-                let identifier = "permission-detail-\(symbolName)-\(index)"
+                let detailIdentifier = "permission-detail-\(identifier)-\(index)"
                 if index == 0, let detailAction {
                     explanations.append(
-                        clickableDetailField(line, action: detailAction, identifier: identifier)
+                        clickableDetailField(line, action: detailAction, identifier: detailIdentifier)
                     )
                 } else {
                     let explanation = NSTextField(labelWithString: line)
@@ -949,7 +919,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                     explanation.maximumNumberOfLines = 1
                     explanation.lineBreakMode = .byTruncatingMiddle
                     explanation.toolTip = line
-                    explanation.identifier = NSUserInterfaceItemIdentifier(identifier)
+                    explanation.identifier = NSUserInterfaceItemIdentifier(detailIdentifier)
                     explanations.append(explanation)
                 }
             }
@@ -958,7 +928,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 clickableDetailField(
                     detail,
                     action: detailAction,
-                    identifier: "permission-detail-\(symbolName)"
+                    identifier: "permission-detail-\(identifier)"
                 ),
             ]
         } else {
@@ -967,7 +937,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             explanation.textColor = OmarchyStartMenuTheme.muted
             explanation.maximumNumberOfLines = 2
             explanation.identifier = NSUserInterfaceItemIdentifier(
-                "permission-detail-\(symbolName)"
+                "permission-detail-\(identifier)"
             )
             explanations = [explanation]
         }
@@ -987,7 +957,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let statusFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
         let status = NSTextField(labelWithString: statusText)
         status.font = statusFont
-        if granted {
+        if let statusTint {
+            status.textColor = statusTint
+        } else if granted {
             let attributedStatus = NSMutableAttributedString(
                 string: statusText,
                 attributes: [
@@ -1005,7 +977,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             status.textColor = OmarchyStartMenuTheme.muted
         }
         status.alignment = .right
-        status.identifier = NSUserInterfaceItemIdentifier("permission-status-\(symbolName)")
+        status.identifier = NSUserInterfaceItemIdentifier("permission-status-\(identifier)")
         status.setContentHuggingPriority(.required, for: .horizontal)
         status.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1024,8 +996,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 && !launchInProgress
                 && !resetInProgress
             let identifier = actions.count == 1
-                ? "permission-action-\(symbolName)"
-                : "permission-action-\(symbolName)-\(index)"
+                ? "permission-action-\(identifier)"
+                : "permission-action-\(identifier)-\(index)"
             button.identifier = NSUserInterfaceItemIdentifier(identifier)
             button.heightAnchor.constraint(equalToConstant: 30).isActive = true
             trailingViews.append(button)
@@ -1061,7 +1033,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         labels.translatesAutoresizingMaskIntoConstraints = false
 
         let row = NSView()
-        row.identifier = NSUserInterfaceItemIdentifier("permission-row-\(symbolName)")
+        row.identifier = NSUserInterfaceItemIdentifier("permission-row-\(identifier)")
         row.translatesAutoresizingMaskIntoConstraints = false
         row.addSubview(symbol)
         row.addSubview(labels)
@@ -1389,6 +1361,18 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     @objc private func disableSharedFolder() {
         setSharedFolderEnabled(false)
         render()
+    }
+
+    @objc private func beginNetworkConfiguration() {
+        guard !launchInProgress, !resetInProgress, networkEditor == nil else { return }
+        permissionWindowRestorer.cancel()
+        let editor = NetworkEditor(preferences: networkPreferences(), interfaces: VMBridgeInterfaces.available(),
+            save: saveNetworkPreferences, didClose: { [weak self] in
+                self?.networkEditor = nil
+                self?.render()
+            })
+        networkEditor = editor
+        editor.beginSheet(for: window)
     }
 
     @objc private func beginPortForwardingConfiguration() {

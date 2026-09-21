@@ -1,6 +1,6 @@
 # Releasing
 
-Releases are Apple Silicon-only and require macOS 15 or newer.
+Releases are Apple Silicon-only and require macOS 26 or newer.
 
 ## Build and verify
 

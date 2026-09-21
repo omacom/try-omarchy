@@ -7,8 +7,8 @@ import Testing
 struct VMResourceEditorTests {
     private let limits = VMResourceLimits(hostCPUCount: 18, hostMemoryBytes: 48 << 30)
 
-    @Test("Invalid CPU edits disable Save; correcting them saves the selected draft once")
-    func validationAndSave() throws {
+    @Test("CPU choices include every available count and Save publishes the draft once")
+    func cpuChoicesAndSave() throws {
         _ = NSApplication.shared
         var saved: [VMResources] = []
         var closed = 0
@@ -16,16 +16,18 @@ struct VMResourceEditorTests {
             resources: limits.defaults, limits: limits,
             save: { saved.append($0) }, didClose: { closed += 1 }
         )
-        let cpu: NSTextField = try control("cpu", in: editor)
+        let cpu: NSPopUpButton = try control("cpu", in: editor)
         let memory: NSPopUpButton = try control("memory", in: editor)
         let save: NSButton = try control("save", in: editor)
-        cpu.stringValue = "19"
-        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
-        #expect(!save.isEnabled)
-        #expect(saved.isEmpty)
-        cpu.stringValue = "18"
+        #expect(cpu.itemArray.map(\.tag) == Array(4...18))
+        #expect(cpu.selectedItem?.title == "8 cores · default")
+        #expect(cpu.itemArray.last?.title == "18 cores · all cores")
+        #expect(cpu.isEnabled)
+        cpu.selectItem(withTag: 18)
+        cpu.sendAction(cpu.action, to: cpu.target)
         memory.selectItem(withTag: 12)
-        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        memory.sendAction(memory.action, to: memory.target)
+        #expect(saved.isEmpty)
         #expect(save.isEnabled)
         save.performClick(nil)
         editor.dismiss()
@@ -43,14 +45,68 @@ struct VMResourceEditorTests {
         )
         let defaults: NSButton = try control("defaults", in: editor)
         defaults.performClick(nil)
-        let cpu: NSTextField = try control("cpu", in: editor)
+        let cpu: NSPopUpButton = try control("cpu", in: editor)
         let memory: NSPopUpButton = try control("memory", in: editor)
-        #expect(cpu.stringValue == "8")
-        #expect(memory.selectedItem?.tag == 4)
+        #expect(cpu.selectedItem?.tag == 8)
+        #expect(memory.selectedItem?.tag == 8)
         #expect(saved.isEmpty)
         let cancel: NSButton = try control("cancel", in: editor)
         cancel.performClick(nil)
         #expect(saved.isEmpty)
+    }
+
+    @Test("A saved odd core count remains selected")
+    func savedOddCoreCount() throws {
+        _ = NSApplication.shared
+        let editor = VMResourceEditor(
+            resources: VMResources(cpuCount: 7, memoryGiB: 8), limits: limits,
+            save: { _ in }, didClose: {}
+        )
+        defer { editor.dismiss() }
+        let cpu: NSPopUpButton = try control("cpu", in: editor)
+        #expect(cpu.selectedItem?.tag == 7)
+    }
+
+    @Test("Small hosts mark their default and disable a single-choice menu", arguments: [4, 6, 8])
+    func smallHostCPUChoices(cores: Int) throws {
+        _ = NSApplication.shared
+        let host = VMResourceLimits(hostCPUCount: cores, hostMemoryBytes: 8 << 30)
+        let editor = VMResourceEditor(
+            resources: host.defaults, limits: host, save: { _ in }, didClose: {}
+        )
+        defer { editor.dismiss() }
+        let cpu: NSPopUpButton = try control("cpu", in: editor)
+        #expect(cpu.itemArray.map(\.tag) == Array(4...cores))
+        #expect(cpu.selectedItem?.title == "\(cores) cores · default")
+        #expect(cpu.isEnabled == (cores > 4))
+    }
+
+    @Test("High memory is selectable and the performance note does not block Save")
+    func highMemoryAdvisory() throws {
+        _ = NSApplication.shared
+        var saved: VMResources?
+        let host = VMResourceLimits(hostCPUCount: 8, hostMemoryBytes: 16 << 30)
+        let editor = VMResourceEditor(
+            resources: host.defaults, limits: host,
+            save: { saved = $0 }, didClose: {}
+        )
+        defer { editor.dismiss() }
+        let memory: NSPopUpButton = try control("memory", in: editor)
+        let note: NSTextField = try control("validation", in: editor)
+        let save: NSButton = try control("save", in: editor)
+        #expect(memory.selectedItem?.title == "8 GiB · default")
+        memory.selectItem(withTag: 12)
+        memory.sendAction(memory.action, to: memory.target)
+        #expect(memory.selectedItem?.title == "12 GiB · may slow macOS")
+        #expect(note.stringValue == "This leaves 4 GiB for macOS and may slow other apps.")
+        #expect(save.isEnabled)
+        memory.selectItem(withTag: 8)
+        memory.sendAction(memory.action, to: memory.target)
+        #expect(note.stringValue.isEmpty)
+        memory.selectItem(withTag: 12)
+        memory.sendAction(memory.action, to: memory.target)
+        save.performClick(nil)
+        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12))
     }
 
     @Test("A small host retains a usable default memory choice")

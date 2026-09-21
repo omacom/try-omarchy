@@ -131,11 +131,11 @@ def main() -> None:
     )
     check(spec["runtime"]["storage"]["expandedSizeMiB"] == 24576, "working disk expands to 24 GiB")
     check(
-        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins"},
+        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins", "packageRepositorySnapshot"},
         "spec has a minimal input set",
     )
     for key, value in spec["inputs"].items():
-        if key == "abiPackagePins":
+        if key in {"abiPackagePins", "packageRepositorySnapshot"}:
             continue
         check((GUEST / value).is_file(), f"spec input exists: {value}")
     abi_pins = spec["inputs"]["abiPackagePins"]
@@ -361,8 +361,8 @@ def main() -> None:
                 "id": "vivaldi-arm64",
                 "userInitiated": True,
                 "delivery": "pinned-signed-vendor-rpm",
-                "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-                "applicationSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+                "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+                "applicationSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
                 "signingKey": "keys/vivaldi-package-composer-key11.asc",
                 "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
                 "runtimePackages": ["rpm-tools"],
@@ -441,6 +441,10 @@ def main() -> None:
         "fakeroot" in requested_packages and "fakeroot" in packages,
         "factory transaction includes fakeroot for AUR package builds",
     )
+    check(
+        "rpm-tools" in requested_packages and "rpm-tools" in packages,
+        "factory transaction includes the RPM signature verifier for Vivaldi",
+    )
     yay = spec.get("supplyChain", {}).get("yay", {})
     check(
         set(yay)
@@ -470,16 +474,16 @@ def main() -> None:
     check(
         vivaldi
         == {
-            "version": "8.2.4133.33",
+            "version": "8.2.4133.52",
             "rpmRelease": 1,
-            "pkgrel": 2,
+            "pkgrel": 1,
             "repository": "https://repo.vivaldi.com/stable",
-            "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.33-1.aarch64.rpm",
-            "rpmSha256": "99fe7542199ba11d16d9af02783540c8c03554c37d80597a219595751414503d",
+            "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
+            "rpmSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
             "signingKey": "keys/vivaldi-package-composer-key11.asc",
             "signingKeySha256": "5c67d85c0aca9c0d166edb5bc5e6ebc21d67bce4e67c645e7bd76d299fd337ef",
             "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
-            "reportedVersion": "Vivaldi 8.2.4133.33",
+            "reportedVersion": "Vivaldi 8.2.4133.52",
             "license": "Multiple, see https://www.vivaldi.com/",
         },
         "official signed Vivaldi ARM64 RPM and package key are fully pinned",
@@ -982,6 +986,10 @@ def main() -> None:
         and 'cp -a "$vivaldi_key"' in register_runtime,
         "packaged Omarchy runtime owns the Vivaldi installer and signing key",
     )
+    check(
+        "depend = rpm-tools" in register_runtime,
+        "packaged Omarchy runtime keeps the Vivaldi signature verifier installed",
+    )
     register_yay = read(GUEST / "scripts/register-pinned-yay.sh")
     check(
         "register-pinned-yay.sh" in build
@@ -1117,7 +1125,9 @@ def main() -> None:
         "**Vivaldi**" in third_party_notices
         and "not redistributed" in third_party_notices
         and "signed official ARM64 RPM" not in third_party_notices
-        and "installer-only input" in third_party_notices
+        and "factory image includes the `rpm-tools`" in third_party_notices
+        and "browser payload" in third_party_notices
+        and "remains outside the factory image and factory provenance" in third_party_notices
         and "vivaldi.com/partners/linux" in third_party_notices,
         "third-party notices distinguish signed Vivaldi installation from redistribution",
     )
@@ -1158,6 +1168,9 @@ def main() -> None:
     )
     check(
         "Vivaldi must remain a user-initiated post-build install" in finalizer
+        and "pacman -Qkk rpm-tools" in finalizer
+        and "for verifier in rpm rpmkeys" in finalizer
+        and '"$verifier" --version' in finalizer
         and "pacman -Qoq \"$vivaldi_installer\"" in finalizer
         and "pacman -Qoq \"$vivaldi_key\"" in finalizer
         and "Vivaldi package key digest mismatch" in finalizer,
@@ -1469,16 +1482,10 @@ def main() -> None:
         "native background picker override is executable",
     )
     check(cursor_restore.stat().st_mode & stat.S_IXUSR != 0, "native cursor restore helper is executable")
-    alacritty_wrapper = GUEST / "native-overlay/usr/local/bin/alacritty"
-    alacritty_wrapper_text = read(alacritty_wrapper)
-    check(alacritty_wrapper.stat().st_mode & stat.S_IXUSR != 0, "Alacritty VirGL wrapper is executable")
     check(
-        'real=/usr/bin/alacritty' in alacritty_wrapper_text
-        and "export LIBGL_ALWAYS_SOFTWARE=1" in alacritty_wrapper_text
-        and "omarchy.qemu_virgl=1" in alacritty_wrapper_text
-        and 'exec "$real" "$@"' in alacritty_wrapper_text
-        and '"$root/usr/local/bin/alacritty"' in configure,
-        "Alacritty VirGL wrapper forces software GL onto the pacman binary",
+        not (GUEST / "native-overlay/usr/local/bin/alacritty").exists()
+        and '"$root/usr/local/bin/alacritty"' not in configure,
+        "Alacritty uses the accelerated pacman binary without a software GL wrapper",
     )
     xdg_terminal = GUEST / "factory-overlay/usr/local/bin/xdg-terminal-exec"
     xdg_terminal_text = read(xdg_terminal)
@@ -1617,7 +1624,6 @@ HOTPLUG=1
         screensaver_override,
         background_switcher_override,
         cursor_restore,
-        alacritty_wrapper,
         kitty_wrapper,
         display_sync,
         mac_share,
@@ -1706,6 +1712,24 @@ HOTPLUG=1
                 capture_output=True,
             )
             staged_icons = staged_root / "usr/share/icons/hicolor/256x256/apps"
+            for name in ("omarchy-dns", "omarchy-theme-browser"):
+                relative = Path("etc/sudoers.d") / name
+                policy = staged_root / relative
+                check(
+                    policy.is_file()
+                    and not policy.is_symlink()
+                    and policy.read_bytes() == (source / relative).read_bytes()
+                    and stat.S_IMODE(policy.stat().st_mode) == 0o440,
+                    f"menu sudoers policy preserves upstream grants with mode 0440: {name}",
+                )
+            for upstream_path, installed_path in (
+                ("etc/xdg/kitty/kitty.conf", "etc/xdg/kitty/kitty.conf"),
+                ("etc/tmpfiles.d/omarchy-nopasswd-sudo.conf", "usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"),
+            ):
+                check(
+                    (staged_root / installed_path).read_bytes() == (source / upstream_path).read_bytes(),
+                    f"materialized 4.0.3 system integration matches upstream: {installed_path}",
+                )
             icon_names = {path.name for path in staged_icons.iterdir() if path.is_file()}
             expected_normalized_icons = {
                 "battle-net.png",
@@ -1921,13 +1945,29 @@ HOTPLUG=1
             )
             check(
                 'firstPartyServiceFor("omarchy.idle")' in notification_service
-                and 'firstPartyServiceFor("omarchy.lock")' in notification_service
+                and 'firstPartyServiceFor("omarchy.lock")' not in notification_service
+                and "|| shell.screenLocked" in notification_service
                 and "!idleService.screensaverStateKnown" in notification_service
                 and 'visible: popupModel.count > 0 && !service.screenObscured'
                 in notification_service
                 and "!card.hovered && !service.screenObscured" in notification_service,
                 "notification popups hide and pause behind screensaver and lock surfaces",
             )
+            shell_host = read(staged_omarchy / "shell/shell.qml")
+            auth_store = read(staged_omarchy / "shell/services/AuthServiceStore.js")
+            check(
+                "readonly property bool screenLocked:" in shell_host
+                and 'AuthServiceStore.screenLocked(pluginRegistry.resolveEnabledId("omarchy.lock"))'
+                in shell_host
+                and shell_host.count("shell.authenticationServiceRevision += 1") == 4
+                and "return !service || service.locked !== false" in auth_store,
+                "notification lock state stays private and refreshes across service lifecycle changes",
+            )
+            if shutil.which("node"):
+                subprocess.run(
+                    ["node", str(GUEST / "tests/notification-lock-state.test.js"), str(staged_omarchy)],
+                    check=True,
+                )
             idle_service = read(staged_omarchy / "shell/plugins/services/idle/Service.qml")
             check(
                 "property bool screensaverStateKnown: false" in idle_service

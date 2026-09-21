@@ -51,9 +51,11 @@ code.
   user explicitly selects Vivaldi, the guest downloads the exact official ARM64
   RPM pinned in `guest/spec.json`, verifies its checksum and signature against
   Vivaldi's pinned package-composer key, and repackages the verified payload as
-  a Pacman-owned local package. This installer-only input remains outside the
-  factory image and factory provenance. Vivaldi permits open-source Linux
-  distributions to integrate its browser; see <https://vivaldi.com/partners/linux/>.
+  a Pacman-owned local package. The factory image includes the `rpm-tools`
+  signature verifier and its locked dependencies; the Vivaldi browser payload
+  remains outside the factory image and factory provenance. Vivaldi permits
+  open-source Linux distributions to integrate its browser; see
+  <https://vivaldi.com/partners/linux/>.
 
 See `guest/spec.json`, `guest/packages.lock.json`, and
 `macos/build-qemu-gpu-runtime.sh` for exact source identities and checksums.

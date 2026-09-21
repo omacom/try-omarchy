@@ -108,6 +108,17 @@ mkdir -p \
 cp -a "$root/usr/share/omarchy" "$stage/usr/share/omarchy"
 cp -a "$root/usr/share/licenses/omarchy" "$stage/usr/share/licenses/omarchy"
 
+# Omarchy 4.0.3 moves Kitty defaults out of the user config and makes temporary
+# passwordless sudo grants expire on reboot. Keep both integration files owned.
+for relative in etc/xdg/kitty/kitty.conf usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf; do
+  install -Dm0644 "$root/$relative" "$stage/$relative"
+done
+
+# Keep the upstream menu helpers' scoped passwordless grants package-owned.
+for name in omarchy-dns omarchy-theme-browser; do
+  install -Dm0440 "$root/etc/sudoers.d/$name" "$stage/etc/sudoers.d/$name"
+done
+
 # The VM-specific screensaver override is one of the packaged Omarchy commands
 # below. Keep its cursor-policy helper in the same package so reinstalling or
 # verifying the runtime cannot leave that command with an unowned dependency.
@@ -132,7 +143,7 @@ for command in "${runtime_commands[@]}"; do
   cp -a "$command" "$stage/usr/bin/$(basename "$command")"
 done
 
-installed_size=$(python3 - "$stage/usr" <<'PY'
+installed_size=$(python3 - "$stage" <<'PY'
 import os
 import pathlib
 import sys
@@ -157,6 +168,7 @@ size = $installed_size
 arch = any
 license = MIT
 provides = omarchy=$release
+depend = rpm-tools
 EOF
 
 archive="$stage/$package_name-$package_version-any.pkg.tar.zst"
@@ -168,7 +180,7 @@ tar \
   --numeric-owner \
   --format=gnu \
   -C "$stage" \
-  -cf - .PKGINFO usr |
+  -cf - .PKGINFO etc usr |
   zstd --force --quiet -12 --threads=1 -o "$archive"
 
 # The payload is already present and was verified against the pinned source.
