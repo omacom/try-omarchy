@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,11 @@ import unittest
 
 
 GUEST = Path(__file__).resolve().parents[1]
+MODULE = importlib.util.spec_from_file_location(
+    "backports", GUEST / "scripts/apply-omarchy-backports.py"
+)
+backports = importlib.util.module_from_spec(MODULE)
+MODULE.loader.exec_module(backports)
 
 
 class UpdateRestartARMKernelTests(unittest.TestCase):
@@ -25,15 +31,17 @@ class UpdateRestartARMKernelTests(unittest.TestCase):
             patch = GUEST / backport["patch"]
             self.assertEqual(hashlib.sha256(patch.read_bytes()).hexdigest(),
                              backport["patchSha256"])
-            result = subprocess.run(
-                ["patch", "--silent", "-o", "-", str(source), str(patch)],
-                capture_output=True, check=True,
-            )
-            self.assertEqual(hashlib.sha256(result.stdout).hexdigest(),
+            omarchy = root / "usr/share/omarchy"
+            command = omarchy / backport["targets"][0]["path"]
+            command.parent.mkdir(parents=True)
+            command.write_bytes(source.read_bytes())
+            # Use the build's strict git-apply path so malformed patches fail here.
+            backports.apply_backport(GUEST, root, omarchy, backport)
+            self.assertEqual(hashlib.sha256(command.read_bytes()).hexdigest(),
                              backport["targets"][0]["afterSha256"])
             # Redirect only the filesystem boundary; execute the complete patched
             # command with stubbed external effects, including restart fallthrough.
-            script = result.stdout.decode().replace("/usr/lib/modules/", f"{root}/modules/")
+            script = command.read_text().replace("/usr/lib/modules/", f"{root}/modules/")
             for release, name, owned in markers:
                 marker = root / "modules" / release / name
                 marker.parent.mkdir(parents=True, exist_ok=True)

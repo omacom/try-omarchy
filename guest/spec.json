@@ -385,7 +385,7 @@
         "description": "Recognize package-owned ARM kernel module metadata and explicitly distinguish matching, changed, and unknown kernel reboot states.",
         "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-update-restart",
         "patch": "patches/omarchy/update-restart-arm-kernel.patch",
-        "patchSha256": "e6cf6d70a8fdfb9e027f28a2c115918e4b8db4d827b249a2941ceb64975c7a47",
+        "patchSha256": "307efd205ff1e7ab83c10043be81ee2024ae30df006ed93c4fd33d3ac8660a20",
         "targets": [
           {
             "path": "bin/omarchy-update-restart",

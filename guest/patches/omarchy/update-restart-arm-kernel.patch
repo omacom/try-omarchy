@@ -1,7 +1,7 @@
 diff --git a/bin/omarchy-update-restart b/bin/omarchy-update-restart
 --- a/bin/omarchy-update-restart
 +++ b/bin/omarchy-update-restart
-@@ -9,20 +9,28 @@ confirm_reboot() {
+@@ -9,19 +9,27 @@ confirm_reboot() {
  }
  
  running_kernel=$(uname -r)
