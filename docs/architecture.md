@@ -52,6 +52,12 @@ pinch and releases them on cancellation or focus loss; the guest disables
 tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
 input contract, existing-guest setup, and integration validation.
 
+Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch and
+given to Cocoa. New and reset factory users also load an overlay that sets
+`kb_model=applealu_*`. App upgrade applies the Cocoa swap only; existing
+homes keep their current Hyprland input. See
+[Mac keyboard](mac-keyboard.md).
+
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
 session through wake. Before macOS sleeps it synchronously pauses the guest
@@ -281,3 +287,19 @@ installer uses the declared sources and authenticates downloaded vendor
 artifacts against an explicit signing identity. Invoking an optional installer
 is the user's
 decision to cross that post-build boundary.
+
+### Guest display synchronization
+
+QEMU publishes the Cocoa window's current backing-pixel dimensions through
+Virtio GPU EDID. The guest's `omarchy-native-display-sync` helper applies those
+live timings at startup and on DRM hotplug events. The Hyprland monitor fragment
+also invokes the helper with `--once` after `config.reloaded`: a configuration
+reload can restore a cached preferred mode without emitting a hotplug event,
+leaving the rendered desktop and absolute pointer coordinates out of sync.
+
+Both paths reread Omarchy's numeric `omarchy_monitor_scale` setting from
+`~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set). An automatic or
+absent setting uses the live EDID's pixel density. If a resized display cannot
+represent the requested zoom exactly, the helper selects the nearest supported
+scale with integral logical dimensions. Explicit per-output monitor rules still
+take precedence over the helper's catch-all rule.

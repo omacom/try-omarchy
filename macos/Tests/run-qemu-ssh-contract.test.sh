@@ -27,6 +27,22 @@ assert_line_pair() {
     "$file" || fail "expected adjacent lines [$first] and [$second] in $file"
 }
 
+assert_keyboard_lockstep() {
+  local log=$1
+  local geometry=$2
+  local other
+  [[ $(grep -o "tryomarchy.keyboard=$geometry" "$log" | wc -l | tr -d ' ') == 1 ]] || \
+    fail "expected exactly one tryomarchy.keyboard=$geometry token in $log"
+  [[ $(grep -c "^TRYOMARCHY_KEYBOARD=$geometry$" "$log") == 1 ]] || \
+    fail "Cocoa env must match cmdline token $geometry in $log"
+  for other in ansi iso jis; do
+    if [[ $other != "$geometry" ]]; then
+      assert_not_contains "$(<"$log")" "tryomarchy.keyboard=$other"
+      assert_not_contains "$(<"$log")" "TRYOMARCHY_KEYBOARD=$other"
+    fi
+  done
+}
+
 test_root=$(mktemp -d '/private/tmp/omarchy-qemu-ssh-contract.XXXXXX')
 case "$test_root" in
   /private/tmp/omarchy-qemu-ssh-contract.??????) ;;
@@ -61,6 +77,14 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 set -euo pipefail
+if [[ ${1:-} == --host-keyboard-geometry ]]; then
+  if [[ -n ${FAKE_HOST_KEYBOARD_FAIL:-} ]]; then
+    printf 'cannot detect host keyboard geometry\n' >&2
+    exit 1
+  fi
+  printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio && ${FAKE_AUDIO_EARLY_EXIT:-0} == 1 ]]; then
   sleep 0.05
   exit 0
@@ -129,7 +153,10 @@ import time
 arguments = sys.argv[1:]
 is_recovery = "Try Omarchy Boot Recovery" in arguments
 log_variable = "FAKE_QEMU_RECOVERY_LOG" if is_recovery else "FAKE_QEMU_LOG"
-Path(os.environ[log_variable]).write_text("\n".join(arguments) + "\n")
+geometry = os.environ.get("TRYOMARCHY_KEYBOARD", "")
+Path(os.environ[log_variable]).write_text(
+    "\n".join(arguments) + f"\nTRYOMARCHY_KEYBOARD={geometry}\n"
+)
 Path(os.environ[log_variable] + ".pid").write_text(str(os.getpid()))
 
 if is_recovery:
@@ -499,6 +526,7 @@ assert_line_pair "$test_root/disabled/qemu.log" -kernel "$persistent_root/boot/k
 assert_line_pair "$test_root/disabled/qemu.log" -initrd "$persistent_root/boot/initramfs"
 assert_not_contains "$disabled_qemu" hostfwd
 assert_not_contains "$disabled_qemu" tryomarchy.ssh_access
+assert_keyboard_lockstep "$test_root/disabled/qemu.log" iso
 assert_contains "$disabled_qemu" \
   'cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=on,full-grab=on,immersive=on,swap-opt-cmd=off'
 assert_contains "$disabled_qemu" \
@@ -516,6 +544,21 @@ run_scenario shutdown-race 0 '' FAKE_SHUTDOWN_RACE=1
 run_scenario audio-exits-early 1 '' \
   FAKE_AUDIO_EXIT_EARLY=1 FAKE_QEMU_WAIT_FOR_TERMINATION=1 FAKE_PS_DELAY=0.1
 assert_contains "$(<"$test_root/audio-exits-early/stderr")" 'native audio bridge exited while QEMU was running'
+
+run_scenario keyboard-ansi 0 '' FAKE_HOST_KEYBOARD=ansi
+assert_keyboard_lockstep "$test_root/keyboard-ansi/qemu.log" ansi
+run_scenario keyboard-jis 0 '' FAKE_HOST_KEYBOARD=jis
+assert_keyboard_lockstep "$test_root/keyboard-jis/qemu.log" jis
+run_scenario keyboard-helper-fail 1 '' FAKE_HOST_KEYBOARD_FAIL=1
+assert_contains "$(<"$test_root/keyboard-helper-fail/stderr")" \
+  'cannot detect the host Mac keyboard geometry'
+[[ ! -e $test_root/keyboard-helper-fail/qemu.log ]] || \
+  fail 'failed keyboard probe started QEMU'
+run_scenario keyboard-invalid 1 '' FAKE_HOST_KEYBOARD=ISO
+assert_contains "$(<"$test_root/keyboard-invalid/stderr")" \
+  'host Mac keyboard geometry is invalid'
+[[ ! -e $test_root/keyboard-invalid/qemu.log ]] || \
+  fail 'invalid keyboard geometry started QEMU'
 
 # Exercise resource values through the real launcher and its QEMU boundary.
 run_scenario resources 0 '' FAKE_HOST_CPUS=18 \
@@ -629,6 +672,7 @@ assert_line_pair "$test_root/enabled/qemu.log" -netdev \
 assert_line_pair "$test_root/enabled/qemu.log" -kernel "$persistent_root/boot/kernel"
 assert_line_pair "$test_root/enabled/qemu.log" -initrd "$persistent_root/boot/initramfs"
 assert_contains "$enabled_qemu" tryomarchy.ssh_access=1
+assert_keyboard_lockstep "$test_root/enabled/qemu.log" iso
 assert_contains "$enabled_qemu" loglevel=4
 assert_not_contains "$enabled_qemu" loglevel=5
 assert_not_contains "$enabled_qemu" 0.0.0.0
@@ -708,6 +752,10 @@ assert_line_pair "$test_root/recovery-allowed/qemu.log" -kernel "$recovery_root/
 assert_line_pair "$test_root/recovery-allowed/qemu.log" -initrd "$recovery_root/boot/initramfs"
 assert_contains "$(<"$test_root/recovery-allowed/qemu.log")" loglevel=3
 assert_not_contains "$(<"$test_root/recovery-allowed/qemu.log")" loglevel=5
+assert_not_contains "$(<"$test_root/recovery-allowed/recovery.log")" tryomarchy.keyboard=
+[[ $(grep -c '^TRYOMARCHY_KEYBOARD=$' "$test_root/recovery-allowed/recovery.log") == 1 ]] || \
+  fail 'recovery QEMU must not inherit TRYOMARCHY_KEYBOARD'
+assert_keyboard_lockstep "$test_root/recovery-allowed/qemu.log" iso
 assert_contains "$(<"$recovery_root/boot/kernel")" recovered-kernel
 assert_contains "$(<"$recovery_root/boot/initramfs")" recovered-initramfs
 assert_contains "$(<"$recovery_root/boot/command-line")" loglevel=3
@@ -726,6 +774,8 @@ assert_not_contains "$(<"$test_root/recovery-relaunch/stderr")" 'needs consent'
 assert_line_pair "$test_root/recovery-relaunch/qemu.log" -kernel "$recovery_root/boot/kernel"
 assert_line_pair "$test_root/recovery-relaunch/qemu.log" -initrd "$recovery_root/boot/initramfs"
 assert_contains "$(<"$test_root/recovery-relaunch/qemu.log")" loglevel=3
+assert_keyboard_lockstep "$test_root/recovery-relaunch/qemu.log" iso
+assert_not_contains "$(<"$recovery_root/boot/command-line")" tryomarchy.keyboard=
 assert_contains "$(<"$recovery_root/rootfs.ext4")" legacy-user-disk
 
 run_scenario preset 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2222:22
@@ -759,6 +809,7 @@ assert_line_pair "$test_root/ephemeral/qemu.log" -m 12288M
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" \
   'user,id=omarchy-net,hostfwd=tcp:127.0.0.1:2224-:22'
 assert_contains "$(<"$test_root/ephemeral/qemu.log")" tryomarchy.ssh_access=1
+assert_keyboard_lockstep "$test_root/ephemeral/qemu.log" iso
 assert_contains "$(<"$test_root/ephemeral/storage.log")" 'select ephemeral'
 assert_line_pair "$test_root/ephemeral/qemu.log" -kernel "$guest/vmlinuz-linux"
 assert_line_pair "$test_root/ephemeral/qemu.log" -initrd "$guest/initramfs-linux.img"
@@ -769,7 +820,8 @@ run_scenario malformed 1 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:02222:22
 assert_contains "$(<"$test_root/malformed/stderr")" 'canonical decimal'
 
 run_scenario reset-only 0 --reset-storage-only \
-  OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2225:22
+  OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2225:22 \
+  FAKE_HOST_KEYBOARD_FAIL=1
 assert_contains "$(<"$test_root/reset-only/storage.log")" 'select reset'
 [[ ! -e $test_root/reset-only/qemu.log ]] || fail 'reset-only launch started QEMU'
 assert_not_contains "$(<"$test_root/reset-only/stderr")" tryomarchy.ssh_access
@@ -813,5 +865,13 @@ assert_not_contains "$(<"$test_root/large-process-list/stderr")" 'Broken pipe'
 run_scenario prebaked-token 1 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2222:22
 [[ ! -s $test_root/prebaked-token/storage.log ]] || fail 'prebaked token touched storage'
 assert_contains "$(<"$test_root/prebaked-token/stderr")" 'launcher-owned SSH activation argument'
+
+/usr/bin/plutil -replace kernelCommandLine -string \
+  'root=/dev/vda rw rootwait console=tty0 console=hvc0 tryomarchy.keyboard=iso' \
+  "$guest/launch.plist"
+run_scenario prebaked-keyboard 1 ''
+[[ ! -s $test_root/prebaked-keyboard/storage.log ]] || fail 'prebaked keyboard token touched storage'
+assert_contains "$(<"$test_root/prebaked-keyboard/stderr")" \
+  'launcher-owned keyboard geometry argument'
 
 printf 'run-qemu-ssh-contract.test: PASS\n'

@@ -23,6 +23,15 @@ assert_line_pair() {
     "$file" || fail "expected adjacent lines [$first] and [$second] in $file"
 }
 
+assert_keyboard_lockstep() {
+  local log=$1
+  local geometry=$2
+  [[ $(grep -o "tryomarchy.keyboard=$geometry" "$log" | wc -l | tr -d ' ') == 1 ]] || \
+    fail "expected exactly one tryomarchy.keyboard=$geometry token in $log"
+  [[ $(grep -c "^TRYOMARCHY_KEYBOARD=$geometry$" "$log") == 1 ]] || \
+    fail "Cocoa env must match cmdline token $geometry in $log"
+}
+
 test_root=$(mktemp -d '/private/tmp/omarchy-qemu-memory-contract.XXXXXX')
 case "$test_root" in
   /private/tmp/omarchy-qemu-memory-contract.??????) ;;
@@ -56,6 +65,14 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 set -euo pipefail
+if [[ ${1:-} == --host-keyboard-geometry ]]; then
+  if [[ -n ${FAKE_HOST_KEYBOARD_FAIL:-} ]]; then
+    printf 'cannot detect host keyboard geometry\n' >&2
+    exit 1
+  fi
+  printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
@@ -113,7 +130,10 @@ import sys
 import time
 
 arguments = sys.argv[1:]
-Path(os.environ["FAKE_QEMU_LOG"]).write_text("\n".join(arguments) + "\n")
+geometry = os.environ.get("TRYOMARCHY_KEYBOARD", "")
+Path(os.environ["FAKE_QEMU_LOG"]).write_text(
+    "\n".join(arguments) + f"\nTRYOMARCHY_KEYBOARD={geometry}\n"
+)
 socket_paths = []
 for argument in arguments:
     if argument.startswith("unix:"):
@@ -321,6 +341,7 @@ run_scenario() {
 run_scenario default 0
 assert_line_pair "$test_root/default/qemu.log" -m 8192M
 assert_contains "$(<"$test_root/default/stderr")" '8 GiB RAM'
+assert_keyboard_lockstep "$test_root/default/qemu.log" iso
 
 run_scenario below-default-threshold 0 FAKE_HOST_MEMSIZE=17178820608
 assert_line_pair "$test_root/below-default-threshold/qemu.log" -m 4096M

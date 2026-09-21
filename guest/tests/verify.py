@@ -727,6 +727,16 @@ def main() -> None:
         and 'toggles/flags.lua' in materialize,
         "skel hypr toggles seed only flags.lua, not the catalog",
     )
+    apple_keyboard = read(
+        GUEST / "native-overlay/usr/share/try-omarchy/apple-keyboard-input.lua"
+    )
+    check(
+        'kb_model = "applealu_" .. geometry' in apple_keyboard
+        and "kb_layout" not in apple_keyboard
+        and "kb_variant" not in apple_keyboard
+        and 'dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")' in materialize,
+        "skel input loads Apple keyboard geometry without overriding layout",
+    )
 
     configure = read(GUEST / "scripts/configure-rootfs.sh")
     check(
@@ -1531,7 +1541,9 @@ def main() -> None:
         'o.exec_on_start("/usr/local/bin/omarchy-native-display-sync")'
         in monitor_fragment
         and 'omarchy_kernel_option_enabled("omarchy.qemu_virgl=1")' in monitor_fragment
-        and "cursor = { invisible = true }" in monitor_fragment,
+        and "cursor = { invisible = true }" in monitor_fragment
+        and 'hl.on("config.reloaded", function()' in monitor_fragment
+        and 'hl.exec_cmd("/usr/local/bin/omarchy-native-display-sync --once")' in monitor_fragment,
         "ARM VirGL profile starts display sync and uses the host-composited cursor",
     )
     with tempfile.TemporaryDirectory() as temporary:
@@ -1601,6 +1613,8 @@ HOTPLUG=1
         environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
         environment["HYPRCTL_LOG"] = str(reload_log)
         environment["OMARCHY_DISPLAY_SYNC_DRM_ROOT"] = str(drm_root)
+        monitor_config = temporary_path / "monitors.lua"
+        environment["OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG"] = str(monitor_config)
         subprocess.run(
             [str(display_sync), "--from-stdin"],
             input=events,
@@ -1617,6 +1631,103 @@ HOTPLUG=1
                 'eval hl.monitor({ output = "", mode = "modeline 149 1920 2008 2052 2200 1080 1084 1089 1125 -hsync -vsync", scale = "1" })',
             ],
             "native display sync handles QEMU DisplayID and legacy EDID hotplug modes",
+        )
+
+        expected_auto = reload_log.read_text(encoding="utf-8").splitlines()[:2]
+
+        def sync_once():
+            reload_log.write_text("", encoding="utf-8")
+            subprocess.run(
+                [str(display_sync), "--once"],
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                timeout=5,
+                check=True,
+            )
+            return reload_log.read_text(encoding="utf-8").splitlines()
+
+        check(
+            sync_once() == expected_auto,
+            "config reload resync applies live modes without waiting for a hotplug event",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 1.25 -- user zoom\n")
+        expected_zoom = [re.sub(r'scale = "[^"]+"', 'scale = "1.25"', line) for line in expected_auto]
+        check(sync_once() == expected_zoom, "reload resync preserves explicit user zoom")
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_zoom,
+            "hotplug resync also preserves explicit user zoom",
+        )
+        # A later configuration reload must not reuse the prior zoom or EDID.
+        monitor_config.write_text("local omarchy_monitor_scale = 2\n")
+        (connector / "edid").write_bytes(legacy_edid)
+        expected_resized = expected_auto[1].replace('scale = "1"', 'scale = "2"')
+        check(
+            sync_once() == [expected_resized, expected_resized],
+            "resync rereads a resized display and a newly selected zoom",
+        )
+        # 1920x1080 cannot use exactly 1.7: select a valid nearby scale (5/3).
+        monitor_config.write_text("local omarchy_monitor_scale = 1.7\n")
+        check(
+            all('scale = "1.666667"' in line for line in sync_once()),
+            "resized displays select the nearest scale with integral logical dimensions",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [expected_auto[1], expected_auto[1]],
+            "returning to automatic zoom restores live EDID density scaling",
+        )
+
+        # At 4122x2586, Omarchy rounds its 4x preset up to a clean scale of 6
+        # and persists that effective value, which exceeds the preset range.
+        resized_displayid = bytearray(displayid)
+        resized_displayid[12:14] = (4122 - 1).to_bytes(2, "little")
+        resized_displayid[20:22] = (2586 - 1).to_bytes(2, "little")
+        resized_displayid[28] = (-sum(resized_displayid[1:28])) & 0xFF
+        resized_displayid[127] = (-sum(resized_displayid[:127])) & 0xFF
+        qemu_edid[21:23] = bytes([47, 29])
+        qemu_edid[127] = (-sum(qemu_edid[:127])) & 0xFF
+        qemu_edid[256:384] = resized_displayid
+        (connector / "edid").write_bytes(qemu_edid)
+        (legacy_connector / "edid").write_bytes(qemu_edid)
+        monitor_config.write_text("local omarchy_monitor_scale = 6\n")
+        expected_large_zoom = [
+            'eval hl.monitor({ output = "", mode = "modeline 1236 4122 5402 5555 5914 2586 2600 2614 2686 -hsync -vsync", scale = "6" })'
+        ] * 2
+        check(
+            sync_once() == expected_large_zoom,
+            "reload resync preserves effective zoom above the preset range",
+        )
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_large_zoom,
+            "hotplug resync preserves effective zoom above the preset range",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 5\n")
+        check(
+            sync_once() == expected_large_zoom,
+            "resync considers clean scales above the requested zoom",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [line.replace('scale = "6"', 'scale = "2"') for line in expected_large_zoom],
+            "automatic zoom remains available after a large explicit zoom",
         )
 
     shell_files = [
