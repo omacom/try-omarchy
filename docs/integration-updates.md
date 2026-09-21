@@ -41,7 +41,8 @@ and keeps the review action available. Checks still run on every launch.
 
 The Mac menu bar provides a live integration status and review action. The
 launcher shows the last check for the selected persistent disk. A report of
-current components means installed files and relevant services passed inspection;
+current components means installed files, including the setup command and
+reporting service definition, passed inspection;
 it does not attest that Touch ID was successfully used. Status messages never
 execute commands or authorize host or guest installation.
 
@@ -56,9 +57,12 @@ then stages a root-private copy. The app signature covers the bundle and manifes
 hashes detect corruption and do not independently establish trust in an app.
 
 Previous files, the previous installed bundle, and progress are retained under
-`/var/lib/try-omarchy/integrations`. A component is marked complete only after
-verification. Rerunning skips a previously completed step only when its files and
-required services still match. This is resumable installation, not a transactional
+`/var/lib/try-omarchy/integrations`. Before sudo support is installed, its backup
+also retains any existing sudo PAM policy, Touch ID enrollment state, and account
+default menu extension, with their file permissions. These backups remain private
+to root even if migration fails. A component is marked complete only after
+verification. Rerunning skips a previously completed step only when its managed
+files still match. This is resumable installation, not a transactional
 rollback of all PAM or systemd effects. A failed step prints its error and leaves
 progress and backups available for repair.
 

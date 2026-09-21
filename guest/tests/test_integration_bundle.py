@@ -1,5 +1,9 @@
 import importlib.util
 import json
+import os
+import shutil
+import stat
+from types import SimpleNamespace
 from pathlib import Path
 import tempfile
 import unittest
@@ -117,7 +121,7 @@ class IntegrationBundleTests(unittest.TestCase):
         state = self.bundle.parent / 'state'
         state.mkdir()
         identity = updater.manifest(self.bundle)['identity']
-        with patch.object(updater, 'BUNDLE', self.bundle), patch.object(updater, 'STATE', state), patch.object(updater, 'files_current', return_value=True), patch.object(updater, 'active', return_value=True):
+        with patch.object(updater, 'BUNDLE', self.bundle), patch.object(updater, 'STATE', state), patch.object(updater, 'files_current', return_value=True):
             (state / 'progress.json').write_text('{"status":"installing"}')
             self.assertEqual(updater.guest_status(identity)['components']['bootstrap'], 'repair')
             (state / 'progress.json').write_text('{"status":"complete"}')
@@ -125,6 +129,111 @@ class IntegrationBundleTests(unittest.TestCase):
             old = updater.guest_status('b' * 64)
             self.assertEqual(old['components']['bootstrap'], 'repair')
             self.assertEqual(old['identity'], 'b' * 64)
+
+    def test_bootstrap_damage_is_reported_even_after_completed_install(self):
+        state = self.bundle.parent / 'state'
+        state.mkdir()
+        (state / 'progress.json').write_text('{"status":"complete"}')
+        pairs = {}
+        for name in ['bootstrap', *updater.COMPONENTS]:
+            pairs[name] = [(source, self.bundle.parent / 'guest' / str(target).lstrip('/'))
+                           for source, target in updater.component_paths(name, self.bundle)]
+        for source, target in sum(pairs.values(), []):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        targets = {target for _, target in sum(pairs.values(), [])}
+        original_stat = Path.stat
+        wrong_owner = None
+
+        def guest_stat(path, *args, **kwargs):
+            info = original_stat(path, *args, **kwargs)
+            if path in targets:
+                fields = list(info)
+                fields[4] = 1000 if path == wrong_owner else 0
+                return os.stat_result(fields)
+            return info
+
+        with patch.object(updater, 'BUNDLE', self.bundle), \
+             patch.object(updater, 'STATE', state), \
+             patch.object(updater, 'component_paths', side_effect=lambda name, directory=None: pairs[name]), \
+             patch.object(Path, 'stat', guest_stat):
+            self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'current', 'sudo': 'current'})
+            for source, target in pairs['bootstrap']:
+                for damage in ('missing', 'content', 'mode', 'owner', 'symlink'):
+                    with self.subTest(file=target.name, damage=damage):
+                        if damage == 'missing':
+                            target.unlink()
+                        elif damage == 'content':
+                            target.write_text('damaged')
+                        elif damage == 'mode':
+                            target.chmod(0o600)
+                        elif damage == 'owner':
+                            wrong_owner = target
+                        else:
+                            target.unlink()
+                            target.symlink_to(source)
+                        self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'repair', 'sudo': 'current'})
+                        wrong_owner = None
+                        target.unlink(missing_ok=True)
+                        shutil.copy2(source, target)
+                        self.assertEqual(updater.guest_status()['components']['bootstrap'], 'current')
+            # Factory guests do not have an installation journal yet.
+            (state / 'progress.json').unlink()
+            self.assertEqual(updater.guest_status()['components']['bootstrap'], 'current')
+
+    def test_failed_migration_retains_authentication_configuration_before_changes(self):
+        originals = {
+            '/etc/pam.d/sudo': (b'#%PAM-1.0\nlegacy broker rule\n', 0o644),
+            '/var/lib/try-omarchy/native-authentication.json': (b'{"version":1,"enrollment":"original"}', 0o600),
+            '/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc': (b'{"custom":{}}\n', 0o644),
+        }
+        # Use the production configuration inventory, redirected into a fake guest.
+        self.assertEqual(set(map(str, updater.component_configuration_paths('sudo'))), set(originals))
+        paths = [self.bundle.parent / 'guest' / name.lstrip('/') for name in originals]
+        for target, (contents, mode) in zip(paths, originals.values()):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(contents)
+            target.chmod(mode)
+        state = self.bundle.parent / 'state'
+        original_read = Path.read_text
+
+        def guest_read(path, *args, **kwargs):
+            if str(path) == '/proc/cmdline':
+                return 'omarchy.qemu_virgl=1'
+            return original_read(path, *args, **kwargs)
+
+        def fail_migration(args, **kwargs):
+            self.assertEqual(args[0], '/bin/bash')
+            backup = next(state.glob('sudo-backup-*'))
+            for target, (contents, mode) in zip(paths, originals.values()):
+                saved = backup / str(target).lstrip('/')
+                self.assertEqual(saved.read_bytes(), contents)
+                self.assertEqual(stat.S_IMODE(saved.stat().st_mode), mode)
+                target.unlink()
+            raise subprocess.CalledProcessError(1, args)
+
+        with patch.object(updater, 'BUNDLE', self.bundle), \
+             patch.object(updater, 'STATE', state), \
+             patch.object(updater, 'STORE', self.bundle.parent / 'installed'), \
+             patch.object(updater, 'component_configuration_paths', return_value=paths), \
+             patch.object(updater, 'component_paths', return_value=[]), \
+             patch.object(updater, 'files_current', return_value=False), \
+             patch.object(updater, 'safe_destination'), \
+             patch.object(updater.os, 'geteuid', return_value=0), \
+             patch.object(updater.os, 'chown'), \
+             patch.object(updater.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000)), \
+             patch.dict(os.environ, {'SUDO_UID': '1000'}), \
+             patch.object(Path, 'read_text', guest_read), \
+             patch.object(updater, 'run', side_effect=fail_migration):
+            with self.assertRaises(subprocess.CalledProcessError):
+                updater.install('guest', ['sudo'])
+        backup = next(state.glob('sudo-backup-*'))
+        self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o700)
+        for target, (contents, _) in zip(paths, originals.values()):
+            self.assertFalse(target.exists())
+            self.assertEqual((backup / str(target).lstrip('/')).read_bytes(), contents)
+        self.assertEqual(json.loads((state / 'progress.json').read_text())['status'], 'installing')
+        self.assertFalse((state / 'state.json').exists())
 
     def test_install_result_waits_after_success_or_failure(self):
         for choice in ('1',):
@@ -151,7 +260,6 @@ class IntegrationBundleTests(unittest.TestCase):
                                 events.append('error')
                         with patch.object(updater, 'BUNDLE', self.bundle), \
                              patch.object(updater, 'files_current', return_value=True), \
-                             patch.object(updater, 'active', return_value=False), \
                              patch.object(updater, 'component_paths', return_value=[]), \
                              patch.object(updater, 'run', side_effect=install), \
                              patch.object(updater, 'menu_entry', side_effect=lambda: events.append('refresh')), \
@@ -171,7 +279,6 @@ class IntegrationBundleTests(unittest.TestCase):
             with self.subTest(choice=choice), \
                  patch.object(updater, 'BUNDLE', self.bundle), \
                  patch.object(updater, 'files_current', return_value=True), \
-                 patch.object(updater, 'active', return_value=False), \
                  patch.object(updater, 'component_paths', return_value=[]), \
                  patch.object(updater, 'run') as run, \
                  patch.object(updater.sys.stdin, 'isatty', return_value=True), \
@@ -202,7 +309,6 @@ class IntegrationBundleTests(unittest.TestCase):
                         return ''
                     with patch.object(updater, 'BUNDLE', self.bundle), \
                          patch.object(updater, 'files_current', return_value=True), \
-                         patch.object(updater, 'active', return_value=False), \
                          patch.object(updater, 'run', side_effect=touch_id), \
                          patch.object(updater.sys.stdin, 'isatty', return_value=interactive), \
                          patch('builtins.input', side_effect=answer), patch('builtins.print'):

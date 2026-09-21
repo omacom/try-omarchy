@@ -22,6 +22,10 @@ PORT = Path('/dev/virtio-ports/dev.tryomarchy.integrations')
 COMPONENTS = {
     'sudo': ('Touch ID support for sudo (pairing remains optional)', 'install-touch-id-sudo.sh'),
 }
+BOOTSTRAP_FILES = {
+    'try-omarchy-integrations': '/usr/local/bin/try-omarchy-integrations',
+    'try-omarchy-integrations.service': '/usr/lib/systemd/system/try-omarchy-integrations.service',
+}
 
 
 def run(args, **kwargs):
@@ -84,7 +88,10 @@ def safe_destination(path):
                 raise RuntimeError(f'Destination must be root-owned and not user-writable: {parent}')
 
 
-def component_paths(name, directory=BUNDLE):
+def component_paths(name, directory=None):
+    directory = directory or BUNDLE
+    if name == 'bootstrap':
+        return [(directory / source, Path(target)) for source, target in BOOTSTRAP_FILES.items()]
     overlay = directory / 'guest/native-overlay'
     if name == 'sudo':
         names = ['usr/local/lib/try-omarchy/native-authentication-broker',
@@ -97,29 +104,49 @@ def component_paths(name, directory=BUNDLE):
     return [(overlay / name, Path('/') / name) for name in names]
 
 
-def files_current(name, directory=BUNDLE):
+def files_current(name, directory=None):
     return all(not target.is_symlink() and target.is_file() and digest(source) == digest(target)
                and target.stat().st_uid == 0 and not target.stat().st_mode & 0o022
                and stat.S_IMODE(target.stat().st_mode) == stat.S_IMODE(source.stat().st_mode)
                for source, target in component_paths(name, directory))
 
 
-def active(unit):
-    return subprocess.run(['systemctl', 'is-active', '--quiet', unit], check=False).returncode == 0
+def component_configuration_paths(name):
+    if name == 'sudo':
+        # The sudo installer migrates enrollment and PAM policy, and updates
+        # account defaults. Retain these before any of those operations run.
+        return [Path(path) for path in (
+            '/etc/pam.d/sudo',
+            '/var/lib/try-omarchy/native-authentication.json',
+            '/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc',
+        )]
+    return []
+
+
+def backup_component(name, directory, backup):
+    targets = [target for _, target in component_paths(name, directory)]
+    targets.extend(component_configuration_paths(name))
+    for target in targets:
+        safe_destination(target)
+        if target.exists():
+            if not target.is_file():
+                raise RuntimeError(f'Refusing non-file backup source: {target}')
+            dest = backup / str(target).lstrip('/')
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(target, dest)
 
 
 def guest_status(loaded_identity=None):
     data = manifest(BUNDLE)
-    installed = json.loads((STATE / 'state.json').read_text()) if (STATE / 'state.json').exists() else {}
     progress = json.loads((STATE / 'progress.json').read_text()) if (STATE / 'progress.json').exists() else {'status': 'complete'}
-    components = {'bootstrap': 'current' if progress.get('status') == 'complete' else 'repair'}
-    if loaded_identity is not None and loaded_identity != data['identity']:
-        components['bootstrap'] = 'repair'
-    for name in COMPONENTS:
+    components = {}
+    for name in ['bootstrap', *COMPONENTS]:
         try:
             components[name] = 'current' if files_current(name) else 'repair'
         except (OSError, ValueError):
             components[name] = 'repair'
+    if progress.get('status') != 'complete' or (loaded_identity is not None and loaded_identity != data['identity']):
+        components['bootstrap'] = 'repair'
     return {'schema': 1, 'version': data['version'], 'identity': loaded_identity or data['identity'],
             'components': components, 'paired': Path('/var/lib/try-omarchy/native-authentication.json').is_file()}
 
@@ -156,8 +183,7 @@ def install(user, selected):
     if account.pw_uid == 0 or os.environ.get('SUDO_UID') != str(account.pw_uid):
         raise RuntimeError('Run this command with sudo from your normal Omarchy account.')
     manifest(BUNDLE)
-    for path in (STATE, STORE, Path('/usr/local/bin/try-omarchy-integrations'),
-                 Path('/usr/lib/systemd/system/try-omarchy-integrations.service')):
+    for path in (STATE, STORE, *(target for _, target in component_paths('bootstrap'))):
         safe_destination(path)
     verify_upgrade(STORE, BUNDLE)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -186,12 +212,7 @@ def install(user, selected):
                 continue
             atomic_json(STATE / 'progress.json', {'component': name, 'status': 'installing'})
             backup = Path(tempfile.mkdtemp(prefix=f'{name}-backup-', dir=STATE))
-            for source, target in component_paths(name, payload):
-                safe_destination(target)
-                if target.exists():
-                    dest = backup / str(target).lstrip('/')
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(target, dest)
+            backup_component(name, payload, backup)
             script = payload / 'guest/scripts' / COMPONENTS[name][1]
             args = ['/bin/bash', str(script)]
             environment = os.environ.copy()
@@ -217,9 +238,10 @@ def install(user, selected):
             if not STORE.exists() and (stage / 'previous-bundle').exists():
                 (stage / 'previous-bundle').rename(STORE)
             raise
-        for source, target in [('try-omarchy-integrations', '/usr/local/bin/try-omarchy-integrations'),
-                               ('try-omarchy-integrations.service', '/usr/lib/systemd/system/try-omarchy-integrations.service')]:
-            shutil.copy2(payload / source, target)
+        for source, target in component_paths('bootstrap', payload):
+            shutil.copy2(source, target)
+        if not files_current('bootstrap', payload):
+            raise RuntimeError('Bootstrap files did not pass verification. Retry integration setup.')
         # Preserve existing user menu entries, including the sudo entry just installed.
         run(['runuser', '-u', user, '--', '/usr/bin/python3', '-I', str(STORE / 'updater.py'), 'menu-install'])
         run(['systemctl', 'daemon-reload'])
