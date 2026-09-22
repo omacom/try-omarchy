@@ -19,6 +19,16 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--storage-sha256" {
+        guard arguments.count == 2 else { usage() }
+        print(try StorageIO.sha256(path: arguments[1]))
+        exit(0)
+    }
+    if arguments.first == "--storage-sync" {
+        guard arguments.count > 1 else { usage() }
+        try StorageIO.sync(paths: Array(arguments.dropFirst()))
+        exit(0)
+    }
     if arguments.first == "--grow-vm-disk" {
         guard arguments.count == 5, let old = Int64(arguments[2]), let target = Int64(arguments[3]) else { usage() }
         try SparseDiskGrowth.grow(path: arguments[1], expectedBytes: old, targetBytes: target, identity: arguments[4])

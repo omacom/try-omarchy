@@ -1000,6 +1000,7 @@ fi
 # a build-time path and exits without sourcing any shell library.
 # shellcheck source=qemu-persistent-storage.sh
 source "$storage_library"
+QEMU_PERSISTENT_STORAGE_HELPER=$native_bridge
 # shellcheck source=qemu-port-forwarding.sh
 source "$port_forwarding_library"
 source "$script_dir/qemu-networking.sh"

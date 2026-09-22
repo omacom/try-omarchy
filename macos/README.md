@@ -90,6 +90,16 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
+Reset reuses the verified, identity-keyed factory cache and APFS cloning. The
+validated native helper streams SHA-256 through CryptoKit, including the full
+expanded factory digest on a cache miss. Each storage transaction flushes its
+written files before its staging directory, then flushes the parent after the
+atomic rename. This avoids repeated system-wide `sync` calls without dropping
+checksums, workspace locks, or interrupted-transaction recovery. A newly created
+workspace still uses one global sync to persist its marker and directory
+hierarchy; standalone storage-library callers without the native helper retain
+the system-tool fallback. App signature and runtime validation remain unchanged.
+
 The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
 existing `memoryPreferences` choice without rewriting it. CPU choices range
