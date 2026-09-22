@@ -150,9 +150,14 @@ case " $* " in
     printf '%s\n' \
       '-add-fd fd=fd,set=set[,opaque=opaque]' \
       '-action reboot=reset|shutdown' \
-      '-action shutdown=poweroff|pause' \
       'full-grab=on|off' \
       'immersive=on|off'
+    if [[ ${FAKE_QEMU_MISSING_SHUTDOWN:-0} != 1 ]]; then
+      printf '%s\n' '-action shutdown=poweroff|pause'
+    fi
+    if [[ ${FAKE_QEMU_LARGE_HELP:-0} == 1 ]]; then
+      printf '%131072s\n' ''
+    fi
     ;;
   *' -machine virt -netdev help '*) printf '%s\n' user stream ;;
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
@@ -617,6 +622,14 @@ assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
 assert_line_pair "$test_root/disabled/qemu.log" -smp '8,sockets=1,cores=8,threads=1'
 assert_line_pair "$test_root/disabled/qemu.log" -m 8192M
+
+# Valid help larger than a pipe buffer must not fail when a capability matches
+# near the start. Missing capabilities must still be rejected before launch.
+run_scenario large-help 0 '' FAKE_QEMU_LARGE_HELP=1
+run_scenario missing-shutdown 1 '' FAKE_QEMU_LARGE_HELP=1 FAKE_QEMU_MISSING_SHUTDOWN=1
+assert_contains "$(<"$test_root/missing-shutdown/stderr")" \
+  'staged QEMU cannot apply the required shutdown policy'
+[[ ! -e $test_root/missing-shutdown/qemu.log ]] || fail 'missing shutdown policy started QEMU'
 
 # Release launches must work without a usable host interpreter. The fake
 # QEMU uses an absolute interpreter path only as test infrastructure.

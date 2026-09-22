@@ -81,7 +81,7 @@ esac
 [[ -f $native_bridge && -x $native_bridge ]] || {
   fail "missing bundled native bridge at $native_bridge"
 }
-file "$qemu_bin" | grep -q 'arm64' || fail "staged QEMU is not an ARM64 executable"
+file "$qemu_bin" | grep 'arm64' >/dev/null || fail "staged QEMU is not an ARM64 executable"
 LC_ALL=C grep -aFq 'TryOmarchy.icns' "$qemu_bin" || {
   fail "staged QEMU lacks the Try Omarchy macOS identity; run make runtime"
 }
@@ -93,46 +93,48 @@ for marker in \
     fail "staged QEMU lacks persistent host audio routing; run make runtime"
   }
 done
-file "$native_bridge" | grep -q 'arm64' || fail "native bridge is not an ARM64 executable"
+file "$native_bridge" | grep 'arm64' >/dev/null || fail "native bridge is not an ARM64 executable"
 codesign --verify --strict "$native_bridge" >/dev/null 2>&1 || {
   fail "native bridge is not code-signed"
 }
 
+# Search captured help directly: grep -q may close a pipe early and make
+# its producer fail with SIGPIPE under pipefail, even when the match succeeds.
 qemu_accels=$("$qemu_bin" -accel help 2>&1) || fail "cannot inspect staged QEMU accelerators"
-printf '%s\n' "$qemu_accels" | grep -qx 'hvf' || fail "staged QEMU does not support HVF"
+grep -qx 'hvf' <<<"$qemu_accels" || fail "staged QEMU does not support HVF"
 qemu_machines=$("$qemu_bin" -machine help 2>&1) || fail "cannot inspect staged QEMU machines"
-printf '%s\n' "$qemu_machines" | grep -Eq '^virt[[:space:]]' || fail "staged QEMU does not provide the ARM virt machine"
+grep -Eq '^virt[[:space:]]' <<<"$qemu_machines" || fail "staged QEMU does not provide the ARM virt machine"
 qemu_cpus=$("$qemu_bin" -cpu help 2>&1) || fail "cannot inspect staged QEMU CPUs"
-printf '%s\n' "$qemu_cpus" | grep -Eq '^[[:space:]]*host([[:space:]]|$)' || fail "staged QEMU does not expose the host CPU"
+grep -Eq '^[[:space:]]*host([[:space:]]|$)' <<<"$qemu_cpus" || fail "staged QEMU does not expose the host CPU"
 qemu_displays=$("$qemu_bin" -display help 2>&1) || fail "cannot inspect staged QEMU displays"
-printf '%s\n' "$qemu_displays" | grep -qx 'cocoa' || fail "staged QEMU does not provide the Cocoa display"
+grep -qx 'cocoa' <<<"$qemu_displays" || fail "staged QEMU does not provide the Cocoa display"
 qemu_devices=$("$qemu_bin" -device help 2>&1) || fail "cannot inspect staged QEMU devices"
 qemu_help=$("$qemu_bin" -help 2>&1) || fail "cannot inspect staged QEMU options"
-printf '%s\n' "$qemu_help" | grep -q -- '^-add-fd fd=fd,set=set' || {
+grep -q -- '^-add-fd fd=fd,set=set' <<<"$qemu_help" || {
   fail "staged QEMU cannot preserve the persistent-disk lock descriptor"
 }
-printf '%s\n' "$qemu_help" | grep -Fq -- '-action reboot=reset|shutdown' || {
+grep -Fq -- '-action reboot=reset|shutdown' <<<"$qemu_help" || {
   fail "staged QEMU cannot apply the required reboot policy"
 }
-printf '%s\n' "$qemu_help" | grep -Fq -- '-action shutdown=poweroff|pause' || {
+grep -Fq -- '-action shutdown=poweroff|pause' <<<"$qemu_help" || {
   fail "staged QEMU cannot apply the required shutdown policy"
 }
-printf '%s\n' "$qemu_help" | grep -Fq 'full-grab=on|off' || {
+grep -Fq 'full-grab=on|off' <<<"$qemu_help" || {
   fail "staged QEMU cannot capture macOS system key combinations"
 }
-printf '%s\n' "$qemu_help" | grep -Fq 'immersive=on|off' || {
+grep -Fq 'immersive=on|off' <<<"$qemu_help" || {
   fail "staged QEMU cannot select its fullscreen presentation"
 }
 qemu_netdevs=$("$qemu_bin" -machine virt -netdev help 2>&1) || {
   fail "cannot inspect staged QEMU network backends"
 }
-printf '%s\n' "$qemu_netdevs" | grep -qx 'user' || {
+grep -qx 'user' <<<"$qemu_netdevs" || {
   fail "staged QEMU does not provide no-root SLIRP networking; run make runtime"
 }
 qemu_audiodevs=$("$qemu_bin" -machine virt -audiodev help 2>&1) || {
   fail "cannot inspect staged QEMU audio backends"
 }
-printf '%s\n' "$qemu_audiodevs" | grep -qx 'sdl' || {
+grep -qx 'sdl' <<<"$qemu_audiodevs" || {
   fail "staged QEMU does not provide duplex SDL audio; run make runtime"
 }
 
@@ -1006,7 +1008,7 @@ source "$port_forwarding_library"
 source "$script_dir/qemu-networking.sh"
 qemu_network_validate
 if [[ $QEMU_NETWORK_MODE == bridged ]]; then
-  printf '%s\n' "$qemu_netdevs" | grep -qx stream || fail 'The bundled QEMU does not support bridged networking. Rebuild the runtime.'
+  grep -qx stream <<<"$qemu_netdevs" || fail 'The bundled QEMU does not support bridged networking. Rebuild the runtime.'
 fi
 
 network_forwards=${OMARCHY_QEMU_GPU_PORT_FORWARDS:-}
