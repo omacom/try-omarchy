@@ -100,6 +100,9 @@ if [[ ${1:-} == --host-keyboard-geometry ]]; then
   printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
   exit 0
 fi
+if [[ ${1:-} == --bridge-native-audio && ${FAKE_SHUTDOWN_RACE:-0} == 1 ]]; then
+  printf '%s\n' "$$" >"$FAKE_QEMU_LOG.audio.pid"
+fi
 if [[ ${1:-} == --bridge-native-audio && ${FAKE_AUDIO_EARLY_EXIT:-0} == 1 ]]; then
   sleep 0.05
   exit 0
@@ -253,7 +256,16 @@ if os.environ.get("FAKE_QEMU_SKIP_SOCKETS") != "1":
 if os.environ.get("FAKE_QEMU_WAIT_FOR_QMP") == "1" and not qmp_ready.wait(10):
     raise SystemExit("fake QEMU timed out waiting for the readiness handshake")
 
-if os.environ.get("FAKE_QEMU_WAIT_FOR_TERMINATION") == "1":
+if os.environ.get("FAKE_SHUTDOWN_RACE") == "1":
+    # Stay alive until ps has captured a live snapshot and the audio bridge
+    # has started. The deadline bounds a broken fixture, not a successful run.
+    deadline = time.monotonic() + 10
+    while not Path(os.environ[log_variable] + ".raced").exists():
+        if time.monotonic() >= deadline:
+            Path(os.environ[log_variable] + ".timed-out").touch()
+            raise SystemExit("fake QEMU timed out waiting for the shutdown race")
+        time.sleep(0.01)
+elif os.environ.get("FAKE_QEMU_WAIT_FOR_TERMINATION") == "1":
     # Failure scenarios need QEMU alive until launcher cleanup, regardless of
     # host speed. The alarm only bounds a broken launcher/test, not success.
     def timed_out(signum, frame):
@@ -417,11 +429,33 @@ if [[ ${FAKE_LARGE_PROCESS_LIST:-0} == 1 && "$*" == "-axo pid=,command=" ]]; the
   printf '999999 /bin/bash run-qemu-gpu.sh\n'
   /usr/bin/awk 'BEGIN { for (i=0; i<10000; i++) print 800000+i, "unrelated process with enough output to fill a pipe buffer" }'
 fi
-if [[ ${FAKE_SHUTDOWN_RACE:-0} == 1 && -f ${FAKE_QEMU_LOG:-}.pid       && $* == "-p $(cat "$FAKE_QEMU_LOG.pid") -o state="       && ! -e $FAKE_QEMU_LOG.raced ]]; then
+if [[ ${FAKE_SHUTDOWN_RACE:-0} == 1 && -f ${FAKE_QEMU_LOG:-}.pid \
+   && $* == "-p $(cat "$FAKE_QEMU_LOG.pid") -o state=" \
+   && ! -e $FAKE_QEMU_LOG.raced ]]; then
   state=$(/bin/ps "$@" 2>/dev/null) || exit $?
+  [[ -n $state && $state != *Z* ]] || exit 1
+  for ((attempt=0; attempt<500; attempt++)); do
+    [[ -s $FAKE_QEMU_LOG.audio.pid ]] && break
+    sleep 0.02
+  done
+  if [[ ! -s $FAKE_QEMU_LOG.audio.pid ]]; then
+    touch "$FAKE_QEMU_LOG.timed-out"
+    exit 1
+  fi
   touch "$FAKE_QEMU_LOG.raced"
   # Return a stale live snapshot only after QEMU and its bridges have exited.
-  sleep 0.5
+  for pid_file in "$FAKE_QEMU_LOG.pid" "$FAKE_QEMU_LOG.audio.pid"; do
+    target_pid=$(cat "$pid_file")
+    for ((attempt=0; attempt<500; attempt++)); do
+      current_state=$(/bin/ps -p "$target_pid" -o state= 2>/dev/null || true)
+      [[ -n $current_state && $current_state != *Z* ]] || break
+      sleep 0.02
+    done
+    if [[ -n $current_state && $current_state != *Z* ]]; then
+      touch "$FAKE_QEMU_LOG.timed-out"
+      exit 1
+    fi
+  done
   printf '%s\n' "$state"
   exit 0
 fi
@@ -671,7 +705,8 @@ for stopped_pid in "$readiness_pid" "$target_pid"; do
 done
 assert_not_contains "$(<"$test_root/monitor-cancel/stderr")" '[qemu-gpu] Ready. QMP:'
 
-run_scenario shutdown-race 0 '' FAKE_SHUTDOWN_RACE=1
+# Deliberately exceed the old 0.20-second lifetime before capturing the state.
+run_scenario shutdown-race 0 '' FAKE_SHUTDOWN_RACE=1 FAKE_PS_DELAY=0.3
 [[ -e $test_root/shutdown-race/qemu.log.raced ]] || fail 'shutdown race was not exercised'
 # Slow process checks deliberately exceed the old two-second QEMU lifetime.
 run_scenario audio-exits-early 1 '' \
