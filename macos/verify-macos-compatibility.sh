@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-minimum_macos_version=26.0
+minimum_macos_version=15.0
 
 usage() {
   echo "Usage: macos/verify-macos-compatibility.sh ROOT" >&2

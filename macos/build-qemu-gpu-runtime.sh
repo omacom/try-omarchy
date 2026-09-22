@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
-Build the pinned QEMU/VirGL source stack with Try Omarchy's Cocoa identity,
+Build the pinned QEMU/VirGL source stack for macOS 15.0 with Try Omarchy's Cocoa identity,
 dynamic-display, immersive-mode, pause-ownership, pinch-zoom, and ISO
 keyboard patches, then relocate, sign, validate, and
 atomically stage it at:
@@ -91,7 +91,7 @@ meson_root=meson-1.9.0
 meson_archive_name="$meson_root.tar.gz"
 meson_url="https://github.com/mesonbuild/meson/releases/download/1.9.0/$meson_archive_name"
 meson_sha256=cd27277649b5ed50d19875031de516e270b22e890d9db65ed9af57d18ebc498d
-macos_deployment_target=26.0
+macos_deployment_target=15.0
 
 keycodemap_commit=f5772a62ec52591ff6870b7e8ef32482371f22c6
 keycodemap_root="keycodemapdb-$keycodemap_commit"
@@ -123,9 +123,20 @@ pip_archive_name=pip-26.2.1-py3-none-any.whl
 pip_url="https://files.pythonhosted.org/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/$pip_archive_name"
 pip_sha256=71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e
 
-virgl_archive_name=virglrenderer-1.0.42.arm64_tahoe.bottle.tar.gz
-virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.42/$virgl_archive_name"
-virgl_sha256=64c37340757cf300712d8e74dc43759f81058ec58cf424094d5f79c9c82c0984
+# Build the same renderer and patches as the 1.0.42 bottle, targeting 15.0.
+# The published bottle targets Tahoe; lowering only QEMU's target is insufficient.
+virgl_source_root=virglrenderer-1.3.0
+virgl_archive_name="$virgl_source_root.tar.gz"
+virgl_url="https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/1.3.0/$virgl_archive_name"
+virgl_sha256=065bc56e89e6f631f96101cd62eba0748e48eb888b434edc86e89d05395e76f3
+virgl_tap_root=homebrew-virglrenderer-1.0.42
+virgl_tap_archive_name="$virgl_tap_root.tar.gz"
+virgl_tap_url="https://codeload.github.com/startergo/homebrew-virglrenderer/tar.gz/refs/tags/v1.0.42"
+virgl_tap_sha256=950273fbba46905b6112ee2bd0598c1da706c25319a7347058cbc52f04ba96dd
+pyyaml_root=pyyaml-6.0.3
+pyyaml_archive_name="$pyyaml_root.tar.gz"
+pyyaml_url="https://files.pythonhosted.org/packages/05/8e/961c0007c59b8dd7729d542c61a4d537767a59645b82a0b521206e1e25c2/$pyyaml_archive_name"
+pyyaml_sha256=d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f
 
 angle_version=1.0.16
 angle_archive_name=angle-1.0.16.arm64_sequoia.bottle.tar.gz
@@ -162,7 +173,7 @@ done
 [[ $(uname -m) == arm64 ]] || die "this source build requires Apple Silicon (arm64)"
 macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $macos_major =~ ^[0-9]+$ ]] || die "could not determine the macOS version"
-((macos_major >= 26)) || die "the pinned GPU bottles require macOS 26 or newer"
+((macos_major >= 15)) || die "the pinned GPU bottles require macOS 15 or newer"
 [[ -f $identity_patch && ! -L $identity_patch ]] || \
   die "missing Cocoa product-identity patch: $identity_patch"
 [[ -f $display_patch && ! -L $display_patch ]] || \
@@ -305,6 +316,8 @@ keycodemap_archive="$archive_dir/$keycodemap_archive_name"
 dtc_archive="$archive_dir/$dtc_archive_name"
 ninja_archive="$archive_dir/$ninja_archive_name"
 virgl_archive="$archive_dir/$virgl_archive_name"
+virgl_tap_archive="$archive_dir/$virgl_tap_archive_name"
+pyyaml_archive="$archive_dir/$pyyaml_archive_name"
 angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
 setuptools_archive="$archive_dir/$setuptools_archive_name"
@@ -317,7 +330,9 @@ obtain_and_verify "QEMU $qemu_commit" "$qemu_url" "$qemu_sha256" "$qemu_archive"
 obtain_and_verify "keycodemapdb $keycodemap_commit" "$keycodemap_url" "$keycodemap_sha256" "$keycodemap_archive"
 obtain_and_verify "dtc $dtc_commit" "$dtc_url" "$dtc_sha256" "$dtc_archive"
 obtain_and_verify "Ninja $ninja_version" "$ninja_url" "$ninja_sha256" "$ninja_archive"
-obtain_and_verify "virglrenderer $virgl_version" "$virgl_url" "$virgl_sha256" "$virgl_archive"
+obtain_and_verify "virglrenderer source" "$virgl_url" "$virgl_sha256" "$virgl_archive"
+obtain_and_verify "virglrenderer patches and regression tests" "$virgl_tap_url" "$virgl_tap_sha256" "$virgl_tap_archive"
+obtain_and_verify "PyYAML source" "$pyyaml_url" "$pyyaml_sha256" "$pyyaml_archive"
 obtain_and_verify "ANGLE $angle_version" "$angle_url" "$angle_sha256" "$angle_archive"
 obtain_and_verify "libepoxy $epoxy_version" "$epoxy_url" "$epoxy_sha256" "$epoxy_archive"
 while IFS=$'\t' read -r formula version archive_name archive_root archive_sha; do
@@ -335,7 +350,9 @@ obtain_and_verify "pip" "$pip_url" "$pip_sha256" "$pip_archive"
 validate_tar_root "QEMU $qemu_commit" "$qemu_archive" "$qemu_root" "$listing_dir/qemu.txt"
 validate_tar_root "keycodemapdb" "$keycodemap_archive" "$keycodemap_root" "$listing_dir/keycodemapdb.txt"
 validate_tar_root "dtc" "$dtc_archive" "$dtc_root" "$listing_dir/dtc.txt"
-validate_tar_root "virglrenderer" "$virgl_archive" "virglrenderer/$virgl_version" "$listing_dir/virglrenderer.txt"
+validate_tar_root "virglrenderer" "$virgl_archive" "$virgl_source_root" "$listing_dir/virglrenderer.txt"
+validate_tar_root "virglrenderer patches" "$virgl_tap_archive" "$virgl_tap_root" "$listing_dir/virgl-tap.txt"
+validate_tar_root "PyYAML" "$pyyaml_archive" "$pyyaml_root" "$listing_dir/pyyaml.txt"
 validate_tar_root "ANGLE" "$angle_archive" "angle/$angle_version" "$listing_dir/angle.txt"
 validate_tar_root "libepoxy" "$epoxy_archive" "libepoxy/$epoxy_version" "$listing_dir/libepoxy.txt"
 
@@ -348,7 +365,12 @@ patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$slirp_patch"
 verify_file_sha "IPv4 UDP reply translation patch" "$udp_patch" "$udp_patch_sha256"
 patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$udp_patch"
 tar -xzf "$qemu_archive" -C "$source_parent"
-tar -xzf "$virgl_archive" -C "$dependency_root"
+tar -xzf "$virgl_archive" -C "$source_parent"
+tar -xzf "$virgl_tap_archive" -C "$source_parent"
+tar -xzf "$pyyaml_archive" -C "$tool_root"
+# Use the pinned pure-Python YAML implementation for generated Gallium tables.
+export PYTHONPATH="$tool_root/$pyyaml_root/lib"
+export PYTHONNOUSERSITE=1
 tar -xzf "$angle_archive" -C "$dependency_root"
 tar -xzf "$epoxy_archive" -C "$dependency_root"
 while IFS=$'\t' read -r formula version archive_name archive_root archive_sha; do
@@ -422,7 +444,7 @@ zstd_root="$dependency_root/$PINNED_ZSTD_ROOT"
 lz4_root="$dependency_root/$PINNED_LZ4_ROOT"
 xz_root="$dependency_root/$PINNED_XZ_ROOT"
 for directory in \
-  "$virgl_root" "$angle_root" "$epoxy_root" \
+  "$angle_root" "$epoxy_root" \
   "$glib_root" "$pixman_root" "$slirp_root" "$sdl2_root" "$sdl3_root" \
   "$gettext_root" "$pcre2_root" "$zstd_root" "$lz4_root" "$xz_root"; do
   [[ -d $directory && ! -L $directory ]] || die "missing extracted dependency: $directory"
@@ -430,8 +452,6 @@ done
 
 # Bottle pkg-config files contain Homebrew relocation placeholders. Point only
 # this private build at the verified extracted headers and libraries.
-sed -i '' "s|@@HOMEBREW_CELLAR@@/virglrenderer/$virgl_version|$virgl_root|g" \
-  "$virgl_root/lib/pkgconfig/virglrenderer.pc"
 sed -i '' "s|@@HOMEBREW_CELLAR@@/libepoxy/$epoxy_version|$epoxy_root|g" \
   "$epoxy_root/lib/pkgconfig/epoxy.pc"
 for pc_file in "$angle_root"/lib/pkgconfig/*.pc; do
@@ -479,7 +499,7 @@ require_private_pkg_version() {
 
   actual=$(env PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
     pkg-config --modversion "$package" 2>/dev/null) || \
-    die "pinned bottle set is missing pkg-config dependency: $package $expected"
+    die "private dependency set is missing pkg-config dependency: $package $expected"
   [[ $actual == "$expected" ]] || \
     die "$package version mismatch: expected $expected, got $actual"
 }
@@ -488,8 +508,60 @@ require_private_pkg_version glib-2.0 2.88.3
 require_private_pkg_version pixman-1 0.46.4
 require_private_pkg_version slirp 4.9.4
 require_private_pkg_version sdl2 2.32.70
-require_private_pkg_version virglrenderer 1.3.0
 require_private_pkg_version epoxy 1.5.11
+
+# Keep the exact graphics fixes, including GLES dual-source output for Alacritty.
+virgl_source="$source_parent/$virgl_source_root"
+virgl_tap="$source_parent/$virgl_tap_root"
+virgl_patches=(
+  virglrenderer-debug-init-logging.patch
+  virglrenderer-default-debug-log.patch
+  virglrenderer-macos-unified.patch
+  virglrenderer-venus-metal-func-ptrs.patch
+  virglrenderer-gallium-endian.patch
+  virglrenderer-macos-a8-swizzle.patch
+  virglrenderer-corefoundation-link.patch
+  virglrenderer-a8-shader-swizzle.patch
+  virglrenderer-a8-shader-swizzle-texture.patch
+  virglrenderer-a8-unpack-alignment.patch
+  virglrenderer-bgra-upload-swizzle-core.patch
+  virglrenderer-msaa-assertion-fix.patch
+  virglrenderer-ignore-surface0-clear.patch
+  virglrenderer-venus-errno-debug.patch
+  virglrenderer-macos-profile-forcing.patch
+  virglrenderer-macos-egl-profile.patch
+  virglrenderer-texture-swizzle-core.patch
+  virglrenderer-bgra-unified.patch
+  virglrenderer-core-profile-frag-datalocation.patch
+  virglrenderer-macos-core-profile-fixes.patch
+  virglrenderer-gles-dual-source-output.patch
+)
+for virgl_patch in "${virgl_patches[@]}"; do
+  patch -d "$virgl_source" -p1 -f -i "$virgl_tap/patches/$virgl_patch"
+done
+virgl_build="$virgl_source/build"
+meson="$tool_root/$meson_root/meson.py"
+log "Building patched VirGL 1.3.0 for macOS $macos_deployment_target"
+env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
+  PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
+  DYLD_LIBRARY_PATH="$private_libraries" \
+  PATH="$(dirname "$ninja"):$PATH" \
+  CFLAGS="-I$angle_root/include -mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new" \
+  OBJCFLAGS="-mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new" \
+  LDFLAGS="-mmacosx-version-min=$macos_deployment_target -Wl,-headerpad_max_install_names" \
+  python3 "$meson" setup "$virgl_build" "$virgl_source" \
+    --prefix="$virgl_root" --libdir=lib --buildtype=debug --wrap-mode=nodownload \
+    -Ddrm-renderers=[] -Dvenus=true -Dtests=false -Dvideo=false -Dtracing=none
+"$ninja" -C "$virgl_build"
+# These test the actual shader generator and blend-state transitions, without a VM.
+env DYLD_LIBRARY_PATH="$private_libraries" \
+  python3 "$virgl_tap/tests/run-driver-regressions.py" \
+    "$virgl_build" "$work_dir/virgl-regressions" -- \
+    "-L$epoxy_root/lib" -lepoxy \
+    -framework Metal -framework CoreFoundation -lobjc \
+    "-Wl,-rpath,$epoxy_root/lib" "-Wl,-rpath,$angle_root/lib"
+python3 "$meson" install -C "$virgl_build" --no-rebuild
+require_private_pkg_version virglrenderer 1.3.0
 
 # Build against the same pinned private GLib used by QEMU; never use host libraries.
 slirp_build="$source_parent/$slirp_source_root/build"
@@ -538,6 +610,8 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
       --disable-debug-info \
       --disable-werror \
       --disable-download \
+      --disable-containers \
+      --container-command=false \
       --extra-cflags="-mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new" \
       --extra-ldflags="-mmacosx-version-min=$macos_deployment_target" \
       --ninja="$ninja"
@@ -545,6 +619,10 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
 
 config_host="$build_dir/config-host.h"
 [[ -f $config_host && ! -L $config_host ]] || die "QEMU configure did not create config-host.h"
+if grep -Eq '^[[:space:]]*#define[[:space:]]+HAVE_STRCHRNUL([[:space:]]+1)?[[:space:]]*$' \
+  "$config_host"; then
+  die "QEMU incorrectly enabled the macOS 15.4-only strchrnul API"
+fi
 python3 - \
   "$build_dir/compile_commands.json" \
   "-mmacosx-version-min=$macos_deployment_target" \
@@ -598,6 +676,7 @@ log "Relocating, capability-gating, signing, and publishing the runtime"
 "$prepare_runtime" \
   --source-qemu "$qemu_binary" \
   --source-slirp "$slirp_root/lib/libslirp.0.dylib" \
+  --source-virgl "$virgl_root/lib/libvirglrenderer.1.dylib" \
   --archive-dir "$archive_dir"
 
 log "Pinned patched runtime is ready; scratch source and archives will now be removed"

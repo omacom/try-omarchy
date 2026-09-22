@@ -21,9 +21,12 @@ make test
 `make build` creates both first.
 
 The staged runtime is a complete, checksum-pinned Apple Silicon closure built
-for macOS 26.0. Runtime and app assembly do not resolve libraries or `zstd`
+for macOS 15.0. Runtime and app assembly do not resolve libraries or `zstd`
 from the host Homebrew prefix, so building on a newer macOS release cannot
-silently raise the app's deployment target.
+silently raise the app's deployment target. VirGL 1.3.0 is built from source
+with the pinned startergo 1.0.42 patch set and its dual-source shader regression
+tests; ANGLE 1.0.16 and libepoxy 1.0.5 retain their Sequoia bottles. This keeps
+the accelerated Alacritty fix without bundling the Tahoe-only VirGL bottle.
 
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. The app builder is also directly usable

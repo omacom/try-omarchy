@@ -4,13 +4,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH --source-slirp PATH [--archive-dir DIR]
+Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH --source-slirp PATH --source-virgl PATH [--archive-dir DIR]
 
 Stage, relocate, validate, and ad-hoc sign the source-built QEMU runtime at:
   macos/.build/qemu-gpu-runtime
 
-QEMU and libslirp are source-built; the remaining runtime closure comes from
-checksum-pinned bottles compatible with macOS 26 or newer;
+QEMU, libslirp, and VirGL are source-built; the remaining runtime closure comes from
+checksum-pinned bottles compatible with macOS 15 or newer;
 it never reads or bundles libraries from the build machine's Homebrew prefix.
 With --archive-dir, reuse pinned archives from DIR after verifying every hash.
 EOF
@@ -18,6 +18,7 @@ EOF
 
 source_qemu=
 source_slirp=
+source_virgl=
 archive_cache=
 while (($#)); do
   case "$1" in
@@ -31,6 +32,12 @@ while (($#)); do
       (($# >= 2)) || { usage >&2; exit 64; }
       [[ -z $source_slirp ]] || { usage >&2; exit 64; }
       source_slirp=$2
+      shift 2
+      ;;
+    --source-virgl)
+      (($# >= 2)) || { usage >&2; exit 64; }
+      [[ -z $source_virgl ]] || { usage >&2; exit 64; }
+      source_virgl=$2
       shift 2
       ;;
     --archive-dir)
@@ -58,11 +65,6 @@ pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 dependency_bundler="$native_dir/bundle-macho-dependencies.sh"
 compatibility_verifier="$native_dir/verify-macos-compatibility.sh"
 runtime_manifest="$native_dir/runtime-files.txt"
-
-virgl_version=1.0.42
-virgl_archive_name=virglrenderer-1.0.42.arm64_tahoe.bottle.tar.gz
-virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.42/$virgl_archive_name"
-virgl_sha256=64c37340757cf300712d8e74dc43759f81058ec58cf424094d5f79c9c82c0984
 
 angle_version=1.0.16
 angle_archive_name=angle-1.0.16.arm64_sequoia.bottle.tar.gz
@@ -97,7 +99,10 @@ done
 [[ $(uname -m) == arm64 ]] || die "the pinned bottles require Apple Silicon (arm64)"
 macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $macos_major =~ ^[0-9]+$ ]] || die "could not determine the macOS version"
-((macos_major >= 26)) || die "the pinned GPU bottles require macOS 26 or newer"
+((macos_major >= 15)) || die "the pinned GPU bottles require macOS 15 or newer"
+[[ -n $source_virgl ]] || die "--source-virgl is required"
+[[ $source_virgl == /* && -f $source_virgl && ! -L $source_virgl ]] || \
+  die "--source-virgl must name an absolute regular library path"
 [[ -n $source_slirp ]] || die "--source-slirp is required"
 [[ $source_slirp == /* && -f $source_slirp && ! -L $source_slirp ]] || \
   die "--source-slirp must name an absolute regular library path"
@@ -196,15 +201,11 @@ obtain_and_verify() {
   install -m 0644 "$cached" "$output"
 }
 
-virgl_archive="$archive_dir/$virgl_archive_name"
 angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
-obtain_and_verify "virglrenderer $virgl_version" "$virgl_url" "$virgl_sha256" "$virgl_archive"
 obtain_and_verify "ANGLE $angle_version" "$angle_url" "$angle_sha256" "$angle_archive"
 obtain_and_verify "libepoxy $epoxy_version" "$epoxy_url" "$epoxy_sha256" "$epoxy_archive"
 
-pinned_bottle_validate_archive \
-  "virglrenderer $virgl_version" "$virgl_archive" "virglrenderer/$virgl_version"
 pinned_bottle_validate_archive \
   "ANGLE $angle_version" "$angle_archive" "angle/$angle_version"
 pinned_bottle_validate_archive \
@@ -217,23 +218,19 @@ while IFS=$'\t' read -r formula version archive_name archive_root archive_sha; d
   pinned_bottle_validate_archive "$formula $version" "$archive" "$archive_root"
 done < <(pinned_core_bottle_manifest)
 
-virgl_member="virglrenderer/$virgl_version/lib/libvirglrenderer.1.dylib"
 epoxy_member="libepoxy/$epoxy_version/lib/libepoxy.0.dylib"
 egl_member="angle/$angle_version/lib/libEGL.dylib"
 gles_member="angle/$angle_version/lib/libGLESv2.dylib"
-pinned_bottle_require_regular_member \
-  "virglrenderer $virgl_version" "$virgl_archive" "$virgl_member"
 pinned_bottle_require_regular_member \
   "libepoxy $epoxy_version" "$epoxy_archive" "$epoxy_member"
 pinned_bottle_require_regular_member "ANGLE $angle_version" "$angle_archive" "$egl_member"
 pinned_bottle_require_regular_member "ANGLE $angle_version" "$angle_archive" "$gles_member"
 
-tar -xzf "$virgl_archive" -C "$extract_dir" "$virgl_member"
 tar -xzf "$epoxy_archive" -C "$extract_dir" "$epoxy_member"
 tar -xzf "$angle_archive" -C "$extract_dir" "$egl_member" "$gles_member"
 
 install -m 0755 "$source_qemu" "$staged_runtime/bin/qemu-system-aarch64"
-install -m 0755 "$extract_dir/$virgl_member" \
+install -m 0755 "$source_virgl" \
   "$staged_runtime/lib/libvirglrenderer.1.dylib"
 install -m 0755 "$extract_dir/$epoxy_member" "$staged_runtime/lib/libepoxy.0.dylib"
 install -m 0755 "$extract_dir/$egl_member" "$staged_runtime/lib/libEGL.dylib"
@@ -372,7 +369,7 @@ verify_runtime_tree() {
     die "could not inspect QEMU's minimum macOS version"
   [[ -n $minimum_versions ]] || die "QEMU has no minimum macOS version"
   while IFS= read -r minimum_version; do
-    [[ $minimum_version == 26.0 ]] || \
+    [[ $minimum_version == 15.0 ]] || \
       die "QEMU has unexpected minimum macOS version: $minimum_version"
   done <<<"$minimum_versions"
 
@@ -503,4 +500,4 @@ fi
 publish_dir=
 
 log "Prepared $runtime_dir"
-log "Runtime is self-contained, targets macOS 26.0, and contains ${#runtime_files[@]} pinned Mach-O images"
+log "Runtime is self-contained, targets macOS 15.0, and contains ${#runtime_files[@]} pinned Mach-O images"

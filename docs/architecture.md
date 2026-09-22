@@ -40,9 +40,10 @@ On macOS 26 or newer, before the real VM starts, the launcher asks the bundled
 QEMU to create a tiny disposable HVF machine with ARM virtualization extensions
 and Apple's platform GICv3. When that probe succeeds on M3 and newer Apple
 Silicon, the real guest starts at EL2 and Linux exposes `/dev/kvm`; on older
-chips the launcher keeps the existing platform-GIC/EL1 configuration. The
-launcher rejects hosts older than macOS 26, as required by the pinned GPU
-runtime, before probing or starting QEMU.
+chips and on macOS 15 the launcher keeps the existing platform-GIC/EL1
+configuration. The launcher rejects hosts older than macOS 15 before probing
+or starting QEMU. The updated VirGL renderer is source-built for macOS 15.0,
+including the dual-source shader fix used by accelerated Alacritty.
 The pinned QEMU 11.1.1 runtime contains the upstream HVF vGIC and
 nested-virtualization implementation.
 

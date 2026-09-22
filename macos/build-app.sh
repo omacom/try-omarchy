@@ -45,8 +45,8 @@ while (($#)); do
 done
 
 macos_major=$(sw_vers -productVersion | cut -d. -f1)
-[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 26 )) || {
-  echo "build-app: macOS 26 or newer is required" >&2
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 15 )) || {
+  echo "build-app: macOS 15 or newer is required" >&2
   exit 1
 }
 
@@ -129,7 +129,7 @@ cd "$macos_dir"
 mkdir -p "$module_cache/swift" "$module_cache/clang" "$module_cache/icon"
 export SWIFT_MODULECACHE_PATH="$module_cache/swift"
 export CLANG_MODULE_CACHE_PATH="$module_cache/clang"
-export MACOSX_DEPLOYMENT_TARGET=26.0
+export MACOSX_DEPLOYMENT_TARGET=15.0
 swift build --disable-sandbox -c release -debug-info-format none
 
 rm -rf "$iconset"

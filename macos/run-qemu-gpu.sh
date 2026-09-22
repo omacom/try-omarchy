@@ -56,8 +56,8 @@ port_forwarding_library="$script_dir/qemu-port-forwarding.sh"
 [[ $(uname -m) == arm64 ]] || fail "requires an ARM64 Mac"
 [[ $(uname -s) == Darwin ]] || fail "requires macOS"
 macos_major=$(sw_vers -productVersion | cut -d. -f1)
-[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 26 )) || \
-  fail "requires macOS 26 or newer"
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 15 )) || \
+  fail "requires macOS 15 or newer"
 [[ -d $guest_input && ! -L $guest_input ]] || fail "ARM guest directory is missing or unsafe: $guest_input"
 guest_dir=$(cd "$guest_input" && pwd -P)
 

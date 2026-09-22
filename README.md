@@ -417,13 +417,14 @@ mechanism, and those strings are hardcoded in its shell scripts.
 ## Requirements
 
 - Apple Silicon Mac (`arm64`)
-- macOS 26 or newer
+- macOS 15 or newer
 - At least 8 GB free initially
 
 On M3 and newer Apple Silicon running macOS 26 or newer, Try Omarchy also
 exposes ARM EL2 to Linux, so the guest provides `/dev/kvm` for nested VMs and
-compatible VMMs. Older Apple Silicon Macs automatically keep the normal
-non-nested launch path.
+compatible VMMs. macOS 15 and older Apple Silicon Macs keep the normal
+non-nested launch path. Hardware-accelerated graphics, including Alacritty,
+are available on both macOS 15 and macOS 26.
 
 ## Data and updates
 
@@ -629,8 +630,8 @@ brew install pkg-config
 ```
 
 `make doctor` performs the basic preflight. `make runtime` downloads a
-checksum-pinned dependency set, builds QEMU and patched libslirp for macOS 26.0,
-and rejects any runtime image that raises that minimum or strongly imports an
+checksum-pinned dependency set, builds QEMU, patched libslirp, and patched VirGL
+for macOS 15.0, and rejects any runtime image that raises that minimum or strongly imports an
 API unavailable on the declared platform. Installed Homebrew library versions
 are never copied into the app.
 

@@ -725,15 +725,25 @@ assert_not_contains "$nested_fallback_qemu" virtualization=on
 assert_not_contains "$nested_fallback_qemu" kernel-irqchip=on
 assert_contains "$(<"$test_root/nested-fallback/nested.log")" probe
 
-# The pinned GPU runtime requires macOS 26. Reject older hosts before any
-# storage changes, nested-virtualization probes, or QEMU launches.
-for version in 15.0 15.7.7; do
+# Sequoia runs the updated graphics stack but must never probe or enter EL2.
+for version in 15.0 15.3 15.7.7; do
+  scenario="compatible-macos-$version"
+  run_scenario "$scenario" 0 '' FAKE_MACOS_VERSION="$version"
+  assert_line_pair "$test_root/$scenario/qemu.log" -machine \
+    'virt,accel=hvf,gic-version=3'
+  assert_not_contains "$(<"$test_root/$scenario/qemu.log")" virtualization=on
+  assert_contains "$(<"$test_root/$scenario/qemu.log")" omarchy.virgl_dual_source=1
+  [[ ! -e $test_root/$scenario/nested.log ]] || fail "macOS $version probed EL2"
+done
+
+# Reject unsupported hosts before storage changes, probes, or QEMU launches.
+for version in 14.0 14.7.7; do
   scenario="unsupported-macos-$version"
   run_scenario "$scenario" 1 '' FAKE_MACOS_VERSION="$version"
   [[ ! -s $test_root/$scenario/storage.log ]] || fail "macOS $version touched storage"
   [[ ! -e $test_root/$scenario/qemu.log ]] || fail "macOS $version started QEMU"
   [[ ! -e $test_root/$scenario/nested.log ]] || fail "macOS $version probed EL2"
-  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 26 or newer'
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 15 or newer'
 done
 
 for version in 26.0 26.1 27.0; do
@@ -752,7 +762,7 @@ for version in '' unknown; do
   [[ ! -s $test_root/$scenario/storage.log ]] || fail 'unknown macOS version touched storage'
   [[ ! -e $test_root/$scenario/qemu.log ]] || fail 'unknown macOS version started QEMU'
   [[ ! -e $test_root/$scenario/nested.log ]] || fail 'unknown macOS version probed EL2'
-  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 26 or newer'
+  assert_contains "$(<"$test_root/$scenario/stderr")" 'requires macOS 15 or newer'
 done
 run_scenario nested-version-failure 1 '' FAKE_MACOS_VERSION_STATUS=1
 [[ ! -s $test_root/nested-version-failure/storage.log ]] || fail 'failed version query touched storage'

@@ -1,6 +1,6 @@
 # Releasing
 
-Releases are Apple Silicon-only and require macOS 26 or newer.
+Releases are Apple Silicon-only and require macOS 15 or newer.
 
 ## Build and verify
 
@@ -90,3 +90,17 @@ input.
 The saved boot-kit ABI is a compatibility boundary. Do not change it or remove
 support for an existing value without a reviewed preserving migration or an
 explicitly confirmed reset path.
+
+## macOS compatibility validation
+
+Run `make test` and `make runtime` on macOS 15 and 26 (both covered by CI).
+The runtime build runs the pinned VirGL dual-source shader
+and blend-state regression tests and rejects bundled Mach-O files targeting a
+version newer than 15.0 or strongly importing `strchrnul` (introduced in 15.4).
+These binary checks do not replace testing on the supported operating systems.
+
+Before publishing, boot the release app on macOS 15.0–15.3 and macOS 26. Verify
+Alacritty uses accelerated rendering and correctly draws text while resizing,
+check desktop rendering, and test both new and existing guests. macOS 15 must
+use EL1 without probing nested virtualization; on macOS 26, verify the existing
+EL2 probe and fallback on supported and unsupported hardware respectively.
