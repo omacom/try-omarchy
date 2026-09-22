@@ -22,10 +22,14 @@ explain any validation you could not complete. See the details below.
 
 ## Reporting issues
 
-Check for an existing report if you can. Tell us what happened, what you
-expected, and your app version, macOS version, and Apple chip. Include steps to
-reproduce if known. Logs, screenshots, and recordings are optional; remove
-secrets and unrelated personal information before sharing them.
+Before opening a report or proposal, search open and closed issues for the same
+problem or idea. Add useful details to an existing issue, or link related issues
+in your new report.
+
+Tell us what happened, what you expected, and whether it happens in the Mac app
+or inside Omarchy. Include your app version, macOS version, Apple chip, and
+steps to reproduce if known. Logs, screenshots, and recordings are optional;
+remove secrets and unrelated personal information before sharing them.
 
 You can open a report even if you cannot reliably reproduce the problem or do
 not know every system detail. For change proposals, describe the problem and
