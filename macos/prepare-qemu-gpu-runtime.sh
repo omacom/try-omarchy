@@ -432,12 +432,15 @@ verify_runtime_tree() {
     [[ $device_help == *"$device"* ]] || die "relocated QEMU is missing device $device"
   done
 
-  netdev_help=$("$qemu" -machine virt -netdev help 2>&1) || \
+  # These help queries run after accelerator initialization. Use QEMU's built-in
+  # test accelerator so build verification also works on virtualized CI hosts
+  # without HVF access; the separate accelerator query above still requires HVF.
+  netdev_help=$("$qemu" -machine none -accel qtest -netdev help 2>&1) || \
     die "relocated QEMU could not enumerate network backends: $netdev_help"
   printf '%s\n' "$netdev_help" | awk '$1 == "user" { found = 1 } END { exit !found }' || \
     die "relocated QEMU is missing the SLIRP user network backend"
 
-  audio_help=$("$qemu" -machine virt -audiodev help 2>&1) || \
+  audio_help=$("$qemu" -machine none -accel qtest -audiodev help 2>&1) || \
     die "relocated QEMU could not enumerate audio backends: $audio_help"
   printf '%s\n' "$audio_help" | awk '$1 == "sdl" { found = 1 } END { exit !found }' || \
     die "relocated QEMU is missing the SDL audio backend"
