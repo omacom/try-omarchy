@@ -10,8 +10,8 @@ struct VMResourcePreferencesTests {
 
     @Test("New installs use host-aware memory defaults and up to eight cores")
     func defaults() {
-        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 8, diskGiB: 32))
-        #expect(limits(cpus: 6, memoryGiB: 8).defaults == VMResources(cpuCount: 6, memoryGiB: 4, diskGiB: 32))
+        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 8, diskGiB: 64))
+        #expect(limits(cpus: 6, memoryGiB: 8).defaults == VMResources(cpuCount: 6, memoryGiB: 4, diskGiB: 64))
         #expect(limits(memoryGiB: 7).memoryChoicesGiB.contains(4))
     }
 
@@ -148,7 +148,7 @@ struct VMResourcePreferencesTests {
         let environment = VMResourceLaunchConfiguration.make(baseEnvironment: [:], preferences: selected, limits: limits()).environment
         #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "256")
         let defaults = VMResourceLaunchConfiguration.make(baseEnvironment: environment, preferences: nil, limits: limits()).environment
-        #expect(defaults[VMResourceLaunchConfiguration.diskEnvironmentKey] == "32")
+        #expect(defaults[VMResourceLaunchConfiguration.diskEnvironmentKey] == "64")
     }
 
     @Test("Disk maximum accepts growth and rejects shrinking, malformed and excessive values")

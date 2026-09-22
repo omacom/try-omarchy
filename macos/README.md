@@ -102,9 +102,9 @@ The app exports `OMARCHY_QEMU_GPU_CPUS` and the established
 selection. The launcher validates these before touching VM storage. Direct
 script invocations retain the 2048 MiB minimum and the 4 GiB host floor for
 allocations above the default. The optional `OMARCHY_QEMU_GPU_DISK_GIB` selects up to 8192 GiB of sparse
-capacity. New resource settings default to 32 GiB; existing saved preferences
+capacity. New resource settings default to 64 GiB; existing saved preferences
 without a disk maximum retain their capacity. Use Defaults selects at least
-32 GiB and never reduces a larger existing disk. Existing
+64 GiB and never reduces a larger existing disk. Existing
 disks grow under their workspace lock after boot pairing, using a native
 helper that checks the original inode, owner, permissions, link count, and
 size through the open file descriptor before extending it. No Python runtime

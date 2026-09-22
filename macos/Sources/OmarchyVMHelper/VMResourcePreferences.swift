@@ -37,7 +37,7 @@ struct VMResourceLimits: Equatable {
         VMResources(
             cpuCount: min(8, cpuRange.upperBound),
             memoryGiB: MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: hostMemoryMiB) / 1024,
-            diskGiB: 32
+            diskGiB: 64
         )
     }
 

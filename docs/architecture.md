@@ -227,7 +227,7 @@ normal launch, an existing disk is sparsely extended under the workspace lock,
 after validating its metadata and boot kit. The native helper binds the change
 to the inspected inode and original size and never shrinks the disk. APFS
 allocates blocks as guest writes arrive; the configured capacity does not
-reserve host space. New launcher settings default to 32 GiB, raised to the
+reserve host space. New launcher settings default to 64 GiB, raised to the
 existing capacity when larger. Blank settings preserve the current capacity.
 New VMs use the selected capacity when their factory clone is prepared.
 

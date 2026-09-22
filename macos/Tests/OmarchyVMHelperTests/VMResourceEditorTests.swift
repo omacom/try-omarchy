@@ -31,7 +31,7 @@ struct VMResourceEditorTests {
         #expect(save.isEnabled)
         save.performClick(nil)
         editor.dismiss()
-        #expect(saved == [VMResources(cpuCount: 18, memoryGiB: 12, diskGiB: 32)])
+        #expect(saved == [VMResources(cpuCount: 18, memoryGiB: 12, diskGiB: 64)])
         #expect(closed == 1)
     }
 
@@ -50,7 +50,7 @@ struct VMResourceEditorTests {
         #expect(cpu.selectedItem?.tag == 8)
         #expect(memory.selectedItem?.tag == 8)
         let disk: NSTextField = try control("disk", in: editor)
-        #expect(disk.stringValue == "32")
+        #expect(disk.stringValue == "64")
         #expect(saved.isEmpty)
         let cancel: NSButton = try control("cancel", in: editor)
         cancel.performClick(nil)
@@ -108,7 +108,7 @@ struct VMResourceEditorTests {
         memory.selectItem(withTag: 12)
         memory.sendAction(memory.action, to: memory.target)
         save.performClick(nil)
-        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12, diskGiB: 32))
+        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12, diskGiB: 64))
     }
 
     @Test("A small host retains a usable default memory choice")
