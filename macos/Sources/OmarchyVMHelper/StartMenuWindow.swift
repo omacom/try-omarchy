@@ -163,6 +163,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let portForwardingStatus: () -> [PortForwardMapping]
     private let savePortForwarding: ([PortForwardMapping]) -> String?
     private let resources: () -> VMResources
+    private let minimumDiskGiB: () -> Int
     private let resourceLimits: VMResourceLimits
     private let saveResources: (VMResources) -> Void
     private let networkPreferences: () -> VMNetworkPreferences
@@ -269,6 +270,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         savePortForwarding: @escaping ([PortForwardMapping]) -> String? = { _ in nil },
         resources: @escaping () -> VMResources = { VMResourceLimits.current.defaults },
         resourceLimits: VMResourceLimits = .current,
+        minimumDiskGiB: @escaping () -> Int = { 1 },
         saveResources: @escaping (VMResources) -> Void = { _ in },
         networkPreferences: @escaping () -> VMNetworkPreferences = { VMNetworkPreferences() },
         saveNetworkPreferences: @escaping (VMNetworkPreferences) -> String? = { _ in nil },
@@ -306,6 +308,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.portForwardingStatus = portForwardingStatus
         self.savePortForwarding = savePortForwarding
         self.resources = resources
+        self.minimumDiskGiB = minimumDiskGiB
         self.resourceLimits = resourceLimits
         self.saveResources = saveResources
         self.networkPreferences = networkPreferences
@@ -1636,6 +1639,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let editor = VMResourceEditor(
             resources: resources(),
             limits: resourceLimits,
+            minimumDiskGiB: minimumDiskGiB(),
             save: { [weak self] resources in self?.saveResources(resources) },
             didClose: { [weak self] in
                 self?.resourceEditor = nil

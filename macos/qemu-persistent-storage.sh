@@ -1041,6 +1041,38 @@ qemu_persistent_storage_stage_selected_boot_kit() {
   _qps_set_selected_boot_kit "$QEMU_PERSISTENT_STORAGE_IDENTITY"
 }
 
+# Launch-time growth uses the native helper so packaged apps need no Python.
+# The caller holds the same workspace lock that protects QEMU's entire run.
+qemu_persistent_storage_grow_selected() {
+  local qps_target=$1
+  local qps_helper=$2
+  local qps_current qps_identity
+  [[ $QEMU_SELECTED_STORAGE_MODE == persistent ]] && _qps_lock_fd_is_open || {
+    _qps_fail 'disk growth requires a locked persistent VM'
+    return 1
+  }
+  [[ $qps_target =~ ^[1-9][0-9]{0,13}$ ]] && (( qps_target <= 8796093022208 )) || {
+    _qps_fail 'invalid disk capacity'
+    return 1
+  }
+  _qps_validate_recorded_workspace "${QEMU_SELECTED_DISK%/*}" || return 1
+  _qps_validate_boot_kit_directory \
+    "$QEMU_PERSISTENT_STORAGE_BOOT_ROOT/$QEMU_PERSISTENT_STORAGE_IDENTITY" \
+    "$QEMU_PERSISTENT_STORAGE_IDENTITY" || return 1
+  qps_current=$QPS_RECORDED_EXISTING_BYTES
+  (( qps_target >= qps_current )) || {
+    _qps_fail 'maximum disk size is below the existing capacity; shrinking is not supported'
+    return 1
+  }
+  (( qps_target > qps_current )) || return 0
+  _qps_assert_volume_supported "$QEMU_PERSISTENT_STORAGE_ROOT" || return 1
+  _qps_assert_free_space "$QEMU_PERSISTENT_STORAGE_ROOT" "$QEMU_PERSISTENT_STORAGE_HEADROOM_BYTES" || return 1
+  qps_identity=$(_qps_file_identity "$QEMU_SELECTED_DISK")
+  "$qps_helper" --grow-vm-disk "$QEMU_SELECTED_DISK" "$qps_current" "$qps_target" "$qps_identity" || return 1
+  QEMU_PERSISTENT_STORAGE_WORKING_BYTES=$qps_target
+  _qps_error "expanded sparse VM capacity to $((qps_target / 1024 / 1024 / 1024)) GiB"
+}
+
 _qps_expand_disk() {
   local qps_disk=$1
   local qps_source_bytes=$2

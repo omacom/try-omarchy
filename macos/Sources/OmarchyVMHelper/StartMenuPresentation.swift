@@ -53,6 +53,7 @@ struct StartMenuLanguagePresentation: Equatable {
 enum StartMenuPresentation {
     static func resources(_ resources: VMResources) -> String {
         "\(resources.cpuCount) processor cores · \(resources.memoryGiB) GiB memory"
+            + (resources.diskGiB.map { " · \($0) GiB disk" } ?? "")
     }
 
     static let incompatibleWorkspaceDetail = "The saved VM uses a storage or boot format this version can’t use, or its data folder contains multiple saved VMs. Reset Omarchy to create a compatible VM. Resetting permanently erases everything in the VM."

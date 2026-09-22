@@ -1014,6 +1014,16 @@ default_vcpu_count=8
 if (( host_cpu_count < default_vcpu_count )); then
   default_vcpu_count=$host_cpu_count
 fi
+# Capacity is independent of the signed factory metrics. Validate before any
+# workspace mutation; a blank setting preserves existing/factory capacity.
+disk_capacity_gib=${OMARCHY_QEMU_GPU_DISK_GIB:-}
+disk_capacity_bytes=''
+if [[ -n $disk_capacity_gib ]]; then
+  [[ $disk_capacity_gib =~ ^[1-9][0-9]{0,3}$ ]] && (( disk_capacity_gib <= 8192 )) || \
+    fail "OMARCHY_QEMU_GPU_DISK_GIB must be a whole number from 1 to 8192"
+  disk_capacity_bytes=$((disk_capacity_gib * 1024 * 1024 * 1024))
+fi
+
 vcpu_count=${OMARCHY_QEMU_GPU_CPUS-$default_vcpu_count}
 # Bound and validate decimal text before shell arithmetic: reject expressions,
 # leading zeroes (octal), and values that could wrap a signed integer.
@@ -1486,6 +1496,10 @@ if [[ $storage_mode == persistent ]]; then
 fi
 
 if (( selected_existing == 0 )); then
+  if [[ -n $disk_capacity_bytes ]]; then
+    (( disk_capacity_bytes >= expanded_disk_bytes )) || fail 'maximum disk size is below the factory capacity'
+    expanded_disk_bytes=$disk_capacity_bytes
+  fi
   source_disk="$guest_dir/rootfs.ext4"
   if [[ ! -e $source_disk && ! -L $source_disk ]]; then
     qemu_persistent_storage_materialize_source \
@@ -1550,6 +1564,11 @@ if ((reset_only)); then
   qemu_persistent_storage_release_lock
   echo "[qemu-gpu] Reset complete." >&2
   exit 0
+fi
+
+if [[ -n $disk_capacity_bytes && $storage_mode == persistent && ${OMARCHY_QEMU_GPU_DRY_RUN:-0} == 0 ]]; then
+  qemu_persistent_storage_grow_selected "$disk_capacity_bytes" "$native_bridge" || \
+    fail 'could not apply maximum disk size'
 fi
 
 if [[ -n $guest_locale ]]; then

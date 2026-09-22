@@ -90,7 +90,7 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
-The Resources editor stores CPU count and RAM in the versioned
+The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
 existing `memoryPreferences` choice without rewriting it. CPU choices range
 from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB default and
@@ -99,9 +99,16 @@ fit resolve independently to their defaults without rewriting storage.
 
 The app exports `OMARCHY_QEMU_GPU_CPUS` and the established
 `OMARCHY_QEMU_GPU_MEMORY_MIB`, replacing inherited overrides with the displayed
-selection. The launcher validates both before touching VM storage. Direct
+selection. The launcher validates these before touching VM storage. Direct
 script invocations retain the 2048 MiB minimum and the 4 GiB host floor for
-allocations above the default. Storage-only resets strip both keys; recovery
+allocations above the default. The optional `OMARCHY_QEMU_GPU_DISK_GIB` selects up to 8192 GiB of sparse
+capacity. Missing preferences retain the existing or factory size. Existing
+disks grow under their workspace lock after boot pairing, using a native
+helper that checks the original inode, owner, permissions, link count, and
+size through the open file descriptor before extending it. No Python runtime
+is needed for app-driven growth. Only boot/write headroom is required, not
+the whole configured capacity. The guest grows ext4 on the next boot.
+Storage-only resets strip all three resource keys; recovery
 keeps its small allocation. Changes apply on the next launch without rebuilding
 or re-signing the app.
 

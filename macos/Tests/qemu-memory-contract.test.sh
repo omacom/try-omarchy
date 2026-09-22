@@ -221,6 +221,9 @@ _qps_permissions() { /usr/bin/stat -f '%Lp' "$1"; }
 _qps_lstat_kind() { /usr/bin/stat -f '%HT' "$1"; }
 _qps_size() { /usr/bin/stat -f '%z' "$1"; }
 qemu_persistent_storage_release_lock() { :; }
+qemu_persistent_storage_grow_selected() {
+  printf 'grow:%s\n' "$1" >>"$FAKE_STORAGE_LOG"
+}
 qemu_persistent_storage_materialize_source() {
   printf 'materialize\n' >>"$FAKE_STORAGE_LOG"
   return 1
@@ -373,6 +376,16 @@ run_scenario() {
     fail "$scenario expected status $expected_status, got $actual_status"
   fi
 }
+
+# Disk settings reach the locked storage path; malformed values never touch it.
+run_scenario disk-default 0
+[[ $(cat "$test_root/disk-default/storage.log") != *grow:* ]] || fail 'default launch grew disk'
+run_scenario disk-maximum 0 OMARCHY_QEMU_GPU_DISK_GIB=64
+assert_contains "$(cat "$test_root/disk-maximum/storage.log")" 'grow:68719476736'
+for value in 0 01 8193 1.5 -1 invalid 99999999999999999; do
+  run_scenario "disk-invalid-$value" 1 OMARCHY_QEMU_GPU_DISK_GIB="$value"
+  [[ ! -e "$test_root/disk-invalid-$value/storage.log" ]] || fail 'invalid disk size touched storage'
+done
 
 # A 16 GiB Mac defaults to 8 GiB; smaller Macs keep the 4 GiB baseline.
 run_scenario default 0

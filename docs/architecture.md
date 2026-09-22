@@ -222,6 +222,14 @@ creates the account on first boot.
   disabled language row with reset guidance. Updating `LANG` preserves other
   locale categories and comments in `/etc/locale.conf`.
 
+Resources can set an optional maximum virtual disk capacity. On the next
+normal launch, an existing disk is sparsely extended under the workspace lock,
+after validating its metadata and boot kit. The native helper binds the change
+to the inspected inode and original size and never shrinks the disk. APFS
+allocates blocks as guest writes arrive; the configured capacity does not
+reserve host space. Blank/default settings preserve the current capacity.
+New VMs use the selected capacity when their factory clone is prepared.
+
 Nothing is overwritten while the app runs. The app bundle and packaged factory
 disk remain unchanged. Normal user launches use one private writable disk under
 `~/Library/Application Support/Try Omarchy/VM/v1`. The disk metadata retains

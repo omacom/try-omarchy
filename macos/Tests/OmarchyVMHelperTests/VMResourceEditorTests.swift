@@ -126,6 +126,27 @@ struct VMResourceEditorTests {
         #expect(save.isEnabled)
     }
 
+    @Test("Disk capacity edits are validated before Save and defaults never shrink the disk")
+    func diskCapacity() throws {
+        _ = NSApplication.shared
+        var saved: VMResources?
+        let editor = VMResourceEditor(resources: limits.defaults, limits: limits, minimumDiskGiB: 64,
+                                      save: { saved = $0 }, didClose: {})
+        defer { editor.dismiss() }
+        let disk: NSTextField = try control("disk", in: editor)
+        let save: NSButton = try control("save", in: editor)
+        #expect(disk.stringValue.isEmpty)
+        disk.stringValue = "32"
+        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
+        #expect(!save.isEnabled)
+        disk.stringValue = "256"
+        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
+        #expect(save.isEnabled)
+        #expect(saved == nil)
+        save.performClick(nil)
+        #expect(saved?.diskGiB == 256)
+    }
+
     private func control<T: NSView>(_ name: String, in editor: VMResourceEditor) throws -> T {
         func find(in view: NSView) -> T? {
             if view.identifier?.rawValue == "vm-resources-\(name)" { return view as? T }

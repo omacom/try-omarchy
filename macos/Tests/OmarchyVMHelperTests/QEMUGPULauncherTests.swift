@@ -110,6 +110,7 @@ struct QEMUGPURuntimeEnvironmentTests {
             PortForwardPolicy.environmentKey,
             VMResourceLaunchConfiguration.cpuEnvironmentKey,
             VMResourceLaunchConfiguration.memoryEnvironmentKey,
+            VMResourceLaunchConfiguration.diskEnvironmentKey,
             QEMUGPURuntimeEnvironment.inspectOnlyKey,
             QEMUGPURuntimeEnvironment.dryRunKey,
             QEMUGPURuntimeEnvironment.bootRecoveryConsentKey,

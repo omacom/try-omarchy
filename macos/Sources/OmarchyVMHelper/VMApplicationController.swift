@@ -238,9 +238,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             },
             resources: { [weak self, resourceLimits] in
                 guard let self else { return resourceLimits.defaults }
-                return self.resourceLimits.resolve(self.resourcePreferenceStore.load())
+                return self.resolvedResources()
             },
             resourceLimits: resourceLimits,
+            minimumDiskGiB: { [weak self] in self?.minimumDiskGiB() ?? 1 },
             saveResources: { [weak self] resources in
                 self?.resourcePreferenceStore.save(resources)
             },
@@ -497,6 +498,26 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         return preferences
     }
 
+    private func minimumDiskGiB() -> Int {
+        let root = disposableWorkspace.directory ?? QEMUGPUStorageSpaceEstimate.storageRootURL(
+            environment: baseEnvironment, preference: storageLocationStore.load()
+        )
+        let disk = root?.appendingPathComponent("disks/current/rootfs.ext4")
+        let attributes = disk.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path) }
+        let bytes = (attributes?[.type] as? FileAttributeType) == .typeRegular
+            ? (attributes?[.size] as? NSNumber)?.int64Value : nil
+        let capacity = bytes ?? bundledMetrics?.workingDiskBytes ?? (16 << 30)
+        return max(1, Int(max(0, capacity - 1) / (1 << 30)) + 1)
+    }
+
+    private func resolvedResources() -> VMResources {
+        var resources = resourceLimits.resolve(resourcePreferenceStore.load())
+        if let disk = resources.diskGiB {
+            resources.diskGiB = max(disk, minimumDiskGiB())
+        }
+        return resources
+    }
+
     /// The environment every launcher invocation receives.
     ///
     /// Reset must compose this exactly as a normal launch does. When the two
@@ -528,7 +549,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         let resources = VMResourceLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
-            preferences: resourcePreferenceStore.load(),
+            preferences: resolvedResources(),
             limits: resourceLimits
         )
         let language = LanguageLaunchConfiguration.make(

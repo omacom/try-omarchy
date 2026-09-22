@@ -39,6 +39,7 @@ enum QEMUGPURuntimeEnvironment {
             PortForwardPolicy.environmentKey,
             VMResourceLaunchConfiguration.cpuEnvironmentKey,
             VMResourceLaunchConfiguration.memoryEnvironmentKey,
+            VMResourceLaunchConfiguration.diskEnvironmentKey,
         ] {
             environment.removeValue(forKey: key)
         }

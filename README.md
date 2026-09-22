@@ -157,12 +157,25 @@ Shutting down Omarchy closes the app and leaves it closed.
 ## Virtual machine resources
 
 Choose **Resources → Configure…** on the start menu to adjust processor cores
-and memory for the next launch. Processor cores range from 4 to all the cores
+and memory, and set a maximum disk size for the next launch. Processor cores range from 4 to all the cores
 on this Mac; the default remains up to 8 cores. Memory defaults to 8 GiB on
 Macs with at least 16 GiB of RAM, and 4 GiB on smaller Macs. Custom allocations
 can leave as little as 4 GiB for macOS; higher choices carry a performance note.
 
-**Save** remembers both choices. **Cancel** leaves them unchanged, and
+**Maximum disk size (GiB)** sets the virtual disk capacity, up to 8192 GiB.
+Mac storage is allocated as the guest writes data, rather than reserving the
+whole maximum in advance. For example, choosing 256 GiB does not immediately
+use 256 GiB on the Mac. The volume still needs free space as the VM fills it;
+the maximum is guest capacity, not a quota on backups or total app storage.
+
+Leave the field blank to retain the current capacity (or the factory capacity
+for a new VM). Larger values sparsely extend the stopped disk at the next
+launch; the guest expands its root filesystem on boot. Existing disks cannot
+shrink. **Use Defaults** keeps their current capacity. A disk previously grown
+with the CLI remains at least that large. For direct launcher script usage,
+set `OMARCHY_QEMU_GPU_DISK_GIB=256`.
+
+**Save** remembers these choices. **Cancel** leaves them unchanged, and
 **Use Defaults** restores the draft until you save. Existing memory preferences
 are carried forward. A choice that no longer fits a smaller Mac falls back to
 its default without erasing the saved choice.

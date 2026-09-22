@@ -3,6 +3,8 @@ import Foundation
 struct VMResources: Codable, Equatable {
     var cpuCount: Int
     var memoryGiB: Int
+    // Missing in schema-1 preferences: retain the existing/factory capacity.
+    var diskGiB: Int? = nil
 }
 
 struct VMResourceLimits: Equatable {
@@ -44,18 +46,27 @@ struct VMResourceLimits: Equatable {
         guard let saved else { return defaults }
         return VMResources(
             cpuCount: cpuRange.contains(saved.cpuCount) ? saved.cpuCount : defaults.cpuCount,
-            memoryGiB: memoryChoicesGiB.contains(saved.memoryGiB) ? saved.memoryGiB : defaults.memoryGiB
+            memoryGiB: memoryChoicesGiB.contains(saved.memoryGiB) ? saved.memoryGiB : defaults.memoryGiB,
+            diskGiB: saved.diskGiB.flatMap { (1...8192).contains($0) ? $0 : nil }
         )
     }
 
-    func validate(cpuCount: String, memoryGiB: String) throws -> VMResources {
+    func validate(cpuCount: String, memoryGiB: String, diskGiB: String = "", minimumDiskGiB: Int = 1) throws -> VMResources {
         guard let cpus = Self.wholeNumber(cpuCount), cpuRange.contains(cpus) else {
             throw VMResourceInputError.invalidCPUCount(cpuRange.upperBound)
         }
         guard let memory = Self.wholeNumber(memoryGiB), memoryChoicesGiB.contains(memory) else {
             throw VMResourceInputError.invalidMemory(memoryChoicesGiB)
         }
-        return VMResources(cpuCount: cpus, memoryGiB: memory)
+        let diskText = diskGiB.trimmingCharacters(in: .whitespacesAndNewlines)
+        var disk: Int?
+        if !diskText.isEmpty {
+            guard let value = Self.wholeNumber(diskText), value >= minimumDiskGiB, value <= 8192 else {
+                throw VMResourceInputError.invalidDisk(minimumDiskGiB)
+            }
+            disk = value
+        }
+        return VMResources(cpuCount: cpus, memoryGiB: memory, diskGiB: disk)
     }
 
     private static func wholeNumber(_ text: String) -> Int? {
@@ -68,9 +79,12 @@ struct VMResourceLimits: Equatable {
 enum VMResourceInputError: LocalizedError {
     case invalidCPUCount(Int)
     case invalidMemory([Int])
+    case invalidDisk(Int)
 
     var errorDescription: String? {
         switch self {
+        case .invalidDisk(let minimum):
+            "Disk capacity must be a whole number from \(minimum) to 8192 GiB. Existing disks cannot shrink."
         case .invalidCPUCount(let maximum):
             "Processor cores must be a whole number from \(VMResourceLimits.minimumCPUCount) to \(maximum)."
         case .invalidMemory(let choices):
@@ -119,6 +133,7 @@ struct VMResourcePreferenceStore {
 }
 
 struct VMResourceLaunchConfiguration: Equatable {
+    static let diskEnvironmentKey = "OMARCHY_QEMU_GPU_DISK_GIB"
     static let cpuEnvironmentKey = "OMARCHY_QEMU_GPU_CPUS"
     static let memoryEnvironmentKey = MemoryPolicy.environmentKey
 
@@ -133,6 +148,7 @@ struct VMResourceLaunchConfiguration: Equatable {
         var environment = baseEnvironment
         environment[cpuEnvironmentKey] = String(resources.cpuCount)
         environment[memoryEnvironmentKey] = String(resources.memoryGiB * 1024)
+        environment[diskEnvironmentKey] = resources.diskGiB.map(String.init)
         return Self(environment: environment)
     }
 }

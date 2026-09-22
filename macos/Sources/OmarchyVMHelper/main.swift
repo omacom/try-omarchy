@@ -19,6 +19,11 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--grow-vm-disk" {
+        guard arguments.count == 5, let old = Int64(arguments[2]), let target = Int64(arguments[3]) else { usage() }
+        try SparseDiskGrowth.grow(path: arguments[1], expectedBytes: old, targetBytes: target, identity: arguments[4])
+        exit(0)
+    }
     if arguments.first == "--wait-for-qmp" {
         guard arguments.count == 3, let pid = Int32(arguments[1]), pid > 1 else { usage() }
         try QMPMonitorReadiness.wait(targetPID: pid, socketPath: arguments[2])

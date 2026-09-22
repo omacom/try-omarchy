@@ -136,6 +136,34 @@ struct VMResourcePreferencesTests {
         }
     }
 
+    @Test("Old resource preferences preserve CPU and RAM without selecting disk growth")
+    func migratesDiskPreference() throws {
+        let fixture = DefaultsFixture()
+        fixture.defaults.set(Data(#"{"schemaVersion":1,"resources":{"cpuCount":6,"memoryGiB":12}}"#.utf8),
+                             forKey: VMResourcePreferenceStore.key)
+        #expect(fixture.store.load() == VMResources(cpuCount: 6, memoryGiB: 12))
+        let selected = VMResources(cpuCount: 6, memoryGiB: 12, diskGiB: 256)
+        fixture.store.save(selected)
+        #expect(fixture.store.load() == selected)
+        let environment = VMResourceLaunchConfiguration.make(baseEnvironment: [:], preferences: selected, limits: limits()).environment
+        #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "256")
+        let defaults = VMResourceLaunchConfiguration.make(baseEnvironment: environment, preferences: nil, limits: limits()).environment
+        #expect(defaults[VMResourceLaunchConfiguration.diskEnvironmentKey] == nil)
+    }
+
+    @Test("Disk maximum accepts growth and rejects shrinking, malformed and excessive values")
+    func diskValidation() throws {
+        for value in ["64", "8192"] {
+            #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64).diskGiB == Int(value))
+        }
+        for value in ["0", "63", "8193", "1.5", "-1", "abc", "999999999999999999999"] {
+            #expect(throws: VMResourceInputError.self) {
+                try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64)
+            }
+        }
+        #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: "", minimumDiskGiB: 64).diskGiB == nil)
+    }
+
     private final class DefaultsFixture {
         let suiteName = "VMResourcePreferencesTests.\(UUID().uuidString)"
         let defaults: UserDefaults
