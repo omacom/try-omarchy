@@ -390,6 +390,15 @@ boot-time QEMU setting, never part of the guest image or VM data, so switching
 allocations never needs a reset and never touches your files. A stored choice
 that no longer fits the Mac it runs on falls back to the default.
 
+Unused guest memory is automatically returned to macOS through virtio free-page
+reporting. Omarchy still sees the full selected RAM and can use it again when
+needed. Reclamation runs asynchronously and covers genuinely free pages, not
+Linux's file cache or memory still held by applications. For example, selecting
+16 GiB and seeing 12 GiB used does not guarantee exactly 4 GiB returned: cache,
+fragmentation, and VM overhead also affect the Mac's memory usage. Keep enough
+headroom for macOS even with reclamation enabled. Updated apps enable this on the
+next VM launch, including for existing VMs; no disk reset is needed.
+
 Scripted launches can set `OMARCHY_QEMU_GPU_MEMORY_MIB` (a whole number of
 MiB) instead. Scripted launches use the same host-aware default and leave
 at least 4 GiB for macOS for allocations above the 4 GiB baseline. They also

@@ -449,6 +449,7 @@ verify_runtime_tree() {
     OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY \
     OMARCHY_SDL_INPUT_DEVICE_NAME \
     OMARCHY_SDL_OUTPUT_DEVICE_NAME \
+    'HVF free-page backing replacement failed' \
     guest_owner_uid \
     guest_owner_gid; do
     LC_ALL=C grep -aFq "$marker" "$qemu" || \

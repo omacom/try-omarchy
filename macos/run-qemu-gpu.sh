@@ -168,6 +168,9 @@ for marker in hv_vm_config_set_el2_enabled hv_gic_create; do
     fail "staged QEMU lacks HVF nested virtualization; run make runtime"
   }
 done
+LC_ALL=C grep -aFq 'HVF free-page backing replacement failed' "$qemu_bin" || {
+  fail "staged QEMU lacks macOS memory reclamation; run make runtime"
+}
 
 qemu_entitlements=$(codesign -d --entitlements - "$qemu_bin" 2>&1) || {
   fail "staged QEMU is not code-signed for HVF"
@@ -1669,7 +1672,8 @@ qemu_args=(
   -device 'virtio-pinch-pci,romfile='
   -object 'rng-random,id=omarchy-rng,filename=/dev/urandom'
   -device 'virtio-rng-pci,rng=omarchy-rng'
-  -device virtio-balloon-pci
+  # Report genuinely free pages without reducing the guest RAM allocation.
+  -device virtio-balloon-pci,free-page-reporting=on
   -fsdev "local,id=omarchy-settings,path=$settings_payload_escaped,security_model=none,readonly=on"
   -device 'virtio-9p-pci,fsdev=omarchy-settings,mount_tag=try-omarchy-settings,romfile='
   -device 'virtio-serial-pci,id=omarchy-serial'

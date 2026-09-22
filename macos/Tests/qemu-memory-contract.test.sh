@@ -104,6 +104,7 @@ cat >"$resources/runtime/bin/Try Omarchy" <<'SH'
 # OMARCHY_SDL_OUTPUT_DEVICE_NAME
 # guest_owner_uid guest_owner_gid
 # hv_vm_config_set_el2_enabled hv_gic_create
+# HVF free-page backing replacement failed
 case " $* " in
   *' -accel help '*) printf '%s\n' hvf ;;
   *' -machine help '*) printf '%s\n' 'virt                 ARM Virtual Machine' ;;
@@ -377,6 +378,7 @@ run_scenario() {
 # A 16 GiB Mac defaults to 8 GiB; smaller Macs keep the 4 GiB baseline.
 run_scenario default 0
 assert_line_pair "$test_root/default/qemu.log" -m 8192M
+assert_line_pair "$test_root/default/qemu.log" -device virtio-balloon-pci,free-page-reporting=on
 assert_contains "$(<"$test_root/default/stderr")" '8 GiB RAM'
 assert_keyboard_lockstep "$test_root/default/qemu.log" iso
 
@@ -392,6 +394,7 @@ run_scenario twelve-gib 0 OMARCHY_QEMU_GPU_MEMORY_MIB=12288
 assert_line_pair "$test_root/twelve-gib/qemu.log" -m 12288M
 run_scenario large-host-maximum 0 FAKE_HOST_MEMSIZE=51539607552 OMARCHY_QEMU_GPU_MEMORY_MIB=45056
 assert_line_pair "$test_root/large-host-maximum/qemu.log" -m 45056M
+assert_line_pair "$test_root/large-host-maximum/qemu.log" -device virtio-balloon-pci,free-page-reporting=on
 run_scenario above-host-maximum 1 OMARCHY_QEMU_GPU_MEMORY_MIB=12289
 assert_contains "$(<"$test_root/above-host-maximum/stderr")" 'leave the host at least 4096 MiB'
 
@@ -434,5 +437,10 @@ assert_contains "$(<"$test_root/starved-host/stderr")" 'leave the host at least 
 # if the host cap is ever applied to the default.
 run_scenario small-host-default 0 FAKE_HOST_MEMSIZE=7516192768
 assert_line_pair "$test_root/small-host-default/qemu.log" -m 4096M
+
+# An older runtime must not silently claim to reclaim memory on macOS.
+sed -i '' '/^# HVF free-page backing replacement failed$/d' "$resources/runtime/bin/Try Omarchy"
+run_scenario old-runtime 1
+assert_contains "$(<"$test_root/old-runtime/stderr")" 'lacks macOS memory reclamation'
 
 printf 'qemu-memory-contract.test: PASS\n'

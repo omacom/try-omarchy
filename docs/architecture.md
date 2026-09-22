@@ -28,6 +28,13 @@ graphics, audio, keyboard, and pointer devices. Because both the Mac and the
 guest are ARM64, Apple Hypervisor Framework runs the guest CPU instructions on
 the Apple Silicon processor. QEMU provides the virtual devices around that CPU.
 
+The balloon device enables free-page reporting. Linux keeps the selected RAM
+capacity but reports unused ranges, which the patched HVF runtime unmaps from
+the hypervisor, replaces with fresh anonymous host backing, and maps again
+before acknowledging the report. This releases macOS physical memory without
+waiting for host pressure. See [memory reclamation](memory-reclamation.md) for
+the constraints and the disposable-VM validation command.
+
 Linux then boots from the selected VM disk and its paired kernel and initramfs,
 and Omarchy runs inside Linux. For a new, reset, or ephemeral VM, that pair and
 the disk originate in the current app's bundled factory. An existing persistent

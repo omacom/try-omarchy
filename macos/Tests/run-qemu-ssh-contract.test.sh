@@ -132,6 +132,7 @@ cat >"$resources/runtime/bin/Try Omarchy" <<'SH'
 # OMARCHY_SDL_OUTPUT_DEVICE_NAME
 # guest_owner_uid guest_owner_gid
 # hv_vm_config_set_el2_enabled hv_gic_create
+# HVF free-page backing replacement failed
 case " $* " in
   *' -accel help '*) printf '%s\n' hvf ;;
   *' -machine help '*) printf '%s\n' 'virt                 ARM Virtual Machine' ;;
