@@ -2,7 +2,9 @@ import AppKit
 
 /// Edits a draft; only Save publishes it to the next VM launch.
 @MainActor
-final class VMResourceEditor: NSObject, NSWindowDelegate {
+final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
+    private let minimumDiskGiB: Int
+    private let diskField = NSTextField()
     private let limits: VMResourceLimits
     private let saveHandler: (VMResources) -> Void
     private let closeHandler: () -> Void
@@ -16,9 +18,11 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
     init(
         resources: VMResources,
         limits: VMResourceLimits,
+        minimumDiskGiB: Int = 1,
         save: @escaping (VMResources) -> Void,
         didClose: @escaping () -> Void
     ) {
+        self.minimumDiskGiB = minimumDiskGiB
         self.limits = limits
         saveHandler = save
         closeHandler = didClose
@@ -47,7 +51,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 382),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 506),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -101,6 +105,21 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
         memoryPopup.setAccessibilityLabel("Memory")
         memoryPopup.setAccessibilityHelp("Higher allocations may affect macOS performance; at least 4 GiB stays available to macOS")
 
+        diskField.placeholderString = "Keep current"
+        diskField.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        diskField.delegate = self
+        diskField.identifier = NSUserInterfaceItemIdentifier("vm-resources-disk")
+        diskField.setAccessibilityLabel("Maximum disk size in GiB")
+        diskField.setAccessibilityHelp("Leave empty to keep the current capacity. Increases apply on the next launch; existing disks cannot shrink.")
+        let diskRow = resourceRow(
+            title: "Maximum disk size (GiB)",
+            detail: "Current minimum: \(minimumDiskGiB) GiB. Can only increase.",
+            control: diskField
+        )
+        let diskNote = label(
+            "Uses Mac storage as data is written, up to this capacity. Space is not reserved; keep free space on the Mac. Leave blank to keep the current size.",
+            size: 11, muted: true
+        )
         let cpuRow = resourceRow(
             title: "Processor cores",
             detail: "Shared with macOS. More cores may help demanding workloads.",
@@ -113,7 +132,11 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
         separator.wantsLayer = true
         separator.layer?.backgroundColor = OmarchyStartMenuTheme.separator.cgColor
         separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        let rows = NSStackView(views: [cpuRow, separator, memoryRow])
+        let diskSeparator = NSView()
+        diskSeparator.wantsLayer = true
+        diskSeparator.layer?.backgroundColor = OmarchyStartMenuTheme.separator.cgColor
+        diskSeparator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        let rows = NSStackView(views: [cpuRow, separator, memoryRow, diskSeparator, diskRow])
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = 0
@@ -134,6 +157,9 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
             memoryRow.widthAnchor.constraint(equalTo: rows.widthAnchor),
             separator.widthAnchor.constraint(equalTo: rows.widthAnchor),
             cpuPopup.widthAnchor.constraint(equalTo: memoryPopup.widthAnchor),
+            diskField.widthAnchor.constraint(equalTo: memoryPopup.widthAnchor),
+            diskRow.widthAnchor.constraint(equalTo: rows.widthAnchor),
+            diskSeparator.widthAnchor.constraint(equalTo: rows.widthAnchor),
         ])
 
         validationLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -152,7 +178,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
         let actions = NSStackView(views: [defaults, spacer, cancel, saveButton])
         actions.spacing = 8
 
-        let stack = NSStackView(views: [heading, card, validationLabel, actions])
+        let stack = NSStackView(views: [heading, card, diskNote, validationLabel, actions])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -169,6 +195,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22),
             heading.widthAnchor.constraint(equalTo: stack.widthAnchor),
             card.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            diskNote.widthAnchor.constraint(equalTo: stack.widthAnchor),
             validationLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             actions.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
@@ -217,6 +244,8 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
         return button
     }
 
+    func controlTextDidChange(_ notification: Notification) { updateValidation() }
+
     @objc private func changeResources() { updateValidation() }
 
     @objc private func cancel() { dismiss() }
@@ -232,13 +261,15 @@ final class VMResourceEditor: NSObject, NSWindowDelegate {
     private func setFields(_ resources: VMResources) {
         cpuPopup.selectItem(withTag: resources.cpuCount)
         memoryPopup.selectItem(withTag: resources.memoryGiB)
+        diskField.stringValue = resources.diskGiB.map { String(max($0, minimumDiskGiB)) } ?? ""
         updateValidation()
     }
 
     private func draft() throws -> VMResources {
         try limits.validate(
             cpuCount: String(cpuPopup.selectedItem?.tag ?? 0),
-            memoryGiB: String(memoryPopup.selectedItem?.tag ?? 0)
+            memoryGiB: String(memoryPopup.selectedItem?.tag ?? 0),
+            diskGiB: diskField.stringValue, minimumDiskGiB: minimumDiskGiB
         )
     }
 

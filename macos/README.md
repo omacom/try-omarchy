@@ -23,7 +23,10 @@ make test
 The staged runtime is a complete, checksum-pinned Apple Silicon closure built
 for macOS 15.0. Runtime and app assembly do not resolve libraries or `zstd`
 from the host Homebrew prefix, so building on a newer macOS release cannot
-silently raise the app's deployment target.
+silently raise the app's deployment target. VirGL 1.3.0 is built from source
+with the pinned startergo 1.0.42 patch set and its dual-source shader regression
+tests; ANGLE 1.0.16 and libepoxy 1.0.5 retain their Sequoia bottles. This keeps
+the accelerated Alacritty fix without bundling the Tahoe-only VirGL bottle.
 
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. The app builder is also directly usable
@@ -87,7 +90,17 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
-The Resources editor stores CPU count and RAM in the versioned
+Reset reuses the verified, identity-keyed factory cache and APFS cloning. The
+validated native helper streams SHA-256 through CryptoKit, including the full
+expanded factory digest on a cache miss. Each storage transaction flushes its
+written files before its staging directory, then flushes the parent after the
+atomic rename. This avoids repeated system-wide `sync` calls without dropping
+checksums, workspace locks, or interrupted-transaction recovery. A newly created
+workspace still uses one global sync to persist its marker and directory
+hierarchy; standalone storage-library callers without the native helper retain
+the system-tool fallback. App signature and runtime validation remain unchanged.
+
+The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
 existing `memoryPreferences` choice without rewriting it. CPU choices range
 from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB default and
@@ -96,9 +109,18 @@ fit resolve independently to their defaults without rewriting storage.
 
 The app exports `OMARCHY_QEMU_GPU_CPUS` and the established
 `OMARCHY_QEMU_GPU_MEMORY_MIB`, replacing inherited overrides with the displayed
-selection. The launcher validates both before touching VM storage. Direct
+selection. The launcher validates these before touching VM storage. Direct
 script invocations retain the 2048 MiB minimum and the 4 GiB host floor for
-allocations above the default. Storage-only resets strip both keys; recovery
+allocations above the default. The optional `OMARCHY_QEMU_GPU_DISK_GIB` selects up to 8192 GiB of sparse
+capacity. New resource settings default to 64 GiB; existing saved preferences
+without a disk maximum retain their capacity. Use Defaults selects at least
+64 GiB and never reduces a larger existing disk. Existing
+disks grow under their workspace lock after boot pairing, using a native
+helper that checks the original inode, owner, permissions, link count, and
+size through the open file descriptor before extending it. No Python runtime
+is needed for app-driven growth. Only boot/write headroom is required, not
+the whole configured capacity. The guest grows ext4 on the next boot.
+Storage-only resets strip all three resource keys; recovery
 keeps its small allocation. Changes apply on the next launch without rebuilding
 or re-signing the app.
 

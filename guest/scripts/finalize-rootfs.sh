@@ -38,6 +38,7 @@ done
 systemctl enable NetworkManager.service
 systemctl enable systemd-resolved.service
 systemctl enable systemd-timesyncd.service
+systemctl enable try-omarchy-clock-recovery.timer
 
 # Avoid a systemctl introspection path that crashes under some ARM container
 # runtimes after it has already written the link.
@@ -99,6 +100,28 @@ for verifier in rpm rpmkeys; do
     exit 1
   }
 done
+# Ghostty is downloaded only on request; the factory owns its verified inputs.
+if pacman -Qq ghostty >/dev/null 2>&1; then
+  echo "Ghostty must remain a user-initiated post-build install" >&2
+  exit 1
+fi
+for asset in \
+  /usr/local/lib/try-omarchy/install-ghostty-arm64 \
+  /usr/local/share/try-omarchy/ghostty/PKGBUILD \
+  /usr/local/share/try-omarchy/ghostty/ghostty-wrapper; do
+  [[ -f $asset && ! -L $asset && $(pacman -Qoq "$asset") == try-omarchy-runtime ]] || {
+    echo "Ghostty installer asset is missing, unsafe or unowned: $asset" >&2
+    exit 1
+  }
+done
+[[ -x /usr/local/lib/try-omarchy/install-ghostty-arm64 ]] || exit 1
+for pair in PKGBUILD:recipeSha256 ghostty-wrapper:wrapperSha256; do
+  expected=$(read_spec "[\"supplyChain\"][\"ghostty\"][\"${pair#*:}\"]")
+  printf '%s  %s\n' "$expected" "/usr/local/share/try-omarchy/ghostty/${pair%:*}" | sha256sum -c - >/dev/null || {
+    echo "Ghostty installer asset digest mismatch: ${pair%:*}" >&2
+    exit 1
+  }
+done
 vivaldi_installer=/usr/local/lib/try-omarchy/install-vivaldi-arm64
 vivaldi_key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
 [[ -x $vivaldi_installer && ! -L $vivaldi_installer ]] || {
@@ -129,6 +152,8 @@ printf '%s  %s\n' "$expected_vivaldi_key_sha256" "$vivaldi_key" | sha256sum -c -
 systemctl enable omarchy-provision-owner.service
 systemctl enable sddm.service
 systemctl enable omarchy-native-mac-share.service
+systemctl enable omarchy-native-battery-bridge.service
+systemctl enable try-omarchy-migrate-alacritty.service
 
 # The app expands only the writable APFS clone to 24 GiB. Grow ext4 online so
 # Omarchy's update-safety check sees that working capacity.

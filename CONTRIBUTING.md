@@ -4,16 +4,41 @@ Thanks for helping improve Try Omarchy. The project has one product target: a
 native Apple Silicon macOS app that runs pinned upstream Omarchy in a
 project-built ARM64 virtual machine image.
 
-## Before opening a pull request
+## Pull requests
 
-1. Open an issue for large behavioral or architecture changes.
-2. Keep changes within the current Apple Silicon, QEMU/HVF, and ARM64 guest
-   architecture unless an architecture change has been discussed first.
-3. Run `make test`.
-4. If build inputs changed, run the relevant component build and explain how
-   its pinned versions or checksums were reviewed.
-5. Update documentation when commands, requirements, output paths, or security
-   boundaries change.
+Small fixes and documentation improvements are welcome without an issue first.
+For large behavioral or architecture changes, open an issue to discuss the idea
+before starting work.
+
+Keep each PR focused and explain what changed, why, and how you tested it. Run
+relevant tests when you can (`make test` runs the full suite on macOS), and say
+what you could not check. Documentation-only changes do not need an app build
+or the full test suite. Screenshots or a short video are helpful when they make
+UI changes easier to review.
+
+Update documentation when usage or requirements change. If you change build
+inputs, review their pins and checksums and run the relevant component build;
+explain any validation you could not complete. See the details below.
+
+## Reporting issues
+
+Before opening a report or proposal, search open and closed issues for the same
+problem or idea. Add useful details to an existing issue, or link related issues
+in your new report.
+
+Tell us what happened, what you expected, and whether it happens in the Mac app
+or inside Omarchy. Include your app version, macOS version, Apple chip, and
+steps to reproduce if known. Logs, screenshots, and recordings are optional;
+remove secrets and unrelated personal information before sharing them.
+
+You can open a report even if you cannot reliably reproduce the problem or do
+not know every system detail. For change proposals, describe the problem and
+what you would like to improve; a full implementation plan is not needed.
+
+Report suspected vulnerabilities through [SECURITY.md](SECURITY.md), not public
+issues. Coding agents should also read [AGENTS.md](AGENTS.md).
+
+## Build inputs and local state
 
 The guest and QEMU supply chains are deliberately pinned. Do not update a URL,
 commit, package lock, archive, or checksum independently of its associated

@@ -21,9 +21,11 @@ struct ApplicationPresentationTests {
             application.windowsMenu = previousWindowMenu
         }
 
+        let updatesTarget = NSObject()
         ApplicationPresentation.installMainMenu(
             in: application,
-            applicationName: "Try Omarchy"
+            applicationName: "Try Omarchy",
+            updatesTarget: updatesTarget
         )
 
         let appMenu = try #require(application.mainMenu?.items.first?.submenu)
@@ -32,6 +34,10 @@ struct ApplicationPresentationTests {
         }))
         #expect(quit.keyEquivalent == "q")
         #expect(quit.action == #selector(NSApplication.terminate(_:)))
+
+        let updates = try #require(appMenu.items.first(where: { $0.title == "Check for Updates…" }))
+        #expect(updates.action == #selector(VMApplicationController.checkForAppUpdates(_:)))
+        #expect(updates.target === updatesTarget)
 
         let windowMenu = try #require(application.windowsMenu)
         let close = try #require(windowMenu.items.first(where: {

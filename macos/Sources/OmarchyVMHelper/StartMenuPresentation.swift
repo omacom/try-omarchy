@@ -47,12 +47,23 @@ struct StartMenuPortForwardingPresentation: Equatable {
     let grantedStatusLabel: String
 }
 
+struct StartMenuLanguagePresentation: Equatable {
+    let detail: String
+    /// True once a non-default guest locale is selected. Only affects the
+    /// row's status dot color, mirroring how `sharedFolder` and
+    /// `portForwarding` treat "the optional setting is turned on."
+    let isNonDefault: Bool
+    let statusLabel: String
+    let actionTitle: String
+}
+
 /// Pure presentation rules for the start menu. Keeping user-visible state out
 /// of AppKit makes the important behavior testable without relying on window
 /// positions, font metrics, run-loop timing, or the current display size.
 enum StartMenuPresentation {
     static func resources(_ resources: VMResources) -> String {
         "\(resources.cpuCount) processor cores · \(resources.memoryGiB) GiB memory"
+            + (resources.diskGiB.map { " · \($0) GiB disk" } ?? "")
     }
 
     static let incompatibleWorkspaceDetail = "The saved VM uses a storage or boot format this version can’t use, or its data folder contains multiple saved VMs. Reset Omarchy to create a compatible VM. Resetting permanently erases everything in the VM."
@@ -286,5 +297,30 @@ enum StartMenuPresentation {
         isEnabled
             ? "Omarchy opens Full Screen with the Mac menu bar and Dock hidden."
             : "Omarchy opens in a window with the Mac menu bar and Dock available."
+    }
+
+    static func language(state: LanguageMenuState) -> StartMenuLanguagePresentation {
+        guard state.supportsSelection else {
+            return StartMenuLanguagePresentation(
+                detail: "This saved VM does not support language selection. Reset Omarchy to use it; reset erases the VM’s data.",
+                isNonDefault: false,
+                statusLabel: "○  Requires reset",
+                actionTitle: "Language unavailable"
+            )
+        }
+        guard let selected = state.selectedLocale else {
+            return StartMenuLanguagePresentation(
+                detail: "Omarchy boots in English, the guest’s default language.",
+                isNonDefault: false,
+                statusLabel: "○  English",
+                actionTitle: "Switch to \(GuestLocaleCatalog.traditionalChinese.displayName)"
+            )
+        }
+        return StartMenuLanguagePresentation(
+            detail: "Omarchy boots in \(selected.displayName).",
+            isNonDefault: true,
+            statusLabel: "●  \(selected.displayName)",
+            actionTitle: "Use English (Default)"
+        )
     }
 }

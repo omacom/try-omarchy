@@ -16,6 +16,8 @@ import sys
 import tempfile
 from typing import Any
 
+from app_version import build_version
+
 
 SCHEMA_VERSION = 2
 GUEST_ARTIFACTS = {
@@ -98,7 +100,7 @@ def component_files(root: Path, component: str) -> list[Path]:
             path
             for path in regular_files(guest, {".work", "tests"})
             if path.relative_to(guest).as_posix() not in {"README.md", "test"}
-        ]
+        ] + [p for p in regular_files(root / "integrations") if p.suffix != ".md" and p.name != ".DS_Store"]
 
     if component == "runtime":
         paths = [
@@ -127,9 +129,17 @@ def component_files(root: Path, component: str) -> list[Path]:
             for path in regular_files(macos, {".build", ".swiftpm", "Tests", "patches"})
             if path.relative_to(macos).as_posix() not in excluded_names
         ]
+        paths.extend([p for p in regular_files(root / "integrations") if p.suffix != ".md" and p.name != ".DS_Store"])
+        paths.extend(regular_files(root / "guest/scripts"))
+        paths.extend(regular_files(root / "guest/native-overlay"))
         paths.extend(
             [
                 root / "LICENSE",
+                root / "guest/scripts/install-settings-integration.py",
+                root / "guest/native-overlay/usr/local/bin/omarchy-native-settings",
+                root / "guest/native-overlay/etc/udev/rules.d/92-omarchy-native-settings.rules",
+                root / "guest/native-overlay/usr/share/applications/try-omarchy-settings.desktop",
+                root / "guest/native-overlay/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc",
                 root / ".build/state/guest.json",
                 root / ".build/state/runtime.json",
                 root / "dist/guest/guest-manifest.json",
@@ -216,7 +226,11 @@ def fingerprint(root: Path, component: str, command: list[str]) -> str:
 
     paths = component_files(root, component)
     if component == "app":
+        digest.update(
+            json.dumps(build_version(root), sort_keys=True, separators=(",", ":")).encode()
+        )
         paths.extend(app_external_files(root))
+        paths.append(Path(__file__).with_name("app_version.py").resolve())
     paths.append(Path(__file__).resolve())
 
     seen: set[str] = set()

@@ -1,0 +1,1 @@
+SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.battery", MODE="0600"

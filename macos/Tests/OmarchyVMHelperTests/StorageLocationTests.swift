@@ -966,3 +966,67 @@ struct StorageLocationMenuStateTests {
         #expect(state.problem != nil)
     }
 }
+
+@Suite("Saved guest language support")
+struct SavedGuestLanguageSupportTests {
+    private var supportedMetrics: BundledGuestMetrics {
+        var result = metrics
+        result.supportsLanguageSelection = true
+        return result
+    }
+
+    @Test("a fresh workspace uses the bundled factory capability")
+    func freshWorkspace() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let environment = [StorageLocationPolicy.environmentKey: root.path]
+        #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
+        #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: metrics))
+    }
+
+    @Test("older saved disks use their own capability across app updates", arguments: ["current", String(repeating: "b", count: 64)])
+    func savedGuestCapability(directoryName: String) throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeValidRootMarker(in: root)
+        let identity = String(repeating: "b", count: 64)
+        try writeRecordedPersistentDisk(in: root, directoryName: directoryName, identity: identity)
+        let environment = [StorageLocationPolicy.environmentKey: root.path]
+        #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
+
+        let boot = root.appendingPathComponent("boot")
+        let kit = boot.appendingPathComponent(identity)
+        try FileManager.default.createDirectory(at: kit, withIntermediateDirectories: true)
+        for directory in [boot, kit] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
+        let commandLine = kit.appendingPathComponent("command-line")
+        for (line, expected) in [
+            ("root=/dev/vda rw", false),
+            ("root=/dev/vda rw tryomarchy.locale_support=10", false),
+            ("root=/dev/vda rw tryomarchy.locale_support=1\n", true),
+        ] {
+            try Data(line.utf8).write(to: commandLine)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: commandLine.path)
+            #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics) == expected)
+        }
+        // A custom storage preference must select the same VM, too.
+        let preference = StorageLocationPreference(containerPath: root.path)
+        #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: [:], metrics: supportedMetrics, preference: preference))
+        try FileManager.default.removeItem(at: commandLine)
+        let target = root.appendingPathComponent("untrusted-command-line")
+        try Data("tryomarchy.locale_support=1\n".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: commandLine, withDestinationURL: target)
+        #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
+    }
+
+    @Test("a VM created from this factory keeps language support before boot-kit staging")
+    func currentFactory() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeRecordedPersistentDisk(in: root, directoryName: "current", identity: metrics.identity)
+        #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(
+            environment: [StorageLocationPolicy.environmentKey: root.path], metrics: supportedMetrics
+        ))
+    }
+}

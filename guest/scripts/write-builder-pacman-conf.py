@@ -6,6 +6,7 @@ guest file. The builder config must:
   - expose ABI pins rebuilt from reviewed upstream source + Arch PKGBUILD
   - omit those pin names from IgnorePkg so pacstrap can install them once
   - keep optional signed packageCachePins ahead of rolling mirrors
+  - use the selected ARM mirror without changing the installed guest mirrors
 
 [try-omarchy-abi-pins] is unsigned because repo-add writes an unsigned database
 for the just-built package. Origin is the reproducible rebuild, not TrustAll.
@@ -104,14 +105,29 @@ def write_builder_config(
     abi_repo: Path | None,
     pinned_cache_repo: Path | None,
     drop_ignore: set[str],
+    repository_mirrors: list[str] | None = None,
 ) -> None:
     lines = guest_config.read_text().splitlines()
     options_sections = 0
     abi_inserted = pinned_inserted = False
     out: list[str] = []
+    repository = None
 
     for line in lines:
         section = SECTION_RE.fullmatch(line)
+        if section:
+            repository = section.group(1)
+        # Local package repositories live in private build directories, so the
+        # downloader must keep the invoking builder user's access to them.
+        if repository_mirrors and line.startswith("DownloadUser"):
+            continue
+        if (
+            repository_mirrors
+            and repository in {"core", "extra", "alarm", "aur"}
+            and line.startswith("Include =")
+        ):
+            out.extend(f"Server = {mirror}/$repo" for mirror in repository_mirrors)
+            continue
         if section and section.group(1) != "options":
             if abi_repo is not None and not abi_inserted:
                 out.extend(
@@ -172,6 +188,17 @@ def main() -> None:
     spec = json.loads(args.spec.read_text())
     lock_packages = json.loads(args.package_lock.read_text())["packages"]
     pins = load_abi_pins(spec, lock_packages)
+    repository_mirrors = spec.get("inputs", {}).get("packageRepositoryMirrors")
+    if repository_mirrors is not None and (
+        not isinstance(repository_mirrors, list)
+        or not repository_mirrors
+        or any(
+            not isinstance(mirror, str)
+            or not re.fullmatch(r"https://[a-z0-9.-]+/aarch64", mirror)
+            for mirror in repository_mirrors
+        )
+    ):
+        fail("packageRepositoryMirrors must contain HTTPS ARM mirror URLs")
 
     abi_repo = args.abi_repo
     if pins:
@@ -189,6 +216,7 @@ def main() -> None:
         abi_repo=abi_repo if pins else None,
         pinned_cache_repo=args.pinned_cache_repo,
         drop_ignore={pin["name"] for pin in pins},
+        repository_mirrors=repository_mirrors,
     )
 
 

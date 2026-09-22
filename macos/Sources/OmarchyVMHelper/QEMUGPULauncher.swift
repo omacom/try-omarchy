@@ -40,6 +40,7 @@ enum QEMUGPURuntimeEnvironment {
             PortForwardPolicy.environmentKey,
             VMResourceLaunchConfiguration.cpuEnvironmentKey,
             VMResourceLaunchConfiguration.memoryEnvironmentKey,
+            VMResourceLaunchConfiguration.diskEnvironmentKey,
         ] {
             environment.removeValue(forKey: key)
         }
@@ -214,6 +215,48 @@ enum QEMUGPUStorageSpaceEstimate {
         )?.schemaVersion == 2
     }
 
+    /// Capability follows the selected disk's saved boot kit, not the current
+    /// app version. The launcher checks it again after locking the workspace.
+    static func supportsLanguageSelection(
+        environment: [String: String],
+        metrics: BundledGuestMetrics?,
+        preference: StorageLocationPreference = .default,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let metrics,
+              let root = storageRootURL(environment: environment, preference: preference, fileManager: fileManager)
+        else { return false }
+        let disks = root.appendingPathComponent("disks", isDirectory: true)
+        if !fileManager.fileExists(atPath: disks.path) {
+            return metrics.supportsLanguageSelection
+        }
+        guard hasAttributes(disks, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
+              let entries = try? fileManager.contentsOfDirectory(at: disks, includingPropertiesForKeys: nil)
+        else { return false }
+        let selected: RecordedPersistentDisk?
+        if environment["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK"] == "1" {
+            let directory = disks.appendingPathComponent(metrics.identity)
+            if !fileManager.fileExists(atPath: directory.path) { return metrics.supportsLanguageSelection }
+            selected = recordedPersistentDisk(in: directory, fileManager: fileManager)
+        } else {
+            if entries.isEmpty { return metrics.supportsLanguageSelection }
+            selected = selectedSinglePersistentDisk(from: entries, bundleIdentity: metrics.identity, fileManager: fileManager)
+        }
+        guard let selected, selected.schemaVersion == 2 else { return false }
+        if selected.identity == metrics.identity { return metrics.supportsLanguageSelection }
+        let boot = root.appendingPathComponent("boot", isDirectory: true)
+        let kit = boot.appendingPathComponent(selected.identity, isDirectory: true)
+        let commandLine = kit.appendingPathComponent("command-line")
+        guard hasAttributes(boot, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
+              hasAttributes(kit, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
+              hasAttributes(commandLine, type: .typeRegular, permissions: 0o600, fileManager: fileManager),
+              let size = try? commandLine.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size <= 16385,
+              let contents = try? String(contentsOf: commandLine, encoding: .utf8)
+        else { return false }
+        return GuestLocaleCatalog.supportsSelection(kernelCommandLine: contents)
+    }
+
     /// Read-only best-effort preflight for the one-time legacy boot-file
     /// pairing. The shell repeats every check under its workspace lock and
     /// requires an explicit one-shot consent variable, so a filesystem race or
@@ -302,7 +345,10 @@ enum QEMUGPUStorageSpaceEstimate {
         return BundledGuestMetrics(
             identity: identity,
             sourceDiskBytes: Int64(sourceBytes),
-            workingDiskBytes: Int64(workingBytes)
+            workingDiskBytes: Int64(workingBytes),
+            supportsLanguageSelection: GuestLocaleCatalog.supportsSelection(
+                kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? ""
+            )
         )
     }
 

@@ -3,12 +3,14 @@
 set -euo pipefail
 
 drm_root=${OMARCHY_DISPLAY_SYNC_DRM_ROOT:-/sys/class/drm}
+monitor_config=${OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.lua}
 
 preferred_mode_from_edid() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "$monitor_config" <<'PY'
 import pathlib
+import re
 import sys
-from math import hypot
+from math import gcd, hypot, isfinite, isqrt
 
 data = pathlib.Path(sys.argv[1]).read_bytes()
 if (
@@ -70,27 +72,48 @@ def scale_for_mode(
     physical_width_mm: int,
     physical_height_mm: int,
 ) -> str:
-    if physical_width_mm <= 0 or physical_height_mm <= 0:
-        return "auto"
+    # Omarchy's scaling controls write a numeric local in monitors.lua. Read it
+    # on each resync so a running hotplug watcher also sees later zoom changes.
+    # Auto/missing settings retain the live EDID's density-based scale.
+    requested = None
+    try:
+        config = pathlib.Path(sys.argv[2]).read_text()
+        match = re.search(
+            r"^\s*local\s+omarchy_monitor_scale\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?:--[^\n]*)?$",
+            config,
+            re.MULTILINE,
+        )
+        if match:
+            saved_scale = float(match.group(1))
+            if isfinite(saved_scale) and saved_scale >= 0.25:
+                requested = saved_scale
+    except OSError:
+        pass
 
-    diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
-    if diagonal_inches <= 0:
-        return "auto"
-
-    ppi = hypot(width, height) / diagonal_inches
-    requested = 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
+    if requested is None:
+        if physical_width_mm <= 0 or physical_height_mm <= 0:
+            return "auto"
+        diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
+        if diagonal_inches <= 0:
+            return "auto"
+        ppi = hypot(width, height) / diagonal_inches
+        requested = 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
 
     # Hyprland requires the scaled logical dimensions to land on whole pixels.
     # It searches scale values in 1/120 increments around the requested value;
     # choose the closest clean value here so an explicit dynamic scale does not
     # trigger its stale-physical-size fallback or a warning notification.
-    requested_120 = round(requested * 120)
+    # Omarchy persists the effective clean scale, which can exceed its 4x
+    # preset. Enumerate divisors instead of imposing a preset-based upper bound.
+    common_120 = gcd(width * 120, height * 120)
+    requested_120 = round(min(requested, common_120 / 120) * 120)
     clean_120 = min(
         (
             candidate
-            for candidate in range(30, 481)
-            if (width * 120) % candidate == 0
-            and (height * 120) % candidate == 0
+            for divisor in range(1, isqrt(common_120) + 1)
+            if common_120 % divisor == 0
+            for candidate in (divisor, common_120 // divisor)
+            if candidate >= 30
         ),
         key=lambda candidate: (abs(candidate - requested_120), -candidate),
     )
@@ -304,6 +327,13 @@ reload_on_display_change() {
     apply_preferred_modes
   fi
 }
+
+# Config reloads can restore Aquamarine's cached preferred mode without a
+# DRM hotplug event. Re-read the live EDID once, without starting a watcher.
+if [[ ${1:-} == --once ]]; then
+  apply_preferred_modes
+  exit 0
+fi
 
 if [[ ${1:-} == --from-stdin ]]; then
   reload_on_display_change

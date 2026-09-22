@@ -10,8 +10,8 @@ struct VMResourcePreferencesTests {
 
     @Test("New installs use host-aware memory defaults and up to eight cores")
     func defaults() {
-        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 8))
-        #expect(limits(cpus: 6, memoryGiB: 8).defaults == VMResources(cpuCount: 6, memoryGiB: 4))
+        #expect(limits().resolve(nil) == VMResources(cpuCount: 8, memoryGiB: 8, diskGiB: 64))
+        #expect(limits(cpus: 6, memoryGiB: 8).defaults == VMResources(cpuCount: 6, memoryGiB: 4, diskGiB: 64))
         #expect(limits(memoryGiB: 7).memoryChoicesGiB.contains(4))
     }
 
@@ -55,7 +55,7 @@ struct VMResourcePreferencesTests {
             == VMResources(cpuCount: 8, memoryGiB: 12))
         #expect(small.resolve(VMResources(cpuCount: 6, memoryGiB: 44))
             == VMResources(cpuCount: 6, memoryGiB: 8))
-        #expect(small.resolve(VMResources(cpuCount: -1, memoryGiB: Int.max)) == small.defaults)
+        #expect(small.resolve(VMResources(cpuCount: -1, memoryGiB: Int.max)) == VMResources(cpuCount: 8, memoryGiB: 8))
     }
 
     @Test("Saved choices survive reopening and resolution does not rewrite them")
@@ -134,6 +134,34 @@ struct VMResourcePreferencesTests {
             #expect(limits(memoryGiB: hostGiB).defaults.memoryGiB * 1024
                 == MemoryPolicy.recommendedMemoryMiB(hostMemoryMiB: Int(hostGiB) * 1024))
         }
+    }
+
+    @Test("Old resource preferences preserve CPU and RAM without selecting disk growth")
+    func migratesDiskPreference() throws {
+        let fixture = DefaultsFixture()
+        fixture.defaults.set(Data(#"{"schemaVersion":1,"resources":{"cpuCount":6,"memoryGiB":12}}"#.utf8),
+                             forKey: VMResourcePreferenceStore.key)
+        #expect(fixture.store.load() == VMResources(cpuCount: 6, memoryGiB: 12))
+        let selected = VMResources(cpuCount: 6, memoryGiB: 12, diskGiB: 256)
+        fixture.store.save(selected)
+        #expect(fixture.store.load() == selected)
+        let environment = VMResourceLaunchConfiguration.make(baseEnvironment: [:], preferences: selected, limits: limits()).environment
+        #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "256")
+        let defaults = VMResourceLaunchConfiguration.make(baseEnvironment: environment, preferences: nil, limits: limits()).environment
+        #expect(defaults[VMResourceLaunchConfiguration.diskEnvironmentKey] == "64")
+    }
+
+    @Test("Disk maximum accepts growth and rejects shrinking, malformed and excessive values")
+    func diskValidation() throws {
+        for value in ["64", "8192"] {
+            #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64).diskGiB == Int(value))
+        }
+        for value in ["0", "63", "8193", "1.5", "-1", "abc", "999999999999999999999"] {
+            #expect(throws: VMResourceInputError.self) {
+                try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64)
+            }
+        }
+        #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: "", minimumDiskGiB: 64).diskGiB == nil)
     }
 
     private final class DefaultsFixture {

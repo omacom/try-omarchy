@@ -6,6 +6,11 @@ test_dir=$(cd "$(dirname "$0")" && pwd -P)
 native_dir=$(cd "$test_dir/.." && pwd -P)
 # shellcheck source=../qemu-persistent-storage.sh
 source "$native_dir/qemu-persistent-storage.sh"
+QEMU_PERSISTENT_STORAGE_HELPER="$native_dir/.build/debug/omarchy-vm-helper"
+[[ -x $QEMU_PERSISTENT_STORAGE_HELPER ]] || {
+  printf 'Build the native helper with swift build --package-path macos before running storage tests.\n' >&2
+  exit 1
+}
 
 grep -Fq '/bin/rm -rf -x "$qps_discarded"' \
   "$native_dir/qemu-persistent-storage.sh" || {
@@ -168,6 +173,11 @@ identity_bad=$(printf 'bundle-bad' | shasum -a 256 | awk '{print $1}')
 identity_expanded=$(printf 'bundle-expanded' | shasum -a 256 | awk '{print $1}')
 identity_compressed=$(printf 'bundle-compressed' | shasum -a 256 | awk '{print $1}')
 
+# Both the native fast path and standalone fallback retain byte-exact SHA-256.
+assert_eq "$(_qps_sha256 "$source_disk")" "$source_sha"
+assert_eq "$(_qps_sha256_line 'bundle-a')" "$(printf 'bundle-a\n' | shasum -a 256 | awk '{print $1}')"
+assert_eq "$(QEMU_PERSISTENT_STORAGE_HELPER=''; _qps_sha256 "$source_disk")" "$source_sha"
+
 # Direct-kernel boots must stay paired with the userspace on each saved disk.
 # These tiny fixtures carry the two file signatures enforced by the storage
 # library while remaining visibly different across bundle generations.
@@ -189,6 +199,42 @@ printf '\x28\xb5\x2f\xfdzstd-initramfs\n' >"$initramfs_zstd"
 printf '\x28\xb5\x2f\xfd' >"$initramfs_zstd_truncated"
 kernel_command_line_a='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
 kernel_command_line_b='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5'
+
+# A failed durability checkpoint must never publish a partially prepared disk
+# or boot kit. Retrying reaps the recognized staging transaction and succeeds.
+(
+  export OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/checkpoint-failure"
+  export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0
+  _qps_prepare_state_root
+  (
+    _qps_fsync() {
+      local checkpoint
+      for checkpoint in "$@"; do
+        if [[ -d $checkpoint && $checkpoint == */.*.initializing.* ]]; then
+          return 1
+        fi
+      done
+      "$QEMU_PERSISTENT_STORAGE_HELPER" --storage-sync "$@"
+    }
+    assert_fails _qps_initialize_persistent_disk \
+      "$identity_a" current "$source_disk" "$source_sha" "$source_bytes" "$source_bytes"
+    assert test ! -e "$QEMU_PERSISTENT_STORAGE_DISKS_ROOT/current"
+    assert_fails _qps_stage_boot_kit_locked \
+      "$identity_a" "$kernel_a" "$initramfs_a" "$kernel_command_line_a"
+    assert test ! -e "$QEMU_PERSISTENT_STORAGE_BOOT_ROOT/$identity_a"
+  )
+  qemu_persistent_storage_select reset "$identity_a" "$source_disk" "$source_sha" "$source_bytes" '' \
+    "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a"
+  assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
+  assert cmp -s "$QEMU_SELECTED_KERNEL" "$kernel_a"
+  qemu_persistent_storage_release_lock
+)
+assert _qps_validate_kernel_command_line "$kernel_command_line_a"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$kernel_command_line_a omarchy.virgl_dual_source=0"
+
 
 # Inspecting a new location reports "missing" without asking for, copying, or
 # materializing a factory disk. A full selection then creates the VM and pairs
@@ -890,5 +936,15 @@ saved_marker_state_root=$OMARCHY_QEMU_GPU_STATE_ROOT
 export OMARCHY_QEMU_GPU_STATE_ROOT=$marker_root
 assert_fails _qps_prepare_state_root
 export OMARCHY_QEMU_GPU_STATE_ROOT=$saved_marker_state_root
+
+# Launch-time keyboard and SSH tokens must not be persisted or recovered.
+valid_command_line='root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4'
+assert _qps_validate_kernel_command_line "$valid_command_line"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.keyboard=iso"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.ssh_access=1"
+assert_fails _qps_validate_kernel_command_line \
+  "$valid_command_line tryomarchy.export_boot=1"
 
 printf 'qemu-persistent-storage.test: PASS\n'

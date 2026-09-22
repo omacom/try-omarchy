@@ -62,6 +62,15 @@ direct-boot kernel and matching headers are held, while the packaged
 repository. A separate migration channel is required before those
 Try-Omarchy-specific revisions can advance on an existing disk without reset.
 
+The kernel reboot check recognizes package-owned `modules.builtin` metadata as
+well as `vmlinuz` under `/usr/lib/modules/<release>/`. Arch Linux ARM does not
+place `vmlinuz` there, so requiring that file alone produces a false kernel-update
+prompt after every no-op update. A matching release suppresses that prompt;
+unrecognized layouts report that kernel reboot status could not be determined
+instead of claiming either a match or an update. Other reboot and service-restart
+reasons still apply. This check ships as the `update-restart-arm-kernel` reviewed
+backport, with a fixture from the pinned upstream command for regression tests.
+
 The factory includes the pinned upstream `omarchy-dns` and
 `omarchy-theme-browser` sudoers drop-ins, owned by `try-omarchy-runtime` with
 root ownership and mode `0440`. These grant wheel users passwordless access
@@ -89,3 +98,36 @@ The vendor service generates missing host keys on the writable guest disk. A
 persistent VM therefore keeps its identity across restarts and app updates,
 while a Factory Reset or a fresh ephemeral VM gets a new identity. The factory
 image must never contain shared SSH host private keys.
+
+## Settings access from an existing VM
+
+New factory images include **Setup → Try Omarchy Settings** and a searchable
+application entry. Both run `omarchy-native-settings`, which sends
+`open-settings\n` through `/dev/virtio-ports/dev.tryomarchy.settings`. The Mac
+app replies `opened\n` after presenting its window, or `unavailable\n` if it
+cannot present settings. The command times out after three seconds and reports
+errors through a desktop notification and stderr. The channel only opens the
+settings UI; it does not accept preference values or other host commands.
+
+The updated Mac app installs these entry points on existing disks at boot. A
+separate read-only 9p share contains only the bundled settings installer and its
+files. A systemd boot credential supplies a temporary service that installs
+those files, reloads the udev rule, and unmounts the share. This uses systemd's
+extra-unit credentials (available since version 256, included in the supported
+factory guest) and leaves the guest's default boot target unchanged. Failure is
+logged under `try-omarchy-settings.service` and does not prevent normal boot.
+The service has a 20-second timeout and retries on the next launch.
+
+Installation is idempotent. It does not reset the disk, upgrade Linux packages,
+or require network access or a user `sudo` command. Existing user menu files
+are preserved; those users can search for **Try Omarchy Settings** in the
+application launcher. Accounts without a custom extension file also receive
+**Setup → Try Omarchy Settings**. Home-directory operations run as that user.
+
+The settings window saves CPU, memory, sharing, port forwarding, and immersive mode for the
+next QEMU launch. **Restart Try Omarchy…** requests a clean Linux shutdown and
+waits for QEMU to exit before starting a new process with the saved settings.
+It never forces a shutdown on a timer. **Shut down to manage…** returns to the
+native settings window without automatic startup so location and reset remain
+accessible. A normal Linux reboot keeps the current QEMU process and therefore
+does not apply these launch settings.

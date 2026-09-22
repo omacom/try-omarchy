@@ -135,6 +135,16 @@ vivaldi_key="$root/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
 cp -a "$vivaldi_installer" "$stage/usr/local/lib/try-omarchy/install-vivaldi-arm64"
 cp -a "$vivaldi_key" "$stage/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
 
+# Keep the optional Ghostty installer and its verified build inputs owned.
+for relative in \
+  usr/local/lib/try-omarchy/install-ghostty-arm64 \
+  usr/local/share/try-omarchy/ghostty/PKGBUILD \
+  usr/local/share/try-omarchy/ghostty/ghostty-wrapper; do
+  [[ -f $root/$relative && ! -L $root/$relative ]] || fail "Ghostty installer asset is missing or unsafe: $relative"
+  mkdir -p "$stage/$(dirname "$relative")"
+  cp -a "$root/$relative" "$stage/$relative"
+done
+
 shopt -s nullglob
 runtime_commands=("$root/usr/bin/omarchy" "$root/usr/bin"/omarchy-*)
 (( ${#runtime_commands[@]} > 1 )) || fail "staged Omarchy commands are missing"

@@ -148,14 +148,50 @@ struct StartMenuWindowWidthTests {
         #expect(detail.stringValue.hasPrefix("Optional."))
     }
 
+    @Test("Launch stays fixed while Reset follows integrations in the scrolling settings")
+    func launchStaysOutsideSettings() throws {
+        _ = NSApplication.shared
+        let menu = makeMenu(storageState: { StorageLocationMenuState(
+            containerPath: nil, stateRoot: nil, displayPath: "Default location",
+            volumeName: nil, isDefault: true, isExternal: false,
+            problem: nil, warning: nil, isEnvironmentOverride: false
+        ) }, permissionsGranted: false)
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        let content = try #require(menu.window.contentView)
+        let scroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content))
+        let actions = try #require(descendant(withIdentifier: "start-menu-actions", in: content) as? NSStackView)
+        let launch = try #require(descendant(withIdentifier: "launch-button", in: actions) as? NSButton)
+        let resetCard = try #require(descendant(withIdentifier: "reset-card", in: scroll))
+        let reset = try #require(descendant(withIdentifier: "reset-button", in: resetCard) as? NSButton)
+        let settings = try #require(resetCard.superview as? NSStackView)
+        let integrations = try #require(descendant(withIdentifier: "integration-card", in: scroll))
+        let integrationIndex = try #require(settings.arrangedSubviews.firstIndex(of: integrations))
+        let resetIndex = try #require(settings.arrangedSubviews.firstIndex(of: resetCard))
+
+        #expect(scroll.superview === content)
+        #expect(actions.superview === content)
+        #expect(descendant(withIdentifier: "launch-button", in: scroll) == nil)
+        #expect(descendant(withIdentifier: "reset-button", in: actions) == nil)
+        #expect(descendant(withIdentifier: "permission-card", in: scroll) != nil)
+        #expect(descendant(withIdentifier: "integration-card", in: scroll) != nil)
+        #expect(actions.arrangedSubviews.first === launch)
+        #expect(actions.arrangedSubviews.count == 1)
+        #expect(resetIndex > integrationIndex)
+        #expect(launch.keyEquivalent == "\r")
+        #expect(launch.isEnabled)
+        #expect(reset.isEnabled)
+    }
+
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
+        permissionsGranted: Bool = true,
         usbState: @escaping () -> USBDeviceMenuState = { .disabled }
     ) -> StartMenuWindow {
         StartMenuWindow(
-            accessibilityStatus: { true },
-            microphoneStatus: { .authorized },
-            cameraStatus: { .authorized },
+            accessibilityStatus: { permissionsGranted },
+            microphoneStatus: { permissionsGranted ? .authorized : .notDetermined },
+            cameraStatus: { permissionsGranted ? .authorized : .notDetermined },
             requestAccessibility: {},
             requestMicrophone: { completion in completion(true) },
             requestCamera: { completion in completion(true) },

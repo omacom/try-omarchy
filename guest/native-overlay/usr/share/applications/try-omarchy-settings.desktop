@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Try Omarchy Settings
+Comment=Open the Try Omarchy Mac app settings
+Exec=omarchy-native-settings
+TryExec=omarchy-native-settings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;
+Keywords=Mac;VM;Startup;

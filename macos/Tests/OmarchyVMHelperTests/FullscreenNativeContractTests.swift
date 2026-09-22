@@ -55,6 +55,47 @@ struct FullscreenNativeContractTests {
         #expect(configuration.lowerBound < fullScreenEntry.lowerBound)
     }
 
+    @Test("Cocoa recovers the full grab tap after macOS disables it")
+    func tapRecovery() throws {
+        let patch = try source(named: "patches/qemu-cocoa-full-grab-reenable.patch")
+
+        // Both ways macOS can switch a tap off must be handled; handling only
+        // the timeout leaves the tap dead after a user-input disable.
+        #expect(patch.contains("type == kCGEventTapDisabledByTimeout ||"))
+        #expect(patch.contains("type == kCGEventTapDisabledByUserInput"))
+        #expect(patch.contains("[view reenableEventTap];"))
+        #expect(patch.contains("CGEventTapEnable(eventsTap, true);"))
+
+        // The guard has to run before +[NSEvent eventWithCGEvent:], which
+        // returns nil for a disable notification and would otherwise swallow
+        // it as an unhandled event.
+        let guardClause = try #require(patch.range(of: "kCGEventTapDisabledByTimeout"))
+        let eventConversion = try #require(
+            patch.range(of: "NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];")
+        )
+        #expect(guardClause.lowerBound < eventConversion.lowerBound)
+    }
+
+    @Test("Runtime build applies the tap recovery after the full grab patch")
+    func tapRecoveryIsBuilt() throws {
+        let builder = try source(named: "build-qemu-gpu-runtime.sh")
+
+        #expect(builder.contains(
+            "reenable_patch=\"$native_dir/patches/qemu-cocoa-full-grab-reenable.patch\""
+        ))
+        #expect(builder.contains("verify_file_sha \"Try Omarchy Cocoa full-grab re-enable patch\""))
+
+        // It edits handleTapEvent after the full-grab patch rewrites it, so the
+        // order of the two patch invocations is part of the contract.
+        let fullGrab = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$full_grab_patch\"")
+        )
+        let reenable = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$reenable_patch\"")
+        )
+        #expect(fullGrab.lowerBound < reenable.lowerBound)
+    }
+
     private func source(named relativePath: String) throws -> String {
         let testFile = URL(fileURLWithPath: #filePath)
         let macosDirectory = testFile

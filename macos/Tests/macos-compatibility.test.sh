@@ -92,4 +92,16 @@ lipo -create "$test_root/arm64-compatible" "$test_root/x86_64-too-new" \
   -output "$fixture_root/nested/universal-too-new"
 assert_fails_with 'requires macOS 15.1' "$verifier" "$fixture_root"
 
+# Reject older hosts before app assembly or launcher state handling begins.
+mkdir "$test_root/old-host-bin"
+cat >"$test_root/old-host-bin/sw_vers" <<'EOF'
+#!/bin/bash
+printf '%s\n' '14.7'
+EOF
+chmod 0755 "$test_root/old-host-bin/sw_vers"
+assert_fails_with 'requires macOS 15 or newer' env \
+  PATH="$test_root/old-host-bin:$PATH" "$native_dir/run-qemu-gpu.sh"
+assert_fails_with 'macOS 15 or newer is required' env \
+  PATH="$test_root/old-host-bin:$PATH" "$native_dir/build-app.sh"
+
 echo 'macos compatibility tests passed'

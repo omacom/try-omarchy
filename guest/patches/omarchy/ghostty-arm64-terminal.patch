@@ -1,0 +1,29 @@
+diff --git a/bin/omarchy-install-terminal b/bin/omarchy-install-terminal
+index a32a7a3..42a8d4a 100755
+--- a/bin/omarchy-install-terminal
++++ b/bin/omarchy-install-terminal
+@@ -26,7 +26,15 @@ esac
+ echo "Installing $package..."
+ 
+ # Install package
+-if omarchy-pkg-add $package; then
++install_terminal_package() {
++  if [[ $package == ghostty && $(uname -m) == aarch64 ]]; then
++    /usr/local/lib/try-omarchy/install-ghostty-arm64
++  else
++    omarchy-pkg-add "$package"
++  fi
++}
++
++if install_terminal_package; then
+   # Copy custom desktop entries with X-TerminalArg* keys
+   if [[ $package == "alacritty" ]]; then
+     mkdir -p ~/.local/share/applications
+@@ -48,5 +56,6 @@ if omarchy-pkg-add $package; then
+ $desktop_id
+ EOF
+ else
+-  echo "Failed to install $package"
++  echo "Failed to install $package" >&2
++  exit 1
+ fi

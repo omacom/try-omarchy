@@ -1,0 +1,136 @@
+#!/usr/bin/python3
+"""Mirror the Mac's battery into the guest power_supply device.
+
+The host sends one JSON object per line on the dev.tryomarchy.battery
+virtserialport:
+
+    {"type": "state", "present": true, "percentage": 57,
+     "state": "discharging", "acConnected": false,
+     "timeToEmptySeconds": 8100, "timeToFullSeconds": null}
+
+Each accepted snapshot is written as one line to the try-omarchy-battery
+kernel module, which republishes it as BAT0/ADP0. This agent sends exactly
+one request on start ({"type":"refresh"}), because a guest opening the port
+is invisible on the host's socket chardev. Nothing else flows guest-to-host.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+from typing import Any
+
+
+PORT = Path("/dev/virtio-ports/dev.tryomarchy.battery")
+STATE_FILE = Path("/sys/devices/platform/try-omarchy-battery/state")
+STATES = ("charging", "discharging", "full", "not-charging", "unknown")
+MAX_LINE_BYTES = 4096
+REFRESH_LINE = b'{"type":"refresh"}\n'
+SCHEMA = {
+    "type", "present", "percentage", "state",
+    "acConnected", "timeToEmptySeconds", "timeToFullSeconds",
+}
+
+
+def log(message: str) -> None:
+    print(f"omarchy-native-battery-bridge: {message}", file=sys.stderr, flush=True)
+
+
+def decode_message(line: bytes) -> dict[str, Any]:
+    """Return a validated snapshot dict, or raise ValueError."""
+    message = json.loads(line)
+    if not isinstance(message, dict) or message.get("type") != "state":
+        raise ValueError("host sent an invalid battery message")
+    if set(message) != SCHEMA:
+        raise ValueError("host battery message has an unexpected schema")
+    if not isinstance(message["present"], bool) or not isinstance(message["acConnected"], bool):
+        raise ValueError("battery presence flags must be booleans")
+    if message["state"] not in STATES:
+        raise ValueError("host sent an unknown battery state")
+    percentage = message["percentage"]
+    if message["present"]:
+        if not isinstance(percentage, int) or isinstance(percentage, bool) \
+                or not 0 <= percentage <= 100:
+            raise ValueError("battery percentage must be an integer 0-100")
+    elif percentage is not None:
+        raise ValueError("an absent battery cannot carry a percentage")
+    for key in ("timeToEmptySeconds", "timeToFullSeconds"):
+        value = message[key]
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+        ):
+            raise ValueError(f"{key} must be null or a non-negative integer")
+    return message
+
+
+def format_state_line(message: dict[str, Any]) -> bytes:
+    """Render one whole-snapshot line for the kernel module."""
+    ac = 1 if message["acConnected"] else 0
+    if not message["present"]:
+        return f"present=0 ac={ac}\n".encode()
+    empty = message["timeToEmptySeconds"]
+    full = message["timeToFullSeconds"]
+    return (
+        f"present=1 status={message['state']} capacity={message['percentage']} "
+        f"ac={ac} time_to_empty={-1 if empty is None else empty} "
+        f"time_to_full={-1 if full is None else full}\n"
+    ).encode()
+
+
+def unknown_state_line(last: dict[str, Any] | None) -> bytes:
+    """The honest line for a dead host bridge: keep presence, drop claims."""
+    if last is None or not last["present"]:
+        ac = 1 if last is None or last["acConnected"] else 0
+        return f"present=0 ac={ac}\n".encode()
+    ac = 1 if last["acConnected"] else 0
+    return (
+        f"present=1 status=unknown capacity={last['percentage']} "
+        f"ac={ac} time_to_empty=-1 time_to_full=-1\n"
+    ).encode()
+
+
+def write_state(line: bytes) -> None:
+    STATE_FILE.write_bytes(line)
+
+
+def run() -> int:
+    if not STATE_FILE.exists():
+        log("try-omarchy-battery module is not loaded; nothing to feed")
+        return 1
+    last: dict[str, Any] | None = None
+    try:
+        with PORT.open("r+b", buffering=0) as port:
+            port.write(REFRESH_LINE)
+            buffer = b""
+            while True:
+                chunk = port.read(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+                while b"\n" in buffer:
+                    line, buffer = buffer.split(b"\n", 1)
+                    if not line:
+                        continue
+                    try:
+                        message = decode_message(line)
+                    except ValueError as error:
+                        log(f"rejected host line: {error}")
+                        continue
+                    write_state(format_state_line(message))
+                    last = message
+                if len(buffer) > MAX_LINE_BYTES:
+                    log("host line exceeds the size limit")
+                    break
+    except OSError as error:
+        log(f"battery channel failed: {error}")
+    try:
+        write_state(unknown_state_line(last))
+    except OSError as error:
+        log(f"could not mark the battery unknown: {error}")
+    log("host battery bridge disconnected")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(run())

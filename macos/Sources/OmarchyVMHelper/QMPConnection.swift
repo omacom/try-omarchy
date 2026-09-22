@@ -159,9 +159,12 @@ final class QMPConnection: @unchecked Sendable {
     }
 
     private func negotiateCapabilities(timeoutMilliseconds: Int32) throws {
+        // Greeting and capability reply share one budget, including when a
+        // readiness probe is using the last fraction of its overall deadline.
+        let deadline = Self.deadline(afterMilliseconds: timeoutMilliseconds)
         guard let greeting = try Self.readJSONObject(
             from: descriptor,
-            timeoutMilliseconds: timeoutMilliseconds
+            deadline: deadline
         ), greeting["QMP"] != nil else {
             throw HelperError.io("QMP socket did not send a valid greeting")
         }
@@ -173,7 +176,7 @@ final class QMPConnection: @unchecked Sendable {
         guard let matched = try Self.readResponse(
             id: identifier,
             from: descriptor,
-            timeoutMilliseconds: timeoutMilliseconds
+            deadline: deadline
         ), matched.object["return"] != nil, matched.object["error"] == nil else {
             throw HelperError.io("QMP capability negotiation failed")
         }
@@ -293,7 +296,18 @@ final class QMPConnection: @unchecked Sendable {
         from descriptor: Int32,
         timeoutMilliseconds: Int32
     ) throws -> MatchedResponse? {
-        let deadline = deadline(afterMilliseconds: timeoutMilliseconds)
+        try readResponse(
+            id: id,
+            from: descriptor,
+            deadline: deadline(afterMilliseconds: timeoutMilliseconds)
+        )
+    }
+
+    private static func readResponse(
+        id: String,
+        from descriptor: Int32,
+        deadline: UInt64
+    ) throws -> MatchedResponse? {
         var events: [String] = []
         while DispatchTime.now().uptimeNanoseconds < deadline {
             guard let object = try readJSONObject(
@@ -310,16 +324,6 @@ final class QMPConnection: @unchecked Sendable {
             }
         }
         return nil
-    }
-
-    private static func readJSONObject(
-        from descriptor: Int32,
-        timeoutMilliseconds: Int32
-    ) throws -> [String: Any]? {
-        try readJSONObject(
-            from: descriptor,
-            deadline: deadline(afterMilliseconds: timeoutMilliseconds)
-        )
     }
 
     private static func readJSONObject(

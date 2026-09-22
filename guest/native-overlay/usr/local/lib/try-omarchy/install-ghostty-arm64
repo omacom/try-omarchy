@@ -1,0 +1,130 @@
+#!/bin/bash
+set -euo pipefail
+
+fail() { echo "install-ghostty-arm64: $*" >&2; exit 1; }
+usage() {
+  echo 'Usage: install-ghostty-arm64 [--from-checkout DIR] [--build-only DIR]'
+  echo 'Download verified sources, build as your user, and install Ghostty on ARM64.'
+  echo '--build-only retains the package in DIR without registering or installing it.'
+}
+
+spec=/usr/share/try-omarchy/build-spec.json
+assets=/usr/local/share/try-omarchy/ghostty
+output=''
+while (($#)); do
+  case "$1" in
+    --from-checkout)
+      (($# >= 2)) || fail '--from-checkout requires a directory'
+      spec="$2/guest/spec.json"
+      assets="$2/guest/native-overlay/usr/local/share/try-omarchy/ghostty"
+      shift 2 ;;
+    --build-only)
+      (($# >= 2)) || fail '--build-only requires a directory'
+      output=$2
+      [[ -n $output ]] || fail '--build-only requires a directory'
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
+[[ $(uname -m) == aarch64 ]] || fail 'this installer supports only aarch64'
+(( EUID != 0 )) || fail 'run as your normal guest user, without sudo; compilation must not run as root'
+[[ -f $spec && ! -L $spec ]] || fail 'the Try Omarchy build spec is missing or unsafe'
+
+# Verify the recipe before executing it. Its source checksums pin Ghostty,
+# its detached signature, Zig, and the wrapper that all desktop entry points use.
+package_version=$(python3 - "$spec" "$assets" <<'PY'
+import hashlib, json, pathlib, re, sys
+spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
+pins = spec["supplyChain"]["ghostty"]
+assets = pathlib.Path(sys.argv[2])
+version = pins["version"]
+release = pins["pkgrel"]
+if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) or not re.fullmatch(r"[1-9][0-9]*", release):
+    raise SystemExit("invalid Ghostty package version")
+for name, field in (("PKGBUILD", "recipeSha256"), ("ghostty-wrapper", "wrapperSha256")):
+    path = assets / name
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"missing or unsafe Ghostty asset: {name}")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != pins[field]:
+        raise SystemExit(f"Ghostty asset digest mismatch: {name}")
+print(f"{version}-{release}")
+PY
+) || fail 'could not verify the pinned Ghostty recipe'
+
+repo=/usr/share/try-omarchy/repo
+if [[ -z $output ]]; then
+  [[ -d $repo && ! -L $repo ]] || fail 'the local Try Omarchy repository is missing or unsafe'
+  grep -Fxq '[try-omarchy]' /etc/pacman.conf || fail 'the local Try Omarchy repository is not configured'
+  if installed=$(pacman -Q ghostty 2>/dev/null); then
+    installed_version=${installed#ghostty }
+    if (( $(vercmp "$installed_version" "$package_version") > 0 )); then
+      echo "Ghostty $installed_version is newer than this installer; keeping it."
+      exit 0
+    fi
+    if [[ $installed_version == "$package_version" ]] &&
+       cmp -s "$assets/ghostty-wrapper" /usr/bin/ghostty &&
+       pacman -Qn ghostty >/dev/null 2>&1; then
+      pacman -Qkk ghostty >/dev/null || fail 'the installed package is incomplete; reinstall ghostty with pacman'
+      echo "Ghostty $package_version is already installed."
+      exit 0
+    fi
+  fi
+fi
+
+echo 'Ghostty will download verified source and Zig, then compile using two jobs.'
+echo 'The first build takes several minutes and uses temporary disk space.'
+# Installing dependencies and publishing the completed package require sudo;
+# download, signature verification, compilation and makepkg run unprivileged.
+omarchy-pkg-add gtk4 libadwaita gtk4-layer-shell libx11 libxkbcommon mesa \
+  glibc gcc-libs pkgconf gettext minisign fakeroot binutils || fail 'could not install build dependencies'
+for tool in makepkg python3 curl tar zstd minisign pkg-config fakeroot bsdtar repo-add pacman; do
+  command -v "$tool" >/dev/null || fail "$tool is required"
+done
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}
+mkdir -p "$cache"
+available=$(df --output=avail --block-size=1 "$cache" | tail -n 1)
+[[ $available =~ ^[[:space:]]*[0-9]+$ ]] || fail 'could not determine free build space'
+(( available >= 3 * 1024 * 1024 * 1024 )) || fail 'at least 3 GiB free is needed for the source build'
+work=$(mktemp -d "$cache/try-omarchy-ghostty.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+cp "$assets/PKGBUILD" "$assets/ghostty-wrapper" "$work/"
+(
+  cd "$work"
+  # Isolate outputs from user makepkg destination/cache settings. No sync or
+  # install flag: makepkg must never invoke a privileged build itself.
+  export BUILDDIR="$work" PKGDEST="$work" SRCDEST="$work" SRCPKGDEST="$work"
+  export PKGEXT=.pkg.tar.zst
+  makepkg --noconfirm --nosign
+) || fail 'Ghostty build failed; the installed terminal and default were not changed'
+
+package="$work/ghostty-$package_version-aarch64.pkg.tar.zst"
+[[ -f $package && ! -L $package ]] || fail 'the expected package was not produced'
+[[ $(pacman -Qp "$package") == "ghostty $package_version" ]] || fail 'unexpected Ghostty package identity'
+if [[ -n $output ]]; then
+  mkdir -p "$output"
+  cp "$package" "$output/"
+  echo "Built: $output/$(basename "$package")"
+  exit 0
+fi
+
+# Publish before installation so yay does not treat Ghostty as a foreign/AUR
+# package. Keep the archive for offline reinstallation via pacman.
+sudo install -m644 "$package" "$repo/$(basename "$package")"
+sudo repo-add --quiet "$repo/try-omarchy.db.tar.gz" "$repo/$(basename "$package")" || fail 'could not register Ghostty'
+sudo ln -sfn try-omarchy.db.tar.gz "$repo/try-omarchy.db"
+sudo install -Dm644 "$repo/try-omarchy.db.tar.gz" /var/lib/pacman/sync/try-omarchy.db
+# A rebuild keeps the same filename but changes its checksum. Install this
+# archive directly so pacman cannot reuse an older build from its sync cache.
+sudo pacman -U --noconfirm "$package" || fail 'could not install Ghostty'
+pacman -Qkk ghostty >/dev/null || fail 'the installed Ghostty package is incomplete'
+pacman -Qn ghostty >/dev/null || fail 'Ghostty was not registered as a native package'
+
+# Discover the package's D-Bus/systemd activation files without requiring logout.
+systemctl --user daemon-reload || true
+busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig || true
+if [[ -e $HOME/.local/bin/ghostty || -e $HOME/.local/share/applications/com.mitchellh.ghostty.desktop ]]; then
+  echo 'A user-local Ghostty installation may override this package. See docs/ghostty.md before removing it.'
+fi
+echo 'Ghostty is installed. Software rendering is enabled for the Try Omarchy VirGL guest.'

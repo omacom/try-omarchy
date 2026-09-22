@@ -131,17 +131,26 @@ def main() -> None:
     )
     check(spec["runtime"]["storage"]["expandedSizeMiB"] == 24576, "working disk expands to 24 GiB")
     check(
-        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins"},
+        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins", "packageRepositoryMirrors"},
         "spec has a minimal input set",
     )
     for key, value in spec["inputs"].items():
-        if key == "abiPackagePins":
+        if key in {"abiPackagePins", "packageRepositoryMirrors"}:
             continue
         check((GUEST / value).is_file(), f"spec input exists: {value}")
+    for name, digest in {
+        "omarchy.gpg": "15d6aac44df688165b2ea35fe0b23af239bbc66a6909c10a5c219e8d94b707de",
+        "omarchy-trusted": "ab0b688815444cffd48d15ca3597c77dbb364d59763c5784fca36691520f00fd",
+        "omarchy-revoked": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    }.items():
+        check(
+            hashlib.sha256((GUEST / "keys" / name).read_bytes()).hexdigest() == digest,
+            f"{name} matches the pinned upstream Omarchy packaging keyring",
+        )
     abi_pins = spec["inputs"]["abiPackagePins"]
     check(
-        abi_pins == [{"name": "aquamarine", "version": "0.14.0-2"}, {"name": "hyprtoolkit", "version": "0.5.4-6.1"}],
-        "factory abi pins keep aquamarine on libaquamarine.so=13 for the locked Hyprland",
+        abi_pins == [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}],
+        "factory abi pins keep aquamarine on libaquamarine.so=14 for the locked Hyprland",
     )
     aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
     pkgbuild = GUEST / aquamarine.get("pkgbuild", "")
@@ -149,40 +158,40 @@ def main() -> None:
     check(
         aquamarine
         == {
-            "version": "0.14.0",
-            "pkgrel": "2",
+            "version": "0.15.1",
+            "pkgrel": "1",
             "repository": "https://github.com/hyprwm/aquamarine",
-            "url": "https://github.com/hyprwm/aquamarine/archive/v0.14.0/aquamarine-0.14.0.tar.gz",
-            "sha256": "5dcf0b17f7dd51539fd7e79d68484f04240b3b63cf9f5f21d5b6dea0088168f9",
+            "url": "https://github.com/hyprwm/aquamarine/archive/v0.15.1/aquamarine-0.15.1.tar.gz",
+            "sha256": "2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2",
             "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
-            "pkgbuildSha256": "1bd4197238a4f0092216ab2dfd723126d618cceb977d45865e140a488a8f56ff",
+            "pkgbuildSha256": "90c998ea89b5c806919c102df78ef3f0d7816a9a08c26eac26b4adf44ba59a2a",
             "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
             "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
             "license": "BSD-3-Clause",
-            "binarySha256": "7da003aa60e008e9f514c312f01c1e967983e2c46732d58953735bfaee3fd8aa",
+            "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d",
         }
         and pkgbuild.is_file()
         and hashlib.sha256(pkgbuild.read_bytes()).hexdigest() == aquamarine["pkgbuildSha256"]
         and f"sha256sums=('{aquamarine['sha256']}')" in pkgbuild_text
-        and "pkgver=0.14.0" in pkgbuild_text
-        and "pkgrel=2" in pkgbuild_text,
-        "factory rebuilds aquamarine 0.14 from the reviewed Arch PKGBUILD and upstream tarball",
+        and "pkgver=0.15.1" in pkgbuild_text
+        and "pkgrel=1" in pkgbuild_text,
+        "factory rebuilds aquamarine 0.15.1 from the reviewed Arch PKGBUILD and upstream tarball",
     )
     hyprtoolkit = spec.get("supplyChain", {}).get("hyprtoolkit", {})
     toolkit_recipe = GUEST / hyprtoolkit.get("pkgbuild", "")
     check(
         hyprtoolkit == {
     "version": "0.5.4",
-    "pkgrel": "6.1",
+    "pkgrel": "6.2",
     "repository": "https://github.com/hyprwm/hyprtoolkit",
     "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
     "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
     "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "803f1db19ad1d42e48b638e35256d3dabbe19d1d0b4b3fd584eedf20121256ce",
+    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
     "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
     "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
     "license": "BSD-3-Clause",
-    "binarySha256": "dc814fad9723bfcf66dbd29b7f8c5cc96fd63a1ff623909e466dd9d011c0cba8"
+    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
 }
         and toolkit_recipe.is_file()
         and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
@@ -241,12 +250,15 @@ def main() -> None:
             "notification-hover-close",
             "notification-screen-privacy",
             "update-free-space-message",
+            "update-restart-arm-kernel",
             "pkg-add-aarch64-unavailable",
             "pkg-aur-add-aarch64-unavailable",
             "dropbox-aarch64-unavailable",
             "geforce-now-aarch64-unavailable",
             "battlenet-aarch64-unavailable",
             "lutris-aarch64-unavailable",
+            "keyboard-us-acentos",
+            "ghostty-arm64-terminal",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -290,6 +302,12 @@ def main() -> None:
     check(
         "exec omarchy-pkg-unavailable-arm Lutris" in lutris_unavailable_patch,
         "Lutris aarch64 backport fails via the shared unavailable helper",
+    )
+    keyboard_patch = read(GUEST / "patches/omarchy/keyboard-us-acentos.patch")
+    check(
+        "+English (US, International with dead keys)|us-acentos" in keyboard_patch
+        and "+Portuguese (Brazil, ABNT2)|br-abnt2" in keyboard_patch,
+        "keyboard backport distinguishes US International from Brazilian ABNT2",
     )
     dropbox_unavailable_patch = read(GUEST / "patches/omarchy/dropbox-aarch64-unavailable.patch")
     check(
@@ -336,7 +354,7 @@ def main() -> None:
     unavailable_package_text = read(unavailable_packages)
     check(
         unavailable_packages.is_file()
-        and "ghostty\tGhostty" in unavailable_package_text
+        and "ghostty\tGhostty" not in unavailable_package_text
         and "microsoft-edge-stable-bin\tEdge" in unavailable_package_text
         and "spotify\tSpotify" in unavailable_package_text
         and "dropbox\tDropbox" in unavailable_package_text
@@ -378,9 +396,17 @@ def main() -> None:
                 "cliSource": "https://aur.archlinux.org/packages/1password-cli",
                 "runtimePackages": ["which"],
                 "factoryProvenance": "excluded",
+            },
+            {
+                "id": "ghostty-arm64",
+                "userInitiated": True,
+                "delivery": "pinned-signed-source-build",
+                "applicationUrl": "https://release.files.ghostty.org/1.3.1/ghostty-1.3.1.tar.gz",
+                "applicationSha256": "3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb",
+                "factoryProvenance": "installer-only",
             }
         ],
-        "Vivaldi and mutable 1Password installation are explicit post-build trust boundaries",
+        "Vivaldi, 1Password, and Ghostty installation are explicit post-build trust boundaries",
     )
 
     pacman_conf = read(GUEST / spec["inputs"]["pacmanConfig"])
@@ -444,6 +470,10 @@ def main() -> None:
     check(
         "rpm-tools" in requested_packages and "rpm-tools" in packages,
         "factory transaction includes the RPM signature verifier for Vivaldi",
+    )
+    check(
+        "man-db" in requested_packages and "man-db" in packages,
+        "browser help probes have the man command available in the factory",
     )
     yay = spec.get("supplyChain", {}).get("yay", {})
     check(
@@ -589,14 +619,14 @@ def main() -> None:
     check(
         hyprland
         == {
-            "version": "0.56.1",
+            "version": "0.56.2",
             "pkgrel": "3.2",
-            "upstreamPackageVersion": "0.56.1-3",
+            "upstreamPackageVersion": "0.56.2-3",
             "repository": "https://github.com/hyprwm/Hyprland",
-            "commit": "5c9377c15f85c50648f35ca5a213754f95b93ca0",
-            "url": "https://github.com/hyprwm/Hyprland/releases/download/v0.56.1/source-v0.56.1.tar.gz",
-            "sha256": "c5b26eb377360358d01839a1de43fdc004a33e56d6a5d442fdad69b9f3a10549",
-            "upstreamPackageSha256": "4fcb1b5efe019e184a85b234f75151e68fd8f60ace9b06ff59e7ffbd8a280f7a",
+            "commit": "efb50993780079460b0cbed1363e2166a2de1d9f",
+            "url": "https://github.com/hyprwm/Hyprland/releases/download/v0.56.2/source-v0.56.2.tar.gz",
+            "sha256": "03ad3f5ef152ff44116ffd56fcf808486211ecabf4f0ba567108ee746ba5cd2e",
+            "upstreamPackageSha256": "dba57b0cba04557b7fa3478253c93fe4c8e88737f8dd570c0820177f567e5a95",
             "patch": "patches/hyprland/rounded-border-coverage.patch",
             "patchSha256": "5da431cbca37bdd9a66edeb77c3d677b7033d5f91449158e3ffa58a4eb515828",
             "glazeVersion": "7.2.0",
@@ -604,7 +634,7 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "b0c96f3057f9f4000c5e50adba0f6020dd7f63747e64371adcd4b30b97eabdb9",
+            "binarySha256": "34499692a552c4f36bce98b0efda02ebca00d2297c830b109b24ad6a64669645",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
@@ -614,7 +644,7 @@ def main() -> None:
                 "gcc": "16.1.1+r12+g301eb08fa2c5-1",
                 "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
                 "glibc": "2.43+r22+g8362e8ce10b2-2",
-                "hyprland": "0.56.1-3",
+                "hyprland": "0.56.2-3",
                 "hyprland-protocols": "0.7.0-1",
                 "make": "4.4.1-3",
                 "meson": "1.12.0-1",
@@ -727,6 +757,16 @@ def main() -> None:
         and 'toggles/flags.lua' in materialize,
         "skel hypr toggles seed only flags.lua, not the catalog",
     )
+    apple_keyboard = read(
+        GUEST / "native-overlay/usr/share/try-omarchy/apple-keyboard-input.lua"
+    )
+    check(
+        'kb_model = "applealu_" .. geometry' in apple_keyboard
+        and "kb_layout" not in apple_keyboard
+        and "kb_variant" not in apple_keyboard
+        and 'dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")' in materialize,
+        "skel input loads Apple keyboard geometry without overriding layout",
+    )
 
     configure = read(GUEST / "scripts/configure-rootfs.sh")
     check(
@@ -741,6 +781,14 @@ def main() -> None:
         "compat/ttfx-arm64" not in configure and not (GUEST / "compat/ttfx-arm64").exists(),
         "obsolete no-op ttfx compatibility command is absent",
     )
+    check(
+        "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure,
+        "Traditional Chinese locale is generated alongside English so it can be opted into",
+    )
+    check(
+        "LANG=en_US.UTF-8" in configure and "KEYMAP=us" in configure,
+        "default session language and keyboard layout stay English/US for a user who never opts into zh-TW",
+    )
     check("omarchy-provision-owner.service" in configure, "first boot uses upstream owner provisioning")
     native_autologin = read(
         GUEST
@@ -750,6 +798,34 @@ def main() -> None:
         "ExecStartPost=" in native_autologin
         and "omarchy-provision-autologin-once.service" in native_autologin,
         "native provisioning keeps direct graphical login across VM boots",
+    )
+    check(
+        'install -d -m 0755 "$root/etc/skel/.config/fcitx5"' in configure
+        and "fragments/fcitx5-profile.ini" in configure
+        and '"$root/etc/skel/.config/fcitx5/profile"' in configure,
+        "every new user's skeleton home gets the fcitx5 input profile seeded, not just the package",
+    )
+    fcitx5_profile = read(GUEST / "fragments/fcitx5-profile.ini")
+    check(
+        "[Groups/0/Items/0]\nName=keyboard-us" in fcitx5_profile
+        and "[Groups/0/Items/1]\nName=chewing" in fcitx5_profile,
+        "keyboard-us sits at item index 0 ahead of chewing, so a user who never triggers the IME "
+        "(an inactive input context) still lands on plain US input, even though fcitx5 resolves "
+        "and rewrites the group's actual default input method to chewing",
+    )
+    check(
+        'chromium_flags="$root/etc/skel/.config/chromium-flags.conf"' in configure
+        and "[[ -f $chromium_flags ]] || fail" in configure
+        and 'cat "$guest_dir/fragments/chromium-flags-wayland-ime.append.conf" >>"$chromium_flags"'
+        in configure,
+        "the wayland-ime flag is appended to Chromium's existing flags, never overwriting Basecamp's upstream ones",
+    )
+    chromium_ime_flag = read(
+        GUEST / "fragments/chromium-flags-wayland-ime.append.conf"
+    )
+    check(
+        "--enable-wayland-ime" in chromium_ime_flag,
+        "Chromium launches with the flag fcitx5 needs to reach Wayland text fields",
     )
     fcitx_guard = read(
         GUEST / "native-overlay/etc/systemd/user/omarchy-fcitx5.service.d/10-guard.conf"
@@ -828,6 +904,26 @@ def main() -> None:
         and "com.apple.security.device.camera" in camera_entitlements,
         "Mac launcher carries the camera entitlement and supervised virtio bridge",
     )
+    battery = spec["runtime"]["battery"]
+    check(
+        battery
+        == {
+            "activation": "always-on",
+            "device": "virtserialport",
+            "direction": "host-to-guest",
+            "guestSupplies": ["ADP0", "BAT0"],
+            "port": "dev.tryomarchy.battery",
+            "protocolVersion": 1,
+        },
+        "battery contract mirrors the Mac battery one way over virtio",
+    )
+    battery_launcher = read(REPO / "macos/run-qemu-gpu.sh")
+    check(
+        "virtserialport,bus=omarchy-serial.0,nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery" in battery_launcher
+        and "--bridge-native-battery" in battery_launcher
+        and "battery_bridge_restarts < 5" in battery_launcher,
+        "Mac launcher carries the supervised battery virtio bridge",
+    )
     check(
         '"$root/usr/local/bin/omarchy-native-mac-share"' in configure
         and "default.target.wants/omarchy-native-mac-share-link.service" in configure,
@@ -863,11 +959,12 @@ def main() -> None:
         "pacman recovery files snapshot the final local-repository configuration",
     )
     check(
-        "expected_archive_count=6" in local_repository
+        "expected_archive_count=7" in local_repository
         and "factory repository is missing pinned ttfx" in local_repository
         and "factory repository is missing pinned yay" in local_repository
         and "factory repository is missing patched Hyprland" in local_repository
         and "factory repository is missing pinned Voxtype" in local_repository
+        and "factory repository is missing the battery DKMS module" in local_repository
         and "immutable local repository does not have priority" in local_repository
         and "resolve patched and ARM64-only packages locally" in local_repository
         and "refusing canonical unsafe root" in local_repository,
@@ -893,6 +990,43 @@ def main() -> None:
         "[zram0]" in zram_override
         and "compression-algorithm = lzo-rle" in zram_override,
         "factory zram uses the ARM kernel's supported lzo-rle backend",
+    )
+    cjk_fontconfig = read(
+        GUEST / "factory-overlay/etc/fonts/conf.d/30-try-omarchy.conf"
+    )
+    check(
+        all(f"<string>{lang}</string>" in cjk_fontconfig for lang in ("zh-tw", "zh-hant"))
+        and all(
+            f"<string>Noto {kind} CJK TC</string>" in cjk_fontconfig
+            for kind in ("Sans", "Serif", "Sans Mono")
+        ),
+        "zh-TW and zh-Hant text prefers Traditional Chinese Han glyphs over Simplified or Japanese variants for sans, serif, and monospace",
+    )
+    check(
+        'mode="prepend" binding="strong"' in cjk_fontconfig
+        and all(
+            f"<string>{family}</string>" in cjk_fontconfig
+            for family in ("sans-serif", "serif", "monospace")
+        ),
+        "the Traditional Chinese font preference is scoped to generic sans/serif/monospace requests and wins over later fontconfig stages",
+    )
+    environment_conf = read(
+        GUEST / "factory-overlay/usr/lib/environment.d/90-try-omarchy.conf"
+    )
+    environment_assignments = [
+        line.split("#", 1)[0].strip() for line in environment_conf.splitlines()
+    ]
+    environment_assignments = [line for line in environment_assignments if line]
+    check(
+        "XMODIFIERS=@im=fcitx" in environment_assignments,
+        "XWayland apps can still reach fcitx5, since they only speak the legacy XIM protocol",
+    )
+    check(
+        not any(
+            re.match(r"(GTK_IM_MODULE|QT_IM_MODULE)\s*=", line)
+            for line in environment_assignments
+        ),
+        "GTK4/Qt6 apps stay on native Wayland text-input-v3 for fcitx5 instead of being forced onto the legacy im-module path globally",
     )
     check(
         '"$root/usr/bin/omarchy-audio-input-set-default"' in configure
@@ -990,6 +1124,13 @@ def main() -> None:
         "depend = rpm-tools" in register_runtime,
         "packaged Omarchy runtime keeps the Vivaldi signature verifier installed",
     )
+    check(
+        "usr/local/lib/try-omarchy/install-ghostty-arm64" in register_runtime
+        and "usr/local/share/try-omarchy/ghostty/PKGBUILD" in register_runtime
+        and "usr/local/share/try-omarchy/ghostty/ghostty-wrapper" in register_runtime
+        and 'cp -a "$root/$relative" "$stage/$relative"' in register_runtime,
+        "packaged Omarchy runtime owns the optional Ghostty installer, recipe and wrapper",
+    )
     register_yay = read(GUEST / "scripts/register-pinned-yay.sh")
     check(
         "register-pinned-yay.sh" in build
@@ -1081,6 +1222,11 @@ def main() -> None:
         and "Voxtype runtime dependency does not resolve for ARM64" in finalizer
         and "Opt-in Voxtype must not be installed in the factory image" in finalizer,
         "guest packages signed ARM64 Voxtype as an opt-in upstream-compatible target",
+    )
+    check(
+        "Ghostty must remain a user-initiated post-build install" in read(GUEST / "scripts/finalize-rootfs.sh")
+        and "Ghostty installer asset digest mismatch" in read(GUEST / "scripts/finalize-rootfs.sh"),
+        "factory validation excludes Ghostty while verifying its optional installer assets",
     )
     third_party_notices = read(REPO / "THIRD_PARTY_NOTICES.md")
     check(
@@ -1193,6 +1339,110 @@ def main() -> None:
         "SSH generator requests only the boot-scoped vendor sshd unit",
     )
 
+    old_locale_generator_path = (
+        GUEST
+        / "native-overlay/usr/lib/systemd/system-generators/try-omarchy-locale"
+    )
+    check(
+        not old_locale_generator_path.exists(),
+        "the old locale system-generator is gone -- only one mechanism may own LANG",
+    )
+
+    locale_script_path = GUEST / "native-overlay/usr/local/bin/try-omarchy-locale"
+    locale_script = read(locale_script_path)
+    locale_script_code = "\n".join(
+        line for line in locale_script.splitlines() if not line.strip().startswith("#")
+    )
+    locale_unit_path = (
+        GUEST / "native-overlay/usr/lib/systemd/system/try-omarchy-locale.service"
+    )
+    locale_unit = read(locale_unit_path)
+
+    locale_gen_format = re.search(
+        r"printf '([^']*)' >\"\$root/etc/locale\.gen\"", configure
+    )
+    generated_locales = (
+        sorted(
+            line.split(" ", 1)[0]
+            for line in locale_gen_format.group(1).split("\\n")
+            if line
+        )
+        if locale_gen_format
+        else []
+    )
+    locale_allowlist_match = re.search(
+        r"case \$candidate in\n\s*([^\n]+)\) locale=\$candidate ;;\n", locale_script
+    )
+    allowlisted_locales = (
+        sorted(token.strip() for token in locale_allowlist_match.group(1).split("|"))
+        if locale_allowlist_match
+        else []
+    )
+    check(
+        locale_gen_format is not None
+        and locale_allowlist_match is not None
+        and generated_locales == allowlisted_locales,
+        "locale script's allowlist cannot drift from the locales configure-rootfs.sh actually "
+        "generates, or a chosen language silently gets no LANG",
+    )
+    check(
+        locale_script_path.is_file()
+        and locale_script_path.stat().st_mode & stat.S_IXUSR != 0
+        and "tryomarchy.locale=" in locale_script
+        and "TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/proc/cmdline" in locale_script,
+        "locale script is an executable that reads the host-chosen locale from the kernel command line",
+    )
+    check(
+        "eval" not in locale_script and "$(" not in locale_script,
+        "the kernel command line is never shell-interpolated",
+    )
+    check(
+        'TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf' in locale_script
+        and 'python3 - "$locale_conf" "$locale"' in locale_script,
+        "locale script writes LANG to /etc/locale.conf, and to nowhere else, now that a real unit "
+        "(not a generator) is the one setting it",
+    )
+    check(
+        'LANG={sys.argv[2]}' in locale_script_code
+        and "LC_ALL" not in locale_script_code
+        and "KEYMAP" not in locale_script_code,
+        "locale script sets LANG only, never LC_ALL or the console keymap",
+    )
+    check(
+        "locale=en_US.UTF-8" in locale_script and "exit 0" not in locale_script,
+        "an absent locale token still writes the image's default English locale -- unlike the old "
+        "generator, this script never exits early -- which is what lets switching back to English "
+        "in the launcher win on a persistent VM instead of leaving a stale locale behind",
+    )
+    check(
+        '[ ! -L "$locale_conf" ] || exit 1' in locale_script,
+        "locale script refuses to write through a symlink",
+    )
+
+    check(
+        locale_unit_path.is_file()
+        and "Type=oneshot" in locale_unit
+        and "RemainAfterExit=yes" in locale_unit
+        and "ExecStart=/usr/local/bin/try-omarchy-locale" in locale_unit
+        and "WantedBy=multi-user.target" in locale_unit,
+        "try-omarchy-locale.service is a oneshot unit (not a generator) that runs the locale script",
+    )
+    check(
+        "Before=sddm.service display-manager.service getty@tty1.service" in locale_unit,
+        "the unit orders itself before both entry points a login session can start from: SDDM "
+        "(sddm.service, aliased to display-manager.service once enabled) and a console login "
+        "(getty@tty1.service) -- the same two units omarchy-provision-owner.service, this project's "
+        "pinned upstream first-boot unit, already orders itself Before= (and briefly Conflicts=) for "
+        "the same reason, so this ordering is proven to work in this codebase, not merely asserted",
+    )
+    check(
+        "multi-user.target.wants/try-omarchy-locale.service" in configure
+        and "ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service" in configure,
+        "configure-rootfs.sh enables the unit itself: it runs before arch-chroot, with no "
+        "systemd/D-Bus available to run `systemctl enable` the way finalize-rootfs.sh does for "
+        "sddm.service and omarchy-provision-owner.service, so it links the .wants symlink directly",
+    )
+
     manifest_writer = read(GUEST / "scripts/write-guest-manifest.py")
     check('"kind": "try-omarchy-guest-artifacts"' in manifest_writer, "new artifacts use the native manifest identity")
 
@@ -1301,6 +1551,102 @@ def main() -> None:
         and 'GROUP="root"' in authentication_rule
         and 'MODE="0600"' in authentication_rule,
         "Touch ID authorization port is root-only",
+    )
+    battery_bridge = GUEST / "native-overlay/usr/local/bin/omarchy-native-battery-bridge"
+    check(battery_bridge.stat().st_mode & stat.S_IXUSR != 0, "native battery bridge is executable")
+    with tempfile.TemporaryDirectory() as temporary:
+        py_compile.compile(str(battery_bridge), cfile=str(Path(temporary) / "battery.pyc"), doraise=True)
+    check(True, "native battery bridge compiles")
+    battery_unit = read(
+        GUEST / "native-overlay/usr/lib/systemd/system/omarchy-native-battery-bridge.service"
+    )
+    check(
+        "ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.battery" in battery_unit
+        and "ConditionPathExists=/sys/devices/platform/try-omarchy-battery/state" in battery_unit
+        and "Restart=always" in battery_unit
+        and "StartLimitIntervalSec=0" in battery_unit,
+        "battery agent follows the virtio port and the module, and keeps retrying",
+    )
+    battery_rule = read(GUEST / "native-overlay/etc/udev/rules.d/95-omarchy-native-battery.rules")
+    check(
+        'ATTR{name}=="dev.tryomarchy.battery"' in battery_rule
+        and 'MODE="0600"' in battery_rule
+        and "GROUP=" not in battery_rule,
+        "battery port is root-only",
+    )
+    check(
+        read(GUEST / "native-overlay/etc/modules-load.d/95-try-omarchy-battery.conf").strip()
+        == "try_omarchy_battery",
+        "battery module loads at boot",
+    )
+    upower_dropin = read(GUEST / "native-overlay/etc/UPower/UPower.conf.d/90-try-omarchy.conf")
+    check(
+        "CriticalPowerAction=Ignore" in upower_dropin
+        and "AllowRiskyCriticalPowerAction=true" in upower_dropin,
+        "critical Mac battery warns without suspending the guest",
+    )
+    module_source = read(GUEST / "native-module/try-omarchy-battery/try-omarchy-battery.c")
+    check(
+        '.name = "BAT0"' in module_source
+        and '.name = "ADP0"' in module_source
+        and "DEVICE_ATTR_ADMIN_RW(state)" in module_source
+        and "power_supply_unregister" in module_source,
+        "battery module exposes BAT0/ADP0 behind a root-only state attribute",
+    )
+    dkms_conf = read(GUEST / "native-module/try-omarchy-battery/dkms.conf")
+    check(
+        'PACKAGE_VERSION="1.0.0"' in dkms_conf,
+        "battery module DKMS version matches the spec pin",
+    )
+    # DKMS always passes KERNELRELEASE on its make command line, which selects
+    # the Makefile's kbuild branch — a branch with no `modules` target. The
+    # build line must drive kbuild directly instead.
+    make_line = next(
+        (line for line in dkms_conf.splitlines() if line.startswith("MAKE[0]=")), ""
+    )
+    check(
+        "-C ${kernel_source_dir}" in make_line and " M=" in make_line,
+        "battery module DKMS build line drives kbuild directly",
+    )
+    finalize = read(GUEST / "scripts/finalize-rootfs.sh")
+    check(
+        "systemctl enable omarchy-native-battery-bridge.service" in finalize,
+        "battery agent is enabled in the factory image",
+    )
+    configure = read(GUEST / "scripts/configure-rootfs.sh")
+    check(
+        "omarchy-native-battery-bridge" in configure,
+        "battery agent is made executable during rootfs configuration",
+    )
+    retrofit = read(GUEST / "scripts/install-battery-into-existing-guest.sh")
+    check(
+        "dkms install try-omarchy-battery/1.0.0" in retrofit
+        and "systemctl enable --now omarchy-native-battery-bridge.service" in retrofit
+        and "curl" not in retrofit,
+        "existing guests retrofit the battery from staged files, never the network",
+    )
+    retrofit_destinations = [
+        "/usr/src/try-omarchy-battery-1.0.0/try-omarchy-battery.c",
+        "/usr/src/try-omarchy-battery-1.0.0/Makefile",
+        "/usr/src/try-omarchy-battery-1.0.0/dkms.conf",
+        "/usr/local/bin/omarchy-native-battery-bridge",
+        "/usr/lib/systemd/system/omarchy-native-battery-bridge.service",
+        "/etc/udev/rules.d/95-omarchy-native-battery.rules",
+        "/etc/modules-load.d/95-try-omarchy-battery.conf",
+        "/etc/UPower/UPower.conf.d/90-try-omarchy.conf",
+    ]
+    check(
+        all(destination in retrofit for destination in retrofit_destinations),
+        "retrofit script installs all eight battery files to their real system paths",
+    )
+    check(
+        retrofit.index("dkms install try-omarchy-battery/1.0.0")
+        < retrofit.index("systemctl enable --now omarchy-native-battery-bridge.service"),
+        "retrofit script builds the DKMS module before enabling the service that depends on it",
+    )
+    check(
+        "set -euo pipefail" in retrofit,
+        "retrofit script aborts on the first failure instead of limping into a half-installed state",
     )
     mac_share = GUEST / "native-overlay/usr/local/bin/omarchy-native-mac-share"
     check(mac_share.stat().st_mode & stat.S_IXUSR != 0, "native Mac share mounter is executable")
@@ -1482,16 +1828,10 @@ def main() -> None:
         "native background picker override is executable",
     )
     check(cursor_restore.stat().st_mode & stat.S_IXUSR != 0, "native cursor restore helper is executable")
-    alacritty_wrapper = GUEST / "native-overlay/usr/local/bin/alacritty"
-    alacritty_wrapper_text = read(alacritty_wrapper)
-    check(alacritty_wrapper.stat().st_mode & stat.S_IXUSR != 0, "Alacritty VirGL wrapper is executable")
     check(
-        'real=/usr/bin/alacritty' in alacritty_wrapper_text
-        and "export LIBGL_ALWAYS_SOFTWARE=1" in alacritty_wrapper_text
-        and "omarchy.qemu_virgl=1" in alacritty_wrapper_text
-        and 'exec "$real" "$@"' in alacritty_wrapper_text
-        and '"$root/usr/local/bin/alacritty"' in configure,
-        "Alacritty VirGL wrapper forces software GL onto the pacman binary",
+        not (GUEST / "native-overlay/usr/local/bin/alacritty").exists()
+        and '"$root/usr/local/bin/alacritty"' not in configure,
+        "Alacritty uses the accelerated pacman binary without a software GL wrapper",
     )
     xdg_terminal = GUEST / "factory-overlay/usr/local/bin/xdg-terminal-exec"
     xdg_terminal_text = read(xdg_terminal)
@@ -1537,7 +1877,9 @@ def main() -> None:
         'o.exec_on_start("/usr/local/bin/omarchy-native-display-sync")'
         in monitor_fragment
         and 'omarchy_kernel_option_enabled("omarchy.qemu_virgl=1")' in monitor_fragment
-        and "cursor = { invisible = true }" in monitor_fragment,
+        and "cursor = { invisible = true }" in monitor_fragment
+        and 'hl.on("config.reloaded", function()' in monitor_fragment
+        and 'hl.exec_cmd("/usr/local/bin/omarchy-native-display-sync --once")' in monitor_fragment,
         "ARM VirGL profile starts display sync and uses the host-composited cursor",
     )
     with tempfile.TemporaryDirectory() as temporary:
@@ -1607,6 +1949,8 @@ HOTPLUG=1
         environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
         environment["HYPRCTL_LOG"] = str(reload_log)
         environment["OMARCHY_DISPLAY_SYNC_DRM_ROOT"] = str(drm_root)
+        monitor_config = temporary_path / "monitors.lua"
+        environment["OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG"] = str(monitor_config)
         subprocess.run(
             [str(display_sync), "--from-stdin"],
             input=events,
@@ -1625,12 +1969,108 @@ HOTPLUG=1
             "native display sync handles QEMU DisplayID and legacy EDID hotplug modes",
         )
 
+        expected_auto = reload_log.read_text(encoding="utf-8").splitlines()[:2]
+
+        def sync_once():
+            reload_log.write_text("", encoding="utf-8")
+            subprocess.run(
+                [str(display_sync), "--once"],
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                timeout=5,
+                check=True,
+            )
+            return reload_log.read_text(encoding="utf-8").splitlines()
+
+        check(
+            sync_once() == expected_auto,
+            "config reload resync applies live modes without waiting for a hotplug event",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 1.25 -- user zoom\n")
+        expected_zoom = [re.sub(r'scale = "[^"]+"', 'scale = "1.25"', line) for line in expected_auto]
+        check(sync_once() == expected_zoom, "reload resync preserves explicit user zoom")
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_zoom,
+            "hotplug resync also preserves explicit user zoom",
+        )
+        # A later configuration reload must not reuse the prior zoom or EDID.
+        monitor_config.write_text("local omarchy_monitor_scale = 2\n")
+        (connector / "edid").write_bytes(legacy_edid)
+        expected_resized = expected_auto[1].replace('scale = "1"', 'scale = "2"')
+        check(
+            sync_once() == [expected_resized, expected_resized],
+            "resync rereads a resized display and a newly selected zoom",
+        )
+        # 1920x1080 cannot use exactly 1.7: select a valid nearby scale (5/3).
+        monitor_config.write_text("local omarchy_monitor_scale = 1.7\n")
+        check(
+            all('scale = "1.666667"' in line for line in sync_once()),
+            "resized displays select the nearest scale with integral logical dimensions",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [expected_auto[1], expected_auto[1]],
+            "returning to automatic zoom restores live EDID density scaling",
+        )
+
+        # At 4122x2586, Omarchy rounds its 4x preset up to a clean scale of 6
+        # and persists that effective value, which exceeds the preset range.
+        resized_displayid = bytearray(displayid)
+        resized_displayid[12:14] = (4122 - 1).to_bytes(2, "little")
+        resized_displayid[20:22] = (2586 - 1).to_bytes(2, "little")
+        resized_displayid[28] = (-sum(resized_displayid[1:28])) & 0xFF
+        resized_displayid[127] = (-sum(resized_displayid[:127])) & 0xFF
+        qemu_edid[21:23] = bytes([47, 29])
+        qemu_edid[127] = (-sum(qemu_edid[:127])) & 0xFF
+        qemu_edid[256:384] = resized_displayid
+        (connector / "edid").write_bytes(qemu_edid)
+        (legacy_connector / "edid").write_bytes(qemu_edid)
+        monitor_config.write_text("local omarchy_monitor_scale = 6\n")
+        expected_large_zoom = [
+            'eval hl.monitor({ output = "", mode = "modeline 1236 4122 5402 5555 5914 2586 2600 2614 2686 -hsync -vsync", scale = "6" })'
+        ] * 2
+        check(
+            sync_once() == expected_large_zoom,
+            "reload resync preserves effective zoom above the preset range",
+        )
+        reload_log.write_text("", encoding="utf-8")
+        subprocess.run(
+            [str(display_sync), "--from-stdin"],
+            input="ACTION=change\nHOTPLUG=1\n\n",
+            text=True,
+            env=environment,
+            timeout=5,
+            check=True,
+        )
+        check(
+            reload_log.read_text().splitlines() == expected_large_zoom,
+            "hotplug resync preserves effective zoom above the preset range",
+        )
+        monitor_config.write_text("local omarchy_monitor_scale = 5\n")
+        check(
+            sync_once() == expected_large_zoom,
+            "resync considers clean scales above the requested zoom",
+        )
+        monitor_config.write_text('local omarchy_monitor_scale = "auto"\n')
+        check(
+            sync_once() == [line.replace('scale = "6"', 'scale = "2"') for line in expected_large_zoom],
+            "automatic zoom remains available after a large explicit zoom",
+        )
+
     shell_files = [
         GUEST / "test",
         screensaver_override,
         background_switcher_override,
         cursor_restore,
-        alacritty_wrapper,
         kitty_wrapper,
         display_sync,
         mac_share,

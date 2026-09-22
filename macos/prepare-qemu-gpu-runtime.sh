@@ -4,13 +4,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH --source-slirp PATH [--archive-dir DIR]
+Usage: macos/prepare-qemu-gpu-runtime.sh --source-qemu PATH --source-slirp PATH --source-virgl PATH [--archive-dir DIR]
 
 Stage, relocate, validate, and ad-hoc sign the source-built QEMU runtime at:
   macos/.build/qemu-gpu-runtime
 
-QEMU and libslirp are source-built; the remaining runtime closure comes from
-checksum-pinned arm64_sequoia bottles;
+QEMU, libslirp, and VirGL are source-built; the remaining runtime closure comes from
+checksum-pinned bottles compatible with macOS 15 or newer;
 it never reads or bundles libraries from the build machine's Homebrew prefix.
 With --archive-dir, reuse pinned archives from DIR after verifying every hash.
 EOF
@@ -18,6 +18,7 @@ EOF
 
 source_qemu=
 source_slirp=
+source_virgl=
 archive_cache=
 while (($#)); do
   case "$1" in
@@ -31,6 +32,12 @@ while (($#)); do
       (($# >= 2)) || { usage >&2; exit 64; }
       [[ -z $source_slirp ]] || { usage >&2; exit 64; }
       source_slirp=$2
+      shift 2
+      ;;
+    --source-virgl)
+      (($# >= 2)) || { usage >&2; exit 64; }
+      [[ -z $source_virgl ]] || { usage >&2; exit 64; }
+      source_virgl=$2
       shift 2
       ;;
     --archive-dir)
@@ -59,20 +66,15 @@ dependency_bundler="$native_dir/bundle-macho-dependencies.sh"
 compatibility_verifier="$native_dir/verify-macos-compatibility.sh"
 runtime_manifest="$native_dir/runtime-files.txt"
 
-virgl_version=1.0.33
-virgl_archive_name=virglrenderer-1.0.33.arm64_sequoia.bottle.tar.gz
-virgl_url="https://github.com/startergo/homebrew-virglrenderer/releases/download/v1.0.33/$virgl_archive_name"
-virgl_sha256=26ad3e927d300587024cd92276d38bf813f6228d130a1800c97f1c18688b34ba
+angle_version=1.0.16
+angle_archive_name=angle-1.0.16.arm64_sequoia.bottle.tar.gz
+angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.16/$angle_archive_name"
+angle_sha256=29fe2175b157a65f12879f9a12b5c8f94d0a76fafdf41ff009a2fdb4e9df525c
 
-angle_version=1.0.15
-angle_archive_name=angle-1.0.15.arm64_sequoia.bottle.tar.gz
-angle_url="https://github.com/startergo/homebrew-angle/releases/download/v1.0.15/$angle_archive_name"
-angle_sha256=2b41a696f450a941016adf8b157e754c3223b6032ac9b9f0aac4216e899074c7
-
-epoxy_version=1.0.4
-epoxy_archive_name=libepoxy-1.0.4.arm64_sequoia.bottle.tar.gz
-epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.4/$epoxy_archive_name"
-epoxy_sha256=8787cc8c34921834665262dff4941216dd6717edddf2c6d5cdfe04f03b24c517
+epoxy_version=1.0.5
+epoxy_archive_name=libepoxy-1.0.5.arm64_sequoia.bottle.tar.gz
+epoxy_url="https://github.com/startergo/homebrew-libepoxy/releases/download/v1.0.5/$epoxy_archive_name"
+epoxy_sha256=109384a1d37edf207a9b9f3d8950710c00767635b3c7ff295e3af83611876ef2
 
 die() {
   echo "qemu-gpu-runtime: $*" >&2
@@ -97,7 +99,10 @@ done
 [[ $(uname -m) == arm64 ]] || die "the pinned bottles require Apple Silicon (arm64)"
 macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
 [[ $macos_major =~ ^[0-9]+$ ]] || die "could not determine the macOS version"
-((macos_major >= 15)) || die "the pinned arm64_sequoia bottles require macOS 15 or newer"
+((macos_major >= 15)) || die "the pinned GPU bottles require macOS 15 or newer"
+[[ -n $source_virgl ]] || die "--source-virgl is required"
+[[ $source_virgl == /* && -f $source_virgl && ! -L $source_virgl ]] || \
+  die "--source-virgl must name an absolute regular library path"
 [[ -n $source_slirp ]] || die "--source-slirp is required"
 [[ $source_slirp == /* && -f $source_slirp && ! -L $source_slirp ]] || \
   die "--source-slirp must name an absolute regular library path"
@@ -196,15 +201,11 @@ obtain_and_verify() {
   install -m 0644 "$cached" "$output"
 }
 
-virgl_archive="$archive_dir/$virgl_archive_name"
 angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
-obtain_and_verify "virglrenderer $virgl_version" "$virgl_url" "$virgl_sha256" "$virgl_archive"
 obtain_and_verify "ANGLE $angle_version" "$angle_url" "$angle_sha256" "$angle_archive"
 obtain_and_verify "libepoxy $epoxy_version" "$epoxy_url" "$epoxy_sha256" "$epoxy_archive"
 
-pinned_bottle_validate_archive \
-  "virglrenderer $virgl_version" "$virgl_archive" "virglrenderer/$virgl_version"
 pinned_bottle_validate_archive \
   "ANGLE $angle_version" "$angle_archive" "angle/$angle_version"
 pinned_bottle_validate_archive \
@@ -217,23 +218,19 @@ while IFS=$'\t' read -r formula version archive_name archive_root archive_sha; d
   pinned_bottle_validate_archive "$formula $version" "$archive" "$archive_root"
 done < <(pinned_core_bottle_manifest)
 
-virgl_member="virglrenderer/$virgl_version/lib/libvirglrenderer.1.dylib"
 epoxy_member="libepoxy/$epoxy_version/lib/libepoxy.0.dylib"
 egl_member="angle/$angle_version/lib/libEGL.dylib"
 gles_member="angle/$angle_version/lib/libGLESv2.dylib"
-pinned_bottle_require_regular_member \
-  "virglrenderer $virgl_version" "$virgl_archive" "$virgl_member"
 pinned_bottle_require_regular_member \
   "libepoxy $epoxy_version" "$epoxy_archive" "$epoxy_member"
 pinned_bottle_require_regular_member "ANGLE $angle_version" "$angle_archive" "$egl_member"
 pinned_bottle_require_regular_member "ANGLE $angle_version" "$angle_archive" "$gles_member"
 
-tar -xzf "$virgl_archive" -C "$extract_dir" "$virgl_member"
 tar -xzf "$epoxy_archive" -C "$extract_dir" "$epoxy_member"
 tar -xzf "$angle_archive" -C "$extract_dir" "$egl_member" "$gles_member"
 
 install -m 0755 "$source_qemu" "$staged_runtime/bin/qemu-system-aarch64"
-install -m 0755 "$extract_dir/$virgl_member" \
+install -m 0755 "$source_virgl" \
   "$staged_runtime/lib/libvirglrenderer.1.dylib"
 install -m 0755 "$extract_dir/$epoxy_member" "$staged_runtime/lib/libepoxy.0.dylib"
 install -m 0755 "$extract_dir/$egl_member" "$staged_runtime/lib/libEGL.dylib"
@@ -435,12 +432,15 @@ verify_runtime_tree() {
     [[ $device_help == *"$device"* ]] || die "relocated QEMU is missing device $device"
   done
 
-  netdev_help=$("$qemu" -machine virt -netdev help 2>&1) || \
+  # These help queries run after accelerator initialization. Use QEMU's built-in
+  # test accelerator so build verification also works on virtualized CI hosts
+  # without HVF access; the separate accelerator query above still requires HVF.
+  netdev_help=$("$qemu" -machine none -accel qtest -netdev help 2>&1) || \
     die "relocated QEMU could not enumerate network backends: $netdev_help"
   printf '%s\n' "$netdev_help" | awk '$1 == "user" { found = 1 } END { exit !found }' || \
     die "relocated QEMU is missing the SLIRP user network backend"
 
-  audio_help=$("$qemu" -machine virt -audiodev help 2>&1) || \
+  audio_help=$("$qemu" -machine none -accel qtest -audiodev help 2>&1) || \
     die "relocated QEMU could not enumerate audio backends: $audio_help"
   printf '%s\n' "$audio_help" | awk '$1 == "sdl" { found = 1 } END { exit !found }' || \
     die "relocated QEMU is missing the SDL audio backend"
@@ -449,6 +449,7 @@ verify_runtime_tree() {
     OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY \
     OMARCHY_SDL_INPUT_DEVICE_NAME \
     OMARCHY_SDL_OUTPUT_DEVICE_NAME \
+    'HVF free-page backing replacement failed' \
     guest_owner_uid \
     guest_owner_gid; do
     LC_ALL=C grep -aFq "$marker" "$qemu" || \

@@ -63,19 +63,24 @@ hyprland = spec["supplyChain"]["hyprland"]
 print(f'{hyprland["version"]}-{hyprland["pkgrel"]}')
 voxtype = spec["supplyChain"]["voxtype"]
 print(f'{voxtype["version"]}-{voxtype["pkgrel"]}')
+battery = spec["supplyChain"]["tryOmarchyBattery"]
+print(f'{battery["version"]}-{battery["pkgrel"]}')
 PY
 )
-(( ${#metadata[@]} == 4 )) || fail "could not read local repository contract"
+(( ${#metadata[@]} == 5 )) || fail "could not read local repository contract"
 source_date_epoch=${metadata[0]}
 profile=${metadata[1]}
 expected_hyprland_version=${metadata[2]}
 expected_voxtype_version=${metadata[3]}
+expected_battery_version=${metadata[4]}
 [[ $source_date_epoch =~ ^[0-9]+$ ]] || fail "invalid source date epoch"
 [[ $profile == factory ]] || fail "native guest profile must be factory"
 [[ $expected_hyprland_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9.]+$ ]] ||
   fail "invalid patched Hyprland package version"
 [[ $expected_voxtype_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*$ ]] ||
   fail "invalid Voxtype package version"
+[[ $expected_battery_version =~ ^[0-9]+\.[0-9]+\.[0-9]+-[1-9][0-9]*$ ]] ||
+  fail "invalid battery module package version"
 
 repo_name=try-omarchy
 repo_dir="$root/usr/share/try-omarchy/repo"
@@ -83,7 +88,7 @@ repo_dir="$root/usr/share/try-omarchy/repo"
 shopt -s nullglob
 archives=("$repo_dir"/*.pkg.tar.zst)
 shopt -u nullglob
-expected_archive_count=6
+expected_archive_count=7
 (( ${#archives[@]} == expected_archive_count )) ||
   fail "local repository expected $expected_archive_count package archive(s), found ${#archives[@]}"
 [[ ${archives[*]} == *'/try-omarchy-runtime-'* ]] || fail "local repository is missing the Omarchy runtime"
@@ -94,6 +99,8 @@ expected_archive_count=6
   fail "factory repository is missing patched Hyprland"
 [[ ${archives[*]} == *"/voxtype-bin-$expected_voxtype_version-aarch64.pkg.tar.zst"* ]] ||
   fail "factory repository is missing pinned Voxtype"
+[[ ${archives[*]} == *"/try-omarchy-battery-dkms-$expected_battery_version-aarch64.pkg.tar.zst"* ]] ||
+  fail "factory repository is missing the battery DKMS module"
 
 temporary=$(mktemp -d "$root/usr/share/try-omarchy/.repo-db.XXXXXX")
 cleanup() {

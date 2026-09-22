@@ -44,6 +44,12 @@ while (($#)); do
   esac
 done
 
+macos_major=$(sw_vers -productVersion | cut -d. -f1)
+[[ $macos_major =~ ^[0-9]+$ ]] && (( macos_major >= 15 )) || {
+  echo "build-app: macOS 15 or newer is required" >&2
+  exit 1
+}
+
 macos_dir=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$macos_dir/.." && pwd -P)
 helper="$macos_dir/.build/release/omarchy-vm-helper"
@@ -179,16 +185,34 @@ PYTHON
 install -m 0644 "$macos_dir/network-helper/vendor/LICENSE" "$contents/Resources/network/LICENSE.socket_vmnet"
 install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
+python3 "$repo_dir/scripts/app_version.py" \
+  --root "$repo_dir" --plist "$contents/Info.plist"
 install -m 0644 "$macos_dir/Credits.rtf" "$contents/Resources/Credits.rtf"
 install -m 0644 "$repo_dir/LICENSE" "$contents/Resources/LICENSE"
 install -m 0644 "$generated_icon" "$contents/Resources/TryOmarchy.icns"
 ditto "$runtime_source" "$contents/Resources/runtime"
 install -m 0755 "$macos_dir/run-qemu-gpu.sh" "$contents/Resources/scripts/run-qemu-gpu.sh"
+install -m 0755 "$repo_dir/guest/native-overlay/usr/local/sbin/try-omarchy-migrate-alacritty" \
+  "$contents/Resources/scripts/try-omarchy-migrate-alacritty"
 install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
   "$contents/Resources/scripts/qemu-persistent-storage.sh"
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
 install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
+# Ship the same narrow settings payload to existing VMs at boot.
+settings_payload="$contents/Resources/guest-settings"
+mkdir -p "$settings_payload"
+install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
+install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
+for relative in \
+  usr/local/bin/omarchy-native-settings \
+  etc/udev/rules.d/92-omarchy-native-settings.rules \
+  usr/share/applications/try-omarchy-settings.desktop \
+  etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
+  install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
+done
+install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
+python3 "$repo_dir/integrations/build-bundle.py" "$contents/Resources/integrations"
 for guest_resource in \
   LICENSE.omarchy \
   SHA256SUMS \

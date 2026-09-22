@@ -7,7 +7,8 @@ enum ApplicationPresentation {
 
     static func installMainMenu(
         in application: NSApplication,
-        applicationName: String
+        applicationName: String,
+        updatesTarget: AnyObject? = nil
     ) {
         let mainMenu = NSMenu(title: "Main Menu")
 
@@ -20,6 +21,11 @@ enum ApplicationPresentation {
             action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: ""
         )
+        applicationMenu.addItem(
+            withTitle: "Check for Updates…",
+            action: #selector(VMApplicationController.checkForAppUpdates(_:)),
+            keyEquivalent: ""
+        ).target = updatesTarget
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(
             withTitle: "Hide \(applicationName)",

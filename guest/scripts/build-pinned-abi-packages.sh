@@ -98,8 +98,8 @@ pacman -S --needed --noconfirm \
 
 for name in aquamarine hyprtoolkit; do
   case "$name" in
-    aquamarine) expected_version=0.14.0; expected_pkgrel=2 ;;
-    hyprtoolkit) expected_version=0.5.4; expected_pkgrel=6.1 ;;
+    aquamarine) expected_version=0.15.1; expected_pkgrel=1 ;;
+    hyprtoolkit) expected_version=0.5.4; expected_pkgrel=6.2 ;;
   esac
 mapfile -t metadata < <(python3 - "$spec" "$guest_dir" "$name" <<'PY'
 import json
@@ -109,7 +109,7 @@ import sys
 spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
 guest = pathlib.Path(sys.argv[2]).resolve(strict=True)
 pins = spec.get("inputs", {}).get("abiPackagePins")
-if pins != [{"name": "aquamarine", "version": "0.14.0-2"}, {"name": "hyprtoolkit", "version": "0.5.4-6.1"}]:
+if pins != [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}]:
     raise SystemExit("abiPackagePins must contain the reviewed compatible pair")
 component = spec["supplyChain"][sys.argv[3]]
 required = (
@@ -287,9 +287,9 @@ with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as package:
     pkginfo = info.read().decode()
     if f"pkgname = {name}\n" not in pkginfo or f"pkgver = {version}-{pkgrel}\n" not in pkginfo or "arch = aarch64\n" not in pkginfo:
         raise SystemExit("ABI package identity mismatch")
-    abi = "provides = libaquamarine.so=13-64" if name == "aquamarine" else "depend = libaquamarine.so=13-64"
+    abi = "provides = libaquamarine.so=14-64" if name == "aquamarine" else "depend = libaquamarine.so=14-64"
     if abi not in pkginfo:
-        raise SystemExit("ABI package does not provide or depend on libaquamarine.so=13")
+        raise SystemExit("ABI package does not provide or depend on libaquamarine.so=14")
     member = package.extractfile(f"usr/lib/lib{name}.so.{version}")
     if member is None:
         raise SystemExit("ABI package is missing its versioned library")

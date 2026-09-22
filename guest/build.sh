@@ -79,6 +79,20 @@ for command in pacstrap arch-chroot curl git gzip python3 mke2fs mount umount re
   command -v "$command" >/dev/null || fail "$command is required; use the supplied Arch builder container"
 done
 
+# Bootstrap Omarchy's package signing key from the same reviewed packaging
+# commit as the builder. Fresh builds must not depend on a public keyserver.
+(
+  cd "$guest_dir/keys"
+  sha256sum -c <<'KEYRING_SUMS'
+15d6aac44df688165b2ea35fe0b23af239bbc66a6909c10a5c219e8d94b707de  omarchy.gpg
+ab0b688815444cffd48d15ca3597c77dbb364d59763c5784fca36691520f00fd  omarchy-trusted
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  omarchy-revoked
+KEYRING_SUMS
+)
+install -m 0644 "$guest_dir/keys/omarchy.gpg" "$guest_dir/keys/omarchy-trusted" \
+  "$guest_dir/keys/omarchy-revoked" /usr/share/pacman/keyrings/
+pacman-key --populate omarchy
+
 output=$(mkdir -p "$output" && cd "$output" && pwd)
 work=$(mkdir -p "$work" && cd "$work" && pwd)
 if [[ -z $source_dir ]]; then
@@ -223,6 +237,11 @@ python3 "$guest_dir/scripts/resolve-package-lock.py" \
   ln -sfn /proc/self/fd/2 "$dev_root/stderr"
 )
 
+# Keep a fresh guest-local keypair while seeding the reviewed repository keys
+# before the initial transaction verifies the keyring packages themselves.
+pacman-key --gpgdir "$root/etc/pacman.d/gnupg" --init
+pacman-key --gpgdir "$root/etc/pacman.d/gnupg" --populate archlinuxarm omarchy
+
 # pacstrap reads configured CacheDir paths for host-cache mode only with -P.
 # The copied builder config is replaced by configure-rootfs below. Archives
 # remain under $work across failed staging roots and are still signature-checked.
@@ -279,6 +298,11 @@ python3 "$guest_dir/scripts/apply-omarchy-backports.py" --root "$root" --spec "$
   --spec "$spec" \
   --pacman-config "$pacman_config"
 "$guest_dir/scripts/register-pinned-voxtype.sh" \
+  --root "$root" \
+  --work "$work" \
+  --spec "$spec" \
+  --pacman-config "$pacman_config"
+"$guest_dir/scripts/register-native-battery-module.sh" \
   --root "$root" \
   --work "$work" \
   --spec "$spec" \

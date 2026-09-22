@@ -31,7 +31,7 @@ struct VMResourceEditorTests {
         #expect(save.isEnabled)
         save.performClick(nil)
         editor.dismiss()
-        #expect(saved == [VMResources(cpuCount: 18, memoryGiB: 12)])
+        #expect(saved == [VMResources(cpuCount: 18, memoryGiB: 12, diskGiB: 64)])
         #expect(closed == 1)
     }
 
@@ -49,6 +49,8 @@ struct VMResourceEditorTests {
         let memory: NSPopUpButton = try control("memory", in: editor)
         #expect(cpu.selectedItem?.tag == 8)
         #expect(memory.selectedItem?.tag == 8)
+        let disk: NSTextField = try control("disk", in: editor)
+        #expect(disk.stringValue == "64")
         #expect(saved.isEmpty)
         let cancel: NSButton = try control("cancel", in: editor)
         cancel.performClick(nil)
@@ -106,7 +108,7 @@ struct VMResourceEditorTests {
         memory.selectItem(withTag: 12)
         memory.sendAction(memory.action, to: memory.target)
         save.performClick(nil)
-        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12))
+        #expect(saved == VMResources(cpuCount: 8, memoryGiB: 12, diskGiB: 64))
     }
 
     @Test("A small host retains a usable default memory choice")
@@ -124,6 +126,27 @@ struct VMResourceEditorTests {
         #expect(!memory.isEnabled)
         let save: NSButton = try control("save", in: editor)
         #expect(save.isEnabled)
+    }
+
+    @Test("Disk capacity edits are validated before Save and defaults never shrink the disk")
+    func diskCapacity() throws {
+        _ = NSApplication.shared
+        var saved: VMResources?
+        let editor = VMResourceEditor(resources: limits.defaults, limits: limits, minimumDiskGiB: 64,
+                                      save: { saved = $0 }, didClose: {})
+        defer { editor.dismiss() }
+        let disk: NSTextField = try control("disk", in: editor)
+        let save: NSButton = try control("save", in: editor)
+        #expect(disk.stringValue == "64")
+        disk.stringValue = "32"
+        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
+        #expect(!save.isEnabled)
+        disk.stringValue = "256"
+        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
+        #expect(save.isEnabled)
+        #expect(saved == nil)
+        save.performClick(nil)
+        #expect(saved?.diskGiB == 256)
     }
 
     private func control<T: NSView>(_ name: String, in editor: VMResourceEditor) throws -> T {

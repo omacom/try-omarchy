@@ -17,6 +17,7 @@ import unittest
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY / "scripts"))
 SPEC = importlib.util.spec_from_file_location(
     "try_omarchy_build_cache", REPOSITORY / "scripts/build-cache.py"
 )
@@ -262,6 +263,67 @@ class BuildCacheTests(unittest.TestCase):
                 build_cache.CacheError, "app bundle is missing or unsafe"
             ):
                 build_cache.validate_app(root, None)
+
+    def test_app_fingerprint_tracks_git_version_without_source_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative in (
+                "macos/Info.plist", "LICENSE", ".build/state/guest.json",
+                ".build/state/runtime.json", "dist/guest/guest-manifest.json",
+                "dist/guest/SHA256SUMS",
+                "guest/scripts/install-settings-integration.py",
+                "guest/native-overlay/usr/local/bin/omarchy-native-settings",
+                "guest/native-overlay/etc/udev/rules.d/92-omarchy-native-settings.rules",
+                "guest/native-overlay/usr/share/applications/try-omarchy-settings.desktop",
+                "guest/native-overlay/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc",
+                *(f"macos/.build/qemu-gpu-runtime/{name}" for name in build_cache.RUNTIME_FILES),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture\n")
+            (root / ".gitignore").write_text("/dist/\n/.build/\n/macos/.build/\n")
+
+            def git(*arguments: str) -> None:
+                subprocess.run(
+                    ["git", "-C", str(root), *arguments],
+                    check=True, capture_output=True,
+                )
+
+            git("init", "-q")
+            git("config", "user.name", "Cache Tests")
+            git("config", "user.email", "cache-tests@example.invalid")
+            git("add", ".")
+            git("commit", "-qm", "Initial source")
+
+            def fingerprint() -> str:
+                return build_cache.fingerprint(root, "app", ["build-app"])
+
+            untagged = fingerprint()
+            git("tag", "v1.2.3")
+            tagged = fingerprint()
+            self.assertNotEqual(untagged, tagged)
+
+            # A file outside the app inputs still makes its version dirty.
+            untracked = root / "notes.txt"
+            untracked.write_text("untracked\n")
+            dirty = fingerprint()
+            self.assertNotEqual(tagged, dirty)
+            untracked.unlink()
+            self.assertEqual(tagged, fingerprint())
+
+            source = root / "macos/Info.plist"
+            source.write_text("edited\n")
+            dirty = fingerprint()
+            git("add", ".")
+            git("commit", "-qm", "Edit source")
+            committed = fingerprint()
+            self.assertNotEqual(dirty, committed)
+
+            git("commit", "--allow-empty", "-qm", "Advance HEAD")
+            self.assertNotEqual(committed, fingerprint())
+            stable = fingerprint()
+            (root / "dist/build-log").write_text("ignored output\n")
+            self.assertEqual(stable, fingerprint())
 
     def test_state_write_is_readable_and_replaces_old_state(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

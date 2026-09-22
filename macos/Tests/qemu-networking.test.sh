@@ -28,7 +28,7 @@ first=$(qemu_network_mac)
 cp "$QEMU_SELECTED_DISK" "$QEMU_SELECTED_DISK.new"
 mv "$QEMU_SELECTED_DISK.new" "$QEMU_SELECTED_DISK"
 second=$(qemu_network_mac)
-[[ $first != "$second" ]] || fail 'replacement disk reused identity'
+[[ $first == "$second" ]] || fail 'replacement disk changed identity'
 [[ $second == "$(qemu_network_mac)" ]] || fail 'replacement identity not retained'
 chmod 644 "$test_root/network-identities/current.json"
 if qemu_network_mac >/dev/null 2>&1; then fail 'unsafe record permissions accepted'; fi

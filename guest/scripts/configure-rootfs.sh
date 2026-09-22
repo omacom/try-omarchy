@@ -76,15 +76,16 @@ chmod 0755 \
   "$root/usr/bin/omarchy-audio-input-set-default" \
   "$root/usr/bin/omarchy-screensaver" \
   "$root/usr/bin/omarchy-theme-bg-switcher" \
-  "$root/usr/local/bin/alacritty" \
   "$root/usr/local/bin/xdg-terminal-exec" \
   "$root/usr/local/bin/kitty" \
   "$root/usr/local/bin/omarchy-arch-aarch64" \
   "$root/usr/local/bin/omarchy-pkg-unavailable-arm" \
   "$root/usr/local/bin/omarchy-pkg-refuse-aarch64-unavailable" \
   "$root/usr/local/bin/omarchy-native-audio-bridge" \
+  "$root/usr/local/bin/omarchy-native-battery-bridge" \
   "$root/usr/local/bin/omarchy-native-camera-bridge" \
   "$root/usr/local/bin/omarchy-native-clipboard-bridge" \
+  "$root/usr/local/bin/omarchy-native-settings" \
   "$root/usr/local/bin/omarchy-native-cursor-restore" \
   "$root/usr/local/bin/omarchy-native-display-sync" \
   "$root/usr/local/bin/omarchy-native-mac-share" \
@@ -92,8 +93,10 @@ chmod 0755 \
   "$root/usr/local/bin/try-omarchy-touch-id-test" \
   "$root/usr/local/lib/try-omarchy/native-authentication-broker" \
   "$root/usr/local/sbin/try-omarchy-touch-id-control" \
+  "$root/usr/local/sbin/try-omarchy-migrate-alacritty" \
   "$root/usr/local/sbin/try-omarchy-touch-id-enroll" \
   "$root/usr/local/lib/try-omarchy/install-vivaldi-arm64" \
+  "$root/usr/local/lib/try-omarchy/install-ghostty-arm64" \
   "$root/usr/lib/systemd/system-generators/try-omarchy-ssh-access"
 chmod 0644 "$root/usr/local/share/try-omarchy/aarch64-unavailable-packages"
 
@@ -141,9 +144,22 @@ cat >"$root/etc/hosts" <<EOF
 ::1 localhost
 127.0.1.1 $hostname
 EOF
-printf 'en_US.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
+# zh_TW is generated so Traditional Chinese is available to opt into (see the
+# fcitx5 profile seeded into /etc/skel below), but LANG and KEYMAP stay
+# en_US/us -- the default session must not change for a user who never
+# touches the IME.
+printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
 printf 'LANG=en_US.UTF-8\n' >"$root/etc/locale.conf"
 printf 'KEYMAP=us\n' >"$root/etc/vconsole.conf"
+# try-omarchy-locale.service rewrites LANG in /etc/locale.conf from the
+# kernel command line on every boot (see the unit and its ExecStart= script
+# for why this must be a real unit rather than a system generator). This
+# script runs before arch-chroot, with no systemd/D-Bus available to run
+# `systemctl enable`, so it links the unit into multi-user.target.wants
+# itself -- the same symlink that command would create.
+mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
+ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service \
+  "$root/etc/systemd/system/multi-user.target.wants/try-omarchy-locale.service"
 # An unprovisioned machine receives a new identity from systemd on first boot.
 : >"$root/etc/machine-id"
 ln -sfn /usr/share/zoneinfo/UTC "$root/etc/localtime"
@@ -165,6 +181,23 @@ install -d -m 0755 "$root/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d"
 install -m 0755 "$refresh_hook" \
   "$root/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/restore-arm-pacman"
 
+# Seed fcitx5 with the US keyboard as item 0 and Chewing (Bopomofo/zhuyin) as
+# item 1. Ctrl+Space is fcitx5's built-in default trigger, so a user who never
+# presses it stays on plain US input; pressing it reaches Traditional Chinese.
+fcitx5_profile="$guest_dir/fragments/fcitx5-profile.ini"
+[[ -f $fcitx5_profile ]] || fail "fcitx5 profile fragment not found: $fcitx5_profile"
+install -d -m 0755 "$root/etc/skel/.config/fcitx5"
+install -m 0644 "$fcitx5_profile" \
+  "$root/etc/skel/.config/fcitx5/profile"
+
+# Chromium's Ozone/Wayland backend drops input-method text unless launched
+# with --enable-wayland-ime, so fcitx5 can't reach it otherwise. Basecamp's
+# chromium-flags.conf is already materialized into /etc/skel, so append
+# rather than replace it to keep the upstream ozone/extension flags intact.
+chromium_flags="$root/etc/skel/.config/chromium-flags.conf"
+[[ -f $chromium_flags ]] || fail "expected upstream chromium-flags.conf not found: $chromium_flags"
+cat "$guest_dir/fragments/chromium-flags-wayland-ime.append.conf" >>"$chromium_flags"
+
 provision_unit="$root/usr/share/omarchy/install/provisioning/omarchy-provision-owner.service"
 [[ -f $provision_unit ]] || fail "pinned upstream owner-provisioning service is missing"
 mkdir -p "$root/etc/systemd/system" "$root/var/lib/omarchy/provisioning"
@@ -180,6 +213,15 @@ find "$root/var/cache/pacman/pkg" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev
 mkdir -p "$root/usr/local/lib/try-omarchy"
 install -m 0755 "$guest_dir/scripts/finalize-rootfs.sh" "$root/usr/local/lib/try-omarchy/finalize-rootfs"
 install -m 0644 "$spec" "$root/usr/share/try-omarchy/build-spec.json"
+
+# Fresh guests report integration status from their first boot. Older guests
+# receive the same bundle through the app's explicit bootstrap flow.
+python3 "$guest_dir/../integrations/build-bundle.py" "$root/usr/local/share/try-omarchy/integrations"
+install -m 0755 "$guest_dir/../integrations/try-omarchy-integrations" "$root/usr/local/bin/try-omarchy-integrations"
+install -m 0644 "$guest_dir/../integrations/try-omarchy-integrations.service" "$root/usr/lib/systemd/system/try-omarchy-integrations.service"
+mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
+ln -s /usr/lib/systemd/system/try-omarchy-integrations.service "$root/etc/systemd/system/multi-user.target.wants/try-omarchy-integrations.service"
+python3 "$root/usr/local/share/try-omarchy/integrations/updater.py" stage-menu "$root/etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc"
 
 # Record content digests before the user overlay is copied into $HOME. This is
 # the machine-readable proof that the compositor/shell runtime came from the

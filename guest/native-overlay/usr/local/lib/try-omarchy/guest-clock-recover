@@ -1,0 +1,52 @@
+#!/usr/bin/python3 -I
+"""Recover guest wall-clock time lost while the Mac paused QEMU."""
+
+from pathlib import Path
+import os
+import subprocess
+import sys
+import time
+
+RTC = Path("/sys/class/rtc/rtc0")
+MAX_SAMPLE_SECONDS = 2
+FORWARD_GAP_SECONDS = 5
+
+
+def recover():
+    if os.geteuid() != 0:
+        raise PermissionError("clock recovery requires root")
+    if "omarchy.qemu_virgl=1" not in Path("/proc/cmdline").read_text().split():
+        return False
+    if not (RTC / "name").read_text().startswith("rtc-pl031 "):
+        return False
+
+    start = time.monotonic()
+    rtc_seconds = int((RTC / "since_epoch").read_text().strip())
+    wall_seconds = time.time()
+    elapsed = time.monotonic() - start
+    if rtc_seconds <= 0 or not 0 <= elapsed <= MAX_SAMPLE_SECONDS:
+        raise ValueError("unusable virtual RTC sample")
+    gap = rtc_seconds - wall_seconds
+    if gap <= FORWARD_GAP_SECONDS:
+        return False
+
+    # The RTC has whole-second precision. Never write the lagging system time
+    # back to it; it is the independent host-time reference across a VM pause.
+    time.clock_settime(time.CLOCK_REALTIME, rtc_seconds + elapsed)
+    print(f"Recovered guest clock forward by approximately {gap:.0f} seconds.", flush=True)
+    subprocess.run(["/usr/bin/systemctl", "--no-block", "try-restart",
+                    "systemd-timesyncd.service"], check=True, timeout=5)
+    return True
+
+
+def main():
+    try:
+        recover()
+        return 0
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Guest clock recovery failed: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

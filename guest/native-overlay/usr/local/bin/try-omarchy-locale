@@ -1,0 +1,87 @@
+#!/bin/sh
+
+# Write a host-chosen UI locale (tryomarchy.locale=<value> on the kernel
+# command line) into /etc/locale.conf. Run by try-omarchy-locale.service,
+# early enough that the value is in place before anything starts a login
+# session.
+#
+# This used to be a system generator that wrote /run/environment.d instead,
+# which works for XMODIFIERS (nothing else sets it) but not for LANG:
+# Omarchy's session starts through uwsm, which reads the systemd user
+# manager's environment, merges in the *login shell's* environment -- whose
+# LANG comes from /etc/locale.conf via PAM -- and pushes the merge back over
+# D-Bus after environment.d has already run. English always wins that race.
+# A generator must never write persistent state, so this lives in a real
+# (enabled) oneshot unit instead, and writes /etc/locale.conf directly.
+
+set -eu
+
+cmdline_path=${TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/proc/cmdline}
+locale_conf=${TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf}
+
+# Refuse to write through a symlink (dangling or not). This runs as root on
+# every boot, and locale_conf's target would otherwise be unchecked.
+[ ! -L "$locale_conf" ] || exit 1
+
+command_line=""
+IFS= read -r command_line <"$cmdline_path" || exit 1
+
+# Default to the image's own default locale. This is deliberate, not merely
+# a placeholder: writing it even when no token is present is what makes
+# switching back to English in the launcher work on a persistent VM, instead
+# of leaving a stale non-English locale from an earlier boot in place.
+locale=en_US.UTF-8
+set -f
+for argument in $command_line; do
+  case $argument in
+    tryomarchy.locale=*)
+      candidate=${argument#tryomarchy.locale=}
+      # Allowlist: only locales configure-rootfs.sh actually generates into
+      # /etc/locale.gen. The kernel command line is attacker-influenced in
+      # principle and this value is about to be written into a file PAM
+      # reads on every login, so anything else is ignored (keeping whatever
+      # is already selected) rather than trusted or shell-interpolated.
+      case $candidate in
+        en_US.UTF-8 | zh_TW.UTF-8) locale=$candidate ;;
+      esac
+      ;;
+  esac
+done
+
+# Replace LANG only: users can customize LC_TIME, LC_NUMERIC and other
+# categories after provisioning. Never source their configuration as root.
+python3 - "$locale_conf" "$locale" <<'PY'
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+
+path = Path(sys.argv[1])
+try:
+    mode = path.lstat().st_mode
+except FileNotFoundError:
+    mode = stat.S_IFREG | 0o644
+if not stat.S_ISREG(mode):
+    raise SystemExit("locale.conf must be a regular file")
+contents = path.read_text() if path.exists() else ""
+lines = [line for line in contents.splitlines(keepends=True)
+         if not re.match(r"^[ \t]*(?:export[ \t]+)?LANG[ \t]*=", line)]
+preserved = "".join(lines)
+if preserved and not preserved.endswith("\n"):
+    preserved += "\n"
+updated = preserved + f"LANG={sys.argv[2]}\n"
+if contents != updated:
+    descriptor, temporary = tempfile.mkstemp(prefix=".locale.conf.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(updated)
+            output.flush()
+            os.fchmod(output.fileno(), stat.S_IMODE(mode))
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+PY

@@ -28,8 +28,11 @@ class TouchIDCommandTests(unittest.TestCase):
                         capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode, status)
+                    self.assertIn("Password fallback is disabled for this test", result.stdout)
                     if status:
-                        self.assertIn("check failed", result.stderr)
-                        self.assertEqual(result.stdout, "")
+                        self.assertIn("Touch ID authentication did not complete", result.stderr)
+                        self.assertIn("guest password remains available for normal sudo", result.stderr)
+                        self.assertNotIn("Test passed", result.stdout)
                     else:
                         self.assertIn("without a guest password", result.stdout)
+                        self.assertIn("If you approved the Touch ID prompt", result.stdout)

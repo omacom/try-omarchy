@@ -16,65 +16,18 @@ qemu_network_validate() {
 }
 
 qemu_network_mac() {
-  # Keep the established NAT adapter identity. A bridge gets a private identity
-  # tied to this disk instance, so copied/factory-reset disks get a fresh MAC.
   if [[ $QEMU_NETWORK_MODE == nat ]]; then
     printf '%s\n' '52:54:00:12:34:56'
     return
   fi
-  python3 - "$QEMU_SELECTED_STORAGE_MODE" "$QEMU_SELECTED_DISK" "${QEMU_PERSISTENT_STORAGE_DISKS_ROOT:-}" <<'PY'
-import json, os, secrets, stat, sys
-mode, disk, disks_root = sys.argv[1:]
-def new_mac():
-    return '02:' + ':'.join(f'{byte:02x}' for byte in secrets.token_bytes(5))
-if mode != 'persistent':
-    print(new_mac())
-    raise SystemExit
-root = os.path.join(os.path.dirname(disks_root), 'network-identities')
-try:
-    os.mkdir(root, 0o700)
-except FileExistsError:
-    pass
-info = os.lstat(root)
-if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-    raise SystemExit('Unsafe network identity directory')
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-opened = os.fstat(fd)
-if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
-    raise SystemExit("Network identity directory changed")
-info = os.stat(disk, follow_symlinks=False)
-identity = [info.st_dev, info.st_ino, info.st_birthtime]
-name = os.path.basename(os.path.dirname(disk)) + '.json'
-record = None
-try:
-    item = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
-except FileNotFoundError:
-    pass
-else:
-    info = os.fstat(item)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 512:
-        os.close(item)
-        raise SystemExit('Unsafe network identity record')
-    with os.fdopen(item) as stream:
-        record = json.load(stream)
-if record is not None and record.get('disk') == identity:
-    import re
-    mac = record.get('mac', '')
-    if not re.fullmatch(r'02(?::[0-9a-f]{2}){5}', mac):
-        raise SystemExit('Invalid saved network identity')
-else:
-    mac = new_mac()
-    temporary = name + '.' + secrets.token_hex(8)
-    item = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
-    with os.fdopen(item, 'w') as stream:
-        json.dump({'disk': identity, 'mac': mac}, stream)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.rename(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
-    os.fsync(fd)
-os.close(fd)
-print(mac)
-PY
+  if [[ $QEMU_SELECTED_STORAGE_MODE != persistent ]]; then
+    python3 -c 'import secrets; print("02:" + ":".join(f"{b:02x}" for b in secrets.token_bytes(5)))'
+    return
+  fi
+  local identity_script
+  identity_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/network-identity.py"
+  python3 "$identity_script" ensure "$(dirname "$QEMU_PERSISTENT_STORAGE_DISKS_ROOT")" \
+    "$(basename "$(dirname "$QEMU_SELECTED_DISK")")"
 }
 
 qemu_network_start() {

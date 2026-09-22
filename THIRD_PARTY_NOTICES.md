@@ -41,6 +41,13 @@ code.
   release key, source archive, and checksums are pinned in `guest/spec.json`.
   They are packaged in the guest's local repository but remain uninstalled
   until the user invokes Omarchy's optional dictation installer.
+- **Ghostty** — MIT; optional user-initiated source build. The installer pins
+  Ghostty 1.3.1, its Minisign signature and verification key, and the MIT-licensed
+  Zig 0.15.2 ARM64 compiler. Ghostty and its bundled dependencies retain their
+  upstream licenses; the source archives include the corresponding notices.
+  The guest factory image contains only the installer and recipe, not Ghostty
+  or the downloaded compiler. These post-build downloads are declared in
+  `guest/spec.json` and excluded from factory artifact provenance.
 - **1Password** — proprietary software not redistributed by Try Omarchy. When a
   user explicitly invokes its optional ARM64 installer, the guest resolves the
   current vendor release and AUR CLI recipe after the factory build. These

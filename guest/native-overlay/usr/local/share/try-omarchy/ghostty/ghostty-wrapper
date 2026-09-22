@@ -1,0 +1,20 @@
+#!/bin/bash
+
+real=/usr/lib/ghostty/ghostty
+if [[ ! -x $real ]]; then
+  echo "Ghostty's packaged executable is missing; reinstall ghostty." >&2
+  exit 127
+fi
+
+# Keep the workaround local to Ghostty and to the Try Omarchy VirGL guest.
+if [[ -r /proc/cmdline ]]; then
+  read -r -a kernel_options </proc/cmdline || true
+  for option in "${kernel_options[@]}"; do
+    if [[ $option == omarchy.qemu_virgl=1 ]]; then
+      export LIBGL_ALWAYS_SOFTWARE=1
+      break
+    fi
+  done
+fi
+export GHOSTTY_RESOURCES_DIR=/usr/share/ghostty
+exec "$real" "$@"

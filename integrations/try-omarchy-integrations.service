@@ -1,0 +1,16 @@
+[Unit]
+Description=Report Try Omarchy integration status
+After=systemd-udev-settle.service
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.integrations
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/share/try-omarchy/integrations/updater.py report
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+[Unit]
+Description=Set /etc/locale.conf from the host-chosen UI locale
+# Must finish before anything that starts a login session can read the
+# system locale. sddm.service (aliased to display-manager.service once
+# enabled) is the graphical entry point: omarchy-provision-owner.service,
+# this project's pinned upstream first-boot unit, itself orders
+# Before=display-manager.service and hands off to SDDM purely on that
+# ordering once it exits -- no explicit `systemctl start`. getty@tty1.service
+# is the console entry point; the same upstream unit also orders
+# Before=getty@tty1.service (and briefly Conflicts= it) while it owns tty1.
+# Both of those already-correct orderings are the proof that ordering
+# Before= the same three units guarantees this one has run first, regardless
+# of which of the two starts sooner: systemd will not start either before
+# every unit ordered Before= it -- including this one -- has finished.
+After=local-fs.target
+Before=sddm.service display-manager.service getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/try-omarchy-locale
+
+[Install]
+WantedBy=multi-user.target

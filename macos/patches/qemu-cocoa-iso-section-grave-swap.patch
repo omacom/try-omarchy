@@ -1,0 +1,66 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: swap ISO Section/Grave Linux keycodes on Mac hosts
+
+Applies after the Try Omarchy Cocoa input patches.
+
+Apple ISO keyboards report KEY_GRAVE and KEY_102ND swapped relative to the
+physical positions Linux XKB and applealu_iso models expect. The launcher
+sets TRYOMARCHY_KEYBOARD from the bundled helper; that value is the only
+authority for the swap so Cocoa and the guest applealu_* model cannot
+disagree. Missing or non-iso values do not swap (no live HID fallback).
+ANSI and JIS hosts are unchanged. See omacom/try-omarchy#67.
+
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -141,13 +141,49 @@
+     return val;
+ }
+ 
++/*
++ * Apple ISO keyboards engrave Section / the extra ISO key differently from PC
++ * ISO boards. Through Cocoa, KEY_GRAVE and KEY_102ND arrive swapped relative to
++ * the physical positions Linux XKB (and Applealu ISO models) expect. Only the
++ * launch-time TRYOMARCHY_KEYBOARD value may enable this swap so it matches the
++ * guest model. No env means no swap.
++ */
++static int cocoa_iso_swap_cached = -1;
++
++static bool cocoa_host_keyboard_is_iso(void)
++{
++    const char *geometry;
++
++    if (cocoa_iso_swap_cached >= 0) {
++        return cocoa_iso_swap_cached;
++    }
++    geometry = getenv("TRYOMARCHY_KEYBOARD");
++    if (geometry != NULL && geometry[0] != '\0') {
++        cocoa_iso_swap_cached = strcmp(geometry, "iso") == 0;
++        return cocoa_iso_swap_cached;
++    }
++    cocoa_iso_swap_cached = 0;
++    return false;
++}
++
+ static int cocoa_keycode_to_linux(int keycode)
+ {
++    int linux_keycode;
++
+     if (qemu_input_map_osx_to_linux_len <= keycode) {
+         error_report("(cocoa) warning unknown keycode 0x%x", keycode);
+         return 0;
+     }
+-    return qemu_input_map_osx_to_linux[keycode];
++    linux_keycode = qemu_input_map_osx_to_linux[keycode];
++    if (cocoa_host_keyboard_is_iso()) {
++        if (linux_keycode == KEY_GRAVE) {
++            return KEY_102ND;
++        }
++        if (linux_keycode == KEY_102ND) {
++            return KEY_GRAVE;
++        }
++    }
++    return linux_keycode;
+ }
+ 
+ /* Displays an alert dialog box with the specified message */

@@ -4,7 +4,6 @@
 # from Arch Linux ARM (with no practical aarch64 install path today).
 # Wine/umu are NOT listed here: they are refused only from Battle.net / Lutris
 # installers so aarch64 pkg-add of those deps elsewhere is not blocked.
-ghostty	Ghostty
 microsoft-edge-stable-bin	Edge
 spotify	Spotify
 dropbox	Dropbox

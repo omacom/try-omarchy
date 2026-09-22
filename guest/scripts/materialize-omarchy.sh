@@ -150,6 +150,9 @@ cat >> "$root/etc/skel/.config/hypr/input.lua" <<'EOF'
 
 -- Try Omarchy's host pinch device carries gestures only.
 dofile("/usr/share/try-omarchy/pinch-input.lua")
+
+-- Match Apple keyboard geometry (ansi/iso/jis) from the host cmdline.
+dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")
 EOF
 install_file 0644 "$source_dir/default/bashrc" "$root/etc/skel/.bashrc"
 mkdir -p "$root/etc/skel/.local/share/applications"

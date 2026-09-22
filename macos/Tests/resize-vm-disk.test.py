@@ -54,6 +54,39 @@ class ResizeDiskTests(unittest.TestCase):
         self.assertEqual(self.disk.read_bytes(), self.payload)
         self.assertEqual(self.backups(), [])
 
+    def launch_growth(self, gib, environment=None):
+        return subprocess.run([
+            "bash", "-eu", "-c",
+            'source "$1"; qemu_persistent_storage_select_existing "$2"; '
+            'qemu_persistent_storage_grow_selected "$3" "$4"',
+            "launch-growth", str(NATIVE / "qemu-persistent-storage.sh"), self.identity,
+            str(gib * GIB), str(NATIVE / ".build/debug/omarchy-vm-helper"),
+        ], env=environment or self.environment, text=True, capture_output=True)
+
+    def test_launcher_grows_sparsely_without_reserving_maximum_and_keeps_metadata(self):
+        metadata = self.metadata.read_bytes()
+        result = self.launch_growth(64, dict(self.environment, OMARCHY_QEMU_GPU_TEST_FREE_BYTES=str(2 * GIB)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.disk.stat().st_size, 64 * GIB)
+        self.assertLess(self.disk.stat().st_blocks * 512, GIB)
+        with self.disk.open("rb") as disk:
+            self.assertEqual(disk.read(len(self.payload)), self.payload)
+        self.assertEqual(self.metadata.read_bytes(), metadata)
+        result = self.launch_growth(64)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.launch_growth(32)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("shrinking", result.stderr)
+        self.assertEqual(self.disk.stat().st_size, 64 * GIB)
+
+    def test_launcher_growth_requires_workspace_lock_and_valid_boot_kit(self):
+        import fcntl
+        with (self.state / "locks/current.lock").open("r+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assert_rejected(self.launch_growth(64))
+        (self.state / "boot" / self.identity / "kernel").write_bytes(bytes(64))
+        self.assert_rejected(self.launch_growth(64))
+
     def test_preview_preserves_disk_and_creates_no_backup(self):
         result = self.run_resize("--size-gib", "1")
         self.assertEqual(result.returncode, 0, result.stderr)

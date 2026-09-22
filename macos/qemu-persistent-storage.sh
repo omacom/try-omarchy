@@ -28,6 +28,9 @@ QEMU_PERSISTENT_STORAGE_IDENTITY=''
 QEMU_PERSISTENT_STORAGE_LOCK_PATH=''
 QEMU_PERSISTENT_STORAGE_WORKING_BYTES=''
 QEMU_IMMUTABLE_SOURCE_DISK=''
+# Set by the launcher only after validating the bundled native helper. Direct
+# library callers retain the system-tool fallback; never inherit this path.
+QEMU_PERSISTENT_STORAGE_HELPER=''
 QEMU_SELECTED_KERNEL=''
 QEMU_SELECTED_INITRAMFS=''
 QEMU_SELECTED_KERNEL_COMMAND_LINE=''
@@ -86,10 +89,18 @@ _qps_size() {
 }
 
 _qps_sha256() {
+  if [[ -n $QEMU_PERSISTENT_STORAGE_HELPER ]]; then
+    "$QEMU_PERSISTENT_STORAGE_HELPER" --storage-sha256 "$1"
+    return $?
+  fi
   /usr/bin/shasum -a 256 "$1" 2>/dev/null | awk '{ print $1 }'
 }
 
 _qps_sha256_line() {
+  if [[ -n $QEMU_PERSISTENT_STORAGE_HELPER ]]; then
+    printf '%s\n' "$1" | "$QEMU_PERSISTENT_STORAGE_HELPER" --storage-sha256 -
+    return $?
+  fi
   printf '%s\n' "$1" | /usr/bin/shasum -a 256 2>/dev/null | awk '{ print $1 }'
 }
 
@@ -284,6 +295,7 @@ _qps_prepare_state_root() {
   local qps_marker=''
   local qps_marker_status=0
   local qps_child=''
+  local qps_initialized=0
 
   if [[ -n ${OMARCHY_QEMU_GPU_STATE_ROOT:-} ]]; then
     qps_configured_root=$OMARCHY_QEMU_GPU_STATE_ROOT
@@ -321,7 +333,7 @@ _qps_prepare_state_root() {
   qps_marker="$qps_root/.omarchy-qemu-storage"
   if [[ ! -e $qps_marker && ! -L $qps_marker ]]; then
     if _qps_write_root_marker "$qps_marker"; then
-      :
+      qps_initialized=1
     else
       qps_marker_status=$?
       [[ -e $qps_marker || -L $qps_marker ]] || {
@@ -336,6 +348,7 @@ _qps_prepare_state_root() {
     if [[ ! -e $qps_root/$qps_child && ! -L $qps_root/$qps_child ]]; then
       if mkdir "$qps_root/$qps_child" 2>/dev/null; then
         chmod 700 "$qps_root/$qps_child" || return 1
+        qps_initialized=1
       elif [[ ! -d $qps_root/$qps_child || -L $qps_root/$qps_child ]]; then
         _qps_fail "cannot create state $qps_child directory"
         return 1
@@ -343,6 +356,13 @@ _qps_prepare_state_root() {
     fi
     _qps_assert_private_directory "$qps_root/$qps_child" "state $qps_child directory" || return 1
   done
+
+  # A new workspace can also have newly created ancestors from mkdir -p.
+  # Preserve the full hierarchy and marker once before publishing any disks.
+  # Existing workspaces use only the targeted transaction checkpoints below.
+  if (( qps_initialized )); then
+    /bin/sync || return 1
+  fi
 
   QEMU_PERSISTENT_STORAGE_ROOT=$qps_root
   QEMU_PERSISTENT_STORAGE_BOOT_ROOT="$qps_root/boot"
@@ -584,6 +604,10 @@ _qps_validate_store_directory() {
 }
 
 _qps_fsync() {
+  if [[ -n $QEMU_PERSISTENT_STORAGE_HELPER ]]; then
+    "$QEMU_PERSISTENT_STORAGE_HELPER" --storage-sync "$@"
+    return $?
+  fi
   /bin/sync
 }
 
@@ -638,8 +662,8 @@ _qps_validate_kernel_command_line() {
       rootwait) ((qps_rootwait_count += 1)) ;;
       console=tty0) ((qps_console_zero_count += 1)) ;;
       console=hvc0) ((qps_console_hvc_count += 1)) ;;
-      omarchy.qemu_virgl=*|omarchy.shared_folder_name=*|tryomarchy.ssh_access=*|\
-      tryomarchy.export_boot=*) return 1 ;;
+      omarchy.qemu_virgl=*|omarchy.virgl_dual_source=*|omarchy.shared_folder_name=*|tryomarchy.ssh_access=*|\
+      tryomarchy.keyboard=*|tryomarchy.export_boot=*) return 1 ;;
     esac
   done
   (( qps_root_count == 1 && qps_rw_count == 1 && qps_rootwait_count == 1 && \
@@ -1000,7 +1024,8 @@ _qps_stage_boot_kit_locked() {
     /bin/rm -rf "$qps_staging"
     return 1
   fi
-  _qps_fsync "$qps_staging" || return 1
+  _qps_fsync "$qps_staging/kernel" "$qps_staging/initramfs" \
+    "$qps_staging/command-line" "$qps_staging/metadata.json" "$qps_staging" || return 1
   [[ ! -e $qps_final && ! -L $qps_final ]] || return 1
   /bin/mv "$qps_staging" "$qps_final" || return 1
   _qps_fsync "$QEMU_PERSISTENT_STORAGE_BOOT_ROOT" || return 1
@@ -1039,6 +1064,38 @@ qemu_persistent_storage_stage_selected_boot_kit() {
     "$QEMU_PERSISTENT_STORAGE_IDENTITY" "$qps_kernel" "$qps_initramfs" \
     "$qps_command_line" || return $?
   _qps_set_selected_boot_kit "$QEMU_PERSISTENT_STORAGE_IDENTITY"
+}
+
+# Launch-time growth uses the native helper so packaged apps need no Python.
+# The caller holds the same workspace lock that protects QEMU's entire run.
+qemu_persistent_storage_grow_selected() {
+  local qps_target=$1
+  local qps_helper=$2
+  local qps_current qps_identity
+  [[ $QEMU_SELECTED_STORAGE_MODE == persistent ]] && _qps_lock_fd_is_open || {
+    _qps_fail 'disk growth requires a locked persistent VM'
+    return 1
+  }
+  [[ $qps_target =~ ^[1-9][0-9]{0,13}$ ]] && (( qps_target <= 8796093022208 )) || {
+    _qps_fail 'invalid disk capacity'
+    return 1
+  }
+  _qps_validate_recorded_workspace "${QEMU_SELECTED_DISK%/*}" || return 1
+  _qps_validate_boot_kit_directory \
+    "$QEMU_PERSISTENT_STORAGE_BOOT_ROOT/$QEMU_PERSISTENT_STORAGE_IDENTITY" \
+    "$QEMU_PERSISTENT_STORAGE_IDENTITY" || return 1
+  qps_current=$QPS_RECORDED_EXISTING_BYTES
+  (( qps_target >= qps_current )) || {
+    _qps_fail 'maximum disk size is below the existing capacity; shrinking is not supported'
+    return 1
+  }
+  (( qps_target > qps_current )) || return 0
+  _qps_assert_volume_supported "$QEMU_PERSISTENT_STORAGE_ROOT" || return 1
+  _qps_assert_free_space "$QEMU_PERSISTENT_STORAGE_ROOT" "$QEMU_PERSISTENT_STORAGE_HEADROOM_BYTES" || return 1
+  qps_identity=$(_qps_file_identity "$QEMU_SELECTED_DISK")
+  "$qps_helper" --grow-vm-disk "$QEMU_SELECTED_DISK" "$qps_current" "$qps_target" "$qps_identity" || return 1
+  QEMU_PERSISTENT_STORAGE_WORKING_BYTES=$qps_target
+  _qps_error "expanded sparse VM capacity to $((qps_target / 1024 / 1024 / 1024)) GiB"
 }
 
 _qps_expand_disk() {
@@ -1188,7 +1245,7 @@ qemu_persistent_storage_materialize_source() {
     exec 8>&-
     return 1
   fi
-  qps_actual_sha=$(/usr/bin/shasum -a 256 "$qps_staging" | awk '{ print $1 }') || {
+  qps_actual_sha=$(_qps_sha256 "$qps_staging") || {
     /bin/rm -f -- "$qps_staging"
     exec 8>&-
     return 1
@@ -1336,7 +1393,7 @@ _qps_initialize_persistent_disk() {
   _qps_validate_store_directory \
     "$qps_staging" "$qps_identity" "$qps_source_sha" "$qps_source_bytes" \
     "$qps_working_bytes" || return 1
-  _qps_fsync "$qps_staging" || {
+  _qps_fsync "$qps_staging/rootfs.ext4" "$qps_staging/metadata.json" "$qps_staging" || {
     _qps_fail 'cannot flush persistent-disk staging directory'
     return 1
   }
@@ -1834,6 +1891,7 @@ _qps_select_ephemeral_disk() {
     [[ ! -e $qps_staging && ! -L $qps_staging ]] || /bin/rm -f "$qps_staging"
     return 1
   fi
+  _qps_fsync "$qps_staging" || return 1
   /bin/mv "$qps_staging" "$qps_final" || {
     _qps_fail 'cannot publish ephemeral root disk'
     return 1
