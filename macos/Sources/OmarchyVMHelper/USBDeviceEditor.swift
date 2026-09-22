@@ -39,13 +39,18 @@ final class USBDeviceEditor: NSObject {
         alert.buttons.first?.isEnabled = !choices.isEmpty
 
         for device in connected {
-            devices.addItem(withTitle: device.displayName)
+            // Identical devices only differ by where they are plugged in.
+            let hasTwin = connected.filter { $0.matches(device) }.count > 1
+            devices.addItem(withTitle: hasTwin
+                ? "\(device.displayName) · port \(device.hostPort ?? "?")"
+                : device.displayName)
         }
         if let unplugged {
             devices.addItem(withTitle: "Not connected: \(unplugged.displayName)")
         }
         if let saved = preference.device,
-           let index = choices.firstIndex(where: { $0.matches(saved) }) {
+           let index = choices.firstIndex(where: { $0.matches(saved) && $0.locationId == saved.locationId })
+               ?? choices.firstIndex(where: { $0.matches(saved) }) {
             devices.selectItem(at: index)
         }
         devices.setAccessibilityLabel("USB device")

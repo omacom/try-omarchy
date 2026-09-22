@@ -240,7 +240,12 @@ device** on the start menu to select one device currently attached to the Mac;
 the choice applies on the next launch, and **Turn On** / **Turn Off** keeps it
 without reselecting. Omarchy gets a USB 3 controller with that one device
 attached, matched on its vendor and product identifiers rather than on a bus
-address, which changes on every re-enumeration.
+address, which changes on every re-enumeration. When two identical devices are
+plugged in, the picker lists both with their port, and the launch also pins the
+chosen one's port so QEMU cannot take its twin. If the ports cannot tell them
+apart either (QEMU reads bus 0 as "any bus", so identical devices directly in
+two ports of a Mac whose first controller is bus 0 look the same), Omarchy
+starts without either and the start menu says to unplug one.
 
 Only one device at a time, and never a USB hub — passing a hub through would
 take every device behind it, frequently this Mac's own dock, keyboard, or

@@ -551,7 +551,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         let usb = USBPassthroughLaunchConfiguration.make(
             baseEnvironment: sharing.environment,
-            preference: usbDeviceStore.load()
+            preference: usbDeviceStore.load(),
+            connected: HostUSBDevices.connected()
         )
         let forwarding = PortForwardLaunchConfiguration.make(
             baseEnvironment: usb.environment,

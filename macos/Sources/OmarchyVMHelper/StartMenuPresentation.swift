@@ -213,6 +213,12 @@ enum StartMenuPresentation {
                 "Mac device: \(device.displayName)",
                 "In Omarchy: Off",
             ]
+        } else if state.isAmbiguous {
+            detail = "\(device.displayName) has an identical twin plugged in that Omarchy cannot tell apart. Omarchy will start without either; unplug one."
+            compactDetailLines = [
+                "Identical \(device.displayName) plugged in twice",
+                "Unplug one; Omarchy will start without it",
+            ]
         } else if state.isConnected {
             detail = "Mac device: \(device.displayName). It appears in Omarchy, but macOS keeps its data."
             compactDetailLines = [
@@ -229,7 +235,7 @@ enum StartMenuPresentation {
         return StartMenuUSBDevicePresentation(
             detail: detail,
             compactDetailLines: compactDetailLines,
-            isGranted: state.isEnabled && state.isConnected,
+            isGranted: state.isEnabled && state.isConnected && !state.isAmbiguous,
             toggleActionTitle: state.isEnabled ? "Turn Off" : "Turn On",
             actionsEnabled: true
         )
