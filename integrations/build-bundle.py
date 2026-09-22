@@ -15,6 +15,15 @@ FILES = [
     'native-overlay/usr/local/bin/try-omarchy-touch-id',
     'native-overlay/usr/local/bin/try-omarchy-touch-id-test',
     'native-overlay/etc/udev/rules.d/93-omarchy-native-authentication.rules',
+    'scripts/install-battery-into-existing-guest.sh',
+    'native-module/try-omarchy-battery/try-omarchy-battery.c',
+    'native-module/try-omarchy-battery/Makefile',
+    'native-module/try-omarchy-battery/dkms.conf',
+    'native-overlay/usr/local/bin/omarchy-native-battery-bridge',
+    'native-overlay/usr/lib/systemd/system/omarchy-native-battery-bridge.service',
+    'native-overlay/etc/udev/rules.d/95-omarchy-native-battery.rules',
+    'native-overlay/etc/modules-load.d/95-try-omarchy-battery.conf',
+    'native-overlay/etc/UPower/UPower.conf.d/90-try-omarchy.conf',
 ]
 
 

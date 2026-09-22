@@ -532,7 +532,8 @@ review before requesting the Linux administrator password. SSH and personal
 folder sharing are not required.
 
 After setup, use **Omarchy Menu → Setup → Try Omarchy Integrations** or run
-`try-omarchy-integrations`. The initial guide installs or updates the sudo Touch ID support already bundled
+`try-omarchy-integrations`. The guide installs or updates the sudo Touch ID support and the
+[Mac battery mirror](docs/host-battery.md#retrofitting-an-existing-guest) already bundled
 with Try Omarchy. Biometric pairing remains a separate explicit choice. It does
 not install pending integrations or upgrade the guest OS.
 

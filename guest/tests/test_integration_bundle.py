@@ -157,7 +157,7 @@ class IntegrationBundleTests(unittest.TestCase):
              patch.object(updater, 'STATE', state), \
              patch.object(updater, 'component_paths', side_effect=lambda name, directory=None: pairs[name]), \
              patch.object(Path, 'stat', guest_stat):
-            self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'current', 'sudo': 'current'})
+            self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'current', 'sudo': 'current', 'battery': 'current'})
             for source, target in pairs['bootstrap']:
                 for damage in ('missing', 'content', 'mode', 'owner', 'symlink'):
                     with self.subTest(file=target.name, damage=damage):
@@ -172,7 +172,7 @@ class IntegrationBundleTests(unittest.TestCase):
                         else:
                             target.unlink()
                             target.symlink_to(source)
-                        self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'repair', 'sudo': 'current'})
+                        self.assertEqual(updater.guest_status()['components'], {'bootstrap': 'repair', 'sudo': 'current', 'battery': 'current'})
                         wrong_owner = None
                         target.unlink(missing_ok=True)
                         shutil.copy2(source, target)
@@ -243,7 +243,7 @@ class IntegrationBundleTests(unittest.TestCase):
                         events = []
                         def install(args, **kwargs):
                             self.assertEqual(args[0], 'sudo')
-                            self.assertEqual(args[6:], ['sudo'])
+                            self.assertEqual(args[6:], ['sudo', 'battery'])
                             events.append('install')
                             if not succeeds:
                                 raise subprocess.CalledProcessError(1, args)
@@ -319,6 +319,124 @@ class IntegrationBundleTests(unittest.TestCase):
                         else:
                             updater.review()
                     self.assertEqual(events, ['result', 'acknowledge'] if interactive else ['result'])
+
+    def test_bundle_carries_every_file_the_battery_installer_stages(self):
+        import re
+        script = (ROOT / 'guest/scripts/install-battery-into-existing-guest.sh').read_text()
+        staged = set(re.findall(r'"\$(module_source|overlay)/([^"]+)"', script))
+        self.assertEqual(len(staged), 8)
+        files = updater.manifest(self.bundle)['files']
+        self.assertIn('guest/scripts/install-battery-into-existing-guest.sh', files)
+        for kind, name in staged:
+            prefix = 'guest/native-module/try-omarchy-battery/' if kind == 'module_source' else 'guest/native-overlay/'
+            self.assertIn(prefix + name, files)
+        # Every file the installer writes is checked, so a factory guest can report current.
+        managed = {str(target) for _, target in updater.component_paths('battery', self.bundle)}
+        self.assertEqual(len(managed), 8)
+        for source, _ in updater.component_paths('battery', self.bundle):
+            self.assertTrue(source.is_file())
+
+    def test_battery_sources_match_the_factory_dkms_package(self):
+        spec = json.loads((ROOT / 'guest/spec.json').read_text())
+        self.assertEqual(spec['supplyChain']['tryOmarchyBattery']['version'], updater.BATTERY_VERSION)
+        dkms = (ROOT / 'guest/native-module/try-omarchy-battery/dkms.conf').read_text()
+        self.assertIn(f'PACKAGE_VERSION="{updater.BATTERY_VERSION}"', dkms)
+        script = (ROOT / 'guest/scripts/install-battery-into-existing-guest.sh').read_text()
+        self.assertIn(f'module_dest=/usr/src/try-omarchy-battery-{updater.BATTERY_VERSION}', script)
+        targets = {str(target) for _, target in updater.component_paths('battery', self.bundle)}
+        for name in updater.BATTERY_MODULE_FILES:
+            self.assertIn(f'/usr/src/try-omarchy-battery-{updater.BATTERY_VERSION}/{name}', targets)
+
+    def test_battery_that_cannot_be_built_reports_disabled_not_repair(self):
+        for current, reason, expected in ((True, 'no headers', 'current'), (False, 'no headers', 'disabled'),
+                                          (False, None, 'repair')):
+            with self.subTest(current=current, reason=reason), \
+                 patch.object(updater, 'BUNDLE', self.bundle), \
+                 patch.object(updater, 'STATE', self.bundle.parent / 'no-state'), \
+                 patch.object(updater, 'files_current', side_effect=lambda name, directory=None: name != 'battery' or current), \
+                 patch.object(updater, 'unavailable_reason', side_effect=lambda name: reason if name == 'battery' else None):
+                components = updater.guest_status()['components']
+            self.assertEqual(components, {'bootstrap': 'current', 'sudo': 'current', 'battery': expected})
+
+    def test_battery_unavailable_reasons(self):
+        port = self.bundle.parent / 'battery-port'
+        modules = self.bundle.parent / 'modules'
+        release = 'test-release'
+        with patch.object(updater, 'BATTERY_PORT', port), patch.object(updater, 'KERNEL_MODULES', modules), \
+             patch.object(updater.os, 'uname', return_value=SimpleNamespace(release=release)), \
+             patch.object(updater.shutil, 'which', return_value='/usr/bin/dkms') as which:
+            self.assertIn('battery port', updater.unavailable_reason('battery'))
+            port.write_text('')
+            which.return_value = None
+            self.assertIn('DKMS', updater.unavailable_reason('battery'))
+            which.return_value = '/usr/bin/dkms'
+            self.assertIn('kernel headers', updater.unavailable_reason('battery'))
+            (modules / release / 'build').mkdir(parents=True)
+            self.assertIsNone(updater.unavailable_reason('battery'))
+            self.assertIsNone(updater.unavailable_reason('sudo'))
+
+    def install_battery(self, reason, healthy, built):
+        """Run install() for the battery alone inside a fake guest; return installer calls and output."""
+        state = Path(tempfile.mkdtemp(dir=self.bundle.parent))
+        original_read = Path.read_text
+        calls, output = [], []
+
+        def guest_read(path, *args, **kwargs):
+            if str(path) == '/proc/cmdline':
+                return 'omarchy.qemu_virgl=1'
+            return original_read(path, *args, **kwargs)
+
+        def record(args, **kwargs):
+            calls.append(list(map(str, args)))
+            return subprocess.CompletedProcess(args, 0, '', '')
+
+        def battery_current(name, directory=None):
+            ran = any(call[0] == '/bin/bash' for call in calls)
+            return name != 'battery' or healthy or ran
+
+        with patch.object(updater, 'BUNDLE', self.bundle), \
+             patch.object(updater, 'STATE', state), \
+             patch.object(updater, 'STORE', self.bundle.parent / 'installed'), \
+             patch.object(updater, 'component_paths', return_value=[]), \
+             patch.object(updater, 'files_current', side_effect=battery_current), \
+             patch.object(updater, 'unavailable_reason', return_value=reason), \
+             patch.object(updater, 'battery_module_built', return_value=built), \
+             patch.object(updater, 'safe_destination'), \
+             patch.object(updater.os, 'geteuid', return_value=0), \
+             patch.object(updater.os, 'chown'), \
+             patch.object(updater.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=1000)), \
+             patch.dict(os.environ, {'SUDO_UID': '1000'}), \
+             patch.object(Path, 'read_text', guest_read), \
+             patch.object(updater, 'run', side_effect=record), \
+             patch('builtins.print', side_effect=lambda *args, **kwargs: output.append(' '.join(map(str, args)))):
+            updater.install('guest', ['battery'])
+        completed = json.loads((state / 'state.json').read_text())['completed'] if (state / 'state.json').exists() else {}
+        installers = [call for call in calls if call[0] == '/bin/bash']
+        return installers, output, completed
+
+    def test_battery_installer_runs_from_the_staged_bundle(self):
+        installers, _, completed = self.install_battery(reason=None, healthy=False, built=False)
+        self.assertEqual(len(installers), 1)
+        script, source = installers[0][1], installers[0][3]
+        self.assertTrue(script.endswith('/payload/guest/scripts/install-battery-into-existing-guest.sh'))
+        self.assertEqual(installers[0][2], '--source')
+        self.assertTrue(source.endswith('/payload/guest'))
+        self.assertIn('battery', completed)
+
+    def test_unbuildable_battery_is_skipped_without_failing_setup(self):
+        installers, output, completed = self.install_battery(reason='no kernel headers', healthy=False, built=False)
+        self.assertEqual(installers, [])
+        self.assertTrue(any('battery: skipped; no kernel headers' in line for line in output))
+        self.assertNotIn('battery', completed)
+
+    def test_installed_battery_is_retained_without_rerunning_the_installer(self):
+        installers, output, completed = self.install_battery(reason=None, healthy=True, built=True)
+        self.assertEqual(installers, [])
+        self.assertIn('battery: already installed; retained.', output)
+        self.assertIn('battery', completed)
+        # Files present but the module never built for this kernel: install again.
+        installers, _, _ = self.install_battery(reason=None, healthy=True, built=False)
+        self.assertEqual(len(installers), 1)
 
     def test_future_bundle_is_not_installed_by_old_updater(self):
         path = self.bundle / 'manifest.json'

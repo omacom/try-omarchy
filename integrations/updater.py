@@ -21,7 +21,13 @@ STATE = Path('/var/lib/try-omarchy/integrations')
 PORT = Path('/dev/virtio-ports/dev.tryomarchy.integrations')
 COMPONENTS = {
     'sudo': ('Touch ID support for sudo (pairing remains optional)', 'install-touch-id-sudo.sh'),
+    'battery': ('Mac battery in the Omarchy bar', 'install-battery-into-existing-guest.sh'),
 }
+# Matches PACKAGE_VERSION in the module's dkms.conf and the factory package.
+BATTERY_VERSION = '1.0.0'
+BATTERY_MODULE_FILES = ('try-omarchy-battery.c', 'Makefile', 'dkms.conf')
+BATTERY_PORT = Path('/dev/virtio-ports/dev.tryomarchy.battery')
+KERNEL_MODULES = Path('/usr/lib/modules')
 BOOTSTRAP_FILES = {
     'try-omarchy-integrations': '/usr/local/bin/try-omarchy-integrations',
     'try-omarchy-integrations.service': '/usr/lib/systemd/system/try-omarchy-integrations.service',
@@ -99,6 +105,18 @@ def component_paths(name, directory=None):
                  'usr/local/sbin/try-omarchy-touch-id-control',
                  'usr/local/bin/try-omarchy-touch-id', 'usr/local/bin/try-omarchy-touch-id-test',
                  'etc/udev/rules.d/93-omarchy-native-authentication.rules']
+    elif name == 'battery':
+        # DKMS sources live where the factory image's package puts them, so a
+        # factory guest already reports current and is not reinstalled.
+        module = directory / 'guest/native-module/try-omarchy-battery'
+        sources = Path(f'/usr/src/try-omarchy-battery-{BATTERY_VERSION}')
+        names = ['usr/local/bin/omarchy-native-battery-bridge',
+                 'usr/lib/systemd/system/omarchy-native-battery-bridge.service',
+                 'etc/udev/rules.d/95-omarchy-native-battery.rules',
+                 'etc/modules-load.d/95-try-omarchy-battery.conf',
+                 'etc/UPower/UPower.conf.d/90-try-omarchy.conf']
+        return ([(module / file, sources / file) for file in BATTERY_MODULE_FILES]
+                + [(overlay / name, Path('/') / name) for name in names])
     else:
         raise RuntimeError('Unsupported integration component: ' + name)
     return [(overlay / name, Path('/') / name) for name in names]
@@ -136,6 +154,26 @@ def backup_component(name, directory, backup):
             shutil.copy2(target, dest)
 
 
+def unavailable_reason(name):
+    """Why a component cannot be installed in this guest, or None."""
+    if name != 'battery':
+        return None
+    if not BATTERY_PORT.exists():
+        return 'this app did not provide the battery port; restart Try Omarchy and retry'
+    if shutil.which('dkms') is None:
+        return 'this VM has no DKMS to build the battery module; a newer VM image is required'
+    # Missing after a kernel update until reboot, and on images without headers.
+    if not (KERNEL_MODULES / os.uname().release / 'build').exists():
+        return 'no kernel headers for the running kernel; restart Omarchy after a kernel update and retry'
+    return None
+
+
+def battery_module_built():
+    result = run(['dkms', 'status', '-k', os.uname().release, f'try-omarchy-battery/{BATTERY_VERSION}'],
+                 check=False, capture_output=True, text=True)
+    return result.returncode == 0 and 'installed' in result.stdout
+
+
 def guest_status(loaded_identity=None):
     data = manifest(BUNDLE)
     progress = json.loads((STATE / 'progress.json').read_text()) if (STATE / 'progress.json').exists() else {'status': 'complete'}
@@ -145,6 +183,8 @@ def guest_status(loaded_identity=None):
             components[name] = 'current' if files_current(name) else 'repair'
         except (OSError, ValueError):
             components[name] = 'repair'
+        if components[name] == 'repair' and unavailable_reason(name):
+            components[name] = 'disabled'
     if progress.get('status') != 'complete' or (loaded_identity is not None and loaded_identity != data['identity']):
         components['bootstrap'] = 'repair'
     return {'schema': 1, 'version': data['version'], 'identity': loaded_identity or data['identity'],
@@ -210,6 +250,16 @@ def install(user, selected):
             if state['completed'].get(name) == data['identity'] and healthy:
                 print(f'{name}: already verified; retained.')
                 continue
+            if name == 'battery' and healthy and battery_module_built():
+                # Factory and retrofitted guests: leave package-owned files alone.
+                print('battery: already installed; retained.')
+                state['completed'][name] = data['identity']
+                atomic_json(state_path, state)
+                continue
+            reason = unavailable_reason(name)
+            if reason:
+                print(f'{name}: skipped; {reason}.')
+                continue
             atomic_json(STATE / 'progress.json', {'component': name, 'status': 'installing'})
             backup = Path(tempfile.mkdtemp(prefix=f'{name}-backup-', dir=STATE))
             backup_component(name, payload, backup)
@@ -220,6 +270,8 @@ def install(user, selected):
                 # The existing installer otherwise invokes a user helper inside
                 # our root-private staging tree. Publish menus only after STORE.
                 environment['SUDO_USER'] = 'root'
+            elif name == 'battery':
+                args += ['--source', str(payload / 'guest')]
             run(args, env=environment)
             if not files_current(name, payload):
                 raise RuntimeError(f'{name}: installed files did not pass verification. Backup: {backup}')
@@ -279,6 +331,9 @@ def review():
             state = 'installed' if files_current(name) else 'available or needs repair'
         except (OSError, ValueError):
             state = 'available or needs repair'
+        reason = unavailable_reason(name) if state != 'installed' else None
+        if reason:
+            state = 'unavailable (' + reason + ')'
         print(f'  {COMPONENTS[name][0]}: {state}')
     print('\n1. Install/update integration support\n2. Set up or test Touch ID for sudo\n3. Exit')
     choice = input('\nChoose [1-3]: ').strip()

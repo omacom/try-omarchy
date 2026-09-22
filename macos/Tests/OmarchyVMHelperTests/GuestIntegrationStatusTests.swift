@@ -22,6 +22,32 @@ struct GuestIntegrationStatusTests {
         #expect(repair.summary(expectedIdentity: identity) == "Repair available")
     }
 
+    @Test("Battery is a supported component, and an unbuildable battery is not a repair")
+    func battery() throws {
+        let current = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "current", "sudo": "current", "battery": "current"], paired: true)
+        let decoded = try GuestIntegrationReport.decode(JSONEncoder().encode(current))
+        #expect(decoded.summary(expectedIdentity: identity) == "Up to date")
+        #expect(!decoded.needsReview(expectedIdentity: identity))
+        let disabled = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "current", "sudo": "current", "battery": "disabled"], paired: true)
+        #expect(disabled.summary(expectedIdentity: identity) == "Up to date")
+        #expect(!disabled.needsReview(expectedIdentity: identity))
+        let repair = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "current", "sudo": "current", "battery": "repair"], paired: true)
+        #expect(repair.summary(expectedIdentity: identity) == "Repair available")
+        #expect(repair.needsReview(expectedIdentity: identity))
+    }
+
+    @Test("A guest with only the earlier sudo bundle is offered the battery update")
+    func earlierBundle() {
+        let report = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "current", "sudo": "current"], paired: true)
+        let bundled = String(repeating: "b", count: 64)
+        #expect(report.summary(expectedIdentity: bundled) == "Updates available")
+        #expect(report.needsReview(expectedIdentity: bundled))
+    }
+
     @Test("Additional guest integrations are not offered a smaller bundle")
     func additionalIntegrations() {
         let report = GuestIntegrationReport(schema: 1, version: 1, identity: identity,

@@ -103,14 +103,33 @@ happens to the battery.
 App updates keep an existing guest's persistent disk, so an already-running VM
 does not get the new kernel module from an app update alone — it does get the
 virtio port immediately, because QEMU's command line comes from the host at
-launch. No factory reset is needed: the factory image already carries `dkms`,
+launch. No factory reset is needed: images from v0.3.0 onward carry `dkms`,
 `gcc`, `make`, `kmod`, and headers matching the pinned kernel, so the guest can
 build the module itself.
 
-`guest/scripts/install-battery-into-existing-guest.sh` runs **inside** the
-guest, against files staged through the shared Mac folder rather than fetched
-over the network. Stage these repo paths into the shared folder, preserving
-the layout:
+Install it with the app's [VM integrations](integration-updates.md): open
+**VM integrations > Review…** in the launcher, or **Setup > Try Omarchy
+Integrations** inside Omarchy, and choose **Install/update integration
+support**. The integration runs
+`guest/scripts/install-battery-into-existing-guest.sh` from the app's read-only
+integration bundle. It installs eight files (the three DKMS sources under
+`/usr/src/try-omarchy-battery-1.0.0/`, the bridge and its unit, and the udev,
+module-load, and UPower drop-ins), runs `dkms install try-omarchy-battery/1.0.0`,
+loads the module, reloads udev, and enables
+`omarchy-native-battery-bridge.service`. Because the module is installed
+through DKMS, the pacman DKMS hook rebuilds it whenever a later `pacman -Syu`
+bumps the guest kernel, so the retrofit survives guest kernel updates — a
+factory reset is never required.
+
+A guest that already has the module, from the factory image or an earlier
+retrofit, is left untouched. When the module cannot be built — no DKMS on an
+image before v0.3.0, or a kernel update that has not been followed by a restart
+— the battery reports `disabled` with the reason and the other integrations
+still install.
+
+Without the integration bundle, the same script can run against files staged
+through the shared Mac folder instead of the network. Stage these repo paths,
+preserving the layout:
 
 ```text
 native-module/try-omarchy-battery/{try-omarchy-battery.c,Makefile,dkms.conf}
@@ -126,13 +145,6 @@ Then, in the guest:
 ```sh
 sudo ~/<folder>/battery-retrofit/install-battery-into-existing-guest.sh
 ```
-
-The script installs those eight files, runs `dkms install
-try-omarchy-battery/1.0.0`, loads the module, reloads udev, and enables
-`omarchy-native-battery-bridge.service`. Because the module is installed
-through DKMS, the pacman DKMS hook rebuilds it whenever a later `pacman -Syu`
-bumps the guest kernel, so the retrofit survives guest kernel updates — a
-factory reset is never required.
 
 ## Failure modes
 

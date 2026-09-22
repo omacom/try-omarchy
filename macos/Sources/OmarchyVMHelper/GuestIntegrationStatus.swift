@@ -9,10 +9,14 @@ struct GuestIntegrationReport: Codable, Equatable {
     let components: [String: String]
     let paired: Bool
 
+    /// Components this app's bundle installs. Anything else was installed by a
+    /// newer app, so this app must not offer its smaller bundle over it.
+    static let supportedComponents: Set<String> = ["bootstrap", "sudo", "battery"]
+
     static func decode(_ data: Data) throws -> Self {
         guard data.count <= 4096 else { throw HelperError.io("integration status exceeds limit") }
         let value = try JSONDecoder().decode(Self.self, from: data)
-        let allowed = Set(["bootstrap", "sudo", "clock", "holds", "onepassword"])
+        let allowed = supportedComponents.union(["clock", "holds", "onepassword"])
         guard value.schema == 1, value.version > 0, value.version <= 100000,
               value.identity.count == 64,
               value.identity.allSatisfy({ "0123456789abcdef".contains($0) }),
@@ -25,14 +29,14 @@ struct GuestIntegrationReport: Codable, Equatable {
     }
 
     func needsReview(expectedIdentity: String) -> Bool {
-        version <= 1 && Set(components.keys).isSubset(of: Set(["bootstrap", "sudo"]))
+        version <= 1 && Set(components.keys).isSubset(of: Self.supportedComponents)
             && (identity != expectedIdentity || components.values.contains("repair"))
     }
 
     func summary(expectedIdentity: String?) -> String {
         if version > 1 { return "Newer guest integration version" }
         guard let expectedIdentity else { return "Bundle status unavailable" }
-        if !Set(components.keys).isSubset(of: Set(["bootstrap", "sudo"])) {
+        if !Set(components.keys).isSubset(of: Self.supportedComponents) {
             return "Additional guest integrations · use matching app"
         }
         if identity != expectedIdentity { return "Updates available" }
@@ -88,7 +92,7 @@ enum GuestIntegrationSetup {
     static func show(window: NSWindow? = nil) {
         let alert = NSAlert()
         alert.messageText = "Review VM integrations"
-        alert.informativeText = "Inside Omarchy, open Setup > Try Omarchy Integrations. If that entry is missing, copy the command below and paste it into an Omarchy terminal.\n\nReview and install sudo Touch ID support before pairing. Have your Linux password ready. Your existing VM is preserved."
+        alert.informativeText = "Inside Omarchy, open Setup > Try Omarchy Integrations. If that entry is missing, copy the command below and paste it into an Omarchy terminal.\n\nReview and install sudo Touch ID support and the Mac battery mirror. Install Touch ID support before pairing. Have your Linux password ready. Your existing VM is preserved."
         alert.addButton(withTitle: "Copy setup command")
         alert.addButton(withTitle: "Close")
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 440, height: 64))

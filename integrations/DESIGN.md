@@ -1,6 +1,6 @@
 # Existing VM integration updates
 
-Status: standalone integration delivery on current upstream; initial payload is sudo Touch ID support.
+Status: standalone integration delivery on current upstream; the payload is sudo Touch ID support and the Mac battery mirror.
 
 The app bundles a reviewed integration payload independently of the factory disk.
 A dedicated read-only 9p share (tryomarchy-updates) exposes it to old guests.

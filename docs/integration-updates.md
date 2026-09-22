@@ -21,9 +21,13 @@ Integrations**, or with `try-omarchy-integrations` in the guest terminal.
 ## Features and boundaries
 
 - sudo Touch ID: installs support; pairing is explicit and can be tested or repaired.
+- Mac battery: installs the [host battery](host-battery.md) module and bridge, so
+  the Mac's charge appears in the Omarchy bar. The guest builds the module with
+  DKMS. VMs that already have it, including factory images that ship it, are left
+  as they are.
 
-The initial bundle contains only upstream sudo Touch ID support. Additional
-integrations can be added after their own upstream review. The manager does not
+The bundle contains upstream sudo Touch ID support and the Mac battery mirror.
+Additional integrations can be added after their own upstream review. The manager does not
 replace the kernel, upgrade the graphics stack, repair package holds, install
 1Password integration, or reproduce every change in a newer factory image. Ordinary package
 updates remain with Omarchy Update. No VM reset is required for these integrations.
@@ -33,6 +37,11 @@ updates remain with Omarchy Update. No VM reset is required for these integratio
 A dedicated virtio port carries bounded status reports to the host every ten
 seconds. Every VM launch starts a new check. After 120 seconds without a valid
 report the host shows that setup or repair may be needed and continues listening.
+A component that cannot be installed in this VM reports `disabled` rather than
+needing repair: the battery module needs DKMS and headers for the running kernel,
+which images before v0.3.0 lack and which are missing after a kernel update until
+Omarchy restarts. The review names the reason, and installation skips the battery
+without failing the other integrations.
 An older, slow, or stopped guest agent cannot be distinguished by silence alone.
 
 When setup, updates, or repairs may be needed, the app offers a review once per
