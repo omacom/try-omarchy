@@ -54,6 +54,20 @@ grep -Fxq 'lib/libusb-1.0.0.dylib' "$runtime_manifest" || {
   fail 'the runtime manifest must stage libusb beside QEMU'
 }
 
+# The app pins hostbus=0 for devices behind the first controller, which
+# upstream QEMU would read as "any bus"; the patch and its launch check go
+# together.
+grep -Fxq 'patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"' "$runtime_builder" || {
+  fail 'the runtime build must apply the USB exact-bus patch'
+}
+grep -Fq "grep -aFq 'exact bus 0 matching'" "$launcher" || {
+  fail 'the launcher must refuse a QEMU without exact USB bus matching'
+}
+grep -Fq 'hostbus out of range (exact bus 0 matching)' \
+  "$macos_dir/patches/qemu-usb-host-exact-bus.patch" || {
+  fail 'the exact-bus patch must carry the marker the launcher checks'
+}
+
 # `open` hands the app the launchd environment, so the wrapper must forward the
 # opt-in explicitly or `make run` would silently ignore it.
 grep -Fxq '  usb_environment=(--env "OMARCHY_QEMU_GPU_USB_HOST=$OMARCHY_QEMU_GPU_USB_HOST")' \

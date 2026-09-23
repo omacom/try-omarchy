@@ -57,8 +57,7 @@ final class USBDeviceEditor: NSObject {
                 Omarchy can only take a device macOS does not already drive. Drives, keyboards, audio, video and iPhones appear in the VM \
                 without their data; macOS keeps them.
 
-                The choice stays with this USB port. After moving the device, choose it again. Some ports cannot be selected safely; \
-                the start menu will explain when another port is needed.
+                The choice stays with this USB port. After moving the device, choose it again.
 
                 Unplugging or replugging the device while Omarchy runs can freeze the window for up to 30 seconds.
                 """

@@ -101,25 +101,25 @@ struct USBPassthroughTests {
         }
     }
 
-    @Test("bus zero cannot authorize future twins even while the chosen device is alone")
-    func wildcardBusPassesNothing() {
+    @Test("a device behind the first controller is pinned to bus 0 exactly")
+    func busZeroIsPinned() {
+        // A dock hangs off bus 0; the bundled QEMU reads hostbus=0 literally.
         var chosen = drive
-        chosen.locationId = 0x0020_0000
-        for connected in [[chosen], [chosen, drive]] {
-            let preference = USBDevicePreference(device: chosen, isEnabled: true)
-            let configuration = USBPassthroughLaunchConfiguration.make(
-                baseEnvironment: [:], preference: preference, connected: connected
-            )
-            #expect(configuration.device == nil)
-            #expect(configuration.environment[USBPassthroughPolicy.environmentKey] == nil)
-            let state = USBDeviceMenuState.make(
-                preference: preference, connected: connected, environment: [:]
-            )
-            #expect(state.hasUnsafeLocation)
-            let presentation = StartMenuPresentation.usbDevice(state: state)
-            #expect(!presentation.isGranted)
-            #expect(presentation.detail.contains("another port"))
-        }
+        chosen.locationId = 0x0024_4000
+        var twin = drive
+        twin.locationId = 0x0124_4000
+        let preference = USBDevicePreference(device: chosen, isEnabled: true)
+        let configuration = USBPassthroughLaunchConfiguration.make(
+            baseEnvironment: [:], preference: preference, connected: [chosen, twin]
+        )
+        #expect(configuration.device == chosen)
+        #expect(configuration.environment[USBPassthroughPolicy.environmentKey]
+            == "vendorid=0x05e3,productid=0x0764,hostbus=0,hostport=2.4.4")
+        let state = USBDeviceMenuState.make(
+            preference: preference, connected: [chosen, twin], environment: [:]
+        )
+        #expect(!state.hasUnsafeLocation)
+        #expect(StartMenuPresentation.usbDevice(state: state).isGranted)
     }
 
     @Test("old or invalid locations require a new selection", arguments: [

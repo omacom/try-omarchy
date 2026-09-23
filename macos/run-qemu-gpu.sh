@@ -173,6 +173,10 @@ if [[ -n $usb_host_properties ]]; then
   }
   require_qemu_device qemu-xhci
   require_qemu_device usb-host
+  # Unpatched QEMU reads hostbus=0 as "any bus" and could take a twin.
+  LC_ALL=C grep -aFq 'exact bus 0 matching' "$qemu_bin" || {
+    fail "staged QEMU lacks exact USB bus matching; run make runtime"
+  }
 fi
 for marker in guest_owner_uid guest_owner_gid; do
   LC_ALL=C grep -aFq "$marker" "$qemu_bin" || {

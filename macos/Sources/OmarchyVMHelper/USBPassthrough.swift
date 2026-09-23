@@ -171,12 +171,13 @@ enum USBPassthroughPolicy {
 
     /// Always pin the selected port, including when no twin is currently
     /// attached: QEMU keeps scanning for matching devices throughout the run.
-    /// Bus zero is a QEMU wildcard, so it cannot safely identify a selection
-    /// even when today's snapshot happens to contain only one matching device.
+    /// Bus 0 is exact too: the bundled QEMU carries a patch so that hostbus=0
+    /// no longer means "any bus", which would otherwise cover every device
+    /// behind the first controller, docks and hubs included.
     static func properties(for device: USBDeviceIdentity) -> String? {
         guard isValid(device), let location = device.locationId,
               (0...0xFFFF_FFFF).contains(location),
-              let bus = device.hostBus, bus > 0, let port = device.hostPort else { return nil }
+              let bus = device.hostBus, let port = device.hostPort else { return nil }
         let pair = String(format: "vendorid=0x%04x,productid=0x%04x", device.vendorId, device.productId)
         return "\(pair),hostbus=\(bus),hostport=\(port)"
     }

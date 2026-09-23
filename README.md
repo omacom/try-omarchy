@@ -247,9 +247,11 @@ requires choosing it again. If the saved device is absent at launch, Omarchy
 starts without USB passthrough. Old selections without a saved location must
 also be chosen again.
 
-QEMU treats bus 0 as "any bus", so the app cannot safely pin a device there,
-even when no twin is currently attached. Omarchy leaves that device with macOS
-and asks you to connect it to another port and choose it again. The selection
+Upstream QEMU treats `hostbus=0` as "any bus", and libusb numbers the first
+USB controller 0 — on a Mac with a dock, usually the controller behind every
+dock and hub port. The bundled QEMU carries
+`macos/patches/qemu-usb-host-exact-bus.patch` so that `hostbus=0` selects bus 0
+exactly, and the launcher refuses a runtime without it. The selection
 identifies a model at a physical port, not a serial number; replacing it with
 the same model at the same port still matches.
 
