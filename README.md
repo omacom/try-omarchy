@@ -297,14 +297,28 @@ sda      57.3G disk
 `-sda2      57G part vfat  VCAUSB  /run/media/vcanuel/VCAUSB
 $ cat /sys/bus/usb/devices/2-1/speed
 5000
-$ dd if=/dev/urandom of=/run/media/vcanuel/VCAUSB/t.bin bs=1M count=256 conv=fsync
-268435456 bytes (268 MB, 256 MiB) copied, 4.17614 s, 64.3 MB/s
+$ readlink /sys/bus/usb/devices/2-1:1.0/driver
+../../../../../../../../bus/usb/drivers/usb-storage
+$ dd if=/dev/urandom of=/run/media/vcanuel/VCAUSB/u.bin bs=1M count=256 conv=fsync
+268435456 bytes (268 MB, 256 MiB) copied, 3.69127 s, 72.7 MB/s
 ```
 
-The guest binds `uas`, the volume mounts on the Omarchy desktop like any other
-drive, and writes land on the stick at SuperSpeed. Nothing in the passthrough
-path itself needs changing for this; only the privilege of the process that
-calls libusb.
+The volume mounts on the Omarchy desktop like any other drive, and writes land
+on the stick at SuperSpeed. Nothing in the passthrough path itself needs
+changing for this; only the privilege of the process that calls libusb.
+
+The xHCI controller is started with `streams=off`, so the guest uses
+`usb-storage` rather than `uas`. With streams on, `uas` binds the same stick
+but the first command after each connection gets no answer: after a replug,
+`REPORT LUNS` and then `INQUIRY` each timed out after 30 s and forced a device
+reset, so the stick mounted only about 60 s later. `usb-storage` on the same
+stick reads its capacity about 1.2 s after connection, with no timeout. Linux
+only picks `uas` on a controller that advertises streams, so with them off it
+falls back to `usb-storage` by itself, with no guest configuration.
+
+Unmount a drive on the Mac with `diskutil unmountDisk` rather than Finder's
+**Eject** before handing it over. Eject sends the stick a SCSI stop, and it then
+reports no medium (`[sda] Media removed`) until it is physically replugged.
 
 Neither door is free. `com.apple.vm.device-access` is restricted: Apple grants
 it per developer team, delivers it in a provisioning profile, and DTS describes
@@ -315,7 +329,7 @@ libusb reads the effective uid of the calling process, so it would be QEMU
 itself running as root, not a small privileged helper alongside it. Which door
 to open is a decision for whoever ships the app. See libusb/libusb#1014.
 
-**Replugging freezes the window, and a bad exit wedges the device.** Every
+**Replugging can freeze the window, and a bad exit wedges the device.** Every
 capture attempt goes through libusb's `darwin_reenumerate_device()`, which polls
 an atomic for up to `DARWIN_REENUMERATE_TIMEOUT_US` — 10 seconds — on whichever
 thread called it, and QEMU calls it from the main loop. Unplugging and
@@ -324,6 +338,11 @@ measured on this build, a QEMU-side detach blocked the main loop for 10.08 s,
 and one physical replug stalled the guest's USB enumeration for 29.8 s (guest
 kernel timestamps 34.98 → 64.77). The guest keeps computing, but the window
 stops redrawing and stops accepting input until the timeout expires.
+
+A later retest as root with `streams=off` did not reproduce the freeze: the
+same stick, unmounted in the guest, then unplugged and replugged on the same
+port, came back and remounted within about 5 s, with the window responsive
+throughout. When the timeout is actually hit is not yet pinned down.
 
 A device left behind by an unclean exit stays unusable until it is physically
 reconnected. After QEMU was killed mid-reset, every bulk transfer to the stick

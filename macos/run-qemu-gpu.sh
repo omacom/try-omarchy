@@ -1782,9 +1782,11 @@ fi
 if [[ -n $usb_host_properties ]]; then
   # One xHCI controller carries the passed-through device. Whether macOS lets
   # go of a device it drives itself depends on QEMU's privilege, not on these
-  # arguments; the README has the measurements.
+  # arguments; the README has the measurements. Streams stay off: bulk streams
+  # never complete through usb-host on macOS, so a guest UAS driver would hang
+  # a drive on its first command. Without them Linux uses usb-storage instead.
   qemu_args+=(
-    -device 'qemu-xhci,id=omarchy-usb'
+    -device 'qemu-xhci,id=omarchy-usb,streams=off'
     -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
   )
 fi

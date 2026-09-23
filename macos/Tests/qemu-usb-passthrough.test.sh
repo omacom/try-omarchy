@@ -28,8 +28,8 @@ qemu_arguments=$(sed -n '/^qemu_args=(/,/^)/p' "$launcher")
 grep -Fxq 'usb_host_properties=${OMARCHY_QEMU_GPU_USB_HOST:-}' "$launcher" || {
   fail 'the launcher must read the passthrough opt-in from OMARCHY_QEMU_GPU_USB_HOST'
 }
-grep -Fxq "    -device 'qemu-xhci,id=omarchy-usb'" "$launcher" || {
-  fail 'the opt-in must add one xHCI controller'
+grep -Fxq "    -device 'qemu-xhci,id=omarchy-usb,streams=off'" "$launcher" || {
+  fail 'the opt-in must add one xHCI controller without bulk streams'
 }
 grep -Fxq \
   '    -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"' \
