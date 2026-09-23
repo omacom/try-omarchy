@@ -84,7 +84,7 @@ install -d -m 0755 /etc/UPower/UPower.conf.d
 install -m 0644 "$overlay/etc/UPower/UPower.conf.d/90-try-omarchy.conf" \
   /etc/UPower/UPower.conf.d/90-try-omarchy.conf
 
-if ! dkms status "try-omarchy-battery/$version" 2>/dev/null | grep -q installed; then
+if ! dkms status -k "$(uname -r)" "try-omarchy-battery/$version" 2>/dev/null | grep -q installed; then
   [[ $version == 1.0.0 ]] || fail "unexpected module version: $version"
   dkms install try-omarchy-battery/1.0.0
 fi

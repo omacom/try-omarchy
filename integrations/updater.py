@@ -27,6 +27,8 @@ COMPONENTS = {
 BATTERY_VERSION = '1.0.0'
 BATTERY_MODULE_FILES = ('try-omarchy-battery.c', 'Makefile', 'dkms.conf')
 BATTERY_PORT = Path('/dev/virtio-ports/dev.tryomarchy.battery')
+BATTERY_STATE = Path('/sys/devices/platform/try-omarchy-battery/state')
+BATTERY_SERVICE = 'omarchy-native-battery-bridge.service'
 KERNEL_MODULES = Path('/usr/lib/modules')
 BOOTSTRAP_FILES = {
     'try-omarchy-integrations': '/usr/local/bin/try-omarchy-integrations',
@@ -163,7 +165,7 @@ def unavailable_reason(name):
     if shutil.which('dkms') is None:
         return 'this VM has no DKMS to build the battery module; a newer VM image is required'
     # Missing after a kernel update until reboot, and on images without headers.
-    if not (KERNEL_MODULES / os.uname().release / 'build').exists():
+    if not (KERNEL_MODULES / os.uname().release / 'build').exists() and not battery_module_built():
         return 'no kernel headers for the running kernel; restart Omarchy after a kernel update and retry'
     return None
 
@@ -174,13 +176,23 @@ def battery_module_built():
     return result.returncode == 0 and 'installed' in result.stdout
 
 
+def battery_install_complete():
+    # A completed DKMS build alone does not prove the module was loaded or the
+    # bridge was enabled. A failed retrofit may have stopped between those steps.
+    return (battery_module_built() and BATTERY_STATE.exists()
+            and run(['systemctl', 'is-enabled', '--quiet', BATTERY_SERVICE], check=False).returncode == 0)
+
+
 def guest_status(loaded_identity=None):
     data = manifest(BUNDLE)
     progress = json.loads((STATE / 'progress.json').read_text()) if (STATE / 'progress.json').exists() else {'status': 'complete'}
     components = {}
     for name in ['bootstrap', *COMPONENTS]:
         try:
-            components[name] = 'current' if files_current(name) else 'repair'
+            current = files_current(name)
+            if name == 'battery' and current:
+                current = battery_install_complete()
+            components[name] = 'current' if current else 'repair'
         except (OSError, ValueError):
             components[name] = 'repair'
         if components[name] == 'repair' and unavailable_reason(name):
@@ -245,12 +257,14 @@ def install(user, selected):
             # Resume only a verified completed step; a receipt alone is insufficient.
             try:
                 healthy = files_current(name, payload)
+                if name == 'battery' and healthy:
+                    healthy = battery_install_complete()
             except (OSError, ValueError):
                 healthy = False
             if state['completed'].get(name) == data['identity'] and healthy:
                 print(f'{name}: already verified; retained.')
                 continue
-            if name == 'battery' and healthy and battery_module_built():
+            if name == 'battery' and healthy:
                 # Factory and retrofitted guests: leave package-owned files alone.
                 print('battery: already installed; retained.')
                 state['completed'][name] = data['identity']
@@ -273,7 +287,7 @@ def install(user, selected):
             elif name == 'battery':
                 args += ['--source', str(payload / 'guest')]
             run(args, env=environment)
-            if not files_current(name, payload):
+            if not files_current(name, payload) or (name == 'battery' and not battery_install_complete()):
                 raise RuntimeError(f'{name}: installed files did not pass verification. Backup: {backup}')
             state['completed'][name] = data['identity']
             atomic_json(state_path, state)
