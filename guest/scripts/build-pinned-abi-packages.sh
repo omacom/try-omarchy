@@ -91,6 +91,10 @@ install -d -m 0755 "$output_repo"
 
 # Install build dependencies before either ABI pin. Hyprtoolkit then builds
 # against our verified aquamarine, never the incompatible mirror package.
+# The Docker builder can be cached after the rolling ARM mirror has removed
+# packages named by its older sync databases. Upgrade it against fresh
+# databases before resolving any new build dependencies.
+pacman -Syu --noconfirm >/dev/null
 pacman -S --needed --noconfirm \
   base-devel cmake hyprutils hyprwayland-scanner libdisplay-info libdrm libglvnd \
   libinput mesa pixman seatd systemd-libs wayland wayland-protocols \
