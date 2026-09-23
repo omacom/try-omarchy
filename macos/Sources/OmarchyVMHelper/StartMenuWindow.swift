@@ -160,6 +160,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let sharedFolderStatus: () -> SharedFolderMenuState
     private let chooseSharedFolder: (String) -> String?
     private let setSharedFolderEnabled: (Bool) -> Void
+    private let usbDeviceStatus: () -> USBDeviceMenuState
+    private let connectedUSBDevices: () -> [USBDeviceIdentity]
+    private let saveUSBDevice: (USBDevicePreference) -> Void
     private let portForwardingStatus: () -> [PortForwardMapping]
     private let savePortForwarding: ([PortForwardMapping]) -> String?
     private let resources: () -> VMResources
@@ -206,6 +209,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var preferredContentHeight: CGFloat = 832
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
+    private(set) var usbDeviceEditor: USBDeviceEditor?
     private weak var immersiveCaption: NSTextField?
     private lazy var permissionWindowRestorer = PermissionWindowRestorer(
         canRestore: { [weak self] in
@@ -219,6 +223,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 && NSApp.modalWindow == nil
                 && self.portForwardingEditor == nil
                 && self.resourceEditor == nil
+                && self.usbDeviceEditor == nil
         },
         isApplicationActive: { NSApp.isActive },
         orderFrontRegardless: { [weak self] frame in
@@ -266,6 +271,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
         chooseSharedFolder: @escaping (String) -> String?,
         setSharedFolderEnabled: @escaping (Bool) -> Void,
+        usbDeviceStatus: @escaping () -> USBDeviceMenuState = { .disabled },
+        connectedUSBDevices: @escaping () -> [USBDeviceIdentity] = { [] },
+        saveUSBDevice: @escaping (USBDevicePreference) -> Void = { _ in },
         portForwardingStatus: @escaping () -> [PortForwardMapping] = { [] },
         savePortForwarding: @escaping ([PortForwardMapping]) -> String? = { _ in nil },
         resources: @escaping () -> VMResources = { VMResourceLimits.current.defaults },
@@ -305,6 +313,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.sharedFolderStatus = sharedFolderStatus
         self.chooseSharedFolder = chooseSharedFolder
         self.setSharedFolderEnabled = setSharedFolderEnabled
+        self.usbDeviceStatus = usbDeviceStatus
+        self.connectedUSBDevices = connectedUSBDevices
+        self.saveUSBDevice = saveUSBDevice
         self.portForwardingStatus = portForwardingStatus
         self.savePortForwarding = savePortForwarding
         self.resources = resources
@@ -662,6 +673,29 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 100
         )
 
+        let usbDevice = usbDeviceStatus()
+        let usbPresentation = StartMenuPresentation.usbDevice(state: usbDevice)
+        var usbActions: [(String, Selector)] = [("Choose\u{2026}", #selector(beginUSBDeviceSelection))]
+        if let toggleTitle = usbPresentation.toggleActionTitle {
+            usbActions.append(
+                usbDevice.isEnabled
+                    ? (toggleTitle, #selector(disableUSBDevice))
+                    : (toggleTitle, #selector(enableUSBDevice))
+            )
+        }
+        let usbRow = permissionRow(
+            symbolName: "cable.connector",
+            title: "USB device (experimental)",
+            detail: usbPresentation.detail,
+            compactDetailLines: usbPresentation.compactDetailLines,
+            granted: usbPresentation.isGranted,
+            statusLabels: ("\u{25cf}  On", "\u{25cb}  Off"),
+            actions: usbActions,
+            actionsEnabled: usbPresentation.actionsEnabled,
+            minimumHeight: 100,
+            rowIdentifier: "usb"
+        )
+
         let network = networkPreferences()
         let bridgeAvailable = VMBridgeInterfaces.available().contains { $0.name == network.interface }
         let networkWarning = network.mode == .bridged
@@ -783,7 +817,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, immersiveRow, automaticStartSettingRow(), languageRow])
+        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow(), languageRow])
         let integrationStatus = GuestIntegrationCache.read(integrationCacheURL())
         integrationRowViews.insert(permissionRow(
             symbolName: "arrow.triangle.2.circlepath", title: "VM integrations",
@@ -1595,6 +1629,40 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     @objc private func disableSharedFolder() {
         guard !controlsBusy, !resetInProgress else { return }
         setSharedFolderEnabled(false)
+        render()
+    }
+
+    @objc private func beginUSBDeviceSelection() {
+        guard !controlsBusy, !resetInProgress,
+              !microphoneRequestInFlight, !cameraRequestInFlight,
+              usbDeviceEditor == nil, window.attachedSheet == nil else { return }
+        permissionWindowRestorer.cancel()
+        let state = usbDeviceStatus()
+        let editor = USBDeviceEditor(
+            preference: USBDevicePreference(device: state.device, isEnabled: state.isEnabled),
+            connected: connectedUSBDevices(),
+            save: { [weak self] preference in self?.saveUSBDevice(preference) },
+            didClose: { [weak self] in
+                self?.usbDeviceEditor = nil
+                self?.render()
+            }
+        )
+        usbDeviceEditor = editor
+        editor.beginSheet(for: window)
+    }
+
+    @objc private func enableUSBDevice() {
+        setUSBDeviceEnabled(true)
+    }
+
+    @objc private func disableUSBDevice() {
+        setUSBDeviceEnabled(false)
+    }
+
+    private func setUSBDeviceEnabled(_ isEnabled: Bool) {
+        let state = usbDeviceStatus()
+        guard let device = state.device else { return }
+        saveUSBDevice(USBDevicePreference(device: device, isEnabled: isEnabled))
         render()
     }
 
