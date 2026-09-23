@@ -213,11 +213,11 @@ enum StartMenuPresentation {
                 "Mac device: \(device.displayName)",
                 "In Omarchy: Off",
             ]
-        } else if state.isAmbiguous {
-            detail = "\(device.displayName) has an identical twin plugged in that Omarchy cannot tell apart. Omarchy will start without either; unplug one."
+        } else if state.hasUnsafeLocation {
+            detail = "Omarchy cannot safely select the USB port for \(device.displayName). Connect it to another port and choose it again. Omarchy will start without it."
             compactDetailLines = [
-                "Identical \(device.displayName) plugged in twice",
-                "Unplug one; Omarchy will start without it",
+                "Cannot safely select this USB port",
+                "Connect to another port and choose again",
             ]
         } else if state.isConnected {
             detail = "Mac device: \(device.displayName). It appears in Omarchy, but macOS keeps its data."
@@ -226,16 +226,16 @@ enum StartMenuPresentation {
                 "Appears in Omarchy; macOS keeps its data",
             ]
         } else {
-            detail = "\(device.displayName) is not plugged in. Omarchy will start without it."
+            detail = "\(device.displayName) is not plugged in at the selected USB port. Reconnect it there or choose it again. Omarchy will start without it."
             compactDetailLines = [
-                "\(device.displayName) is not plugged in",
+                "Not connected at the selected USB port",
                 "Omarchy will start without it",
             ]
         }
         return StartMenuUSBDevicePresentation(
             detail: detail,
             compactDetailLines: compactDetailLines,
-            isGranted: state.isEnabled && state.isConnected && !state.isAmbiguous,
+            isGranted: state.isEnabled && state.isConnected && !state.hasUnsafeLocation,
             toggleActionTitle: state.isEnabled ? "Turn Off" : "Turn On",
             actionsEnabled: true
         )

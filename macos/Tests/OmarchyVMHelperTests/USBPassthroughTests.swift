@@ -4,10 +4,10 @@ import Testing
 
 @Suite("USB passthrough")
 struct USBPassthroughTests {
-    private let iPhone = USBDeviceIdentity(vendorId: 0x05AC, productId: 0x12A8, name: "iPhone")
-    private let drive = USBDeviceIdentity(vendorId: 0x05E3, productId: 0x0764, name: "USB Storage")
+    private let iPhone = USBDeviceIdentity(vendorId: 0x05AC, productId: 0x12A8, name: "iPhone", locationId: 0x0110_0000)
+    private let drive = USBDeviceIdentity(vendorId: 0x05E3, productId: 0x0764, name: "USB Storage", locationId: 0x0120_0000)
 
-    @Test("the launcher script receives the vendor/product pair it validates")
+    @Test("the launcher always receives the selected model, bus and port")
     func publishesTheChosenDevice() {
         let configuration = USBPassthroughLaunchConfiguration.make(
             baseEnvironment: [:],
@@ -17,7 +17,7 @@ struct USBPassthroughTests {
         #expect(configuration.device == iPhone)
         #expect(
             configuration.environment[USBPassthroughPolicy.environmentKey]
-                == "vendorid=0x05ac,productid=0x12a8"
+                == "vendorid=0x05ac,productid=0x12a8,hostbus=1,hostport=1"
         )
     }
 
@@ -66,63 +66,85 @@ struct USBPassthroughTests {
         #expect(behindHub.hostPort == "2.3")
     }
 
-    @Test("a lone device follows its vendor/product pair from port to port")
-    func loneDeviceIsNotPinned() {
-        var moved = drive
-        moved.locationId = 0x0130_0000
-        var saved = drive
-        saved.locationId = 0x0110_0000
-        #expect(
-            USBPassthroughPolicy.properties(for: saved, connected: [moved])
-                == "vendorid=0x05e3,productid=0x0764"
-        )
+    @Test("an absent selected device is never replaced by its only remaining twin")
+    func absentSelectionDoesNotAuthorizeTwin() {
+        var twin = drive
+        twin.locationId = 0x0220_0000
+        for connected in [[], [twin]] {
+            let preference = USBDevicePreference(device: drive, isEnabled: true)
+            let configuration = USBPassthroughLaunchConfiguration.make(
+                baseEnvironment: [:], preference: preference, connected: connected
+            )
+            #expect(configuration.device == nil)
+            #expect(configuration.environment[USBPassthroughPolicy.environmentKey] == nil)
+            let state = USBDeviceMenuState.make(
+                preference: preference, connected: connected, environment: [:]
+            )
+            #expect(!state.isConnected)
+            #expect(!StartMenuPresentation.usbDevice(state: state).isGranted)
+        }
     }
 
-    @Test("with an identical twin attached, only the chosen port matches")
-    func twinPinsThePort() {
-        var chosen = drive
-        chosen.locationId = 0x0120_0000
+    @Test("the filter stays pinned whether an identical twin is attached or not")
+    func selectionStaysPinned() {
         var twin = drive
-        twin.locationId = 0x0110_0000
-        #expect(
-            USBPassthroughPolicy.properties(for: chosen, connected: [twin, chosen])
-                == "vendorid=0x05e3,productid=0x0764,hostbus=1,hostport=2"
-        )
+        twin.locationId = 0x0220_0000
+        for connected in [[drive], [twin, drive]] {
+            let configuration = USBPassthroughLaunchConfiguration.make(
+                baseEnvironment: [:],
+                preference: USBDevicePreference(device: drive, isEnabled: true),
+                connected: connected
+            )
+            #expect(configuration.device == drive)
+            #expect(configuration.environment[USBPassthroughPolicy.environmentKey]
+                == "vendorid=0x05e3,productid=0x0764,hostbus=1,hostport=2")
+        }
+    }
 
-        // QEMU treats hostbus=0 as any bus, so the first controller relies on
-        // the port path alone.
+    @Test("bus zero cannot authorize future twins even while the chosen device is alone")
+    func wildcardBusPassesNothing() {
+        var chosen = drive
         chosen.locationId = 0x0020_0000
-        #expect(
-            USBPassthroughPolicy.properties(for: chosen, connected: [twin, chosen])
-                == "vendorid=0x05e3,productid=0x0764,hostport=2"
-        )
+        for connected in [[chosen], [chosen, drive]] {
+            let preference = USBDevicePreference(device: chosen, isEnabled: true)
+            let configuration = USBPassthroughLaunchConfiguration.make(
+                baseEnvironment: [:], preference: preference, connected: connected
+            )
+            #expect(configuration.device == nil)
+            #expect(configuration.environment[USBPassthroughPolicy.environmentKey] == nil)
+            let state = USBDeviceMenuState.make(
+                preference: preference, connected: connected, environment: [:]
+            )
+            #expect(state.hasUnsafeLocation)
+            let presentation = StartMenuPresentation.usbDevice(state: state)
+            #expect(!presentation.isGranted)
+            #expect(presentation.detail.contains("another port"))
+        }
     }
 
-    @Test("twins the port cannot tell apart leave both with macOS")
-    func indistinguishableTwinsPassNothing() {
-        // Each Apple Silicon port is its own controller, so identical sticks in
-        // two ports both sit at port 1; on bus 0 QEMU cannot pin the bus.
-        var chosen = drive
-        chosen.locationId = 0x0010_0000
-        var twin = drive
-        twin.locationId = 0x0110_0000
+    @Test("old or invalid locations require a new selection", arguments: [
+        nil, -1, 0x1_0110_0000, 0x0100_0000,
+    ] as [Int?])
+    func unsafeLocationPassesNothing(location: Int?) {
+        var saved = drive
+        saved.locationId = location
         let configuration = USBPassthroughLaunchConfiguration.make(
             baseEnvironment: [:],
-            preference: USBDevicePreference(device: chosen, isEnabled: true),
-            connected: [chosen, twin]
+            preference: USBDevicePreference(device: saved, isEnabled: true), connected: [saved]
         )
         #expect(configuration.device == nil)
         #expect(configuration.environment[USBPassthroughPolicy.environmentKey] == nil)
+    }
 
-        let state = USBDeviceMenuState.make(
-            preference: USBDevicePreference(device: chosen, isEnabled: true),
-            connected: [chosen, twin],
-            environment: [:]
+    @Test("a missing product string does not lose the saved physical selection")
+    func productStringIsNotIdentity() {
+        var unnamed = drive
+        unnamed.name = ""
+        let configuration = USBPassthroughLaunchConfiguration.make(
+            baseEnvironment: [:],
+            preference: USBDevicePreference(device: drive, isEnabled: true), connected: [unnamed]
         )
-        #expect(state.isAmbiguous)
-        let presentation = StartMenuPresentation.usbDevice(state: state)
-        #expect(!presentation.isGranted)
-        #expect(presentation.detail.contains("unplug one"))
+        #expect(configuration.device == drive)
     }
 
     @Test("the row explains whether the chosen device is plugged in")

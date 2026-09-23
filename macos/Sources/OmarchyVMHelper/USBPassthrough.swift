@@ -3,11 +3,9 @@ import IOKit
 
 /// One USB device the Mac can hand to the guest.
 ///
-/// QEMU is told to match on the vendor/product pair rather than on a bus
-/// address: an iPhone re-enumerates when it is unlocked, trusted, or simply
-/// unplugged and plugged back in, and a saved bus address would then point at
-/// nothing — or worse, at a different device. The physical port is kept as
-/// well, and pins the match only when another identical device is attached.
+/// QEMU matches the vendor/product pair at the selected physical bus and port.
+/// Unlike a device address, this location survives re-enumeration. Moving the
+/// device to another port requires choosing it again.
 struct USBDeviceIdentity: Equatable, Codable {
     var vendorId: Int
     var productId: Int
@@ -44,10 +42,19 @@ struct USBDeviceIdentity: Equatable, Codable {
         return ports.isEmpty ? nil : ports.map(String.init).joined(separator: ".")
     }
 
-    /// Same hardware regardless of the product string, which one enumeration
-    /// may report and another leave empty.
+    /// Same device model, regardless of the product string.
     func matches(_ other: USBDeviceIdentity) -> Bool {
         vendorId == other.vendorId && productId == other.productId
+    }
+
+    /// The selected model at the selected physical port, not an identical twin.
+    func matchesSelection(_ other: USBDeviceIdentity) -> Bool {
+        matches(other) && locationId == other.locationId
+    }
+
+    var selectionName: String {
+        guard let bus = hostBus, let port = hostPort else { return displayName }
+        return "\(displayName) · bus \(bus), port \(port)"
     }
 }
 
@@ -162,21 +169,16 @@ enum USBPassthroughPolicy {
         (0...0xFFFF).contains(device.vendorId) && (0...0xFFFF).contains(device.productId)
     }
 
-    /// The vendor/product pair alone while the device is the only one of its
-    /// kind, so it follows the device from port to port. With an identical
-    /// twin attached, QEMU would take whichever it enumerates first, so the
-    /// saved port is added and only that unit matches. Nil when even the port
-    /// cannot single it out: passing nothing beats passing the wrong unit.
-    static func properties(for device: USBDeviceIdentity, connected: [USBDeviceIdentity]) -> String? {
+    /// Always pin the selected port, including when no twin is currently
+    /// attached: QEMU keeps scanning for matching devices throughout the run.
+    /// Bus zero is a QEMU wildcard, so it cannot safely identify a selection
+    /// even when today's snapshot happens to contain only one matching device.
+    static func properties(for device: USBDeviceIdentity) -> String? {
+        guard isValid(device), let location = device.locationId,
+              (0...0xFFFF_FFFF).contains(location),
+              let bus = device.hostBus, bus > 0, let port = device.hostPort else { return nil }
         let pair = String(format: "vendorid=0x%04x,productid=0x%04x", device.vendorId, device.productId)
-        let twins = connected.filter { $0.matches(device) }
-        guard twins.count > 1 else { return pair }
-        guard let bus = device.hostBus, let port = device.hostPort else { return nil }
-        // QEMU reads hostbus=0 as "any bus", and libusb numbers the first
-        // controller 0, so a device there is pinned by its port path alone.
-        let matched = twins.filter { $0.hostPort == port && (bus == 0 || $0.hostBus == bus) }
-        guard matched.count == 1 else { return nil }
-        return bus > 0 ? "\(pair),hostbus=\(bus),hostport=\(port)" : "\(pair),hostport=\(port)"
+        return "\(pair),hostbus=\(bus),hostport=\(port)"
     }
 }
 
@@ -202,7 +204,8 @@ struct USBPassthroughLaunchConfiguration: Equatable {
         var environment = baseEnvironment
         environment.removeValue(forKey: USBPassthroughPolicy.environmentKey)
         guard let device = preference.activeDevice, USBPassthroughPolicy.isValid(device),
-              let properties = USBPassthroughPolicy.properties(for: device, connected: connected) else {
+              connected.filter({ $0.matchesSelection(device) }).count == 1,
+              let properties = USBPassthroughPolicy.properties(for: device) else {
             return Self(device: nil, environment: environment)
         }
         environment[USBPassthroughPolicy.environmentKey] = properties
@@ -217,9 +220,8 @@ struct USBDeviceMenuState: Equatable {
     /// False when the saved device is not plugged in right now, so the row can
     /// say the guest will start without it rather than promising it.
     let isConnected: Bool
-    /// True when an identical device is attached where even the port cannot
-    /// tell the two apart, so the launch leaves both with macOS.
-    var isAmbiguous = false
+    /// The saved location cannot be expressed as an exact QEMU USB filter.
+    var hasUnsafeLocation = false
     let environmentOverride: String?
 
     static let disabled = Self(device: nil, isEnabled: false, isConnected: false, environmentOverride: nil)
@@ -233,9 +235,9 @@ struct USBDeviceMenuState: Equatable {
         return Self(
             device: preference.device,
             isEnabled: preference.isEnabled && preference.device != nil,
-            isConnected: preference.device.map { saved in connected.contains { $0.matches(saved) } } ?? false,
-            isAmbiguous: preference.device.map {
-                USBPassthroughPolicy.properties(for: $0, connected: connected) == nil
+            isConnected: preference.device.map { saved in connected.contains { $0.matchesSelection(saved) } } ?? false,
+            hasUnsafeLocation: preference.device.map {
+                USBPassthroughPolicy.properties(for: $0) == nil
             } ?? false,
             environmentOverride: (override?.isEmpty == false) ? override : nil
         )
