@@ -54,6 +54,7 @@ pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 precise_scroll_patch="$native_dir/patches/qemu-cocoa-precise-scroll.patch"
 iso_swap_patch="$native_dir/patches/qemu-cocoa-iso-section-grave-swap.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
+audio_recovery_patch="$native_dir/patches/qemu-hda-full-ring-recovery.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 memory_reclaim_patch="$native_dir/patches/qemu-hvf-free-page-reclaim.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
@@ -80,6 +81,7 @@ pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32
 precise_scroll_patch_sha256=54252b3b19358aa7e2c75d5f50775a7f488ef2d8b4db8723ba4768b56316a78f
 iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284cf2387
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
+audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 memory_reclaim_patch_sha256=d68b75ed390aa0afb8e2e492be8f1f0f12200502125cd1da3bbc86730a74b782
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
@@ -429,7 +431,10 @@ patch -d "$source_dir" -p1 -f -i "$immersive_patch"
 patch -d "$source_dir" -p1 -f -i "$full_grab_patch"
 patch -d "$source_dir" -p1 -f -i "$reenable_patch"
 patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
+verify_file_sha "Try Omarchy HDA full-ring recovery patch" \
+  "$audio_recovery_patch" "$audio_recovery_patch_sha256"
 patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
+patch -d "$source_dir" -p1 -f -i "$audio_recovery_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$memory_reclaim_patch"

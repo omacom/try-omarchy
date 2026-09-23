@@ -139,3 +139,23 @@ grant to survive future updates.
 
 See the root `README.md`, `docs/architecture.md`, and `docs/releasing.md` for the
 supported platform, runtime boundaries, and distribution checklist.
+
+## Audio continuity
+
+The SDL backend uses a 1 ms audio timer and eight output buffers. With an
+obtained 512-frame SDL callback at 44.1 kHz, that gives 4096 frames (about 93 ms)
+of host queue capacity; other devices may negotiate different values. Capacity
+is not guaranteed occupancy or a measurement of end-to-end latency. The shorter
+timer increases requested wakeups while audio is active.
+
+The pinned QEMU build also preserves a full HDA output ring instead of discarding
+its queued samples after a delayed callback. It rebases the producer clock to
+the existing write position and drains through the normal bounded backend write
+loop, avoiding a prolonged elapsed-time catch-up burst. Existing clock correction
+and stream start/stop behavior remain in place. The optional
+`hda_audio_full_recovery` QEMU trace event identifies this recovery path.
+
+These changes mitigate audio interruptions when graphics work delays device
+servicing; they do not remove blocking graphics work or guarantee uninterrupted
+playback under every load. See [audio validation](../docs/audio-continuity.md)
+for the reproduction procedure, observations, and latency limitations.

@@ -1707,7 +1707,7 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device "virtio-net-pci,id=omarchy-nic,netdev=omarchy-net,mac=$network_mac,romfile="
-  -audiodev 'sdl,id=omarchy-audio'
+  -audiodev 'sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8'
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none
