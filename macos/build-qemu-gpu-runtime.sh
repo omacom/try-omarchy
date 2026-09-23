@@ -256,7 +256,7 @@ download_and_verify() {
 
   log "Downloading $label"
   curl --fail --location --silent --show-error \
-    --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 \
+    --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 20 \
     --output "$output" "$url"
   actual_sha=$(shasum -a 256 "$output" | awk '{ print $1 }')
   [[ $actual_sha == "$expected_sha" ]] || \
