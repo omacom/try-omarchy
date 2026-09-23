@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+flags=()
+if [[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/t3code-flags.conf ]]; then
+  while IFS= read -r flag || [[ -n $flag ]]; do
+    trimmed=${flag#"${flag%%[![:space:]]*}"}
+    [[ -z $trimmed || ${trimmed:0:1} == '#' ]] || flags+=("$flag")
+  done <"${XDG_CONFIG_HOME:-$HOME/.config}/t3code-flags.conf"
+fi
+exec /opt/t3code-bin/t3code "${flags[@]}" "$@"

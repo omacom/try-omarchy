@@ -545,6 +545,7 @@ if (
     fail("upstream identity is not pinned")
 
 supply_chain_keys = {
+    "t3code",
     "ghostty",
     "aquamarine",
     "hyprtoolkit",
@@ -751,6 +752,28 @@ if yay != {
     "licenseSha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2",
 }:
     fail("factory yay component is not the reviewed ARM64 release")
+t3code = exact_keys(
+    supply_chain.get("t3code"),
+    {
+        "cliSha256",
+        "recipe",
+        "recipeSha256",
+        "releaseApi",
+        "resolverSha256",
+        "wrapperSha256",
+    },
+    "build spec T3 Code component",
+)
+if t3code != {
+    "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+    "recipe": "native-overlay/usr/local/share/try-omarchy/t3code/PKGBUILD",
+    "recipeSha256": "e552375689821694d534cb5dc84d1e63607f1f2bd6fa87f55b117bc5ba771b46",
+    "wrapperSha256": "af6c93d0ce671d4abb35a95970eccb43eac40b9e0d185403aa2043b6742d2607",
+    "cliSha256": "1fde07d1996b56885da2bf3d8750d84e66e9c3afed169be650f3dcf7f638dc60",
+    "resolverSha256": "384c438dbafccf5891e2f53406ec0669ccd0ff3460684956c34add670e048839"
+}:
+    fail("build spec T3 Code installer differs from the reviewed release policy")
+
 ghostty = exact_keys(
     supply_chain.get("ghostty"),
     {

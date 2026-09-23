@@ -122,6 +122,30 @@ for pair in PKGBUILD:recipeSha256 ghostty-wrapper:wrapperSha256; do
     exit 1
   }
 done
+# T3 Code stays lazy-loaded; only the verified installer belongs in the factory.
+if pacman -Qq t3code-bin >/dev/null 2>&1; then
+  echo "T3 Code must remain a user-initiated post-build install" >&2
+  exit 1
+fi
+for asset in \
+  /usr/local/lib/try-omarchy/install-t3code-arm64 \
+  /usr/local/share/try-omarchy/t3code/PKGBUILD \
+  /usr/local/share/try-omarchy/t3code/t3code-wrapper \
+  /usr/local/share/try-omarchy/t3code/t3 \
+  /usr/local/share/try-omarchy/t3code/resolve-release.py; do
+  [[ -f $asset && ! -L $asset && $(pacman -Qoq "$asset") == try-omarchy-runtime ]] || {
+    echo "T3 Code installer asset is missing, unsafe or unowned: $asset" >&2
+    exit 1
+  }
+done
+[[ -x /usr/local/lib/try-omarchy/install-t3code-arm64 ]] || exit 1
+for pair in PKGBUILD:recipeSha256 t3code-wrapper:wrapperSha256 t3:cliSha256 resolve-release.py:resolverSha256; do
+  expected=$(read_spec "[\"supplyChain\"][\"t3code\"][\"${pair#*:}\"]")
+  printf '%s  %s\n' "$expected" "/usr/local/share/try-omarchy/t3code/${pair%:*}" | sha256sum -c - >/dev/null || {
+    echo "T3 Code installer asset digest mismatch: ${pair%:*}" >&2
+    exit 1
+  }
+done
 vivaldi_installer=/usr/local/lib/try-omarchy/install-vivaldi-arm64
 vivaldi_key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
 [[ -x $vivaldi_installer && ! -L $vivaldi_installer ]] || {

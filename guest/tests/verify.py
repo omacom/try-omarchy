@@ -259,6 +259,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "t3code-arm64-desktop",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -404,9 +405,17 @@ def main() -> None:
                 "applicationUrl": "https://release.files.ghostty.org/1.3.1/ghostty-1.3.1.tar.gz",
                 "applicationSha256": "3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb",
                 "factoryProvenance": "installer-only",
+            },
+            {
+                "id": "t3code-arm64",
+                "userInitiated": True,
+                "delivery": "latest-stable-vendor-appimage-repack",
+                "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+                "verification": "github-asset-sha256",
+                "factoryProvenance": "installer-only"
             }
         ],
-        "Vivaldi, 1Password, and Ghostty installation are explicit post-build trust boundaries",
+        "Vivaldi, 1Password, Ghostty, and T3 Code installation are explicit post-build trust boundaries",
     )
 
     pacman_conf = read(GUEST / spec["inputs"]["pacmanConfig"])

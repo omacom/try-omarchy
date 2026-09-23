@@ -131,3 +131,10 @@ It never forces a shutdown on a timer. **Shut down to manage…** returns to the
 native settings window without automatic startup so location and reset remain
 accessible. A normal Linux reboot keeps the current QEMU process and therefore
 does not apply these launch settings.
+
+## Optional T3 Code desktop
+
+**Install → AI → T3 Code** downloads and packages the latest stable official
+ARM64 Electron release on demand. `omarchy update` refreshes installed copies
+through the same verified release feed. See [T3 Code](../docs/t3code.md) for
+existing-VM integration, update holds, and the post-build trust boundary.

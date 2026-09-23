@@ -1,0 +1,135 @@
+#!/bin/bash
+set -euo pipefail
+
+fail() { echo "install-t3code-arm64: $*" >&2; exit 1; }
+usage() {
+  echo 'Usage: install-t3code-arm64 [--from-checkout DIR] [--build-only DIR] [--update]'
+  echo 'Package the verified Electron release as your user and install T3 Code on ARM64.'
+  echo '--build-only retains the package in DIR without registering or installing it.'
+}
+
+spec=/usr/share/try-omarchy/build-spec.json
+assets=/usr/local/share/try-omarchy/t3code
+output=''
+update=false
+while (($#)); do
+  case "$1" in
+    --from-checkout)
+      (($# >= 2)) || fail '--from-checkout requires a directory'
+      spec="$2/guest/spec.json"
+      assets="$2/guest/native-overlay/usr/local/share/try-omarchy/t3code"
+      shift 2 ;;
+    --build-only)
+      (($# >= 2)) || fail '--build-only requires a directory'
+      output=$2
+      [[ -n $output ]] || fail '--build-only requires a directory'
+      shift 2 ;;
+    --update) update=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
+[[ $(uname -m) == aarch64 ]] || fail 'this installer supports only aarch64'
+(( EUID != 0 )) || fail 'run as your normal guest user, without sudo; packaging must not run as root'
+[[ -f $spec && ! -L $spec ]] || fail 'the Try Omarchy build spec is missing or unsafe'
+
+# Updating must not reinstall an app that the user removed, or bypass a hold.
+if $update; then
+  pacman -Q t3code-bin >/dev/null 2>&1 || exit 0
+  while IFS= read -r pattern; do
+    if [[ -n $pattern && t3code-bin == $pattern ]]; then
+      echo 'T3 Code is held by IgnorePkg; skipping its update.'
+      exit 0
+    fi
+  done < <(pacman-conf IgnorePkg)
+fi
+
+# Authenticate local packaging code; only version and digest come from the network.
+python3 - "$spec" "$assets" <<'PYCODE'
+import hashlib, json, pathlib, sys
+pins = json.loads(pathlib.Path(sys.argv[1]).read_text())["supplyChain"]["t3code"]
+assets = pathlib.Path(sys.argv[2])
+for name, field in (("PKGBUILD", "recipeSha256"), ("t3code-wrapper", "wrapperSha256"),
+                    ("t3", "cliSha256"), ("resolve-release.py", "resolverSha256")):
+    path = assets / name
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"missing or unsafe T3 Code asset: {name}")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != pins[field]:
+        raise SystemExit(f"T3 Code asset digest mismatch: {name}")
+PYCODE
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}
+mkdir -p "$cache"
+work=$(mktemp -d "$cache/try-omarchy-t3code.XXXXXX")
+trap 'rm -rf -- "$work"' EXIT
+curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 \
+  --silent --show-error https://api.github.com/repos/pingdotgg/t3code/releases/latest \
+  -o "$work/release.json" || fail 'could not check the latest stable release; the installed app was not changed'
+python3 "$assets/resolve-release.py" <"$work/release.json" >"$work/release.txt" || fail 'invalid release metadata'
+mapfile -t release <"$work/release.txt"
+(( ${#release[@]} == 3 )) || fail 'incomplete release metadata'
+version=${release[0]}
+digest=${release[2]}
+package_version="$version-1"
+
+repo=/usr/share/try-omarchy/repo
+if [[ -z $output ]]; then
+  [[ -d $repo && ! -L $repo ]] || fail 'the local Try Omarchy repository is missing or unsafe'
+  grep -Fxq '[try-omarchy]' /etc/pacman.conf || fail 'the local Try Omarchy repository is not configured'
+  if installed=$(pacman -Q t3code-bin 2>/dev/null); then
+    installed_version=${installed#t3code-bin }
+    if (( $(vercmp "$installed_version" "$package_version") >= 0 )) &&
+       pacman -Qn t3code-bin >/dev/null 2>&1; then
+      echo "T3 Code $installed_version is already current (latest stable: $version)."
+      exit 0
+    fi
+    (( $(vercmp "$installed_version" "$package_version") <= 0 )) || fail 'refusing to downgrade the installed app'
+
+  fi
+fi
+
+echo 'Downloading and packaging the latest stable ARM64 Electron desktop release.'
+sed -e "s/@VERSION@/$version/g" -e "s/@APPIMAGE_SHA256@/$digest/g" \
+  "$assets/PKGBUILD" >"$work/PKGBUILD"
+# The template and substituted values were validated above.
+mapfile -t dependencies < <(bash -c 'source "$1"; printf "%s\n" "${depends[@]}"' bash "$work/PKGBUILD")
+(( ${#dependencies[@]} > 0 )) || fail 'the package dependencies are missing'
+omarchy-pkg-add fakeroot binutils "${dependencies[@]}" || fail 'could not install package dependencies'
+for tool in makepkg python3 curl tar zstd fakeroot bsdtar repo-add pacman; do
+  command -v "$tool" >/dev/null || fail "$tool is required"
+done
+
+available=$(df --output=avail --block-size=1 "$cache" | tail -n 1)
+[[ $available =~ ^[[:space:]]*[0-9]+$ ]] || fail 'could not determine free build space'
+(( available >= 2 * 1024 * 1024 * 1024 )) || fail 'at least 2 GiB free is needed for packaging'
+cp "$assets/t3code-wrapper" "$assets/t3" "$work/"
+(
+  cd "$work"
+  # Isolate outputs from user makepkg destination/cache settings. No sync or
+  # install flag: makepkg must never invoke a privileged build itself.
+  export BUILDDIR="$work" PKGDEST="$work" SRCDEST="$work" SRCPKGDEST="$work"
+  export PKGEXT=.pkg.tar.zst
+  makepkg --noconfirm --nosign
+) || fail 'T3 Code build failed; the installed app was not changed'
+
+package="$work/t3code-bin-$package_version-aarch64.pkg.tar.zst"
+[[ -f $package && ! -L $package ]] || fail 'the expected package was not produced'
+[[ $(pacman -Qp "$package") == "t3code-bin $package_version" ]] || fail 'unexpected T3 Code package identity'
+if [[ -n $output ]]; then
+  mkdir -p "$output"
+  cp "$package" "$output/"
+  echo "Built: $output/$(basename "$package")"
+  exit 0
+fi
+
+# Publish before installation so yay does not treat T3 Code as a foreign/AUR
+# package. Keep the archive for offline reinstallation via pacman.
+sudo install -m644 "$package" "$repo/$(basename "$package")"
+sudo repo-add --quiet "$repo/try-omarchy.db.tar.gz" "$repo/$(basename "$package")" || fail 'could not register T3 Code'
+sudo ln -sfn try-omarchy.db.tar.gz "$repo/try-omarchy.db"
+sudo install -Dm644 "$repo/try-omarchy.db.tar.gz" /var/lib/pacman/sync/try-omarchy.db
+sudo pacman -S --noconfirm try-omarchy/t3code-bin || fail 'could not install T3 Code'
+pacman -Qkk t3code-bin >/dev/null || fail 'the installed T3 Code package is incomplete'
+pacman -Qn t3code-bin >/dev/null || fail 'T3 Code was not registered as a native package'
+
+echo 'T3 Code desktop is installed and available in the application launcher.'

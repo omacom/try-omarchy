@@ -219,6 +219,14 @@
       "wrapperSha256": "c41b20e46f257da7a06ee8c67b1056d099f61d7935ac2014525b1b2b1f74f827",
       "license": "MIT",
       "signatureSha256": "5591816f6a52f03d1ea5be0129fcc396aeece7238419cdd36e511546ee242798"
+    },
+    "t3code": {
+      "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+      "recipe": "native-overlay/usr/local/share/try-omarchy/t3code/PKGBUILD",
+      "recipeSha256": "e552375689821694d534cb5dc84d1e63607f1f2bd6fa87f55b117bc5ba771b46",
+      "wrapperSha256": "af6c93d0ce671d4abb35a95970eccb43eac40b9e0d185403aa2043b6742d2607",
+      "cliSha256": "1fde07d1996b56885da2bf3d8750d84e66e9c3afed169be650f3dcf7f638dc60",
+      "resolverSha256": "384c438dbafccf5891e2f53406ec0669ccd0ff3460684956c34add670e048839"
     }
   },
   "themes": [
@@ -529,6 +537,25 @@
             "afterSha256": "b65dd81b1bd9820445d1e7ca60c0a978c684c96e3e0280522c60944d1f676be4"
           }
         ]
+      },
+      {
+        "id": "t3code-arm64-desktop",
+        "description": "Install and update the latest stable ARM64 Electron desktop through Omarchy, with Pacman ownership.",
+        "reference": "https://github.com/basecamp/omarchy/blob/0534987009061cbe2dacdde4ad564092ab698d12/bin/omarchy-install-ai-t3-code",
+        "patch": "patches/omarchy/t3code-arm64-desktop.patch",
+        "patchSha256": "ec85f6d5e46df9b22b7f831aa6d7c534d2f212b638e77ebdce1fa22aa1a4bf78",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-ai-t3-code",
+            "beforeSha256": "299962ecf38cf1d5423fe41bdcda0f7078fd7f6f832909af6f09738b4d0fb2b0",
+            "afterSha256": "0c96118a1f97b50e60901a1b0f29c093174f5f5355499ea37e1bdaef0e4f5d52"
+          },
+          {
+            "path": "bin/omarchy-update",
+            "beforeSha256": "cd1b703031a7456b2bd1302166a2cd29a1db8007f15bed954f64e742502aa552",
+            "afterSha256": "fe4f23aeee7226327005f7973e67c305c7c4c0464186859300ffa23627dccf1b"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [
@@ -564,6 +591,14 @@
         "delivery": "pinned-signed-source-build",
         "applicationUrl": "https://release.files.ghostty.org/1.3.1/ghostty-1.3.1.tar.gz",
         "applicationSha256": "3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb",
+        "factoryProvenance": "installer-only"
+      },
+      {
+        "id": "t3code-arm64",
+        "userInitiated": true,
+        "delivery": "latest-stable-vendor-appimage-repack",
+        "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+        "verification": "github-asset-sha256",
         "factoryProvenance": "installer-only"
       }
     ],

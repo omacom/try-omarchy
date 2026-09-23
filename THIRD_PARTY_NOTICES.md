@@ -68,3 +68,10 @@ See `guest/spec.json`, `guest/packages.lock.json`, and
 `macos/build-qemu-gpu-runtime.sh` for exact source identities and checksums.
 Before distributing a release, follow `docs/releasing.md` and audit the assembled
 bundle's notices and corresponding-source obligations.
+
+**T3 Code** is an optional, user-initiated download from
+<https://github.com/pingdotgg/t3code> (MIT, with Electron/Chromium and bundled
+third-party notices). The factory distributes only the Try Omarchy installer.
+The installer and Omarchy updater resolve the latest stable ARM64 Electron
+AppImage and verify GitHub's asset SHA-256 before packaging it locally. The
+application itself is a mutable post-build dependency, not a factory artifact.

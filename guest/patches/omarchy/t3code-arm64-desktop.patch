@@ -1,0 +1,34 @@
+--- a/bin/omarchy-install-ai-t3-code
++++ b/bin/omarchy-install-ai-t3-code
+@@ -9,7 +9,11 @@
+ T3CODE_STATE_DIR="$T3CODE_HOME/userdata"
+ 
+ echo "Installing T3 Code..."
+-omarchy-pkg-add t3code-bin
++if [[ $(uname -m) == aarch64 ]]; then
++  /usr/local/lib/try-omarchy/install-t3code-arm64
++else
++  omarchy-pkg-add t3code-bin
++fi
+ 
+ echo "Matching T3 Code to the current theme..."
+ mkdir -p "$T3CODE_STATE_DIR"
+@@ -22,7 +26,7 @@
+ omarchy-theme-set-t3code
+ 
+ # The packaged CLI selects the published palette before the app's first launch.
+-t3 theme set omarchy --base-dir "$T3CODE_HOME"
++/usr/bin/t3 theme set omarchy --base-dir "$T3CODE_HOME"
+ 
+ echo "Opening T3 Code..."
+ setsid uwsm-app -- gtk-launch t3code >/dev/null 2>&1 &
+--- a/bin/omarchy-update
++++ b/bin/omarchy-update
+@@ -45,6 +45,7 @@
+   # them, so everything below waits on this finishing. An upgrade that stopped
+   # takes the update with it rather than migrating against what is still on disk.
+   omarchy-update-system-pkgs
++  /usr/local/lib/try-omarchy/install-t3code-arm64 --update
+   omarchy-migrate
+   omarchy-hook post-update
+   omarchy-update-aur-pkgs

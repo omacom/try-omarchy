@@ -1,0 +1,3 @@
+#!/bin/sh
+export ELECTRON_RUN_AS_NODE=1
+exec /opt/t3code-bin/t3code /opt/t3code-bin/resources/app.asar/apps/server/dist/bin.mjs "$@"

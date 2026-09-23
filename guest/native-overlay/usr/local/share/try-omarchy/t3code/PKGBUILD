@@ -1,0 +1,59 @@
+# Downloaded only when the user selects Install > AI > T3 Code.
+pkgname=t3code-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='T3 Code Electron desktop for local coding agents'
+arch=('aarch64')
+url='https://github.com/pingdotgg/t3code'
+license=('MIT')
+depends=('alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'gdk-pixbuf2'
+         'glib2' 'glibc' 'gtk3' 'hicolor-icon-theme' 'libcups' 'libdrm'
+         'gcc-libs' 'libx11' 'libxcb' 'libxcomposite' 'libxdamage' 'libxext'
+         'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa' 'nspr' 'nss' 'pango'
+         'systemd-libs' 'xdg-utils' 'zlib')
+provides=("t3code=$pkgver")
+conflicts=('t3code')
+options=('!debug' '!strip')
+_appimage="T3-Code-$pkgver-arm64.AppImage"
+source=("https://github.com/pingdotgg/t3code/releases/download/v$pkgver/$_appimage"
+        "https://raw.githubusercontent.com/pingdotgg/t3code/v0.0.42/LICENSE"
+        't3code-wrapper' 't3')
+sha256sums=('@APPIMAGE_SHA256@'
+            '935d8f2af0c703f9c39517ee57cc4930b19d02d533be930b63f0e82f93614b43'
+            'af6c93d0ce671d4abb35a95970eccb43eac40b9e0d185403aa2043b6742d2607'
+            '1fde07d1996b56885da2bf3d8750d84e66e9c3afed169be650f3dcf7f638dc60')
+noextract=("$_appimage")
+
+prepare() {
+  chmod +x "$srcdir/$_appimage"
+  "$srcdir/$_appimage" --appimage-extract >/dev/null
+  [[ -x $srcdir/squashfs-root/t3code && -f $srcdir/squashfs-root/chrome-sandbox ]]
+}
+
+package() {
+  install -dm755 "$pkgdir/opt/t3code-bin"
+  cp -a "$srcdir/squashfs-root/." "$pkgdir/opt/t3code-bin/"
+  chmod -R u=rwX,go=rX "$pkgdir/opt/t3code-bin"
+  chmod 4755 "$pkgdir/opt/t3code-bin/chrome-sandbox"
+  install -Dm755 "$srcdir/t3code-wrapper" "$pkgdir/usr/bin/t3code"
+  install -Dm755 "$srcdir/t3" "$pkgdir/usr/bin/t3"
+  local icon size_dir
+  for icon in "$srcdir"/squashfs-root/usr/share/icons/hicolor/*/apps/t3code.png; do
+    size_dir=${icon%/apps/t3code.png}
+    install -Dm644 "$icon" "$pkgdir/usr/share/icons/hicolor/${size_dir##*/}/apps/t3code.png"
+  done
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/t3code.desktop" <<'DESKTOP'
+[Desktop Entry]
+Name=T3 Code
+Comment=Desktop control surface for local coding agents
+Exec=t3code %U
+TryExec=t3code
+Terminal=false
+Type=Application
+Icon=t3code
+StartupWMClass=t3code
+Categories=Development;
+MimeType=x-scheme-handler/t3code;
+DESKTOP
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/t3code-bin/LICENSE"
+}
