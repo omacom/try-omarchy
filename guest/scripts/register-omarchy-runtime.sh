@@ -127,6 +127,15 @@ cursor_restore="$root/usr/local/bin/omarchy-native-cursor-restore"
   fail "native screensaver cursor helper is missing or unsafe"
 cp -a "$cursor_restore" "$stage/usr/local/bin/omarchy-native-cursor-restore"
 
+# The VM night-light command and its screen shader must travel together.
+for relative in \
+  usr/local/bin/omarchy-native-nightlight \
+  usr/local/share/try-omarchy/nightlight.frag; do
+  [[ -f $root/$relative && ! -L $root/$relative ]] || fail "night-light asset is missing or unsafe: $relative"
+  mkdir -p "$stage/$(dirname "$relative")"
+  cp -a "$root/$relative" "$stage/$relative"
+done
+
 vivaldi_installer="$root/usr/local/lib/try-omarchy/install-vivaldi-arm64"
 vivaldi_key="$root/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
 [[ -f $vivaldi_installer && -x $vivaldi_installer && ! -L $vivaldi_installer ]] ||

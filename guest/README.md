@@ -99,6 +99,44 @@ persistent VM therefore keeps its identity across restarts and app updates,
 while a Factory Reset or a fresh ephemeral VM gets a new identity. The factory
 image must never contain shared SSH host private keys.
 
+## Night light
+
+**Super + Ctrl + N** and the night-light indicator use the same manual toggle
+in the VM. Virtio GPU does not expose the DRM colour-transform property used
+by `hyprsunset`, so the native guest applies the 4000 K tint with a final screen
+shader instead. Turning it off removes that shader. A user's existing screen
+shader is never overwritten: enabling night light reports a conflict, and
+disabling it leaves any subsequently selected custom shader alone.
+
+The setting lasts until a Hyprland configuration reload or logout; its status
+is read from the compositor, and the indicator refreshes after a reload. This
+fallback does not implement `hyprsunset.conf` schedules, arbitrary temperatures,
+or gamma adjustment. Non-VM sessions retain the upstream `hyprsunset` backend.
+Hyprland's guest screenshot path omits the final tint on the pinned compositor;
+capture the Mac window to show what is displayed.
+
+Updating the Mac app does not modify an existing guest. From this checkout
+**inside Omarchy**, preview and install the fix with:
+
+```sh
+python3 guest/scripts/install-nightlight.py
+sudo python3 guest/scripts/install-nightlight.py --apply
+omarchy restart shell
+```
+
+The installer only accepts the pinned original files or an already installed
+copy of this backport. It refuses local changes, installs the command, service,
+helper and shader, and prints a backup under
+`/var/lib/try-omarchy/nightlight-backup.*`. Repeating it is a no-op. This is a
+local backport to package-owned files on existing guests; reinstalling their
+older runtime package can replace it. Fresh images own the fix and both assets
+in `try-omarchy-runtime`.
+
+To undo an existing-guest installation, first turn night light off. Using the
+printed backup directory, restore its `usr/` contents to `/usr/`, remove only
+the newly created paths listed in its `created-files.json`, and run
+`omarchy restart shell` again. No user Hyprland configuration is changed.
+
 ## Settings access from an existing VM
 
 New factory images include **Setup → Try Omarchy Settings** and a searchable
