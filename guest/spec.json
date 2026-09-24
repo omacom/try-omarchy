@@ -280,12 +280,12 @@
         "description": "Install 1Password from its signed ARM64 release with VM-compatible launchers and Quick Access.",
         "reference": "https://github.com/basecamp/omarchy/issues/87",
         "patch": "patches/omarchy/1password-arm64-installer.patch",
-        "patchSha256": "8bdf7242d7ec4ffa6e6dd114b0944962a905a2dcb83d47ef804d0f4f418de739",
+        "patchSha256": "973cb23a4cb1f4df0d5216c298211c1ce1470002b41aed3e0adeb16e1ce6dc7c",
         "targets": [
           {
             "path": "bin/omarchy-install-service-1password",
             "beforeSha256": "5d5a5a9b3cf87579b4232067c9f7c78091cecf250111b802ffffa49c607f52d7",
-            "afterSha256": "336be4cca1c085ea9d5344920bcb19220fc5f297629c79ffde4b77b1d66e3c4a"
+            "afterSha256": "2a7e74f042ad97a8c877251b699318bab8071d7afe108a3f674038974af5d3db"
           },
           {
             "path": "default/hypr/bindings/applications.lua",
