@@ -59,6 +59,7 @@ memory_reclaim_patch="$native_dir/patches/qemu-hvf-free-page-reclaim.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
+fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -82,6 +83,7 @@ iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 memory_reclaim_patch_sha256=d68b75ed390aa0afb8e2e492be8f1f0f12200502125cd1da3bbc86730a74b782
+fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a207fb1499
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
@@ -417,6 +419,8 @@ verify_file_sha "Try Omarchy 9p shared-folder patch" \
   "$shared_folder_patch" "$shared_folder_patch_sha256"
 verify_file_sha "Try Omarchy HVF free-page reclaim patch" \
   "$memory_reclaim_patch" "$memory_reclaim_patch_sha256"
+verify_file_sha "Try Omarchy Darwin GPU fence polling patch" \
+  "$fence_poll_patch" "$fence_poll_patch_sha256"
 verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
   "$strchrnul_patch" "$strchrnul_patch_sha256"
 
@@ -433,6 +437,7 @@ patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$memory_reclaim_patch"
+patch -d "$source_dir" -p1 -f -i "$fence_poll_patch"
 patch -d "$source_dir" -p1 -f -i "$pinch_patch"
 patch -d "$source_dir" -p1 -f -i "$precise_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$iso_swap_patch"
