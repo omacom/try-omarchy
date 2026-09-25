@@ -7,6 +7,13 @@ fail() {
   exit 1
 }
 
+usage() {
+  echo "Usage: install-vivaldi-arm64 [--follow-stable]"
+  echo "Install the pinned signed ARM64 Vivaldi RPM into the local [try-omarchy] repo."
+  echo "--follow-stable also checks Vivaldi's official aarch64 index for a newer"
+  echo "stable release (key fingerprint + RPM signature still required)."
+}
+
 ensure_rpm_verifier() {
   if command -v rpmkeys >/dev/null && command -v rpm >/dev/null; then
     return 0
@@ -26,6 +33,66 @@ ensure_rpm_verifier() {
     fail "could not install the RPM signature verifier; signature verification cannot be skipped"
   fi
 }
+
+# Copy the post-update hook into the invoking user's Omarchy hooks so existing
+# guests that installed Vivaldi before this seeder existed still refresh on
+# `omarchy update`. New guests also get it from /etc/skel.
+ensure_update_hook() {
+  local hook_source=/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook
+  local hook_dir="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/hooks/post-update.d"
+  local hook_dest="$hook_dir/update-vivaldi-arm64"
+  [[ -f $hook_source && ! -L $hook_source ]] || return 0
+  [[ -n ${HOME:-} && $HOME != / && $HOME != /root ]] || return 0
+  install -d -m 0755 "$hook_dir"
+  if [[ -e $hook_dest || -L $hook_dest ]]; then
+    cmp -s "$hook_source" "$hook_dest" && return 0
+  fi
+  install -m 0755 "$hook_source" "$hook_dest"
+}
+
+# Parse Vivaldi's official aarch64 RPM index and print "version release" for the
+# newest stable package. Snapshot builds are ignored. The download URL is always
+# reconstructed from the version — the index is only allowed to supply digits.
+discover_latest_stable() {
+  local listing
+  listing=$(
+    curl \
+      --fail \
+      --location \
+      --proto '=https' \
+      --tlsv1.2 \
+      --silent \
+      --show-error \
+      https://repo.vivaldi.com/archive/rpm/aarch64/
+  ) || return 1
+  python3 -c '
+import re
+import sys
+
+listing = sys.stdin.read()
+pattern = re.compile(r"vivaldi-stable-(\d+(?:\.\d+){3})-([1-9]\d*)\.aarch64\.rpm")
+best = None
+best_key = None
+for match in pattern.finditer(listing):
+    version, release = match.groups()
+    key = tuple(int(part) for part in version.split(".")) + (int(release),)
+    if best_key is None or key > best_key:
+        best_key = key
+        best = (version, release)
+if best is None:
+    raise SystemExit(1)
+print(best[0], best[1])
+' <<<"$listing"
+}
+
+follow_stable=0
+while (($#)); do
+  case "$1" in
+    --follow-stable) follow_stable=1; shift ;;
+    -h | --help) usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+done
 
 [[ $(uname -m) == aarch64 ]] || fail "the pinned Vivaldi package supports only aarch64"
 
@@ -63,30 +130,65 @@ PY
 ) || fail "could not read the pinned Vivaldi metadata"
 (( ${#metadata[@]} == 11 )) || fail "the pinned Vivaldi metadata is incomplete"
 
-version=${metadata[0]}
-rpm_release=${metadata[1]}
+pinned_version=${metadata[0]}
+pinned_rpm_release=${metadata[1]}
 pkgrel=${metadata[2]}
 repository=${metadata[3]}
-rpm_url=${metadata[4]}
-rpm_sha256=${metadata[5]}
+pinned_rpm_url=${metadata[4]}
+pinned_rpm_sha256=${metadata[5]}
 key_sha256=${metadata[6]}
 fingerprint=${metadata[7]}
-reported_version=${metadata[8]}
+pinned_reported_version=${metadata[8]}
 license=${metadata[9]}
 source_date_epoch=${metadata[10]}
 
-[[ $version =~ ^[0-9]+(\.[0-9]+){3}$ ]] || fail "invalid Vivaldi version: $version"
-[[ $rpm_release =~ ^[1-9][0-9]*$ ]] || fail "invalid Vivaldi RPM release: $rpm_release"
+[[ $pinned_version =~ ^[0-9]+(\.[0-9]+){3}$ ]] || fail "invalid Vivaldi version: $pinned_version"
+[[ $pinned_rpm_release =~ ^[1-9][0-9]*$ ]] || fail "invalid Vivaldi RPM release: $pinned_rpm_release"
 [[ $pkgrel =~ ^[1-9][0-9]*$ ]] || fail "invalid Vivaldi package release: $pkgrel"
 [[ $repository == https://repo.vivaldi.com/stable ]] || fail "unexpected Vivaldi repository"
-expected_url="https://downloads.vivaldi.com/stable/vivaldi-stable-$version-$rpm_release.aarch64.rpm"
-[[ $rpm_url == "$expected_url" ]] || fail "Vivaldi RPM URL does not match the pinned release"
-[[ $rpm_sha256 =~ ^[0-9a-f]{64}$ ]] || fail "invalid Vivaldi RPM digest"
+expected_pinned_url="https://downloads.vivaldi.com/stable/vivaldi-stable-$pinned_version-$pinned_rpm_release.aarch64.rpm"
+[[ $pinned_rpm_url == "$expected_pinned_url" ]] || fail "Vivaldi RPM URL does not match the pinned release"
+[[ $pinned_rpm_sha256 =~ ^[0-9a-f]{64}$ ]] || fail "invalid Vivaldi RPM digest"
 [[ $key_sha256 =~ ^[0-9a-f]{64}$ ]] || fail "invalid Vivaldi key digest"
 [[ $fingerprint =~ ^[0-9A-F]{40}$ ]] || fail "invalid Vivaldi signing fingerprint"
-[[ $reported_version == "Vivaldi $version" ]] || fail "invalid Vivaldi reported version"
+[[ $pinned_reported_version == "Vivaldi $pinned_version" ]] || fail "invalid Vivaldi reported version"
 [[ $license == "Multiple, see https://www.vivaldi.com/" ]] || fail "unexpected Vivaldi license"
 [[ $source_date_epoch =~ ^[0-9]+$ ]] || fail "invalid source date epoch"
+
+version=$pinned_version
+rpm_release=$pinned_rpm_release
+rpm_url=$pinned_rpm_url
+rpm_sha256=$pinned_rpm_sha256
+reported_version=$pinned_reported_version
+require_content_digest=1
+
+if ((follow_stable)); then
+  if discovered=$(discover_latest_stable); then
+    discovered_version=${discovered%% *}
+    discovered_release=${discovered#* }
+    [[ $discovered_version =~ ^[0-9]+(\.[0-9]+){3}$ ]] ||
+      fail "Vivaldi stable index returned an invalid version"
+    [[ $discovered_release =~ ^[1-9][0-9]*$ ]] ||
+      fail "Vivaldi stable index returned an invalid RPM release"
+    discovered_pkgver="$discovered_version-$pkgrel"
+    pinned_pkgver="$pinned_version-$pkgrel"
+    if (( $(vercmp "$discovered_pkgver" "$pinned_pkgver") > 0 )); then
+      echo "Following Vivaldi stable $discovered_version (newer than pin $pinned_version)"
+      version=$discovered_version
+      rpm_release=$discovered_release
+      rpm_url="https://downloads.vivaldi.com/stable/vivaldi-stable-$version-$rpm_release.aarch64.rpm"
+      reported_version="Vivaldi $version"
+      # Content SHA is pin-only. Newer stables are authenticated by the pinned
+      # Vivaldi package key fingerprint and full RPM signature verification.
+      require_content_digest=0
+      rpm_sha256=
+    elif (( $(vercmp "$discovered_pkgver" "$pinned_pkgver") < 0 )); then
+      echo "Vivaldi stable index is older than the pin; keeping $pinned_version"
+    fi
+  else
+    echo "Could not query the Vivaldi stable index; using pinned $pinned_version"
+  fi
+fi
 
 package_version="$version-$pkgrel"
 repo_dir=/usr/share/try-omarchy/repo
@@ -98,6 +200,7 @@ if installed=$(pacman -Q vivaldi 2>/dev/null); then
   if (( $(vercmp "$installed_version" "$package_version") >= 0 )); then
     # pacman -Qem means Omarchy's updater will hand the package to yay -Sua.
     if ! pacman -Qem 2>/dev/null | awk '{ print $1 }' | grep -Fxq vivaldi; then
+      ensure_update_hook
       echo "Vivaldi $installed_version is already installed"
       exit 0
     fi
@@ -124,8 +227,10 @@ curl \
   "$rpm_url" \
   --output "$rpm_archive" || fail "Vivaldi RPM download failed"
 
-printf '%s  %s\n' "$rpm_sha256" "$rpm_archive" | sha256sum -c - >/dev/null ||
-  fail "Vivaldi RPM digest mismatch"
+if ((require_content_digest)); then
+  printf '%s  %s\n' "$rpm_sha256" "$rpm_archive" | sha256sum -c - >/dev/null ||
+    fail "Vivaldi RPM digest mismatch"
+fi
 printf '%s  %s\n' "$key_sha256" "$key" | sha256sum -c - >/dev/null ||
   fail "Vivaldi package key digest mismatch"
 
@@ -344,4 +449,5 @@ actual_reported_version=$(python3 -c 'import sys; print(sys.argv[1].strip())' "$
 [[ $actual_reported_version == "$reported_version" ]] ||
   fail "the installed Vivaldi binary reported an unexpected identity"
 
+ensure_update_hook
 echo "Installed signed official ARM64 $reported_version"

@@ -379,8 +379,8 @@ def main() -> None:
                 "id": "vivaldi-arm64",
                 "userInitiated": True,
                 "delivery": "pinned-signed-vendor-rpm",
-                "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
-                "applicationSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
+                "applicationUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.76-1.aarch64.rpm",
+                "applicationSha256": "2dde4165791a641c3d6265b3df218b1e116de05e03c3de47a5f5fb23ff14b0b9",
                 "signingKey": "keys/vivaldi-package-composer-key11.asc",
                 "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
                 "runtimePackages": ["rpm-tools"],
@@ -504,16 +504,16 @@ def main() -> None:
     check(
         vivaldi
         == {
-            "version": "8.2.4133.52",
+            "version": "8.2.4133.76",
             "rpmRelease": 1,
             "pkgrel": 1,
             "repository": "https://repo.vivaldi.com/stable",
-            "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
-            "rpmSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
+            "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.76-1.aarch64.rpm",
+            "rpmSha256": "2dde4165791a641c3d6265b3df218b1e116de05e03c3de47a5f5fb23ff14b0b9",
             "signingKey": "keys/vivaldi-package-composer-key11.asc",
             "signingKeySha256": "5c67d85c0aca9c0d166edb5bc5e6ebc21d67bce4e67c645e7bd76d299fd337ef",
             "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
-            "reportedVersion": "Vivaldi 8.2.4133.52",
+            "reportedVersion": "Vivaldi 8.2.4133.76",
             "license": "Multiple, see https://www.vivaldi.com/",
         },
         "official signed Vivaldi ARM64 RPM and package key are fully pinned",
@@ -937,6 +937,12 @@ def main() -> None:
         "ARM pacman restore uses Omarchy's pre-refresh hook and a pinned mirrorlist",
     )
     check(
+        "post-update-vivaldi-arm64.sh" in configure
+        and "post-update.d/update-vivaldi-arm64" in configure
+        and "update-vivaldi-arm64.hook" in configure,
+        "rootfs configuration seeds the Vivaldi post-update hook for new and existing users",
+    )
+    check(
         "vivaldi-package-composer-key11.asc" in configure
         and "usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub" in configure
         and '"$root/usr/local/lib/try-omarchy/install-vivaldi-arm64"' in configure,
@@ -949,6 +955,12 @@ def main() -> None:
         and "install -m 0644 /usr/share/try-omarchy/mirrorlist /etc/pacman.d/mirrorlist"
         in restore_hook,
         "pre-refresh hook restores the complete Try Omarchy pacman files",
+    )
+    vivaldi_update_hook = read(GUEST / "fragments/post-update-vivaldi-arm64.sh")
+    check(
+        "install-vivaldi-arm64 --follow-stable" in vivaldi_update_hook
+        and "pacman -Q vivaldi" in vivaldi_update_hook,
+        "Vivaldi post-update hook refreshes installed browsers through --follow-stable",
     )
     local_repository = read(GUEST / "scripts/register-local-repository.sh")
     check(
@@ -1094,7 +1106,12 @@ def main() -> None:
         and "gzip -n -9 >.MTREE" in vivaldi_installer
         and "could not generate the Vivaldi package mtree" in vivaldi_installer
         and "sys.argv[1].strip()" in vivaldi_installer
-        and "already installed" in vivaldi_installer,
+        and "already installed" in vivaldi_installer
+        and "--follow-stable" in vivaldi_installer
+        and "discover_latest_stable" in vivaldi_installer
+        and "repo.vivaldi.com/archive/rpm/aarch64" in vivaldi_installer
+        and "require_content_digest" in vivaldi_installer
+        and "ensure_update_hook" in vivaldi_installer,
         "Vivaldi installer verifies and packages one signed ARM64 vendor release with root-owned integrity metadata",
     )
     check(
@@ -1116,9 +1133,12 @@ def main() -> None:
         in register_runtime
         and 'vivaldi_key="$root/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"'
         in register_runtime
+        and 'vivaldi_update_hook="$root/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook"'
+        in register_runtime
         and 'cp -a "$vivaldi_installer"' in register_runtime
-        and 'cp -a "$vivaldi_key"' in register_runtime,
-        "packaged Omarchy runtime owns the Vivaldi installer and signing key",
+        and 'cp -a "$vivaldi_key"' in register_runtime
+        and 'cp -a "$vivaldi_update_hook"' in register_runtime,
+        "packaged Omarchy runtime owns the Vivaldi installer, signing key, and update hook",
     )
     check(
         "depend = rpm-tools" in register_runtime,
@@ -1319,6 +1339,7 @@ def main() -> None:
         and '"$verifier" --version' in finalizer
         and "pacman -Qoq \"$vivaldi_installer\"" in finalizer
         and "pacman -Qoq \"$vivaldi_key\"" in finalizer
+        and "pacman -Qoq \"$vivaldi_update_hook\"" in finalizer
         and "Vivaldi package key digest mismatch" in finalizer,
         "finalizer excludes Vivaldi while requiring its owned authenticated installer",
     )

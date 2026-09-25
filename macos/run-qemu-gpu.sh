@@ -804,16 +804,16 @@ vivaldi = exact_keys(
     "build spec Vivaldi component",
 )
 if vivaldi != {
-    "version": "8.2.4133.52",
+    "version": "8.2.4133.76",
     "rpmRelease": 1,
     "pkgrel": 1,
     "repository": "https://repo.vivaldi.com/stable",
-    "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.52-1.aarch64.rpm",
-    "rpmSha256": "999e0de90883041906ccb3f9a62972318743d819b465a4e788329bb53ffa9a9a",
+    "rpmUrl": "https://downloads.vivaldi.com/stable/vivaldi-stable-8.2.4133.76-1.aarch64.rpm",
+    "rpmSha256": "2dde4165791a641c3d6265b3df218b1e116de05e03c3de47a5f5fb23ff14b0b9",
     "signingKey": "keys/vivaldi-package-composer-key11.asc",
     "signingKeySha256": "5c67d85c0aca9c0d166edb5bc5e6ebc21d67bce4e67c645e7bd76d299fd337ef",
     "signingFingerprint": "8D1FA52AEF58A09D889DD4221256C34716BD9233",
-    "reportedVersion": "Vivaldi 8.2.4133.52",
+    "reportedVersion": "Vivaldi 8.2.4133.76",
     "license": "Multiple, see https://www.vivaldi.com/",
 }:
     fail("Vivaldi installer is not pinned to the reviewed signed ARM64 release")

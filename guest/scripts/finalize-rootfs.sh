@@ -124,6 +124,7 @@ for pair in PKGBUILD:recipeSha256 ghostty-wrapper:wrapperSha256; do
 done
 vivaldi_installer=/usr/local/lib/try-omarchy/install-vivaldi-arm64
 vivaldi_key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
+vivaldi_update_hook=/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook
 [[ -x $vivaldi_installer && ! -L $vivaldi_installer ]] || {
   echo "Vivaldi ARM64 installer is missing or unsafe" >&2
   exit 1
@@ -132,12 +133,20 @@ vivaldi_key=/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub
   echo "Vivaldi package key is missing or unsafe" >&2
   exit 1
 }
+[[ -x $vivaldi_update_hook && ! -L $vivaldi_update_hook ]] || {
+  echo "Vivaldi post-update hook is missing or unsafe" >&2
+  exit 1
+}
 [[ $(pacman -Qoq "$vivaldi_installer") == try-omarchy-runtime ]] || {
   echo "Vivaldi ARM64 installer is not owned by the Omarchy runtime package" >&2
   exit 1
 }
 [[ $(pacman -Qoq "$vivaldi_key") == try-omarchy-runtime ]] || {
   echo "Vivaldi package key is not owned by the Omarchy runtime package" >&2
+  exit 1
+}
+[[ $(pacman -Qoq "$vivaldi_update_hook") == try-omarchy-runtime ]] || {
+  echo "Vivaldi post-update hook is not owned by the Omarchy runtime package" >&2
   exit 1
 }
 expected_vivaldi_key_sha256=$(read_spec '["supplyChain"]["vivaldi"]["signingKeySha256"]')

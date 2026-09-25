@@ -181,6 +181,17 @@ install -d -m 0755 "$root/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d"
 install -m 0755 "$refresh_hook" \
   "$root/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/restore-arm-pacman"
 
+# Keep Vivaldi on the signed official ARM64 channel during `omarchy update`
+# when the user has already installed it through the browser menu.
+vivaldi_update_hook="$guest_dir/fragments/post-update-vivaldi-arm64.sh"
+[[ -f $vivaldi_update_hook ]] || fail "Vivaldi post-update hook not found: $vivaldi_update_hook"
+install -d -m 0755 "$root/etc/skel/.config/omarchy/hooks/post-update.d"
+install -m 0755 "$vivaldi_update_hook" \
+  "$root/etc/skel/.config/omarchy/hooks/post-update.d/update-vivaldi-arm64"
+install -d -m 0755 "$root/usr/local/share/try-omarchy/vivaldi"
+install -m 0755 "$vivaldi_update_hook" \
+  "$root/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook"
+
 # Seed fcitx5 with the US keyboard as item 0 and Chewing (Bopomofo/zhuyin) as
 # item 1. Ctrl+Space is fcitx5's built-in default trigger, so a user who never
 # presses it stays on plain US input; pressing it reaches Traditional Chinese.
