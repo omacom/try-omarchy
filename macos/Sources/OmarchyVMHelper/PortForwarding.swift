@@ -204,6 +204,21 @@ enum PortForwardAvailability {
     }
 
     private static func systemCanBind(_ mapping: PortForwardMapping) -> Bool {
+        if canBind(mapping, host: INADDR_LOOPBACK, reuseAddress: false) {
+            return true
+        }
+        guard mapping.protocol == .tcp else { return false }
+        // Darwin can reuse a loopback port over a live wildcard listener. Keep
+        // rejecting that conflict before using libslirp's TCP restart semantics.
+        return canBind(mapping, host: INADDR_ANY, reuseAddress: true)
+            && canBind(mapping, host: INADDR_LOOPBACK, reuseAddress: true)
+    }
+
+    private static func canBind(
+        _ mapping: PortForwardMapping,
+        host: in_addr_t,
+        reuseAddress: Bool
+    ) -> Bool {
         let socketType: Int32
         switch mapping.protocol {
         case .tcp:
@@ -215,12 +230,20 @@ enum PortForwardAvailability {
         guard descriptor >= 0 else { return false }
         defer { Darwin.close(descriptor) }
 
+        if reuseAddress {
+            var enabled: Int32 = 1
+            guard Darwin.setsockopt(
+                descriptor, SOL_SOCKET, SO_REUSEADDR,
+                &enabled, socklen_t(MemoryLayout.size(ofValue: enabled))
+            ) == 0 else { return false }
+        }
+
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = in_port_t(mapping.hostPort).bigEndian
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        return withUnsafePointer(to: &address) { pointer in
+        address.sin_addr = in_addr(s_addr: host.bigEndian)
+        let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 Darwin.bind(
                     descriptor,
@@ -229,5 +252,7 @@ enum PortForwardAvailability {
                 ) == 0
             }
         }
+        guard bound else { return false }
+        return mapping.protocol != .tcp || Darwin.listen(descriptor, 1) == 0
     }
 }
