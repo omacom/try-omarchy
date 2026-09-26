@@ -11,11 +11,13 @@ struct PortForwardSocketTests {
         let port = try listener.bind()
         try #require(Darwin.listen(listener.descriptor, 1) == 0)
         let client = try SocketFixture(type: SOCK_STREAM)
+        defer { client.close() }
         try client.connect(port: port)
         try listener.requireReadable()
         let acceptedDescriptor = Darwin.accept(listener.descriptor, nil, nil)
         try #require(acceptedDescriptor >= 0)
         let accepted = SocketFixture(descriptor: acceptedDescriptor)
+        defer { accepted.close() }
 
         // Close from the server first so its endpoint, not the client, enters TIME_WAIT.
         try #require(Darwin.shutdown(accepted.descriptor, SHUT_WR) == 0)
