@@ -11,7 +11,7 @@ import stat
 import tempfile
 
 
-HOLDS = ("linux-aarch64", "linux-aarch64-headers", "hyprland", "aquamarine", "hyprtoolkit")
+HOLDS = ("linux-aarch64", "linux-aarch64-headers", "hyprland", "aquamarine", "hyprtoolkit", "hyprland-guiutils")
 CONFIGS = ("usr/share/try-omarchy/pacman.conf", "etc/pacman.conf")
 
 

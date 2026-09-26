@@ -37,8 +37,8 @@ class BuilderPacmanConfigTests(unittest.TestCase):
             )
             config = output.read_text()
         self.assertEqual(guest_config.read_text(), original)
-        self.assertIn("hyprland aquamarine hyprtoolkit\n", original)
-        self.assertIn("IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland\n", config)
+        self.assertIn("hyprland aquamarine hyprtoolkit hyprland-guiutils\n", original)
+        self.assertIn("IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland hyprland-guiutils\n", config)
         self.assertLess(config.index("[try-omarchy-abi-pins]"), config.index("[extra]"))
         self.assertIn("DisableSandbox\n", config)
 

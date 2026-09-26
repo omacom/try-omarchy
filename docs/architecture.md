@@ -206,6 +206,8 @@ creates the account on first boot.
   tarball, then rebuilds Hyprtoolkit against its `libaquamarine.so=14` ABI,
   matching Hyprland 0.56.2. Both packages are provided by the disposable
   builder repository and held alongside Hyprland on guest `IgnorePkg`.
+  `hyprland-guiutils` is held with them so a rolling update cannot introduce
+  a dependency on a newer `libhyprtoolkit.so` ABI.
   Source and library hashes are verified, and build paths are remapped for
   repeatable output. The factory uses an official HTTPS ARM mirror and checks
   the complete transaction against its reviewed package lock before installing.

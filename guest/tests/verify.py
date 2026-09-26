@@ -429,9 +429,9 @@ def main() -> None:
         "factory pacman retains the ARM Omarchy keyring repository",
     )
     check(
-        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit"
+        "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit hyprland-guiutils"
         in pacman_conf,
-        "factory pacman holds the QEMU-booted kernel, matching headers, patched compositor, and its aquamarine ABI",
+        "factory pacman holds the QEMU-booted kernel, matching headers, patched compositor, and compatible graphics libraries and GUI utilities",
     )
     arm_mirrorlist = read(GUEST / "mirrorlist.aarch64")
     check(

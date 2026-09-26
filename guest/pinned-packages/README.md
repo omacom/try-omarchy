@@ -28,9 +28,11 @@ of compiler output. Both package metadata and library digests are checked
 before publishing the temporary `[try-omarchy-abi-pins]` repository.
 
 The finished guest never receives that builder repository. It holds aquamarine
-and Hyprtoolkit alongside the patched Hyprland on `IgnorePkg`. Remove these
-holds together only when the patched compositor and its dependency set have
-been validated against a newer ABI.
+and Hyprtoolkit alongside the patched Hyprland on `IgnorePkg`. It also holds
+`hyprland-guiutils`, whose newer builds can require a `libhyprtoolkit.so` ABI
+that the held Hyprtoolkit does not provide. Remove these holds together only
+when the patched compositor, libraries, and GUI utilities have been validated
+against a newer ABI.
 
 The builder seeds Omarchy's keyring from the unmodified files in
 `guest/keys/omarchy*`, taken from `pkgbuilds/omarchy-keyring/` at the already

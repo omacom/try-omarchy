@@ -544,10 +544,12 @@ repair; a timeout is not proof that its components are absent. See
 
 ### Repairing update holds in an older guest
 
-Older guests may fail Omarchy Update with conflicting `libaquamarine.so`
-dependencies. New factory images hold the compatible Hyprland, aquamarine,
-and Hyprtoolkit packages together, along with the direct-boot kernel and
-headers. Updating the Mac app does not add these holds to an existing guest.
+Older guests may fail Omarchy Update with conflicting `libaquamarine.so` or
+`libhyprtoolkit.so` dependencies. New factory images hold the compatible
+Hyprland, aquamarine, Hyprtoolkit, and `hyprland-guiutils` packages together,
+along with the direct-boot kernel and headers. Updating the Mac app does not
+add these holds to an existing guest; run the repair below explicitly, even
+if an earlier version of the repair was already applied.
 
 Copy `guest/scripts/repair-update-holds.py` from this source checkout into the
 guest, then run it **inside Omarchy**, with the updater closed:
