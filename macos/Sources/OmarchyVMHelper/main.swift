@@ -4,6 +4,15 @@ import Foundation
 
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
+/// The VM launcher and the integration bridge run as accessories with no
+/// windows while the VM runs. macOS 27 treats such apps as idle and quits
+/// them, which takes the running VM down with the launcher (#231). Explicit
+/// quits still go through applicationShouldTerminate.
+private func keepRunningWhileWindowless() {
+    ProcessInfo.processInfo.disableAutomaticTermination("Try Omarchy supervises the virtual machine")
+    ProcessInfo.processInfo.disableSuddenTermination()
+}
+
 private func usage() -> Never {
     fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --host-keyboard-geometry | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
@@ -89,6 +98,7 @@ do {
     }
     if arguments.first == "--bridge-integrations" {
         guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        keepRunningWhileWindowless()
         NSApplication.shared.setActivationPolicy(.accessory)
         try MainActor.assumeIsolated {
             let bridge = try GuestIntegrationBridge(targetPID: pid, socketPath: arguments[2], cachePath: arguments[3])
@@ -273,6 +283,7 @@ do {
         // that invariant explicit so the AppKit lifecycle stays MainActor
         // isolated while `NSApplication.run()` services its event loop.
         let status = MainActor.assumeIsolated { () -> Int32 in
+            keepRunningWhileWindowless()
             let application = NSApplication.shared
             application.setActivationPolicy(ApplicationPresentation.prelaunchActivationPolicy)
             let controller = VMApplicationController(
