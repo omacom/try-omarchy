@@ -1650,6 +1650,13 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# Diagnostics for HVF memory-mapping crashes: log every HVF map, unmap and
+# protect to this file, so a crash report can be matched to the ranges before it.
+hvf_trace_log=${OMARCHY_QEMU_GPU_HVF_TRACE_LOG:-}
+if [[ -n $hvf_trace_log && $hvf_trace_log != /* ]]; then
+  fail "OMARCHY_QEMU_GPU_HVF_TRACE_LOG must be an absolute path"
+fi
+
 # systemd's boot credential creates one temporary service without replacing
 # the guest's default target or requiring an agent to already be installed.
 settings_payload="$resources_dir/guest-settings"
@@ -1776,6 +1783,15 @@ if [[ -f $resources_dir/integrations/manifest.json ]]; then
     -device 'virtio-9p-pci,fsdev=omarchy-updates,mount_tag=tryomarchy-updates,romfile='
     -chardev "socket,id=omarchy-integrations,path=$integration_bridge_socket,server=on,wait=off"
     -device 'virtserialport,bus=omarchy-serial.0,nr=5,chardev=omarchy-integrations,name=dev.tryomarchy.integrations'
+  )
+fi
+
+if [[ -n $hvf_trace_log ]]; then
+  qemu_args+=(
+    -trace hvf_vm_map
+    -trace hvf_vm_unmap
+    -trace hvf_vm_protect
+    -D "$hvf_trace_log"
   )
 fi
 

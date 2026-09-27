@@ -630,6 +630,18 @@ launch keeps its log with the rest of its temporary state and discards it on
 exit. The log holds whatever the guest prints to its console, so treat it as
 guest data and review it before attaching it to a bug report.
 
+If QEMU crashes in `hv_vm_map` or `hv_vm_unmap`, a trace of the VM's memory
+mappings shows which range failed. Quit Try Omarchy, then launch from Terminal
+with an absolute log path:
+
+```sh
+OMARCHY_QEMU_GPU_HVF_TRACE_LOG="$HOME/Desktop/hvf-trace.log" \
+  "/Applications/Try Omarchy.app/Contents/Resources/scripts/run-qemu-gpu.sh"
+```
+
+The log holds memory addresses and sizes, no guest data. Attach its last few
+hundred lines with the crash report.
+
 VMs created before paired boot files were introduced are preserved too. On the
 first launch that needs them, Try Omarchy explains the transition in a
 **Continue** / **Cancel** dialog before starting recovery. Continue performs a

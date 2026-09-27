@@ -833,6 +833,16 @@ non_immersive_qemu=$(<"$test_root/non-immersive/qemu.log")
 assert_contains "$non_immersive_qemu" \
   'cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=off,full-grab=on,immersive=off,swap-opt-cmd=off'
 
+run_scenario hvf-trace 0 '' OMARCHY_QEMU_GPU_HVF_TRACE_LOG=/private/tmp/omarchy-hvf-trace.log
+assert_line_pair "$test_root/hvf-trace/qemu.log" -trace hvf_vm_map
+assert_line_pair "$test_root/hvf-trace/qemu.log" -trace hvf_vm_unmap
+assert_line_pair "$test_root/hvf-trace/qemu.log" -trace hvf_vm_protect
+assert_line_pair "$test_root/hvf-trace/qemu.log" -D /private/tmp/omarchy-hvf-trace.log
+assert_not_contains "$(<"$test_root/disabled/qemu.log")" hvf_vm_unmap
+run_scenario hvf-trace-relative 1 '' OMARCHY_QEMU_GPU_HVF_TRACE_LOG=hvf-trace.log
+assert_contains "$(<"$test_root/hvf-trace-relative/stderr")" 'must be an absolute path'
+[[ ! -f $test_root/hvf-trace-relative/qemu.log ]] || fail 'relative HVF trace path started QEMU'
+
 # An app update must not advertise its own locale capability for an older
 # selected disk. Check both the rejection and a supported saved boot kit.
 run_scenario locale-unsupported 1 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
