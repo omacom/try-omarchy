@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    name: ${{ matrix.target }} (${{ matrix.os }})
+    name: ${{ matrix.target == 'test' && 'Test suites' || 'Runtime build' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -45,15 +45,11 @@ jobs:
         if: matrix.target == 'runtime'
         run: make runtime
 
-  # Keep the existing required-check names. A failed, cancelled, or skipped
-  # matrix leg must not turn either aggregate check green.
-  test:
-    name: Test (${{ matrix.os }})
+  # A failed, cancelled, or skipped matrix leg must not turn the summary green.
+  summary:
+    name: CI summary
     needs: checks
     if: always()
-    strategy:
-      matrix:
-        os: [macos-15, macos-26]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

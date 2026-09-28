@@ -88,9 +88,9 @@ as `make test-contracts`, `make test-guest`, `make test-swift`, and
 `make test-shell`; `make test-resize` runs the disk resize integration tests.
 
 PR checks run all tests and full runtime builds in separate, concurrent jobs on
-both macOS 15 and 26. The existing `Test (macos-15)` and `Test (macos-26)` status
-checks require every job to succeed. No suites or runtime checks are skipped
-based on changed paths or cached test results.
+both macOS 15 and 26, labeled `Test suites` and `Runtime build`. A single
+`CI summary` status check requires all four jobs to succeed. No suites or runtime
+checks are skipped based on changed paths or cached test results.
 
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that
