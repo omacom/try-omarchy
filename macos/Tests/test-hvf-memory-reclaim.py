@@ -56,7 +56,7 @@ typedef struct {
 static RAMBlock block = { .fd = -1 };
 static MemoryRegion region = { .ram = true, .ram_block = &block };
 static MemoryRegionSection section;
-static unsigned calls, refs;
+static unsigned calls, refs, traces;
 static int failure;
 static void *expected_host;
 static size_t expected_size;
@@ -75,15 +75,29 @@ static bool memory_region_is_ram(MemoryRegion *mr) { return mr->ram; }
 static bool memory_region_is_ram_device(MemoryRegion *mr) { return mr->device; }
 static unsigned memory_region_get_dirty_log_mask(MemoryRegion *mr) { return mr->dirty; }
 static void *memory_region_get_ram_ptr(MemoryRegion *mr) { return mr->host; }
+static void trace_hvf_vm_unmap(hwaddr gpa, size_t size)
+{
+    assert(calls == 0 && traces == 0);
+    assert(gpa == expected_gpa && size == expected_size);
+    traces++;
+}
+static void trace_hvf_vm_map(hwaddr gpa, size_t size, void *host,
+                             hv_memory_flags_t flags, char r, char w, char e)
+{
+    assert(calls == 1 && traces == 1);
+    assert(gpa == expected_gpa && size == expected_size && host == expected_host);
+    assert(flags == 7 && r == 'R' && w == 'W' && e == 'X');
+    traces++;
+}
 static int hv_vm_unmap(hwaddr gpa, size_t size)
 {
-    assert(calls == 0 && gpa == expected_gpa && size == expected_size);
+    assert(calls == 0 && traces == 1 && gpa == expected_gpa && size == expected_size);
     calls++;
     return failure == 1 ? -1 : 0;
 }
 static int hv_vm_map(void *host, hwaddr gpa, size_t size, hv_memory_flags_t flags)
 {
-    assert(calls == 1 && gpa == expected_gpa && host == expected_host);
+    assert(calls == 1 && traces == 2 && gpa == expected_gpa && host == expected_host);
     assert(size == expected_size && flags == 7);
     /* Backing must already be zeroed before it becomes guest-accessible. */
     for (size_t i = 0; i < size; i++) assert(((char *)host)[i] == 0);
@@ -102,7 +116,7 @@ FUNCTION
 static void rejected(void)
 {
     hvf_report_free_pages(expected_gpa, expected_host, expected_size);
-    assert(calls == 0 && refs == 0);
+    assert(calls == 0 && refs == 0 && traces == 0);
     assert(((unsigned char *)expected_host)[0] == 0xa5);
 }
 int main(int argc, char **argv)
@@ -121,7 +135,7 @@ int main(int argc, char **argv)
         hvf_report_free_pages(expected_gpa + 1, expected_host, expected_size);
         hvf_report_free_pages(expected_gpa, (char *)expected_host + 1, expected_size);
         hvf_report_free_pages(expected_gpa, expected_host, expected_size - 1);
-        assert(calls == 0 && refs == 0);
+        assert(calls == 0 && refs == 0 && traces == 0);
         section.mr = NULL; rejected(); section.mr = &region;
         region.ram = false; rejected(); region.ram = true;
         region.readonly = true; rejected(); region.readonly = false;
@@ -136,9 +150,9 @@ int main(int argc, char **argv)
         section.offset_within_region = 0; rejected(); section.offset_within_region = page;
     }
     for (int cycle = 0; cycle < 8; cycle++) {
-        calls = 0;
+        calls = traces = 0;
         hvf_report_free_pages(expected_gpa, expected_host, expected_size);
-        assert(calls == 2 && refs == 0);
+        assert(calls == 2 && traces == 2 && refs == 0);
         for (size_t i = 0; i < page; i++) {
             assert((unsigned char)ram[i] == 0xa5);
             assert((unsigned char)ram[page * 3 + i] == 0xa5);
