@@ -160,6 +160,24 @@ for device in \
   virtio-pinch-pci; do
   require_qemu_device "$device"
 done
+
+# Experimental opt-in host USB passthrough. Unset keeps every launch on the
+# exact device set below; a value is forwarded verbatim as usb-host properties,
+# either a device class (vendorid=0x05ac) or one exact host port
+# (hostbus=1,hostaddr=6). Anything else is refused rather than reinterpreted as
+# further QEMU options.
+usb_host_properties=${OMARCHY_QEMU_GPU_USB_HOST:-}
+if [[ -n $usb_host_properties ]]; then
+  [[ $usb_host_properties =~ ^[a-z]+=[0-9A-Fa-fx.]+(,[a-z]+=[0-9A-Fa-fx.]+)*$ ]] || {
+    fail "OMARCHY_QEMU_GPU_USB_HOST must be usb-host properties, for example vendorid=0x05ac"
+  }
+  require_qemu_device qemu-xhci
+  require_qemu_device usb-host
+  # Unpatched QEMU reads hostbus=0 as "any bus" and could take a twin.
+  LC_ALL=C grep -aFq 'exact bus 0 matching' "$qemu_bin" || {
+    fail "staged QEMU lacks exact USB bus matching; run make runtime"
+  }
+fi
 for marker in guest_owner_uid guest_owner_gid; do
   LC_ALL=C grep -aFq "$marker" "$qemu_bin" || {
     fail "staged QEMU lacks the shared-folder owner mapping; run make runtime"
@@ -1632,6 +1650,13 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# Diagnostics for HVF memory-mapping crashes: log every HVF map, unmap and
+# protect to this file, so a crash report can be matched to the ranges before it.
+hvf_trace_log=${OMARCHY_QEMU_GPU_HVF_TRACE_LOG:-}
+if [[ -n $hvf_trace_log && $hvf_trace_log != /* ]]; then
+  fail "OMARCHY_QEMU_GPU_HVF_TRACE_LOG must be an absolute path"
+fi
+
 # systemd's boot credential creates one temporary service without replacing
 # the guest's default target or requiring an agent to already be installed.
 settings_payload="$resources_dir/guest-settings"
@@ -1707,7 +1732,7 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device "virtio-net-pci,id=omarchy-nic,netdev=omarchy-net,mac=$network_mac,romfile="
-  -audiodev 'sdl,id=omarchy-audio'
+  -audiodev 'sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8'
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none
@@ -1761,6 +1786,27 @@ if [[ -f $resources_dir/integrations/manifest.json ]]; then
   )
 fi
 
+if [[ -n $hvf_trace_log ]]; then
+  qemu_args+=(
+    -trace hvf_vm_map
+    -trace hvf_vm_unmap
+    -trace hvf_vm_protect
+    -D "$hvf_trace_log"
+  )
+fi
+
+if [[ -n $usb_host_properties ]]; then
+  # One xHCI controller carries the passed-through device. Whether macOS lets
+  # go of a device it drives itself depends on QEMU's privilege, not on these
+  # arguments; the README has the measurements. Streams stay off: bulk streams
+  # never complete through usb-host on macOS, so a guest UAS driver would hang
+  # a drive on its first command. Without them Linux uses usb-storage instead.
+  qemu_args+=(
+    -device 'qemu-xhci,id=omarchy-usb,streams=off'
+    -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
+  )
+fi
+
 if [[ -n $shared_folder ]]; then
   # security_model=none performs every host operation as this Mac user and
   # ignores guest chown requests, so the Mac keeps real modes and ownership.
@@ -1802,6 +1848,7 @@ if [[ ${OMARCHY_QEMU_GPU_DRY_RUN:-0} == 1 ]]; then
   else
     printf '\n[qemu-gpu] shared folder: disabled' >&2
   fi
+  printf '\n[qemu-gpu] usb passthrough: %s' "${usb_host_properties:-disabled}" >&2
   printf '\n[qemu-gpu] port forwarding: %s' "$port_forwarding_summary" >&2
   printf '\n' >&2
   exit 0

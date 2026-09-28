@@ -12,5 +12,6 @@ lib/liblzma.5.dylib
 lib/libpcre2-8.0.dylib
 lib/libpixman-1.0.dylib
 lib/libslirp.0.dylib
+lib/libusb-1.0.0.dylib
 lib/libvirglrenderer.1.dylib
 lib/libzstd.1.dylib

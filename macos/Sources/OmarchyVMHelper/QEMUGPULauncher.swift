@@ -36,6 +36,7 @@ enum QEMUGPURuntimeEnvironment {
             AudioLaunchConfiguration.outputDeviceNameKey,
             AudioLaunchConfiguration.inputDeviceNameKey,
             SharedFolderPolicy.environmentKey,
+            USBPassthroughPolicy.environmentKey,
             PortForwardPolicy.environmentKey,
             VMResourceLaunchConfiguration.cpuEnvironmentKey,
             VMResourceLaunchConfiguration.memoryEnvironmentKey,

@@ -151,10 +151,11 @@ class BuildCacheTests(unittest.TestCase):
         manifest = REPOSITORY / "macos/runtime-files.txt"
         expected = frozenset(manifest.read_text(encoding="ascii").splitlines())
         self.assertEqual(expected, build_cache.RUNTIME_FILES)
-        self.assertEqual(16, len(expected))
+        self.assertEqual(17, len(expected))
         self.assertIn("bin/qemu-system-aarch64", expected)
         self.assertIn("bin/zstd", expected)
         self.assertIn("lib/libSDL3.dylib", expected)
+        self.assertIn("lib/libusb-1.0.0.dylib", expected)
 
         with tempfile.TemporaryDirectory() as temporary:
             invalid = Path(temporary) / "runtime-files.txt"

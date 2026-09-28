@@ -43,7 +43,7 @@
  #include "system/hvf.h"
  #include "system/hvf_int.h"
  #include "hw/core/cpu.h"
-@@ -133,6 +135,61 @@
+@@ -133,6 +135,66 @@
                       flags & HV_MEMORY_EXEC ?  'X' : '-');
      ret = hv_vm_map(mem, gpa, size, flags);
      assert_hvf_ok(ret);
@@ -91,6 +91,7 @@
 +     * accounting state on pages that the guest subsequently allocates again.
 +     * The guest owns none of these pages until we acknowledge its report.
 +     */
++    trace_hvf_vm_unmap(gpa, size);
 +    assert_hvf_ok(hv_vm_unmap(gpa, size));
 +    replacement = mmap(host, size, PROT_READ | PROT_WRITE,
 +                       MAP_FIXED | MAP_PRIVATE | MAP_ANON, -1, 0);
@@ -100,6 +101,10 @@
 +        abort();
 +    }
 +    assert(replacement == host);
++    trace_hvf_vm_map(gpa, size, host, flags,
++                     flags & HV_MEMORY_READ ? 'R' : '-',
++                     flags & HV_MEMORY_WRITE ? 'W' : '-',
++                     flags & HV_MEMORY_EXEC ? 'X' : '-');
 +    assert_hvf_ok(hv_vm_map(host, gpa, size, flags));
 +    memory_region_unref(mr);
  }

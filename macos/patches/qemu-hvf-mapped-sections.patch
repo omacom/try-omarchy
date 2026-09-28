@@ -1,0 +1,174 @@
+From: Try Omarchy contributors
+Subject: [PATCH] hvf: only unmap sections that were mapped
+
+Applies after the Try Omarchy HVF free-page reclaim patch.
+
+hvf_set_phys_mem() unmaps every removed section, and turns an add it
+cannot map into an unmap as well. A ROM device such as pflash leaves
+romd_mode on its first write command: the flat view deletes the ROMD
+section, which is mapped, and adds an I/O section for the same range,
+which must trap. That add became a second hv_vm_unmap() of the range,
+and deleting the I/O section on the way back to romd_mode was a third.
+An unaligned section added and later deleted is unmapped the same way.
+
+The ROM device's romd_mode already holds its new value when the old
+section is deleted, so the region's state cannot tell a mapped section
+from one that never was. Keep a table of the mapped sections instead, as
+KVM does with its slot lookup, and only unmap what is in it.
+
+#151 is an M4 on macOS 26.3 killed with EXC_GUARD (DEALLOC_GAP) in
+hv_vm_unmap, called from pflash_mem_write_with_attrs. See
+omacom/try-omarchy#151.
+
+diff --git a/accel/hvf/hvf-all.c b/accel/hvf/hvf-all.c
+--- a/accel/hvf/hvf-all.c
++++ b/accel/hvf/hvf-all.c
+@@ -53,125 +53,148 @@ void assert_hvf_ok_impl(hv_return_t ret, const char *file, unsigned int line,
+                         const char *exp)
+ {
+     if (ret == HV_SUCCESS) {
+         return;
+     }
+ 
+     error_report("Error: %s = %s (0x%x, at %s:%u)",
+         exp, hvf_return_string(ret), ret, file, line);
+ 
+     abort();
+ }
+ 
+ static void do_hv_vm_protect(hwaddr start, size_t size,
+                              hv_memory_flags_t flags)
+ {
+     intptr_t page_mask = qemu_real_host_page_mask();
+     hv_return_t ret;
+ 
+     trace_hvf_vm_protect(start, size, flags,
+                          flags & HV_MEMORY_READ  ? 'R' : '-',
+                          flags & HV_MEMORY_WRITE ? 'W' : '-',
+                          flags & HV_MEMORY_EXEC  ? 'X' : '-');
+     g_assert(!((uintptr_t)start & ~page_mask));
+     g_assert(!(size & ~page_mask));
+ 
+     ret = hv_vm_protect(start, size, flags);
+     assert_hvf_ok(ret);
+ }
+ 
+ void hvf_protect_clean_range(hwaddr addr, size_t size)
+ {
+     do_hv_vm_protect(addr, size, HV_MEMORY_READ | HV_MEMORY_EXEC);
+ }
+ 
+ void hvf_unprotect_dirty_range(hwaddr addr, size_t size)
+ {
+     do_hv_vm_protect(addr, size,
+                      HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC);
+ }
+ 
++/*
++ * Start addresses of the sections currently mapped into HVF. A section is
++ * removed with exactly the range it was added with, so its start address
++ * identifies it. The memory listener runs under the BQL.
++ */
++static GHashTable *hvf_mapped_sections;
++
+ static void hvf_set_phys_mem(MemoryRegionSection *section, bool add)
+ {
+     MemoryRegion *area = section->mr;
+     bool writable = !area->readonly && !area->rom_device;
+     hv_memory_flags_t flags;
+     uint64_t page_size = qemu_real_host_page_size();
+     uint64_t gpa = section->offset_within_address_space;
+     uint64_t size = int128_get64(section->size);
+     hv_return_t ret;
+     void *mem;
+ 
+     if (!memory_region_is_ram(area)) {
+         if (writable) {
+             return;
+         } else if (!memory_region_is_romd(area)) {
+             /*
+              * If the memory device is not in romd_mode, then we actually want
+              * to remove the hvf memory slot so all accesses will trap.
+              */
+              add = false;
+         }
+     }
+ 
+     if (!QEMU_IS_ALIGNED(size, page_size) ||
+         !QEMU_IS_ALIGNED(gpa, page_size)) {
+         /* Not page aligned, so we can not map as RAM */
+         add = false;
+     }
+ 
++    if (!hvf_mapped_sections) {
++        hvf_mapped_sections = g_hash_table_new_full(g_int64_hash, g_int64_equal,
++                                                    g_free, NULL);
++    }
++
+     if (!add) {
++        /*
++         * Like KVM's slot lookup: only unmap what was mapped. A ROM device
++         * leaving romd_mode gets its I/O section added with add = false, and
++         * that section is deleted again on the way back; neither was ever
++         * mapped. Unmapping a range HVF does not hold can get QEMU killed
++         * with EXC_GUARD (DEALLOC_GAP).
++         */
++        if (!g_hash_table_remove(hvf_mapped_sections, &gpa)) {
++            return;
++        }
+         trace_hvf_vm_unmap(gpa, size);
+         ret = hv_vm_unmap(gpa, size);
+         assert_hvf_ok(ret);
+         return;
+     }
+ 
+     flags = HV_MEMORY_READ | HV_MEMORY_EXEC | (writable ? HV_MEMORY_WRITE : 0);
+     mem = memory_region_get_ram_ptr(area) + section->offset_within_region;
+ 
+     trace_hvf_vm_map(gpa, size, mem, flags,
+                      flags & HV_MEMORY_READ ?  'R' : '-',
+                      flags & HV_MEMORY_WRITE ? 'W' : '-',
+                      flags & HV_MEMORY_EXEC ?  'X' : '-');
+     ret = hv_vm_map(mem, gpa, size, flags);
+     assert_hvf_ok(ret);
++    g_hash_table_add(hvf_mapped_sections, g_memdup2(&gpa, sizeof(gpa)));
+ }
+ 
+ void hvf_report_free_pages(hwaddr gpa, void *host, size_t size)
+ {
+     MemoryRegionSection section;
+     MemoryRegion *mr;
+     RAMBlock *rb;
+     size_t page_size = qemu_real_host_page_size();
+     hv_memory_flags_t flags = HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC;
+     void *replacement;
+ 
+     assert(bql_locked());
+     if (!size || !QEMU_IS_ALIGNED(gpa | (uintptr_t)host | size, page_size)) {
+         return;
+     }
+ 
+     /* Only replace QEMU-owned private anonymous RAM, mapped at this GPA.
+      * Never replace shared, file-backed, device, ROM, or externally owned RAM.
+      * Skip dirty logging rather than bypassing HVF's write protection.
+      */
+     section = memory_region_find(get_system_memory(), gpa, size);
+     mr = section.mr;
+     if (!mr) {
+         return;
+     }
+     rb = mr->ram_block;
+     if (!memory_region_is_ram(mr) || mr->readonly || mr->rom_device ||
+         memory_region_is_ram_device(mr) || !rb || rb->fd >= 0 ||
+         (rb->flags & (RAM_SHARED | RAM_PREALLOC)) ||
+         memory_region_get_dirty_log_mask(mr) ||
+         int128_get64(section.size) != size ||
+         section.offset_within_address_space != gpa ||
+         memory_region_get_ram_ptr(mr) + section.offset_within_region != host) {
+         memory_region_unref(mr);
+         return;
+     }
+ 
+     /* Darwin MADV_DONTNEED does not discard guest-dirtied RAM. First remove
+      * the stage-2 mapping, then replace its host backing with fresh demand-zero
+      * pages at the same address. MAP_FIXED avoids any unreserved-address gap.

@@ -18,7 +18,7 @@ class UpdateHoldsTests(unittest.TestCase):
     def test_preserves_custom_settings_comments_and_multiple_directives(self):
         original = "# custom\n[options]\n  IgnorePkg = custom linux-aarch64 # keep this\nIgnorePkg = aquamarine\nUnknownSetting = yes\n[custom]\nServer = https://example.com/$arch\n"
         result = repair.add_holds(original)
-        self.assertIn("custom linux-aarch64 linux-aarch64-headers hyprland hyprtoolkit # keep this", result)
+        self.assertIn("custom linux-aarch64 linux-aarch64-headers hyprland hyprtoolkit hyprland-guiutils # keep this", result)
         self.assertTrue(result.endswith("IgnorePkg = aquamarine\nUnknownSetting = yes\n[custom]\nServer = https://example.com/$arch\n"))
         self.assertEqual(repair.add_holds(result), result)
 
@@ -79,6 +79,20 @@ class UpdateHoldsTests(unittest.TestCase):
         self.assertEqual([p.read_bytes() for p in self.paths], after)
         self.assertEqual(list((self.root / "var/lib/try-omarchy").iterdir()), backups)
         self.assertFalse((self.root / "var/lib/pacman/db.lck").exists())
+
+    def test_existing_graphics_holds_gain_guiutils_and_survive_refresh(self):
+        original = "[options]\nIgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit custom\n"
+        for path in self.paths:
+            path.write_text(original)
+        repair.repair(self.root, apply=True)
+        expected = original.rstrip("\n") + " hyprland-guiutils\n"
+        for path in self.paths:
+            self.assertEqual(path.read_text(), expected)
+        self.paths[1].write_text("[options]\n")
+        self.paths[1].write_bytes(self.paths[0].read_bytes())
+        self.assertEqual(self.paths[1].read_text(), expected)
+        repair.repair(self.root, apply=True)
+        self.assertEqual([path.read_text() for path in self.paths], [expected, expected])
 
     def test_checks_both_files_before_writing(self):
         self.paths[1].write_text("[core]\n")

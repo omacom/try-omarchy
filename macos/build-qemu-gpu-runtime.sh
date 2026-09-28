@@ -53,12 +53,17 @@ pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
 pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 precise_scroll_patch="$native_dir/patches/qemu-cocoa-precise-scroll.patch"
 iso_swap_patch="$native_dir/patches/qemu-cocoa-iso-section-grave-swap.patch"
+injected_text_patch="$native_dir/patches/qemu-cocoa-injected-text.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
+audio_recovery_patch="$native_dir/patches/qemu-hda-full-ring-recovery.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 memory_reclaim_patch="$native_dir/patches/qemu-hvf-free-page-reclaim.patch"
+mapped_sections_patch="$native_dir/patches/qemu-hvf-mapped-sections.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
+usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
+fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -79,10 +84,15 @@ pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95
 pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32aee
 precise_scroll_patch_sha256=54252b3b19358aa7e2c75d5f50775a7f488ef2d8b4db8723ba4768b56316a78f
 iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284cf2387
+injected_text_patch_sha256=18d64d52f715d0cf1b2b6d1761059371e1859ee61faf3cc4800e2effc1ed4dd1
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
+audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
-memory_reclaim_patch_sha256=d68b75ed390aa0afb8e2e492be8f1f0f12200502125cd1da3bbc86730a74b782
+memory_reclaim_patch_sha256=5d422130996b99145d017d4429df660a07c757388ef7d52cba389766c18b0acf
+mapped_sections_patch_sha256=2991378d565faeaf114bb5948bfa9ad05c39b078e4e1f4c2a674c3283800fab0
+fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a207fb1499
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
+usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
 slirp_source_root=libslirp-v4.9.4
@@ -116,6 +126,12 @@ virgl_version=1.0.42
 setuptools_archive_name=setuptools-84.0.0-py3-none-any.whl
 setuptools_url="https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/$setuptools_archive_name"
 setuptools_sha256=51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
+
+# wheel 0.48 resolves `packaging` at install time and mkvenv runs offline, so
+# the vendored set must carry it; no Mac ships it with the system Python.
+packaging_archive_name=packaging-26.3-py3-none-any.whl
+packaging_url="https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/$packaging_archive_name"
+packaging_sha256=d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
 
 wheel_archive_name=wheel-0.48.0-py3-none-any.whl
 wheel_url="https://files.pythonhosted.org/packages/2e/29/69cfbb602cd91690c55d38ba9fe53e6a7e76a6fa647bf38f19c138d25449/$wheel_archive_name"
@@ -202,8 +218,12 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing 9p shared-folder patch: $shared_folder_patch"
 [[ -f $memory_reclaim_patch && ! -L $memory_reclaim_patch ]] || \
   die "missing HVF free-page reclaim patch: $memory_reclaim_patch"
+[[ -f $mapped_sections_patch && ! -L $mapped_sections_patch ]] || \
+  die "missing HVF mapped-sections patch: $mapped_sections_patch"
 [[ -f $strchrnul_patch && ! -L $strchrnul_patch ]] || \
   die "missing Darwin strchrnul compatibility patch: $strchrnul_patch"
+[[ -f $usb_exact_bus_patch && ! -L $usb_exact_bus_patch ]] || \
+  die "missing USB exact-bus patch: $usb_exact_bus_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -250,7 +270,7 @@ download_and_verify() {
 
   log "Downloading $label"
   curl --fail --location --silent --show-error \
-    --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 \
+    --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 20 \
     --output "$output" "$url"
   actual_sha=$(shasum -a 256 "$output" | awk '{ print $1 }')
   [[ $actual_sha == "$expected_sha" ]] || \
@@ -326,6 +346,7 @@ angle_archive="$archive_dir/$angle_archive_name"
 epoxy_archive="$archive_dir/$epoxy_archive_name"
 setuptools_archive="$archive_dir/$setuptools_archive_name"
 wheel_archive="$archive_dir/$wheel_archive_name"
+packaging_archive="$archive_dir/$packaging_archive_name"
 pip_archive="$archive_dir/$pip_archive_name"
 
 obtain_and_verify "libslirp source" "$slirp_url" "$slirp_sha256" "$slirp_archive"
@@ -349,6 +370,7 @@ done < <(pinned_core_bottle_manifest)
 
 obtain_and_verify "setuptools" "$setuptools_url" "$setuptools_sha256" "$setuptools_archive"
 obtain_and_verify "wheel" "$wheel_url" "$wheel_sha256" "$wheel_archive"
+obtain_and_verify "packaging" "$packaging_url" "$packaging_sha256" "$packaging_archive"
 obtain_and_verify "pip" "$pip_url" "$pip_sha256" "$pip_archive"
 
 validate_tar_root "QEMU $qemu_commit" "$qemu_archive" "$qemu_root" "$listing_dir/qemu.txt"
@@ -386,7 +408,7 @@ source_dir="$source_parent/$qemu_root"
   die "QEMU source archive is incomplete"
 
 install -m 0644 "$setuptools_archive" "$wheel_archive" "$pip_archive" \
-  "$source_dir/python/wheels/"
+  "$packaging_archive" "$source_dir/python/wheels/"
 
 mkdir -p "$source_dir/subprojects/keycodemapdb" "$source_dir/subprojects/dtc"
 tar -xzf "$keycodemap_archive" -C "$source_dir/subprojects/keycodemapdb" --strip-components=1
@@ -411,16 +433,24 @@ verify_file_sha "Try Omarchy Cocoa precise-scroll patch" \
   "$precise_scroll_patch" "$precise_scroll_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa ISO Section/Grave swap patch" \
   "$iso_swap_patch" "$iso_swap_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa injected-text patch" \
+  "$injected_text_patch" "$injected_text_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio-device patch" \
   "$audio_device_patch" "$audio_device_patch_sha256"
 verify_file_sha "Try Omarchy 9p shared-folder patch" \
   "$shared_folder_patch" "$shared_folder_patch_sha256"
 verify_file_sha "Try Omarchy HVF free-page reclaim patch" \
   "$memory_reclaim_patch" "$memory_reclaim_patch_sha256"
+verify_file_sha "Try Omarchy HVF mapped-sections patch" \
+  "$mapped_sections_patch" "$mapped_sections_patch_sha256"
+verify_file_sha "Try Omarchy Darwin GPU fence polling patch" \
+  "$fence_poll_patch" "$fence_poll_patch_sha256"
 verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
   "$strchrnul_patch" "$strchrnul_patch_sha256"
+verify_file_sha "Try Omarchy USB exact-bus patch" \
+  "$usb_exact_bus_patch" "$usb_exact_bus_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, and ISO keyboard patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, and USB exact-bus patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -429,13 +459,20 @@ patch -d "$source_dir" -p1 -f -i "$immersive_patch"
 patch -d "$source_dir" -p1 -f -i "$full_grab_patch"
 patch -d "$source_dir" -p1 -f -i "$reenable_patch"
 patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
+verify_file_sha "Try Omarchy HDA full-ring recovery patch" \
+  "$audio_recovery_patch" "$audio_recovery_patch_sha256"
 patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
+patch -d "$source_dir" -p1 -f -i "$audio_recovery_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$memory_reclaim_patch"
+patch -d "$source_dir" -p1 -f -i "$mapped_sections_patch"
+patch -d "$source_dir" -p1 -f -i "$fence_poll_patch"
 patch -d "$source_dir" -p1 -f -i "$pinch_patch"
 patch -d "$source_dir" -p1 -f -i "$precise_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$iso_swap_patch"
+patch -d "$source_dir" -p1 -f -i "$injected_text_patch"
+patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
@@ -443,6 +480,7 @@ epoxy_root="$dependency_root/libepoxy/$epoxy_version"
 glib_root="$dependency_root/$PINNED_GLIB_ROOT"
 pixman_root="$dependency_root/$PINNED_PIXMAN_ROOT"
 slirp_root="$dependency_root/$PINNED_LIBSLIRP_ROOT"
+libusb_root="$dependency_root/$PINNED_LIBUSB_ROOT"
 sdl2_root="$dependency_root/$PINNED_SDL2_ROOT"
 sdl3_root="$dependency_root/$PINNED_SDL3_ROOT"
 gettext_root="$dependency_root/$PINNED_GETTEXT_ROOT"
@@ -452,7 +490,7 @@ lz4_root="$dependency_root/$PINNED_LZ4_ROOT"
 xz_root="$dependency_root/$PINNED_XZ_ROOT"
 for directory in \
   "$angle_root" "$epoxy_root" \
-  "$glib_root" "$pixman_root" "$slirp_root" "$sdl2_root" "$sdl3_root" \
+  "$glib_root" "$pixman_root" "$slirp_root" "$libusb_root" "$sdl2_root" "$sdl3_root" \
   "$gettext_root" "$pcre2_root" "$zstd_root" "$lz4_root" "$xz_root"; do
   [[ -d $directory && ! -L $directory ]] || die "missing extracted dependency: $directory"
 done
@@ -480,6 +518,9 @@ done
 for pc_file in "$pcre2_root"/lib/pkgconfig/*.pc; do
   sed -i '' "s|@@HOMEBREW_CELLAR@@/$PINNED_PCRE2_ROOT|$pcre2_root|g" "$pc_file"
 done
+for pc_file in "$libusb_root"/lib/pkgconfig/*.pc; do
+  sed -i '' "s|@@HOMEBREW_CELLAR@@/$PINNED_LIBUSB_ROOT|$libusb_root|g" "$pc_file"
+done
 sed -i '' \
   -e "s|^prefix=@@HOMEBREW_PREFIX@@$|prefix=$sdl2_root|" \
   -e "s|^libdir=@@HOMEBREW_PREFIX@@/lib$|libdir=$sdl2_root/lib|" \
@@ -496,8 +537,8 @@ ninja="$tool_root/ninja-$ninja_version.data/scripts/ninja"
 [[ -f $ninja && ! -L $ninja ]] || die "pinned Ninja wheel is missing its executable"
 chmod 0755 "$ninja"
 
-pkg_config_libdir="$virgl_root/lib/pkgconfig:$epoxy_root/lib/pkgconfig:$angle_root/lib/pkgconfig:$glib_root/lib/pkgconfig:$pixman_root/lib/pkgconfig:$slirp_root/lib/pkgconfig:$sdl2_root/lib/pkgconfig:$pcre2_root/lib/pkgconfig"
-private_libraries="$virgl_root/lib:$epoxy_root/lib:$angle_root/lib:$glib_root/lib:$pixman_root/lib:$slirp_root/lib:$sdl2_root/lib:$gettext_root/lib:$pcre2_root/lib"
+pkg_config_libdir="$virgl_root/lib/pkgconfig:$epoxy_root/lib/pkgconfig:$angle_root/lib/pkgconfig:$glib_root/lib/pkgconfig:$pixman_root/lib/pkgconfig:$slirp_root/lib/pkgconfig:$sdl2_root/lib/pkgconfig:$pcre2_root/lib/pkgconfig:$libusb_root/lib/pkgconfig"
+private_libraries="$virgl_root/lib:$epoxy_root/lib:$angle_root/lib:$glib_root/lib:$pixman_root/lib:$slirp_root/lib:$sdl2_root/lib:$gettext_root/lib:$pcre2_root/lib:$libusb_root/lib"
 
 require_private_pkg_version() {
   local package=$1
@@ -516,6 +557,7 @@ require_private_pkg_version pixman-1 0.46.4
 require_private_pkg_version slirp 4.9.4
 require_private_pkg_version sdl2 2.32.70
 require_private_pkg_version epoxy 1.5.11
+require_private_pkg_version libusb-1.0 1.0.30
 
 # Keep the exact graphics fixes, including GLES dual-source output for Alacritty.
 virgl_source="$source_parent/$virgl_source_root"
@@ -590,7 +632,7 @@ python3 "$meson" install -C "$slirp_build" --no-rebuild
 
 build_dir="$source_dir/build"
 mkdir "$build_dir"
-log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p) for macOS $macos_deployment_target and newer"
+log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p, libusb) for macOS $macos_deployment_target and newer"
 (
   cd "$build_dir"
   env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
@@ -614,6 +656,7 @@ log "Configuring QEMU 11.1.1 (HVF-only, Cocoa/VirGL, SLIRP, SDL audio, virtio-9p
       --enable-sdl \
       --audio-drv-list=sdl \
       --enable-virtfs \
+      --enable-libusb \
       --disable-debug-info \
       --disable-werror \
       --disable-download \

@@ -19,6 +19,14 @@ read_spec() {
   exit 1
 }
 
+# The upstream installer normally creates this policy. Our factory bypasses
+# that installer, and Quickshell refuses to lock without password PAM configured.
+USER=root OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-apply-lock
+[[ $(stat -c '%u:%g:%a' /etc/pam.d/omarchy-lock-password) == 0:0:644 ]] || {
+  echo "Lock screen password policy is missing or unsafe" >&2
+  exit 1
+}
+
 locale-gen
 passwd --lock root >/dev/null
 # Check the effective sudoers policy and the package-owned menu grants before
