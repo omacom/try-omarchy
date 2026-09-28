@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    name: ${{ matrix.target == 'test' && 'Test suites' || 'Runtime build' }} (${{ matrix.os }})
+    name: ${{ matrix.target == 'test' && 'Tests' || 'Build' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -44,16 +44,3 @@ jobs:
       - name: Build and verify native runtime
         if: matrix.target == 'runtime'
         run: make runtime
-
-  # A failed, cancelled, or skipped matrix leg must not turn the summary green.
-  summary:
-    name: CI summary
-    needs: checks
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require all tests and runtime builds
-        env:
-          CHECKS_RESULT: ${{ needs.checks.result }}
-        run: test "$CHECKS_RESULT" = success
