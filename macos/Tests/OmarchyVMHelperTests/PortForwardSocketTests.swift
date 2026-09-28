@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import Testing
 @testable import OmarchyVMHelper
 
@@ -31,7 +32,7 @@ struct PortForwardSocketTests {
         listener.close()
 
         let mapping = PortForwardMapping(hostPort: port, guestPort: 80, protocol: .tcp)
-        try PortForwardAvailability.validate([mapping])
+        try requireAvailable(mapping)
         try PortForwardAvailability.validate([mapping])
         let replacement = try SocketFixture(type: SOCK_STREAM, reuseAddress: true)
         #expect(try replacement.bind(port: port) == port)
@@ -75,6 +76,21 @@ struct PortForwardSocketTests {
         try PortForwardAvailability.validate([mapping])
         let replacement = try SocketFixture(type: SOCK_DGRAM)
         #expect(try replacement.bind(port: port) == port)
+    }
+
+    private func requireAvailable(_ mapping: PortForwardMapping) throws {
+        // The accepted socket can outlive the listener briefly while TCP
+        // finishes teardown. Check bind readiness within a bounded window.
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while true {
+            do {
+                try PortForwardAvailability.validate([mapping])
+                return
+            } catch {
+                guard ProcessInfo.processInfo.systemUptime < deadline else { throw error }
+                usleep(10_000)
+            }
+        }
     }
 
     private final class SocketFixture {
