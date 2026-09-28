@@ -33,12 +33,13 @@ class BuilderPacmanConfigTests(unittest.TestCase):
                 disable_sandbox=True,
                 abi_repo=Path(directory) / "abi-repo",
                 pinned_cache_repo=None,
-                drop_ignore={pin["name"] for pin in pins},
+                drop_ignore={pin["name"] for pin in pins} | builder.DEPENDENCY_HOLDS,
             )
             config = output.read_text()
         self.assertEqual(guest_config.read_text(), original)
         self.assertIn("hyprland aquamarine hyprtoolkit hyprland-guiutils\n", original)
-        self.assertIn("IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland hyprtoolkit hyprland-guiutils\n", config)
+        # pacman will not install an ignored package to satisfy a dependency.
+        self.assertIn("IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland\n", config)
         self.assertLess(config.index("[try-omarchy-abi-pins]"), config.index("[extra]"))
         self.assertIn("DisableSandbox\n", config)
 
