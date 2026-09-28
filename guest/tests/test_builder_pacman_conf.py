@@ -81,6 +81,10 @@ class BuilderPacmanConfigTests(unittest.TestCase):
         self.assertNotIn("DownloadUser", config)
         self.assertIn("DownloadUser = alpm", original)
         self.assertIn("Server = https://pkgs.omarchy.org/$arch", config)
+        self.assertNotIn("pkgs.omarchy.org/stable", config)
+        self.assertIn("[omarchy]\nSigLevel = Optional TrustAll", config)
+        self.assertIn("Server = https://pkgs.omarchy.org/stable/$arch", original)
+        self.assertIn("[omarchy]\nSigLevel = Required DatabaseOptional TrustedOnly", original)
 
     def test_mirror_rejects_insecure_urls_and_configuration_injection(self):
         for mirror in (

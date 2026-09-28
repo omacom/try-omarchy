@@ -259,6 +259,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "stable-arm-package-channel",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -358,7 +359,7 @@ def main() -> None:
         and "microsoft-edge-stable-bin\tEdge" in unavailable_package_text
         and "spotify\tSpotify" in unavailable_package_text
         and "dropbox\tDropbox" in unavailable_package_text
-        and "cursor-bin\tCursor" in unavailable_package_text
+        and "cursor-bin\tCursor" not in unavailable_package_text
         and "grok-bot\tGrok Bot" in unavailable_package_text
         and "lmstudio-bin\tLM Studio" in unavailable_package_text
         and "steam\tSteam" in unavailable_package_text
@@ -420,13 +421,14 @@ def main() -> None:
     )
     check(
         "stable-mirror.omarchy.org" not in pacman_conf
-        and "pkgs.omarchy.org/stable" not in pacman_conf,
-        "factory pacman omits Omarchy's x86_64 channel repositories",
+        and "[multilib]" not in pacman_conf,
+        "guest pacman omits x86_64 mirrors and multilib",
     )
     check(
         "[omarchy]" in pacman_conf
-        and "Server = https://pkgs.omarchy.org/$arch" in pacman_conf,
-        "factory pacman retains the ARM Omarchy keyring repository",
+        and "Server = https://pkgs.omarchy.org/stable/$arch" in pacman_conf
+        and "SigLevel = Required DatabaseOptional TrustedOnly" in pacman_conf,
+        "guest pacman uses signed stable ARM applications",
     )
     check(
         "IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland aquamarine hyprtoolkit hyprland-guiutils"
@@ -959,7 +961,7 @@ def main() -> None:
         "pacman recovery files snapshot the final local-repository configuration",
     )
     check(
-        "expected_archive_count=7" in local_repository
+        "expected_archive_count=8" in local_repository
         and "factory repository is missing pinned ttfx" in local_repository
         and "factory repository is missing pinned yay" in local_repository
         and "factory repository is missing patched Hyprland" in local_repository

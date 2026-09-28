@@ -706,6 +706,60 @@ that were already upgraded into an incompatible combination. If dependency
 errors remain, retain the full error output for diagnosis instead of removing
 the kernel or compositor holds.
 
+### Enabling stable ARM applications in an existing VM
+
+New factory images use Omarchy's signed `stable/aarch64` application repository.
+This makes its ARM builds available to Omarchy's app installers, including
+Cursor, Codex Desktop, Sublime Text, Claude Desktop, and OpenClaw. The base
+system still uses Arch Linux ARM mirrors; the kernel, compositor holds, and
+pinned Try Omarchy runtime remain separate from the application channel.
+Channel reporting shows `arm / stable`. Switching to upstream rc, edge, or dev
+channels is not supported in this guest.
+
+Updating the Mac app does not change an existing VM's repository. To migrate,
+put this **complete source checkout** inside the guest (the script needs its
+specification, reviewed patch, key files, and sibling helpers). Close Omarchy
+Update and run these commands from the checkout root **inside Omarchy**:
+
+```sh
+python3 guest/scripts/migrate-stable-arm-repository.py
+sudo python3 guest/scripts/migrate-stable-arm-repository.py --apply
+```
+
+The first command previews configuration and command changes without writing
+or downloading anything. Apply changes both the saved and active pacman
+configurations, requires trusted package signatures, removes the old Cursor
+refusal, and updates the channel commands. Older guests without the unavailable-app
+helper and list are supported without adding them. It retains the checksum-verified
+bootstrap keyring package in the existing local repository because the stable
+repository does not publish it. It does not install or upgrade packages.
+
+Existing holds, ARM mirrors, local repository entries, custom sections, and
+comments are preserved. As with the hold repair above, custom settings that
+must survive Omarchy Update belong in the saved configuration too. Modified
+channel commands, custom Omarchy server URLs, an unexpected installed keyring,
+or a pacman transaction in progress require review before applying. Repeating
+a successful migration makes no changes and needs no new download.
+
+Apply prints a backup directory under
+`/var/lib/try-omarchy/stable-arm-backup.*`. Its `manifest.json` lists every
+changed path and whether it previously existed; originals retain their relative
+paths below that directory. A write failure restores files already changed.
+To undo a successful migration, close the updater and restore the listed
+originals with `sudo cp -p`, including both pacman configurations, the local
+repository database and sync copy, the unavailable-app list, and channel
+commands. A newly retained keyring archive may remain on disk after restoring
+the old database; it is no longer referenced. This rollback does not undo
+packages installed or upgraded afterward.
+
+Then run **Update → Omarchy** before installing apps, so repository databases
+and installed packages advance together. Do not refresh databases alone with
+`pacman -Sy`. If the update reports dependency conflicts, address the hold
+repair above and retain the full error output; do not remove kernel or
+compositor holds to force an upgrade. Application availability and versions
+follow the live stable ARM repository; this does not establish guest GUI
+compatibility for every application.
+
 ### Growing an existing VM disk
 
 To add capacity without resetting the VM, shut down Omarchy and run the

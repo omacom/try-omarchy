@@ -1,0 +1,51 @@
+--- a/bin/omarchy-version-channel
++++ b/bin/omarchy-version-channel
+@@ -1,6 +1,17 @@
+ #!/bin/bash
+ 
+ # omarchy:summary=Print the active Omarchy mirror and package channel
++
++# Try Omarchy has rolling ARM mirrors and a separately pinned runtime.
++if [[ -f /usr/share/try-omarchy/pacman.conf && $(uname -m) == aarch64 ]]; then
++  server=$(pacman-conf --repo omarchy Server 2>/dev/null)
++  if [[ $server == "https://pkgs.omarchy.org/stable/aarch64" ]]; then
++    echo "arm / stable"
++  else
++    echo "arm / unknown"
++  fi
++  exit 0
++fi
+ 
+ if grep -q "https://stable-mirror.omarchy.org/" /etc/pacman.d/mirrorlist; then
+   mirror="stable"
+--- a/bin/omarchy-channel-current
++++ b/bin/omarchy-channel-current
+@@ -9,6 +9,12 @@
+ # the package channels, since the checkout overrides whatever is installed.
+ if [[ $OMARCHY_PATH != "/usr/share/omarchy" ]]; then
+   echo dev
++  exit 0
++fi
++
++# The Try Omarchy runtime provides omarchy but does not install omarchy-settings.
++if [[ -f /usr/share/try-omarchy/pacman.conf && $(uname -m) == aarch64 ]]; then
++  omarchy-version-channel | awk '{ print $NF }'
+   exit 0
+ fi
+ 
+--- a/bin/omarchy-channel-set
++++ b/bin/omarchy-channel-set
+@@ -5,6 +5,13 @@
+ # omarchy:requires-sudo=true
+ 
+ set -euo pipefail
++
++# The native ARM guest keeps its runtime and graphics stack independently pinned.
++if [[ -f /usr/share/try-omarchy/pacman.conf && $(uname -m) == aarch64 ]]; then
++  echo "Try Omarchy uses stable ARM packages with a pinned runtime; channel switching is not supported." >&2
++  echo "Use Omarchy Update for supported package updates." >&2
++  exit 1
++fi
+ 
+ usage() { echo "Usage: omarchy-channel-set [stable|rc|edge|dev]"; }
+ fail() { echo "Error: $*" >&2; exit 1; }

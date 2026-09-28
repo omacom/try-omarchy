@@ -570,6 +570,7 @@ supply_chain_keys = {
     "archLinuxArmPackagesRepository",
     "hyprland",
     "mise",
+    "omarchyKeyring",
     "omarchyPackagesCommit",
     "omarchyPackagesRepository",
     "tryOmarchyBattery",
@@ -586,6 +587,13 @@ if (
     or supply_chain.get("archLinuxArmPackagesCommit") != "0b5418fc3f62860b191cd872cb2f933f9fc77841"
 ):
     fail("ARM package supply chain is not pinned")
+if supply_chain.get("omarchyKeyring") != {
+    "version": "20251027-1",
+    "filename": "omarchy-keyring-20251027-1-any.pkg.tar.zst",
+    "url": "https://pkgs.omarchy.org/aarch64/omarchy-keyring-20251027-1-any.pkg.tar.zst",
+    "sha256": "c69083c714108bfcee231fce9c653ec968c037b291fc68cbce4181e5eb870687",
+}:
+    fail("Omarchy bootstrap keyring is not the reviewed package")
 hyprland = exact_keys(
     supply_chain.get("hyprland"),
     {

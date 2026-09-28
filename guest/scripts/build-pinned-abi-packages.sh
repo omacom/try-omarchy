@@ -91,7 +91,8 @@ install -d -m 0755 "$output_repo"
 
 # Install build dependencies before either ABI pin. Hyprtoolkit then builds
 # against our verified aquamarine, never the incompatible mirror package.
-pacman -S --needed --noconfirm \
+install -d -m 0755 "$work/pacman-cache"
+pacman -S --needed --noconfirm --cachedir "$work/pacman-cache" \
   base-devel cmake hyprutils hyprwayland-scanner libdisplay-info libdrm libglvnd \
   libinput mesa pixman seatd systemd-libs wayland wayland-protocols \
   cairo glib2 hyprgraphics hyprlang iniparser libxkbcommon pango >/dev/null

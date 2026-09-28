@@ -12,7 +12,15 @@ make guest
 
 The privileged ARM64 Docker build writes verified artifacts to `dist/guest/`.
 Its persistent package/source cache lives in a project-scoped Docker volume, so
-repeat builds do not start from zero.
+repeat builds do not start from zero. Before resolving the factory transaction,
+the builder exposes cached archives whose package identities exactly match the
+reviewed factory lock or Hyprland build-package pins through a temporary
+signed-package repository. Detached signatures
+must verify against the builder's trusted keys; incomplete cache entries are
+ignored unless explicitly required by the specification. Missing packages still
+resolve from the configured mirrors, and the complete transaction must match the
+lock before installation. This permits rebuilds after rolling mirrors remove old
+versions without changing the finished guest's repository configuration.
 
 Useful lower-level commands:
 
@@ -61,6 +69,22 @@ direct-boot kernel and matching headers are held, while the packaged
 `try-omarchy-runtime` and reviewed backports resolve from the immutable local
 repository. A separate migration channel is required before those
 Try-Omarchy-specific revisions can advance on an existing disk without reset.
+
+Runtime pacman configuration uses Omarchy's signed `stable/aarch64` application
+repository alongside Arch Linux ARM. The builder derives a separate legacy
+keyring-only Omarchy repository so the reviewed factory transaction does not
+start resolving mutable stable applications. `supplyChain.omarchyKeyring`
+pins that bootstrap archive; `prepare-omarchy-keyring.py` verifies its hash,
+package identity, and all three keyring payloads against the vendored keys
+before retaining it in the local repository. This keeps the installed keyring
+represented after normal updates refresh the stable database.
+
+The `stable-arm-package-channel` backport reports `arm / stable` independently
+of the pinned runtime and refuses unsupported upstream channel switching.
+The [explicit existing-guest migration](../README.md#enabling-stable-arm-applications-in-an-existing-vm)
+previews changes, validates the exact reviewed command preimages, and backs up
+both pacman configurations and affected files before applying. Updating the
+Mac app does not run this migration.
 
 The kernel reboot check recognizes package-owned `modules.builtin` metadata as
 well as `vmlinuz` under `/usr/lib/modules/<release>/`. Arch Linux ARM does not

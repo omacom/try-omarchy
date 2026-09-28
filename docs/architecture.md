@@ -322,6 +322,16 @@ reviewed guest integrations, with user-approved installation and per-VM status
 reporting. It does not replace the pinned kernel or reproduce every factory
 change. Factory reset remains the way to opt into the complete new factory.
 
+The runtime Omarchy application repository is `stable/aarch64` with required
+trusted package signatures. It is independent of the pinned runtime and rolling
+Arch Linux ARM base. The factory transaction still bootstraps from the legacy
+keyring-only repository, then retains that exact checksum-verified keyring
+archive in its local repository. Existing guests opt in through the explicit
+stable ARM migration; the saved pre-refresh configuration is migrated together
+with the active configuration so Omarchy Update cannot revert the selection.
+Upstream channel switching is refused because its x86 repository templates and
+runtime-package replacement do not describe this guest's update contract.
+
 Optional, user-initiated installers run after the factory image has been built
 and are a separate trust boundary. They may resolve a mutable current release
 from a vendor or community package source, or download an exact vendor artifact

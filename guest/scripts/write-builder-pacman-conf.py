@@ -117,6 +117,12 @@ def write_builder_config(
         section = SECTION_RE.fullmatch(line)
         if section:
             repository = section.group(1)
+        # The reviewed factory transaction needs the legacy keyring package,
+        # which stable does not publish. Application repositories are runtime-only.
+        if repository == "omarchy" and line.startswith("Server ="):
+            line = "Server = https://pkgs.omarchy.org/$arch"
+        elif repository == "omarchy" and line.startswith("SigLevel ="):
+            line = "SigLevel = Optional TrustAll"
         # Local package repositories live in private build directories, so the
         # downloader must keep the invoking builder user's access to them.
         if repository_mirrors and line.startswith("DownloadUser"):

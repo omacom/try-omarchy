@@ -142,43 +142,13 @@ pacman_config="$work/pacman-builder.conf"
 [[ $package_cache != *$'\n'* ]] || fail "work path cannot contain a newline"
 install -d -m 0755 "$package_cache"
 
-# Omarchy's repository may contain binaries compiled against Qt's private ABI.
-# Arch is rolling, so keep the small reviewed ABI set on the exact signed
-# versions recorded in the transaction lock even after upstream mirrors move.
-pinned_records_text=$(python3 -c '
-import json, sys
-spec = json.load(open(sys.argv[1]))
-lock = json.load(open(sys.argv[2]))["packages"]
-pins = spec["inputs"].get("packageCachePins", [])
-if pins != sorted(set(pins)):
-    raise SystemExit("packageCachePins must be sorted and unique")
-for name in pins:
-    if name not in lock:
-        raise SystemExit(f"package cache pin is absent from the transaction lock: {name}")
-    print(f"{name}|{lock[name]}")
-' "$spec" "$package_lock_file") || fail "could not read reviewed cache pins"
-pinned_records=()
-if [[ -n $pinned_records_text ]]; then
-  mapfile -t pinned_records <<<"$pinned_records_text"
-fi
-if ((${#pinned_records[@]})); then
-  pinned_repo=$(mktemp -d "$work/pinned-repo.XXXXXX")
-  for record in "${pinned_records[@]}"; do
-    IFS='|' read -r package version <<<"$record"
-    [[ -n $package && -n $version && $package != *'|'* && $version != *'|'* ]] \
-      || fail "invalid package cache pin: $record"
-    shopt -s nullglob
-    matches=("$package_cache/$package-$version-"*.pkg.tar.zst)
-    shopt -u nullglob
-    ((${#matches[@]} == 1)) \
-      || fail "expected exactly one cached archive for $package=$version, found ${#matches[@]}"
-    archive=${matches[0]}
-    [[ -f $archive.sig ]] || fail "cached package signature not found: $archive.sig"
-    ln "$archive" "$archive.sig" "$pinned_repo/"
-  done
-  repo-add "$pinned_repo/try-omarchy-pinned-cache.db.tar.gz" \
-    "$pinned_repo/"*.pkg.tar.zst >/dev/null
-fi
+# Rolling mirrors may no longer advertise reviewed versions still in our cache.
+# Expose only exact lock matches, verified against trusted package signatures.
+# The complete empty-root transaction below must still match the reviewed lock.
+pinned_repo=$(mktemp -d "$work/pinned-repo.XXXXXX")
+python3 "$guest_dir/scripts/prepare-locked-package-cache.py" \
+  --spec "$spec" --lock "$package_lock_file" \
+  --cache "$package_cache" --output-repo "$pinned_repo"
 
 # Guest pacman.conf is installed unchanged by configure-rootfs. The builder copy
 # may add reviewed ABI pins (packages mirrors no longer publish) and must drop
@@ -205,7 +175,7 @@ if (( abi_pin_count > 0 )); then
     --work "$work" || fail "could not rebuild the reviewed ABI pins"
   builder_conf_args+=(--abi-repo "$abi_pin_repo")
 fi
-if [[ -n $pinned_repo ]]; then
+if [[ -f $pinned_repo/try-omarchy-pinned-cache.db.tar.gz ]]; then
   builder_conf_args+=(--pinned-cache-repo "$pinned_repo")
 fi
 "${builder_conf_args[@]}" || fail "could not derive the factory builder pacman configuration"

@@ -407,8 +407,8 @@ section = None
 for line in source:
     if re.fullmatch(r"\[[A-Za-z0-9@._+-]+\]", line):
         section = line[1:-1]
-    # Keep the reviewed ABI pair for both the compiler and the staged guest.
-    if section in {"omarchy", "try-omarchy-pinned-cache"} or line.startswith("IgnorePkg"):
+    # Keep reviewed ABI packages and signed cached toolchain pins.
+    if section == "omarchy" or line.startswith("IgnorePkg"):
         continue
     output.append(line)
 

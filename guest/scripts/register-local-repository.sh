@@ -85,10 +85,14 @@ expected_battery_version=${metadata[4]}
 repo_name=try-omarchy
 repo_dir="$root/usr/share/try-omarchy/repo"
 [[ -d $repo_dir && ! -L $repo_dir ]] || fail "local package staging directory is missing"
+# Stable publishes applications but not the bootstrap keyring. Keep its
+# reviewed archive represented locally after the guest changes repositories.
+python3 "$(dirname "$0")/prepare-omarchy-keyring.py" \
+  --guest-dir "$(dirname "$spec")" --output-repo "$repo_dir"
 shopt -s nullglob
 archives=("$repo_dir"/*.pkg.tar.zst)
 shopt -u nullglob
-expected_archive_count=7
+expected_archive_count=8
 (( ${#archives[@]} == expected_archive_count )) ||
   fail "local repository expected $expected_archive_count package archive(s), found ${#archives[@]}"
 [[ ${archives[*]} == *'/try-omarchy-runtime-'* ]] || fail "local repository is missing the Omarchy runtime"

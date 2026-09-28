@@ -219,6 +219,12 @@
       "wrapperSha256": "c41b20e46f257da7a06ee8c67b1056d099f61d7935ac2014525b1b2b1f74f827",
       "license": "MIT",
       "signatureSha256": "5591816f6a52f03d1ea5be0129fcc396aeece7238419cdd36e511546ee242798"
+    },
+    "omarchyKeyring": {
+      "version": "20251027-1",
+      "filename": "omarchy-keyring-20251027-1-any.pkg.tar.zst",
+      "url": "https://pkgs.omarchy.org/aarch64/omarchy-keyring-20251027-1-any.pkg.tar.zst",
+      "sha256": "c69083c714108bfcee231fce9c653ec968c037b291fc68cbce4181e5eb870687"
     }
   },
   "themes": [
@@ -529,6 +535,30 @@
             "afterSha256": "b65dd81b1bd9820445d1e7ca60c0a978c684c96e3e0280522c60944d1f676be4"
           }
         ]
+      },
+      {
+        "id": "stable-arm-package-channel",
+        "description": "Report the stable ARM application repository independently of the pinned VM runtime and refuse unsupported channel switches.",
+        "patch": "patches/omarchy/stable-arm-package-channel.patch",
+        "patchSha256": "68da1f389011b88c18af0f67f3b65f4a09d157824f8360daa059a0e57c40d62c",
+        "targets": [
+          {
+            "path": "bin/omarchy-version-channel",
+            "beforeSha256": "594142750d7d2a98f35f582473373224f6e172a9b6e2653372ea627b6be26031",
+            "afterSha256": "bee321de65c4d649add9eb61e62edf3034ad7b8110e036f1d5455f857a5edb06"
+          },
+          {
+            "path": "bin/omarchy-channel-current",
+            "beforeSha256": "72c6abc2d877e5af46230c61ac82c252fa4b28c0d15b614c261d7a65b8100c32",
+            "afterSha256": "c751aa7ba62961d68b45594c37ae3813a9b1f212f9a8956fbcfc428ab6452369"
+          },
+          {
+            "path": "bin/omarchy-channel-set",
+            "beforeSha256": "6515539654284884fcae0a41a12b56583c3948a2fefa1b5a0db4d4b1fb5a7edb",
+            "afterSha256": "4c110d788e9be373459b57ee8b158d22cf18b525042f0c2f2ca425e9c14a136c"
+          }
+        ],
+        "reference": "https://github.com/omacom/try-omarchy/issues/261"
       }
     ],
     "postBuildUserInstallers": [
