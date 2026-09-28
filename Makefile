@@ -13,9 +13,16 @@ DEVELOPMENT_SIGN_IDENTITY ?= -
 PACKAGE_SIGN_IDENTITY ?= $(RELEASE_SIGN_IDENTITY)
 PACKAGE_NOTARY_PROFILE ?= $(RELEASE_NOTARY_PROFILE)
 FORCE ?= 0
+TEST_JOBS ?= 4
+
+SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding \
+  run-qemu-ssh-contract qemu-memory-contract qemu-power-actions \
+  qemu-usb-passthrough qemu-monitor-ready qemu-persistent-storage
+SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest runtime app build run run-ephemeral reset update-omarchy version-preflight package package-preflight release release-preflight clean clean-all clean-guest
+.PHONY: test-all test-contracts test-guest test-swift test-shell test-resize $(SHELL_TEST_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -23,6 +30,7 @@ help:
 	  '' \
 	  '  make doctor         Check the local toolchain' \
 	  '  make test           Run native and guest contract tests' \
+	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component' \
 	  '  make run            Build the app from existing artifacts and open it' \
@@ -53,6 +61,14 @@ doctor:
 	@printf 'Toolchain ready: %s (%s)\n' "$$(sw_vers -productVersion)" "$$(uname -m)"
 
 test:
+	@[[ "$(TEST_JOBS)" =~ ^[1-9][0-9]*$$ ]] || { echo 'error: TEST_JOBS must be a positive integer' >&2; exit 1; }
+	@$(MAKE) --no-print-directory -j$(TEST_JOBS) test-all
+
+# Start Swift early; shell integration suites consume its helper binary. Each
+# suite owns its temporary state, but SwiftPM has a single build directory.
+test-all: test-swift test-contracts test-guest test-shell test-resize
+
+test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hda-recovery.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-network-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-libslirp-icmp.py"
@@ -66,20 +82,22 @@ test:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-build-cache.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
-	@$(ROOT)/guest/test
 	@$(ROOT)/macos/Tests/macos-compatibility.test.sh
 	@$(ROOT)/macos/Tests/runtime-relocation.test.sh
+
+test-guest:
+	@$(ROOT)/guest/test
+
+test-swift:
 	@mkdir -p $(ROOT)/macos/.build/module-cache/swift $(ROOT)/macos/.build/module-cache/clang
 	@cd $(ROOT)/macos && SWIFT_MODULECACHE_PATH=$(ROOT)/macos/.build/module-cache/swift CLANG_MODULE_CACHE_PATH=$(ROOT)/macos/.build/module-cache/clang swift test --disable-sandbox
-	@bash $(ROOT)/macos/Tests/network-helper.test.sh
-	@bash $(ROOT)/macos/Tests/qemu-networking.test.sh
-	@$(ROOT)/macos/Tests/qemu-port-forwarding.test.sh
-	@$(ROOT)/macos/Tests/run-qemu-ssh-contract.test.sh
-	@$(ROOT)/macos/Tests/qemu-memory-contract.test.sh
-	@$(ROOT)/macos/Tests/qemu-power-actions.test.sh
-	@$(ROOT)/macos/Tests/qemu-usb-passthrough.test.sh
-	@$(ROOT)/macos/Tests/qemu-monitor-ready.test.sh
-	@$(ROOT)/macos/Tests/qemu-persistent-storage.test.sh
+
+test-shell: $(SHELL_TEST_TARGETS)
+
+$(SHELL_TEST_TARGETS): test-shell-%: test-swift
+	@bash "$(ROOT)/macos/Tests/$*.test.sh"
+
+test-resize: test-swift
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/resize-vm-disk.test.py"
 
 guest:
