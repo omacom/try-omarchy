@@ -49,7 +49,7 @@ def load_abi_pins(spec: dict, lock_packages: dict[str, str]) -> list[dict]:
             fail(f"invalid abi package name: {name}")
         if not re.fullmatch(r"[A-Za-z0-9_.+:~-]+", version or ""):
             fail(f"invalid abi package version: {version}")
-        if name not in {"aquamarine", "hyprtoolkit"}:
+        if name not in {"aquamarine"}:
             fail(f"unsupported abi pin: {name}")
         component = supply.get(name)
         if not isinstance(component, dict):

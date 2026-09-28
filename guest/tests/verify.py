@@ -149,7 +149,7 @@ def main() -> None:
         )
     abi_pins = spec["inputs"]["abiPackagePins"]
     check(
-        abi_pins == [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}],
+        abi_pins == [{"name": "aquamarine", "version": "0.15.1-1"}],
         "factory abi pins keep aquamarine on libaquamarine.so=14 for the locked Hyprland",
     )
     aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
@@ -177,25 +177,10 @@ def main() -> None:
         and "pkgrel=1" in pkgbuild_text,
         "factory rebuilds aquamarine 0.15.1 from the reviewed Arch PKGBUILD and upstream tarball",
     )
-    hyprtoolkit = spec.get("supplyChain", {}).get("hyprtoolkit", {})
-    toolkit_recipe = GUEST / hyprtoolkit.get("pkgbuild", "")
     check(
-        hyprtoolkit == {
-    "version": "0.5.4",
-    "pkgrel": "6.2",
-    "repository": "https://github.com/hyprwm/hyprtoolkit",
-    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-    "license": "BSD-3-Clause",
-    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-}
-        and toolkit_recipe.is_file()
-        and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
-        "factory rebuilds Hyprtoolkit against the compatible aquamarine ABI",
+        "hyprtoolkit" not in spec.get("supplyChain", {})
+        and not (GUEST / "pinned-packages/hyprtoolkit").exists(),
+        "factory takes Hyprtoolkit from the locked mirror transaction",
     )
     builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
     build_aquamarine = read(GUEST / "scripts/build-pinned-abi-packages.sh")

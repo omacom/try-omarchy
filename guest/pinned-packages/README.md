@@ -17,14 +17,15 @@ The rounded-border backport still applies unchanged to the newer Hyprland.
 
 - `aquamarine/PKGBUILD` adapts the reviewed Arch `0.14.0-2` recipe for
   aquamarine `0.15.1-1` on aarch64, with the new upstream archive checksum.
-- `hyprtoolkit/PKGBUILD` adapts Arch `0.5.4-6` packaging for aarch64 and uses
-  package release `6.2` to distinguish the local rebuild.
 
-Packaging commits, recipe digests, upstream tarball digests, and reproduced
-library digests are pinned in `guest/spec.json`. The factory builds aquamarine
-first, installs that verified result in the disposable builder, then builds
-Hyprtoolkit against `libaquamarine.so=14`. Random build paths are remapped out
-of compiler output. Both package metadata and library digests are checked
+Hyprtoolkit 0.6.0 and `hyprland-guiutils` 0.2.2-4 come from the locked mirror
+transaction: Arch Linux ARM builds them against `libaquamarine.so=14`, so they
+no longer need a local rebuild. (The earlier Hyprtoolkit 0.5.4 rebuild stopped
+resolving once the mirror dropped the matching `hyprland-guiutils` 0.2.2-3.)
+
+The packaging commit, recipe digest, upstream tarball digest, and reproduced
+library digest are pinned in `guest/spec.json`. Random build paths are remapped
+out of compiler output. Package metadata and the library digest are checked
 before publishing the temporary `[try-omarchy-abi-pins]` repository.
 
 The finished guest never receives that builder repository. It holds aquamarine
