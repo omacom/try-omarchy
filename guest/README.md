@@ -14,6 +14,25 @@ The privileged ARM64 Docker build writes verified artifacts to `dist/guest/`.
 Its persistent package/source cache lives in a project-scoped Docker volume, so
 repeat builds do not start from zero.
 
+Hyprland compilation limits parallel jobs using the CPU count and the smaller
+of Linux available memory and visible cgroup v1/v2 memory budgets (including
+ancestor limits). It reserves 1 GiB and budgets 1.5 GiB per job, with a minimum
+of one job. Inactive file cache is reclaimable; swap is not counted. If memory
+cannot be detected, it uses one job. The selected count and budget appear in
+the build log. This is a conservative heuristic, not a guarantee against OOM.
+
+For an explicit positive job count, use `OMARCHY_GUEST_BUILD_JOBS=2 make guest`.
+The override intentionally bypasses the automatic limit; it only controls
+Hyprland compilation, not package installation or image compression. Use
+`FORCE=1` as well when deliberately repeating an already-cached build.
+
+On a 16 GiB Mac, the issue #189 reporter completed a build with three Docker
+CPUs and about 5.8 GiB of Docker memory; this is a measured example, not a
+universal minimum. Leave memory for macOS and other applications. If a build
+is killed, inspect Docker's memory limit and host memory pressure before
+clearing caches: swap growth can make a memory failure look like a disk-space
+problem. Very small budgets can still fail outside the compiler phase.
+
 Useful lower-level commands:
 
 ```sh

@@ -57,6 +57,7 @@ audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 audio_recovery_patch="$native_dir/patches/qemu-hda-full-ring-recovery.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
 memory_reclaim_patch="$native_dir/patches/qemu-hvf-free-page-reclaim.patch"
+mapped_sections_patch="$native_dir/patches/qemu-hvf-mapped-sections.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
@@ -86,6 +87,7 @@ audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42
 audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
 memory_reclaim_patch_sha256=5d422130996b99145d017d4429df660a07c757388ef7d52cba389766c18b0acf
+mapped_sections_patch_sha256=2991378d565faeaf114bb5948bfa9ad05c39b078e4e1f4c2a674c3283800fab0
 fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a207fb1499
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
@@ -214,6 +216,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing 9p shared-folder patch: $shared_folder_patch"
 [[ -f $memory_reclaim_patch && ! -L $memory_reclaim_patch ]] || \
   die "missing HVF free-page reclaim patch: $memory_reclaim_patch"
+[[ -f $mapped_sections_patch && ! -L $mapped_sections_patch ]] || \
+  die "missing HVF mapped-sections patch: $mapped_sections_patch"
 [[ -f $strchrnul_patch && ! -L $strchrnul_patch ]] || \
   die "missing Darwin strchrnul compatibility patch: $strchrnul_patch"
 [[ -f $usb_exact_bus_patch && ! -L $usb_exact_bus_patch ]] || \
@@ -433,6 +437,8 @@ verify_file_sha "Try Omarchy 9p shared-folder patch" \
   "$shared_folder_patch" "$shared_folder_patch_sha256"
 verify_file_sha "Try Omarchy HVF free-page reclaim patch" \
   "$memory_reclaim_patch" "$memory_reclaim_patch_sha256"
+verify_file_sha "Try Omarchy HVF mapped-sections patch" \
+  "$mapped_sections_patch" "$mapped_sections_patch_sha256"
 verify_file_sha "Try Omarchy Darwin GPU fence polling patch" \
   "$fence_poll_patch" "$fence_poll_patch_sha256"
 verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
@@ -456,6 +462,7 @@ patch -d "$source_dir" -p1 -f -i "$audio_recovery_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$memory_reclaim_patch"
+patch -d "$source_dir" -p1 -f -i "$mapped_sections_patch"
 patch -d "$source_dir" -p1 -f -i "$fence_poll_patch"
 patch -d "$source_dir" -p1 -f -i "$pinch_patch"
 patch -d "$source_dir" -p1 -f -i "$precise_scroll_patch"

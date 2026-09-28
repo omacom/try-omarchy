@@ -94,6 +94,12 @@ if (( dry_run )); then
   exit 0
 fi
 
+build_env=(-e OMARCHY_PACMAN_DISABLE_SANDBOX=1)
+if [[ ${OMARCHY_GUEST_BUILD_JOBS+x} ]]; then
+  [[ $OMARCHY_GUEST_BUILD_JOBS =~ ^[1-9][0-9]*$ ]] || fail "OMARCHY_GUEST_BUILD_JOBS must be a positive integer"
+  build_env+=(-e "OMARCHY_GUEST_BUILD_JOBS=$OMARCHY_GUEST_BUILD_JOBS")
+fi
+
 command -v docker >/dev/null || fail "docker is required"
 
 builder_image=try-omarchy-guest-builder
@@ -120,8 +126,8 @@ mkdir -p "$output"
 output=$(cd "$output" && pwd)
 docker volume create --label dev.tryomarchy.role=guest-work "$work_volume" >/dev/null
 docker run --rm --platform linux/arm64 --privileged \
+  "${build_env[@]}" \
   -e OMARCHY_BUILDER_IMAGE_DIGEST="$builder_digest" \
-  -e OMARCHY_PACMAN_DISABLE_SANDBOX=1 \
   -v "$repo_dir:/workspace:ro" \
   -v "$output:/output" \
   -v "$work_volume:/work" \

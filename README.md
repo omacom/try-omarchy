@@ -795,6 +795,10 @@ you choose — it never creates a folder inside it on your behalf.
 - A running Docker-compatible engine that supports privileged `linux/arm64`
   containers
 - Roughly 20 GB free for guest, runtime, caches, and assembled output
+- Enough memory for the Linux builder as well as macOS. Hyprland compilation
+  automatically limits parallel jobs to the detected memory budget; see the
+  [guest build memory guidance](guest/README.md) for overrides and a measured
+  configuration on a 16 GiB Mac.
 
 Install the one Homebrew build tool with:
 

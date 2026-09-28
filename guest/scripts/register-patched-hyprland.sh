@@ -439,8 +439,9 @@ upstream_query=$(pacman --config "$pacman_config" --root "$root" --dbpath "$root
 export SOURCE_DATE_EPOCH="$source_date_epoch"
 export CFLAGS="-ffile-prefix-map=$stage=/usr/src/try-omarchy-hyprland -fdebug-prefix-map=$stage=/usr/src/try-omarchy-hyprland"
 export CXXFLAGS="$CFLAGS"
-jobs=$(nproc 2>/dev/null || getconf NPROCESSORS_CONF)
-[[ $jobs =~ ^[1-9][0-9]*$ ]] || fail "could not determine Hyprland build parallelism"
+cpus=$(nproc 2>/dev/null || getconf NPROCESSORS_CONF)
+jobs=$(python3 "$(dirname "$0")/select-build-jobs.py" --cpus "$cpus") || \
+  fail "could not determine Hyprland build parallelism"
 (
   cd "$source_root"
   cmake --no-warn-unused-cli \
