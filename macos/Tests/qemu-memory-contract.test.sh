@@ -321,6 +321,13 @@ cat >"$shim_dir/file" <<'SH'
 #!/bin/bash
 printf '%s: Mach-O 64-bit executable arm64\n' "$1"
 SH
+# The Mac's default output device, as system_profiler reports it. 44100 Hz
+# differs from the launcher's 48000 fallback, so the detected rate shows.
+cat >"$shim_dir/system_profiler" <<'SH'
+#!/bin/bash
+[[ $* == "-json SPAudioDataType" ]] || exit 2
+printf '%s\n' '{"SPAudioDataType":[{"_items":[{"_name":"MacBook Speakers","coreaudio_default_audio_output_device":"spaudio_yes","coreaudio_device_srate":44100}]}]}'
+SH
 cat >"$shim_dir/sysctl" <<'SH'
 #!/bin/bash
 if [[ $# == 2 && $1 == -n && ($2 == hw.logicalcpu || $2 == hw.ncpu) ]]; then
@@ -391,7 +398,7 @@ done
 # A 16 GiB Mac defaults to 8 GiB; smaller Macs keep the 4 GiB baseline.
 run_scenario default 0
 assert_line_pair "$test_root/default/qemu.log" -m 8192M
-assert_line_pair "$test_root/default/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8
+assert_line_pair "$test_root/default/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=44100,in.frequency=44100
 assert_line_pair "$test_root/default/qemu.log" -device virtio-balloon-pci,free-page-reporting=on
 assert_contains "$(<"$test_root/default/stderr")" '8 GiB RAM'
 assert_keyboard_lockstep "$test_root/default/qemu.log" iso
