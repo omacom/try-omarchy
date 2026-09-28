@@ -565,7 +565,6 @@ if (
 supply_chain_keys = {
     "ghostty",
     "aquamarine",
-    "hyprtoolkit",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
     "hyprland",
@@ -633,7 +632,7 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "f41042613023280c808d5bf6258f2f71c1b20d0755f894b53e77defe97db42a7":
+if hyprland_identity != "f19c72c09c010b2ef5ae3ea3d79155d56ff9c78822e6d26f74db6a2d1feaf5eb":
     fail("factory Hyprland component is not the reviewed rounded-border build")
 aquamarine = exact_keys(
     supply_chain.get("aquamarine"),
@@ -666,25 +665,6 @@ if aquamarine != {
     "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d",
 }:
     fail("factory aquamarine component is not the reviewed libaquamarine.so=14 rebuild")
-hyprtoolkit = exact_keys(
-    supply_chain.get("hyprtoolkit"),
-    set(aquamarine),
-    "build spec hyprtoolkit component",
-)
-if hyprtoolkit != {
-    "version": "0.5.4",
-    "pkgrel": "6.2",
-    "repository": "https://github.com/hyprwm/hyprtoolkit",
-    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-    "license": "BSD-3-Clause",
-    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-}:
-    fail("factory hyprtoolkit component is not the reviewed libaquamarine.so=14 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},

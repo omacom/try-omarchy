@@ -5,6 +5,8 @@ Guest IgnorePkg holds (kernel / Hyprland / aquamarine) stay in the reviewed
 guest file. The builder config must:
   - expose ABI pins rebuilt from reviewed upstream source + Arch PKGBUILD
   - omit those pin names from IgnorePkg so pacstrap can install them once
+  - omit holds that only arrive as dependencies (DEPENDENCY_HOLDS): pacman
+    will not pull an ignored package in to satisfy another package
   - keep optional signed packageCachePins ahead of rolling mirrors
   - use the selected ARM mirror without changing the installed guest mirrors
 
@@ -22,6 +24,10 @@ from pathlib import Path
 
 
 SECTION_RE = re.compile(r"^\[([A-Za-z0-9@._+-]+)\]$")
+
+# Guest holds that the factory installs only as dependencies (Hyprland needs
+# hyprland-guiutils, which needs Hyprtoolkit). The finished guest keeps them held.
+DEPENDENCY_HOLDS = {"hyprland-guiutils", "hyprtoolkit"}
 
 
 def fail(message: str) -> None:
@@ -49,7 +55,7 @@ def load_abi_pins(spec: dict, lock_packages: dict[str, str]) -> list[dict]:
             fail(f"invalid abi package name: {name}")
         if not re.fullmatch(r"[A-Za-z0-9_.+:~-]+", version or ""):
             fail(f"invalid abi package version: {version}")
-        if name not in {"aquamarine", "hyprtoolkit"}:
+        if name not in {"aquamarine"}:
             fail(f"unsupported abi pin: {name}")
         component = supply.get(name)
         if not isinstance(component, dict):
@@ -215,7 +221,7 @@ def main() -> None:
         disable_sandbox=args.disable_sandbox,
         abi_repo=abi_repo if pins else None,
         pinned_cache_repo=args.pinned_cache_repo,
-        drop_ignore={pin["name"] for pin in pins},
+        drop_ignore={pin["name"] for pin in pins} | DEPENDENCY_HOLDS,
         repository_mirrors=repository_mirrors,
     )
 

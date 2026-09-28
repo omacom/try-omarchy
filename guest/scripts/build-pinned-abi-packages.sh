@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Rebuild the compatible aquamarine/Hyprtoolkit pair from verified source.
+# Rebuild the reviewed aquamarine ABI pin from verified source.
 # Packages are exposed only through the disposable factory repository.
 set -euo pipefail
 
@@ -89,17 +89,13 @@ trap cleanup EXIT
 install -d -m 0755 "$output_repo"
 [[ -z $(ls -A "$output_repo") ]] || fail "output repository must be empty"
 
-# Install build dependencies before either ABI pin. Hyprtoolkit then builds
-# against our verified aquamarine, never the incompatible mirror package.
 pacman -S --needed --noconfirm \
   base-devel cmake hyprutils hyprwayland-scanner libdisplay-info libdrm libglvnd \
-  libinput mesa pixman seatd systemd-libs wayland wayland-protocols \
-  cairo glib2 hyprgraphics hyprlang iniparser libxkbcommon pango >/dev/null
+  libinput mesa pixman seatd systemd-libs wayland wayland-protocols >/dev/null
 
-for name in aquamarine hyprtoolkit; do
+for name in aquamarine; do
   case "$name" in
     aquamarine) expected_version=0.15.1; expected_pkgrel=1 ;;
-    hyprtoolkit) expected_version=0.5.4; expected_pkgrel=6.2 ;;
   esac
 mapfile -t metadata < <(python3 - "$spec" "$guest_dir" "$name" <<'PY'
 import json
@@ -109,8 +105,8 @@ import sys
 spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
 guest = pathlib.Path(sys.argv[2]).resolve(strict=True)
 pins = spec.get("inputs", {}).get("abiPackagePins")
-if pins != [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}]:
-    raise SystemExit("abiPackagePins must contain the reviewed compatible pair")
+if pins != [{"name": "aquamarine", "version": "0.15.1-1"}]:
+    raise SystemExit("abiPackagePins must contain the reviewed aquamarine pin")
 component = spec["supplyChain"][sys.argv[3]]
 required = (
     "version",

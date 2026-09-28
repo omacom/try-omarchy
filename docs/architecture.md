@@ -203,11 +203,12 @@ creates the account on first boot.
   guarded rounded-border coverage patch for the VM graphics path, then held in
   the guest's immutable local repository. The factory rebuilds
   `aquamarine 0.15.1-1` from a reviewed Arch-derived PKGBUILD and upstream
-  tarball, then rebuilds Hyprtoolkit against its `libaquamarine.so=14` ABI,
-  matching Hyprland 0.56.2. Both packages are provided by the disposable
-  builder repository and held alongside Hyprland on guest `IgnorePkg`.
-  `hyprland-guiutils` is held with them so a rolling update cannot introduce
-  a dependency on a newer `libhyprtoolkit.so` ABI.
+  tarball, matching Hyprland 0.56.2's `libaquamarine.so=14` ABI. The
+  disposable builder repository provides it, and the guest holds it alongside
+  Hyprland on `IgnorePkg`. Hyprtoolkit 0.6.0 and `hyprland-guiutils` 0.2.2-4
+  come from the locked mirror transaction, already built against that ABI,
+  and are held with them so a rolling update cannot introduce a dependency on
+  a newer `libhyprtoolkit.so` or `libaquamarine.so` ABI.
   Source and library hashes are verified, and build paths are remapped for
   repeatable output. The factory uses an official HTTPS ARM mirror and checks
   the complete transaction against its reviewed package lock before installing.
