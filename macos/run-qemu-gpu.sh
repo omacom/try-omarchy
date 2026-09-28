@@ -131,6 +131,35 @@ qemu_netdevs=$("$qemu_bin" -machine virt -netdev help 2>&1) || {
 grep -qx 'user' <<<"$qemu_netdevs" || {
   fail "staged QEMU does not provide no-root SLIRP networking; run make runtime"
 }
+# QEMU's audio backends default to a 44100 Hz mixer. When the Mac's output
+# device runs at any other rate the guest is drained at the wrong speed and
+# playback drifts (48000 Hz, the macOS default, plays about 7% fast). Ask
+# CoreAudio what the current default output device actually uses and hand that
+# rate to QEMU so the two agree.
+host_audio_frequency() {
+  local audio_json audio_index audio_default audio_rate
+  audio_json=$(system_profiler -json SPAudioDataType 2>/dev/null) || return 1
+  for ((audio_index = 0; audio_index < 64; audio_index++)); do
+    audio_default=$(
+      plutil -extract "SPAudioDataType.0._items.$audio_index.coreaudio_default_audio_output_device" \
+        raw -o - - <<<"$audio_json" 2>/dev/null
+    ) || continue
+    [[ $audio_default == spaudio_yes ]] || continue
+    audio_rate=$(
+      plutil -extract "SPAudioDataType.0._items.$audio_index.coreaudio_device_srate" \
+        raw -o - - <<<"$audio_json" 2>/dev/null
+    ) || return 1
+    [[ $audio_rate =~ ^[0-9]{4,6}$ ]] || return 1
+    printf '%s\n' "$audio_rate"
+    return 0
+  done
+  return 1
+}
+
+# 48000 matches the macOS built-in default when the query cannot answer.
+audio_frequency=$(host_audio_frequency) || audio_frequency=48000
+[[ $audio_frequency =~ ^[0-9]{4,6}$ ]] || audio_frequency=48000
+
 qemu_audiodevs=$("$qemu_bin" -machine virt -audiodev help 2>&1) || {
   fail "cannot inspect staged QEMU audio backends"
 }
@@ -1732,7 +1761,7 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device "virtio-net-pci,id=omarchy-nic,netdev=omarchy-net,mac=$network_mac,romfile="
-  -audiodev 'sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8'
+  -audiodev "sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=$audio_frequency,in.frequency=$audio_frequency"
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none
