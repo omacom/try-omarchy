@@ -259,6 +259,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "spotify-arm64-web-app",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -302,6 +303,13 @@ def main() -> None:
     check(
         "exec omarchy-pkg-unavailable-arm Lutris" in lutris_unavailable_patch,
         "Lutris aarch64 backport fails via the shared unavailable helper",
+    )
+    spotify_patch = read(GUEST / "patches/omarchy/spotify-arm64-web-app.patch")
+    check(
+        'omarchy-webapp-install "Spotify" "https://open.spotify.com"' in spotify_patch
+        and 'exec omarchy-launch-webapp "https://open.spotify.com"' in spotify_patch
+        and "Spotify.desktop" in spotify_patch,
+        "Spotify aarch64 backport installs and launches the Spotify web app",
     )
     keyboard_patch = read(GUEST / "patches/omarchy/keyboard-us-acentos.patch")
     check(
