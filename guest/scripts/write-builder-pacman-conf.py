@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Derive the disposable factory builder pacman.conf from the guest config.
 
-Guest IgnorePkg holds (kernel / Hyprland / aquamarine) stay in the reviewed
-guest file. The builder config must:
+Guest IgnorePkg holds stay in the reviewed guest file. The builder config must:
   - expose ABI pins rebuilt from reviewed upstream source + Arch PKGBUILD
-  - omit those pin names from IgnorePkg so pacstrap can install them once
+  - omit all guest holds so pacstrap can install the locked empty-root transaction
   - keep optional signed packageCachePins ahead of rolling mirrors
   - use the selected ARM mirror without changing the installed guest mirrors
 
@@ -49,7 +48,7 @@ def load_abi_pins(spec: dict, lock_packages: dict[str, str]) -> list[dict]:
             fail(f"invalid abi package name: {name}")
         if not re.fullmatch(r"[A-Za-z0-9_.+:~-]+", version or ""):
             fail(f"invalid abi package version: {version}")
-        if name not in {"aquamarine", "hyprtoolkit"}:
+        if name not in {"aquamarine", "hyprland-guiutils", "hyprtoolkit"}:
             fail(f"unsupported abi pin: {name}")
         component = supply.get(name)
         if not isinstance(component, dict):
@@ -86,16 +85,6 @@ def ensure_abi_repo(pins: list[dict], repo_dir: Path) -> None:
     )
 
 
-def strip_ignore_pkg(line: str, drop: set[str]) -> str | None:
-    if not line.startswith("IgnorePkg"):
-        return line
-    _, _, value = line.partition("=")
-    packages = [pkg for pkg in value.split() if pkg not in drop]
-    if not packages:
-        return None
-    return "IgnorePkg = " + " ".join(packages)
-
-
 def write_builder_config(
     *,
     guest_config: Path,
@@ -104,7 +93,6 @@ def write_builder_config(
     disable_sandbox: bool,
     abi_repo: Path | None,
     pinned_cache_repo: Path | None,
-    drop_ignore: set[str],
     repository_mirrors: list[str] | None = None,
 ) -> None:
     lines = guest_config.read_text().splitlines()
@@ -150,10 +138,9 @@ def write_builder_config(
                 )
                 pinned_inserted = True
 
-        rewritten = strip_ignore_pkg(line, drop_ignore)
-        if rewritten is None:
+        if repository == "options" and re.match(r"^\s*IgnorePkg\s*=", line):
             continue
-        out.append(rewritten)
+        out.append(line)
 
         if line == "[options]":
             options_sections += 1
@@ -215,7 +202,6 @@ def main() -> None:
         disable_sandbox=args.disable_sandbox,
         abi_repo=abi_repo if pins else None,
         pinned_cache_repo=args.pinned_cache_repo,
-        drop_ignore={pin["name"] for pin in pins},
         repository_mirrors=repository_mirrors,
     )
 

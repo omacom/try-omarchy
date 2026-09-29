@@ -1,0 +1,40 @@
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+
+pkgname=hyprland-guiutils
+pkgver=0.2.2
+pkgrel=3.1
+pkgdesc='Hyprland GUI utilities'
+arch=(x86_64 aarch64)
+url="https://github.com/hyprwm/$pkgname"
+license=(BSD-3-Clause)
+depends=(
+         libgcc
+         libstdc++
+         glibc # libc.so libm.so
+         hyprlang
+         hyprtoolkit libhyprtoolkit.so
+         hyprutils libhyprutils.so
+         libdrm
+         pixman
+)
+makedepends=(cmake)
+replaces=(hyprland-qtutils)
+_archive="$pkgname-$pkgver"
+source=("$url/archive/v$pkgver/$_archive.tar.gz")
+sha256sums=('16f92a6c5a22ac58e1fc313f6b202c188da45e804e1f21ff57dfd0da5c1a01b7')
+
+build() {
+	cd "$_archive"
+	local cmake_flags=(
+		-D CMAKE_BUILD_TYPE=Release
+		-D CMAKE_INSTALL_PREFIX=/usr
+	)
+	cmake -B build ${cmake_flags[@]}
+	cmake --build build
+}
+
+package() {
+	cd "$_archive"
+	DESTDIR="$pkgdir" cmake --install build
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}

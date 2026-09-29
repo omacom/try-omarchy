@@ -565,6 +565,7 @@ if (
 supply_chain_keys = {
     "ghostty",
     "aquamarine",
+    "hyprland-guiutils",
     "hyprtoolkit",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
@@ -633,7 +634,7 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "f41042613023280c808d5bf6258f2f71c1b20d0755f894b53e77defe97db42a7":
+if hyprland_identity != "f19c72c09c010b2ef5ae3ea3d79155d56ff9c78822e6d26f74db6a2d1feaf5eb":
     fail("factory Hyprland component is not the reviewed rounded-border build")
 aquamarine = exact_keys(
     supply_chain.get("aquamarine"),
@@ -685,6 +686,25 @@ if hyprtoolkit != {
     "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
 }:
     fail("factory hyprtoolkit component is not the reviewed libaquamarine.so=14 rebuild")
+guiutils = exact_keys(
+    supply_chain.get("hyprland-guiutils"),
+    set(aquamarine),
+    "build spec GUI utilities component",
+)
+if guiutils != {
+    "version": "0.2.2",
+    "pkgrel": "3.1",
+    "repository": "https://github.com/hyprwm/hyprland-guiutils",
+    "url": "https://github.com/hyprwm/hyprland-guiutils/archive/v0.2.2/hyprland-guiutils-0.2.2.tar.gz",
+    "sha256": "16f92a6c5a22ac58e1fc313f6b202c188da45e804e1f21ff57dfd0da5c1a01b7",
+    "pkgbuild": "pinned-packages/hyprland-guiutils/PKGBUILD",
+    "pkgbuildSha256": "da58200e2ba16db7a4051d26b95400297fcbdb18f16359248bb69e2c454b56e8",
+    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprland-guiutils.git",
+    "packagingCommit": "88b320ccc3810635a519281e95ab5bee02c82fd5",
+    "license": "BSD-3-Clause",
+    "binarySha256": "b26b59f3b8504805c9ebac2ca3a1d90bddb673464b1f76f71be2c7bcfe0a3194",
+}:
+    fail("factory GUI utilities component is not the reviewed Hyprtoolkit ABI 5 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},

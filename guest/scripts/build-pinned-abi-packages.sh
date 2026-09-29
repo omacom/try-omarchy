@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Rebuild the compatible aquamarine/Hyprtoolkit pair from verified source.
+# Rebuild the compatible aquamarine/Hyprtoolkit/GUI utilities set from verified source.
 # Packages are exposed only through the disposable factory repository.
 set -euo pipefail
 
@@ -89,8 +89,8 @@ trap cleanup EXIT
 install -d -m 0755 "$output_repo"
 [[ -z $(ls -A "$output_repo") ]] || fail "output repository must be empty"
 
-# Install build dependencies before either ABI pin. Hyprtoolkit then builds
-# against our verified aquamarine, never the incompatible mirror package.
+# Install build dependencies before the ABI pins. Hyprtoolkit builds against
+# our verified aquamarine, then GUI utilities build against that Hyprtoolkit.
 # The Docker builder can be cached after the rolling ARM mirror has removed
 # packages named by its older sync databases. Upgrade it against fresh
 # databases before resolving any new build dependencies.
@@ -100,10 +100,11 @@ pacman -S --needed --noconfirm \
   libinput mesa pixman seatd systemd-libs wayland wayland-protocols \
   cairo glib2 hyprgraphics hyprlang iniparser libxkbcommon pango >/dev/null
 
-for name in aquamarine hyprtoolkit; do
+for name in aquamarine hyprtoolkit hyprland-guiutils; do
   case "$name" in
     aquamarine) expected_version=0.15.1; expected_pkgrel=1 ;;
     hyprtoolkit) expected_version=0.5.4; expected_pkgrel=6.2 ;;
+    hyprland-guiutils) expected_version=0.2.2; expected_pkgrel=3.1 ;;
   esac
 mapfile -t metadata < <(python3 - "$spec" "$guest_dir" "$name" <<'PY'
 import json
@@ -113,8 +114,12 @@ import sys
 spec = json.loads(pathlib.Path(sys.argv[1]).read_text())
 guest = pathlib.Path(sys.argv[2]).resolve(strict=True)
 pins = spec.get("inputs", {}).get("abiPackagePins")
-if pins != [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}]:
-    raise SystemExit("abiPackagePins must contain the reviewed compatible pair")
+if pins != [
+    {"name": "aquamarine", "version": "0.15.1-1"},
+    {"name": "hyprland-guiutils", "version": "0.2.2-3.1"},
+    {"name": "hyprtoolkit", "version": "0.5.4-6.2"},
+]:
+    raise SystemExit("abiPackagePins must contain the reviewed compatible set")
 component = spec["supplyChain"][sys.argv[3]]
 required = (
     "version",
@@ -291,19 +296,40 @@ with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as package:
     pkginfo = info.read().decode()
     if f"pkgname = {name}\n" not in pkginfo or f"pkgver = {version}-{pkgrel}\n" not in pkginfo or "arch = aarch64\n" not in pkginfo:
         raise SystemExit("ABI package identity mismatch")
-    abi = "provides = libaquamarine.so=14-64" if name == "aquamarine" else "depend = libaquamarine.so=14-64"
-    if abi not in pkginfo:
-        raise SystemExit("ABI package does not provide or depend on libaquamarine.so=14")
-    member = package.extractfile(f"usr/lib/lib{name}.so.{version}")
-    if member is None:
-        raise SystemExit("ABI package is missing its versioned library")
-    digest = hashlib.sha256(member.read()).hexdigest()
+    if name == "hyprland-guiutils":
+        if "depend = libhyprtoolkit.so=5-64" not in pkginfo:
+            raise SystemExit("GUI utilities do not depend on libhyprtoolkit.so=5")
+        binaries = sorted(
+            (member for member in package if member.isfile() and member.name.startswith("usr/bin/")),
+            key=lambda member: member.name,
+        )
+        if {member.name for member in binaries} != {
+            "usr/bin/hyprland-dialog",
+            "usr/bin/hyprland-donate-screen",
+            "usr/bin/hyprland-run",
+            "usr/bin/hyprland-update-screen",
+            "usr/bin/hyprland-welcome",
+        }:
+            raise SystemExit("GUI utilities executable set differs from the reviewed set")
+        content = hashlib.sha256()
+        for member in binaries:
+            content.update(member.name.encode() + b"\0")
+            content.update(package.extractfile(member).read())
+        digest = content.hexdigest()
+    else:
+        abi = "provides = libaquamarine.so=14-64" if name == "aquamarine" else "depend = libaquamarine.so=14-64"
+        if abi not in pkginfo:
+            raise SystemExit("ABI package does not provide or depend on libaquamarine.so=14")
+        member = package.extractfile(f"usr/lib/lib{name}.so.{version}")
+        if member is None:
+            raise SystemExit("ABI package is missing its versioned library")
+        digest = hashlib.sha256(member.read()).hexdigest()
     if digest != expected:
-        raise SystemExit(f"{name} reproducible library digest mismatch: {digest}")
+        raise SystemExit(f"{name} reproducible binary digest mismatch: {digest}")
 PY
 
 install -m 0644 "$package_archive" "$output_repo/$name-$version-$pkgrel-aarch64.pkg.tar.zst"
-if [[ $name == aquamarine ]]; then
+if [[ $name == aquamarine || $name == hyprtoolkit ]]; then
   pacman -U --needed --noconfirm "$package_archive" >/dev/null
 fi
 if (( added_build_user )); then
@@ -312,6 +338,6 @@ if (( added_build_user )); then
 fi
 rm -rf -- "$stage"
 stage=""
-echo "Rebuilt $name $version-$pkgrel from $packaging_commit (library $binary_sha256)"
+echo "Rebuilt $name $version-$pkgrel from $packaging_commit (binary $binary_sha256)"
 done
 repo-add "$output_repo/try-omarchy-abi-pins.db.tar.gz" "$output_repo/"*.pkg.tar.zst >/dev/null

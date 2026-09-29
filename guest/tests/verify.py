@@ -149,8 +149,12 @@ def main() -> None:
         )
     abi_pins = spec["inputs"]["abiPackagePins"]
     check(
-        abi_pins == [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}],
-        "factory abi pins keep aquamarine on libaquamarine.so=14 for the locked Hyprland",
+        abi_pins == [
+            {"name": "aquamarine", "version": "0.15.1-1"},
+            {"name": "hyprland-guiutils", "version": "0.2.2-3.1"},
+            {"name": "hyprtoolkit", "version": "0.5.4-6.2"},
+        ],
+        "factory ABI pins keep Hyprland and GUI utilities on compatible libraries",
     )
     aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
     pkgbuild = GUEST / aquamarine.get("pkgbuild", "")
@@ -197,20 +201,40 @@ def main() -> None:
         and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
         "factory rebuilds Hyprtoolkit against the compatible aquamarine ABI",
     )
+    guiutils = spec.get("supplyChain", {}).get("hyprland-guiutils", {})
+    guiutils_recipe = GUEST / guiutils.get("pkgbuild", "")
+    check(
+        guiutils == {
+            "version": "0.2.2",
+            "pkgrel": "3.1",
+            "repository": "https://github.com/hyprwm/hyprland-guiutils",
+            "url": "https://github.com/hyprwm/hyprland-guiutils/archive/v0.2.2/hyprland-guiutils-0.2.2.tar.gz",
+            "sha256": "16f92a6c5a22ac58e1fc313f6b202c188da45e804e1f21ff57dfd0da5c1a01b7",
+            "pkgbuild": "pinned-packages/hyprland-guiutils/PKGBUILD",
+            "pkgbuildSha256": "da58200e2ba16db7a4051d26b95400297fcbdb18f16359248bb69e2c454b56e8",
+            "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprland-guiutils.git",
+            "packagingCommit": "88b320ccc3810635a519281e95ab5bee02c82fd5",
+            "license": "BSD-3-Clause",
+            "binarySha256": "b26b59f3b8504805c9ebac2ca3a1d90bddb673464b1f76f71be2c7bcfe0a3194",
+        }
+        and guiutils_recipe.is_file()
+        and hashlib.sha256(guiutils_recipe.read_bytes()).hexdigest() == guiutils["pkgbuildSha256"],
+        "factory rebuilds GUI utilities against the compatible Hyprtoolkit ABI",
+    )
     builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
     build_aquamarine = read(GUEST / "scripts/build-pinned-abi-packages.sh")
     check(
         "try-omarchy-abi-pins" in builder_conf_writer
-        and "drop_ignore" in builder_conf_writer
+        and 'repository == "options" and re.match(r"^\\s*IgnorePkg\\s*=", line)' in builder_conf_writer
         and "reproducible rebuild" in builder_conf_writer
         and "write-builder-pacman-conf.py" in read(GUEST / "build.sh")
         and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh")
         and "build-pinned-abi-packages.sh" in read(GUEST / "build.sh")
         and "build-pinned-abi-packages.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
         and "download digest mismatch" in build_aquamarine
-        and "reproducible library digest mismatch" in build_aquamarine
+        and "reproducible binary digest mismatch" in build_aquamarine
         and "ABI source archive has an unsafe member set" in build_aquamarine,
-        "factory builder pacman derivation rebuilds abi pins from source and strips them from IgnorePkg",
+        "factory builder pacman derivation rebuilds ABI pins from source and strips guest update holds",
     )
 
     wallpaper = DEFAULT_WALLPAPER.read_bytes()
@@ -634,7 +658,7 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "34499692a552c4f36bce98b0efda02ebca00d2297c830b109b24ad6a64669645",
+            "binarySha256": "32bd58fd20883240eb7f1d85da0e7f64b1582c8ea3c18c947d98bc219964019d",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
@@ -645,9 +669,9 @@ def main() -> None:
                 "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
                 "glibc": "2.43+r22+g8362e8ce10b2-2",
                 "hyprland": "0.56.2-3",
-                "hyprland-protocols": "0.7.0-1",
+                "hyprland-protocols": "0.7.1-1",
                 "make": "4.4.1-3",
-                "meson": "1.12.0-1",
+                "meson": "1.12.1-1",
                 "ninja": "1.13.2-3",
                 "pkgconf": "3.0.7-1",
                 "xorgproto": "2025.1-1",

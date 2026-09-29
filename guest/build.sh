@@ -181,8 +181,8 @@ if ((${#pinned_records[@]})); then
 fi
 
 # Guest pacman.conf is installed unchanged by configure-rootfs. The builder copy
-# may add reviewed ABI pins (packages mirrors no longer publish) and must drop
-# those names from IgnorePkg so the empty-root transaction can install them once.
+# may add reviewed ABI pins (packages mirrors no longer publish) and drops
+# guest update holds so the empty-root transaction can install every dependency.
 abi_pin_count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("inputs", {}).get("abiPackagePins", [])))' "$spec")
 builder_conf_args=(
   python3 "$guest_dir/scripts/write-builder-pacman-conf.py"

@@ -20,7 +20,7 @@ class BuilderPacmanConfigTests(unittest.TestCase):
         self.spec = json.loads((GUEST / "spec.json").read_text())
         self.lock = json.loads((GUEST / "packages.lock.json").read_text())["packages"]
 
-    def test_builder_exposes_pair_without_changing_guest_holds(self):
+    def test_builder_exposes_abi_pins_without_changing_guest_holds(self):
         guest_config = GUEST / "pacman.aarch64.conf"
         original = guest_config.read_text()
         pins = builder.load_abi_pins(self.spec, self.lock)
@@ -33,12 +33,11 @@ class BuilderPacmanConfigTests(unittest.TestCase):
                 disable_sandbox=True,
                 abi_repo=Path(directory) / "abi-repo",
                 pinned_cache_repo=None,
-                drop_ignore={pin["name"] for pin in pins},
             )
             config = output.read_text()
         self.assertEqual(guest_config.read_text(), original)
         self.assertIn("hyprland aquamarine hyprtoolkit hyprland-guiutils\n", original)
-        self.assertIn("IgnorePkg = linux-aarch64 linux-aarch64-headers hyprland hyprland-guiutils\n", config)
+        self.assertNotIn("IgnorePkg", config)
         self.assertLess(config.index("[try-omarchy-abi-pins]"), config.index("[extra]"))
         self.assertIn("DisableSandbox\n", config)
 
@@ -47,6 +46,7 @@ class BuilderPacmanConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
             (repo / "aquamarine-0.15.1-1-aarch64.pkg.tar.zst").touch()
+            (repo / "hyprland-guiutils-0.2.2-3.1-aarch64.pkg.tar.zst").touch()
             (repo / "try-omarchy-abi-pins.db.tar.gz").touch()
             with self.assertRaisesRegex(SystemExit, "hyprtoolkit"):
                 builder.ensure_abi_repo(pins, repo)
@@ -64,7 +64,6 @@ class BuilderPacmanConfigTests(unittest.TestCase):
                 disable_sandbox=False,
                 abi_repo=None,
                 pinned_cache_repo=None,
-                drop_ignore=set(),
                 repository_mirrors=mirrors,
             )
             config = output.read_text()
