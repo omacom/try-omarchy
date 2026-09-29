@@ -793,17 +793,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             integrationRowViews.append(storageRow)
         }
         integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
-        if let integrationStatus = GuestIntegrationCache.read(integrationCacheURL()),
-           integrationStatus.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
-            integrationRowViews.insert(permissionRow(
-                symbolName: "exclamationmark.circle", title: "VM integrations",
-                detail: "Last check: \(integrationStatus.summary). Checked again after each VM launch.",
-                granted: false, statusLabels: ("", ""),
-                actions: [("REVIEW…", #selector(reviewIntegrations))],
-                actionStyle: .primary,
-                rowIdentifier: "vm-integrations"
-            ), at: 0)
-        }
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -958,7 +947,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         runningActions.alignment = .leading
         runningActions.spacing = 6
         runningActions.identifier = NSUserInterfaceItemIdentifier("running-settings-actions")
-        let settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
+        var settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
+        var integrationNotice: NSView?
+        if let status = GuestIntegrationCache.read(integrationCacheURL()),
+           status.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
+            let notice = integrationAttentionNotice(status)
+            integrationNotice = notice
+            settingsSections.insert(notice, at: 0)
+        }
         let stack = NSStackView(views: virtualMachineRunning
             ? [headingStack, runningActions] + settingsSections + [resetHeading, resetCard]
             : [headingStack] + settingsSections + [resetHeading, resetCard])
@@ -1017,6 +1013,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
 
+        integrationNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
         if virtualMachineRunning {
             runningActions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
             restartCaption.widthAnchor.constraint(equalTo: runningActions.widthAnchor).isActive = true
@@ -1036,6 +1034,62 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             )
         )
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func integrationAttentionNotice(_ status: GuestIntegrationCache) -> NSView {
+        let title: String
+        let detail: String
+        if status.state == "no-response" {
+            title = "Check VM integrations"
+            detail = "The VM did not answer its last check. Review setup inside Omarchy."
+        } else if status.report?.identity != GuestIntegrationCache.bundledIdentity {
+            title = "VM integration update available"
+            detail = "Review and install the update inside Omarchy."
+        } else {
+            title = "VM integrations need repair"
+            detail = "Review and repair integrations inside Omarchy."
+        }
+
+        let symbol = NSImageView()
+        symbol.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
+        symbol.contentTintColor = OmarchyStartMenuTheme.accent
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        let heading = NSTextField(labelWithString: title)
+        heading.font = .monospacedSystemFont(ofSize: 12, weight: .bold)
+        heading.textColor = OmarchyStartMenuTheme.foreground
+        let explanation = NSTextField(wrappingLabelWithString: detail)
+        explanation.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        explanation.textColor = OmarchyStartMenuTheme.foreground
+        let labels = NSStackView(views: [heading, explanation])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 4
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        explanation.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let review = OmarchyActionButton(title: "Review…", style: .primary,
+            target: self, action: #selector(reviewIntegrations))
+        review.identifier = NSUserInterfaceItemIdentifier("integration-attention-review")
+        review.setAccessibilityLabel("Review VM integrations")
+        review.isEnabled = !controlsBusy && !resetInProgress
+            && !microphoneRequestInFlight && !cameraRequestInFlight
+        let row = NSStackView(views: [symbol, labels, review])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 20),
+            symbol.heightAnchor.constraint(equalToConstant: 20),
+            explanation.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            review.widthAnchor.constraint(equalToConstant: 90),
+            review.heightAnchor.constraint(equalToConstant: 30),
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
+        ])
+        let notice = themedCard(containing: row, identifier: "integration-attention-notice")
+        notice.layer?.backgroundColor = OmarchyStartMenuTheme.accent.withAlphaComponent(0.10).cgColor
+        notice.layer?.borderColor = OmarchyStartMenuTheme.accent.withAlphaComponent(0.55).cgColor
+        return notice
     }
 
     private func sectionHeading(_ text: String) -> NSTextField {
@@ -1094,7 +1148,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         statusLabels: (granted: String, denied: String),
         statusTint: NSColor? = nil,
         actions: [(String, Selector)],
-        actionStyle: OmarchyControlStyle = .secondary,
         actionsEnabled: Bool = true,
         minimumHeight: CGFloat = 68,
         rowIdentifier: String? = nil
@@ -1198,7 +1251,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             let (actionTitle, action) = actionDescription
             let button = OmarchyActionButton(
                 title: actionTitle,
-                style: actionStyle,
+                style: .secondary,
                 target: self,
                 action: action
             )

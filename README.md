@@ -658,8 +658,9 @@ deliberate, destructive way to start again from the newest bundled factory.
 
 ### Updating integrations in an existing VM
 
-When a check finds updates, repairs, or no response, the Mac launcher highlights
-**VM integrations → Review…**. The row stays hidden otherwise. It explains how to add
+When a check finds updates, repairs, or no response, the Mac launcher shows a
+compact attention notice above its settings, with the reason and a **Review…**
+button. The notice is absent otherwise. It explains how to add
 new Try Omarchy features to an existing VM. It offers a one-time setup command
 for guests that do not yet have the integration manager. Run that command in an
 Omarchy terminal; it mounts the app’s dedicated read-only bundle and opens a

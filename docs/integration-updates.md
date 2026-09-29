@@ -6,7 +6,8 @@ reviewed guest features independently of the bundled factory image.
 ## First setup
 
 When an integration check finds updates, repairs, or no response from the VM,
-the Mac launcher shows **VM integrations > Review…** with a highlighted button.
+the Mac launcher shows an attention notice above its settings, with the reason
+and a highlighted **Review…** button.
 Launch Omarchy and paste the supplied command into an Omarchy terminal. It mounts
 the app's dedicated read-only 9p share at `/mnt/try-omarchy-updates` and opens a
 review. The share is separate from the optional personal shared folder and needs no SSH connection.
@@ -50,7 +51,7 @@ Mac menu bar with the status and a review action. It disappears after a healthy
 report. The app does not interrupt the VM with an automatic review dialog.
 Checks still run on every launch.
 
-The launcher shows a highlighted review action only when the last check for the
+The launcher shows a compact attention notice only when the last check for the
 selected persistent disk needs attention. It stays hidden before the first check,
 while a check is incomplete, and for current integrations. Optional Touch ID
 pairing and an unsupported battery module do not trigger a notice; pairing remains

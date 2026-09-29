@@ -28,7 +28,7 @@ customized files, disabled optional features, and an actual old-guest bootstrap.
 
 ## Implemented user journey
 
-The launcher shows a highlighted VM integrations row only when the selected
+The launcher shows a compact attention notice above its settings only when the selected
 disk has a check reporting updates, repairs, or no response. It is hidden when
 no VM or check exists and when integrations are current, including optional
 Touch ID pairing that has not been enabled. Review opens
