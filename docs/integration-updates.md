@@ -5,10 +5,11 @@ reviewed guest features independently of the bundled factory image.
 
 ## First setup
 
-Open **VM integrations > Review…** in the Mac launcher. Launch Omarchy and paste
-the supplied command into an Omarchy terminal. It mounts the app's dedicated
-read-only 9p share at `/mnt/try-omarchy-updates` and opens a review. The share is
-separate from the optional personal shared folder and needs no SSH connection.
+When an integration check finds updates, repairs, or no response from the VM,
+the Mac launcher shows **VM integrations > Review…** with a highlighted button.
+Launch Omarchy and paste the supplied command into an Omarchy terminal. It mounts
+the app's dedicated read-only 9p share at `/mnt/try-omarchy-updates` and opens a
+review. The share is separate from the optional personal shared folder and needs no SSH connection.
 
 Choose **Install/update integration support** and review replacements before
 confirming. Installation asks for the Linux user's sudo authorization, retains
@@ -44,14 +45,18 @@ Omarchy restarts. The review names the reason, and installation skips the batter
 without failing the other integrations.
 An older, slow, or stopped guest agent cannot be distinguished by silence alone.
 
-When setup, updates, or repairs may be needed, the app offers a review once per
-bundled integration revision for that disk. Choosing Later leaves the VM running
-and keeps the review action available. Checks still run on every launch.
+When setup, updates, or repairs may be needed, an attention icon appears in the
+Mac menu bar with the status and a review action. It disappears after a healthy
+report. The app does not interrupt the VM with an automatic review dialog.
+Checks still run on every launch.
 
-The Mac menu bar provides a live integration status and review action. The
-launcher shows the last check for the selected persistent disk. A report of
-current components means installed files, including the setup command and
-reporting service definition, passed inspection;
+The launcher shows a highlighted review action only when the last check for the
+selected persistent disk needs attention. It stays hidden before the first check,
+while a check is incomplete, and for current integrations. Optional Touch ID
+pairing and an unsupported battery module do not trigger a notice; pairing remains
+available inside Omarchy. New VMs already include the integration manager.
+A report of current components means installed files, including the setup command
+and reporting service definition, passed inspection;
 it does not attest that Touch ID was successfully used. Status messages never
 execute commands or authorize host or guest installation.
 

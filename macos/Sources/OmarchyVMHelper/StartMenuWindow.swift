@@ -818,13 +818,17 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             integrationRowViews.append(storageRow)
         }
         integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow(), languageRow])
-        let integrationStatus = GuestIntegrationCache.read(integrationCacheURL())
-        integrationRowViews.insert(permissionRow(
-            symbolName: "arrow.triangle.2.circlepath", title: "VM integrations",
-            detail: "Last check: \(integrationStatus?.summary ?? "Not checked yet"). Checked again after each VM launch.",
-            granted: false, statusLabels: ("", ""),
-            actions: [("REVIEW…", #selector(reviewIntegrations))]
-        ), at: 0)
+        if let integrationStatus = GuestIntegrationCache.read(integrationCacheURL()),
+           integrationStatus.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
+            integrationRowViews.insert(permissionRow(
+                symbolName: "exclamationmark.circle", title: "VM integrations",
+                detail: "Last check: \(integrationStatus.summary). Checked again after each VM launch.",
+                granted: false, statusLabels: ("", ""),
+                actions: [("REVIEW…", #selector(reviewIntegrations))],
+                actionStyle: .primary,
+                rowIdentifier: "vm-integrations"
+            ), at: 0)
+        }
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1115,6 +1119,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         statusLabels: (granted: String, denied: String),
         statusTint: NSColor? = nil,
         actions: [(String, Selector)],
+        actionStyle: OmarchyControlStyle = .secondary,
         actionsEnabled: Bool = true,
         minimumHeight: CGFloat = 68,
         rowIdentifier: String? = nil
@@ -1218,7 +1223,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             let (actionTitle, action) = actionDescription
             let button = OmarchyActionButton(
                 title: actionTitle,
-                style: .secondary,
+                style: actionStyle,
                 target: self,
                 action: action
             )

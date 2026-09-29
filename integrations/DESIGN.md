@@ -28,16 +28,21 @@ customized files, disabled optional features, and an actual old-guest bootstrap.
 
 ## Implemented user journey
 
-The launcher has a VM integrations row even before bootstrap. Review opens
+The launcher shows a highlighted VM integrations row only when the selected
+disk has a check reporting updates, repairs, or no response. It is hidden when
+no VM or check exists and when integrations are current, including optional
+Touch ID pairing that has not been enabled. Review opens
 instructions and a Copy setup command button. It mounts only the app's dedicated
 read-only bundle and starts a guest terminal guide. The guide inventories the
 supported integration and offers a separate sudo Touch ID pairing/test action. Linux sudo authorization
 occurs only after the review confirmation. sudo biometric pairing remains a
 separate explicit action.
 
-A live status menu appears on macOS while QEMU runs. It starts at Checking and
-receives guest reports every ten seconds. At 120 seconds without a report it
-shows Setup or repair needed; it continues listening for a late boot or repair.
+The host checks silently while QEMU runs and receives guest reports every ten
+seconds. An attention icon appears in the macOS menu bar only for updates, repairs,
+or after 120 seconds without a report. It continues listening for a late boot or
+repair and hides the icon after a healthy report. Review is user-initiated rather
+than an automatic modal dialog.
 The persisted result is labeled Last check in the launcher. Guest time is never
 used to determine freshness. State lives at the VM storage root, keyed by the working disk's file identity,
 so reset and alternate VM locations do not inherit another VM's result. The

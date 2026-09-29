@@ -6,6 +6,39 @@ import Testing
 struct GuestIntegrationStatusTests {
     private let identity = String(repeating: "a", count: 64)
 
+    @Test("Integration notices stay hidden until a check needs user attention")
+    func attention() {
+        let current = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "current", "sudo": "current", "battery": "disabled"], paired: false)
+        for state in ["checking", "unknown"] {
+            let cache = GuestIntegrationCache(checkedAt: Date(), state: state, report: current)
+            #expect(!cache.needsReview(expectedIdentity: "different"))
+        }
+        let empty = GuestIntegrationCache(checkedAt: Date(), state: "reported", report: nil)
+        #expect(!empty.needsReview(expectedIdentity: identity))
+        let healthy = GuestIntegrationCache(checkedAt: Date(), state: "reported", report: current)
+        #expect(!healthy.needsReview(expectedIdentity: identity))
+        #expect(!healthy.needsReview(expectedIdentity: nil))
+        #expect(healthy.needsReview(expectedIdentity: String(repeating: "b", count: 64)))
+
+        let repair = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+            components: ["bootstrap": "repair", "sudo": "current"], paired: true)
+        #expect(GuestIntegrationCache(checkedAt: Date(), state: "reported", report: repair)
+            .needsReview(expectedIdentity: identity))
+        #expect(GuestIntegrationCache(checkedAt: Date(), state: "no-response", report: nil)
+            .needsReview(expectedIdentity: identity))
+
+        for report in [
+            GuestIntegrationReport(schema: 1, version: 2, identity: identity,
+                components: ["bootstrap": "current", "sudo": "current"], paired: true),
+            GuestIntegrationReport(schema: 1, version: 1, identity: identity,
+                components: ["bootstrap": "current", "sudo": "current", "clock": "current"], paired: true),
+        ] {
+            #expect(!GuestIntegrationCache(checkedAt: Date(), state: "reported", report: report)
+                .needsReview(expectedIdentity: "different"))
+        }
+    }
+
     @Test("Only a complete current report can be up to date")
     func states() throws {
         let current = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
@@ -77,6 +110,8 @@ struct GuestIntegrationStatusTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = root.appendingPathComponent("disks/current")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(GuestIntegrationCache.url(storageRoot: root) == nil)
+        #expect(GuestIntegrationCache.read(GuestIntegrationCache.url(storageRoot: root)) == nil)
         let disk = directory.appendingPathComponent("rootfs.ext4")
         try Data("first disk".utf8).write(to: disk)
         let first = try #require(GuestIntegrationCache.url(storageRoot: root))
