@@ -47,6 +47,26 @@ the requested transaction and `packages.lock.json` pins the full resolved ARM64
 package set. Source repositories, commits, downloads, versions, and hashes are
 reviewed inputs rather than floating build dependencies.
 
+Aquamarine 0.15.1-1, Hyprtoolkit 0.6.0-1, and hyprland-guiutils 0.2.2-4 use
+signed Arch Linux ARM packages from the transaction lock. Hyprland and
+Hyprtoolkit both require Aquamarine ABI 14; GUI utils requires Hyprtoolkit ABI 6.
+The installed guest holds these packages alongside the patched Hyprland on
+`IgnorePkg`. Update and validate the set together. The builder omits guest
+update holds so it can install every package into an empty root filesystem.
+
+`inputs.packageRepositoryMirrors` selects official HTTPS ARM mirrors for the
+builder, with the second tried when a download from the first fails. Package
+signatures remain required; mirror changes fail until the complete transaction
+lock is refreshed and reviewed. Installed guests keep their normal mirrors.
+
+The builder seeds Omarchy's keyring from `guest/keys/omarchy*`, copied from
+`pkgbuilds/omarchy-keyring/` at the pinned `omacom-io/omarchy-pkgs` commit
+`7e448b90313fea4fb78da9a78607287691d3b241`. Their SHA-256 digests are checked
+before import. The signing fingerprint is
+`40DFB630FF42BCFFB047046CF0134EE680CAC571`. Each fresh guest creates its own
+local keypair and imports the reviewed ARM and Omarchy repository keys before
+package installation, without a keyserver lookup to bootstrap `omarchy-keyring`.
+
 Hyprland is the one source-patched guest package. It is rebuilt from verified
 upstream source with the rounded-border VM-graphics compatibility patch declared
 under `supplyChain.hyprland` in `spec.json`, then held in the image's local

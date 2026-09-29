@@ -564,8 +564,6 @@ if (
 
 supply_chain_keys = {
     "ghostty",
-    "aquamarine",
-    "hyprtoolkit",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
     "hyprland",
@@ -622,6 +620,7 @@ exact_keys(
         "glibc",
         "hyprland",
         "hyprland-protocols",
+        "hyprwayland-scanner",
         "make",
         "meson",
         "ninja",
@@ -633,58 +632,8 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "f41042613023280c808d5bf6258f2f71c1b20d0755f894b53e77defe97db42a7":
+if hyprland_identity != "b89f798d6d872313918628dd4c26b37a8fe8d12d8950bd7b25150e29f96800b3":
     fail("factory Hyprland component is not the reviewed rounded-border build")
-aquamarine = exact_keys(
-    supply_chain.get("aquamarine"),
-    {
-        "binarySha256",
-        "license",
-        "packagingCommit",
-        "packagingRepository",
-        "pkgbuild",
-        "pkgbuildSha256",
-        "pkgrel",
-        "repository",
-        "sha256",
-        "url",
-        "version",
-    },
-    "build spec aquamarine component",
-)
-if aquamarine != {
-    "version": "0.15.1",
-    "pkgrel": "1",
-    "repository": "https://github.com/hyprwm/aquamarine",
-    "url": "https://github.com/hyprwm/aquamarine/archive/v0.15.1/aquamarine-0.15.1.tar.gz",
-    "sha256": "2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2",
-    "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
-    "pkgbuildSha256": "90c998ea89b5c806919c102df78ef3f0d7816a9a08c26eac26b4adf44ba59a2a",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
-    "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
-    "license": "BSD-3-Clause",
-    "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d",
-}:
-    fail("factory aquamarine component is not the reviewed libaquamarine.so=14 rebuild")
-hyprtoolkit = exact_keys(
-    supply_chain.get("hyprtoolkit"),
-    set(aquamarine),
-    "build spec hyprtoolkit component",
-)
-if hyprtoolkit != {
-    "version": "0.5.4",
-    "pkgrel": "6.2",
-    "repository": "https://github.com/hyprwm/hyprtoolkit",
-    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-    "license": "BSD-3-Clause",
-    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-}:
-    fail("factory hyprtoolkit component is not the reviewed libaquamarine.so=14 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},
