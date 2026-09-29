@@ -80,6 +80,17 @@ fields to make them agree; they record different upstream identities.
 
 ## Tests
 
+`make test` runs the complete suite with up to four independent suites at once.
+The Swift build and tests finish before any shell suite uses the native helper.
+Use `make test TEST_JOBS=1` for serial output when debugging, or set `TEST_JOBS`
+to another positive integer to bound concurrency. Individual groups are available
+as `make test-contracts`, `make test-guest`, `make test-swift`, and
+`make test-shell`; `make test-resize` runs the disk resize integration tests.
+
+PR checks run all tests and full runtime builds in separate, concurrent jobs on
+both macOS 15 and 26, labeled `Tests` and `Build`. No suites or runtime checks
+are skipped based on changed paths or cached test results.
+
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that
 can be exercised without opening AppKit windows. Do not make CI depend on pixel

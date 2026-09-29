@@ -14,12 +14,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }})
+  checks:
+    name: ${{ matrix.target == 'test' && 'Tests' || 'Build' }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [macos-15, macos-26]
+        target: [test, runtime]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
@@ -31,12 +32,15 @@ jobs:
       # contract suites. The full build additionally requires privileged ARM64
       # Docker, which is unavailable on GitHub-hosted macOS runners.
       - name: Run test suite
+        if: matrix.target == 'test'
         run: make test
 
       - name: Install runtime build tool
+        if: matrix.target == 'runtime'
         run: command -v pkg-config || brew install pkg-config
 
       # Build the actual graphics stack and QEMU on both supported OS families.
       # Includes VirGL shader regressions and the complete binary compatibility audit.
       - name: Build and verify native runtime
+        if: matrix.target == 'runtime'
         run: make runtime
