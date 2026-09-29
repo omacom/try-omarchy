@@ -144,19 +144,16 @@ cat >"$root/etc/hosts" <<EOF
 ::1 localhost
 127.0.1.1 $hostname
 EOF
-# zh_TW is generated so Traditional Chinese is available to opt into (see the
-# fcitx5 profile seeded into /etc/skel below), but LANG and KEYMAP stay
-# en_US/us -- the default session must not change for a user who never
-# touches the IME.
-printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
+# First boot seeds LANG from the Mac's primary language. English is the
+# fallback; both Chinese scripts are available. Keyboard input is independent.
+printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\nzh_CN.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
 printf 'LANG=en_US.UTF-8\n' >"$root/etc/locale.conf"
 printf 'KEYMAP=us\n' >"$root/etc/vconsole.conf"
-# try-omarchy-locale.service rewrites LANG in /etc/locale.conf from the
-# kernel command line on every boot (see the unit and its ExecStart= script
-# for why this must be a real unit rather than a system generator). This
-# script runs before arch-chroot, with no systemd/D-Bus available to run
-# `systemctl enable`, so it links the unit into multi-user.target.wants
-# itself -- the same symlink that command would create.
+# Only a fresh factory contains this marker. Successful initialization removes
+# it permanently, leaving all subsequent language changes to the guest.
+mkdir -p "$root/var/lib/try-omarchy"
+: >"$root/var/lib/try-omarchy/locale-pending"
+# Enable without systemd/D-Bus in the builder.
 mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
 ln -sfn /usr/lib/systemd/system/try-omarchy-locale.service \
   "$root/etc/systemd/system/multi-user.target.wants/try-omarchy-locale.service"

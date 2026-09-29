@@ -717,12 +717,13 @@ def main() -> None:
         "obsolete no-op ttfx compatibility command is absent",
     )
     check(
-        "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure,
-        "Traditional Chinese locale is generated alongside English so it can be opted into",
+        "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure
+        and "zh_CN.UTF-8 UTF-8" in configure,
+        "both Chinese locales are generated alongside English for host-language initialization",
     )
     check(
         "LANG=en_US.UTF-8" in configure and "KEYMAP=us" in configure,
-        "default session language and keyboard layout stay English/US for a user who never opts into zh-TW",
+        "factory fallback language and keyboard layout remain English/US",
     )
     check("omarchy-provision-owner.service" in configure, "first boot uses upstream owner provisioning")
     native_autologin = read(
@@ -1347,10 +1348,11 @@ def main() -> None:
         "locale script sets LANG only, never LC_ALL or the console keymap",
     )
     check(
-        "locale=en_US.UTF-8" in locale_script and "exit 0" not in locale_script,
-        "an absent locale token still writes the image's default English locale -- unlike the old "
-        "generator, this script never exits early -- which is what lets switching back to English "
-        "in the launcher win on a persistent VM instead of leaving a stale locale behind",
+        'TRY_OMARCHY_LOCALE_PENDING_PATH:-/var/lib/try-omarchy/locale-pending' in locale_script
+        and '[ -f "$pending" ] || exit 0' in locale_script
+        and 'rm -- "$pending"' in locale_script
+        and ': >"$root/var/lib/try-omarchy/locale-pending"' in configure,
+        "only a fresh factory seeds LANG, and successful initialization consumes its marker",
     )
     check(
         '[ ! -L "$locale_conf" ] || exit 1' in locale_script,
@@ -1366,7 +1368,7 @@ def main() -> None:
         "try-omarchy-locale.service is a oneshot unit (not a generator) that runs the locale script",
     )
     check(
-        "Before=sddm.service display-manager.service getty@tty1.service" in locale_unit,
+        "Before=sddm.service display-manager.service getty@tty1.service omarchy-provision-owner.service" in locale_unit,
         "the unit orders itself before both entry points a login session can start from: SDDM "
         "(sddm.service, aliased to display-manager.service once enabled) and a console login "
         "(getty@tty1.service) -- the same two units omarchy-provision-owner.service, this project's "

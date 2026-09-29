@@ -1124,15 +1124,13 @@ if [[ -n $shared_folder ]]; then
   shared_folder_kernel_argument=" omarchy.shared_folder_name=$shared_folder_name_encoded"
 fi
 
-# The launcher publishes an optional guest language opt-in. The Swift app
-# validates the choice against its own locale allowlist first; re-check here
-# so a stray environment value can never select a locale the guest image
-# never generated. Empty means the guest's own default (English).
+# The native app supplies the Mac's primary language for first-boot seeding.
+# Validate direct script callers against the factory-generated locales too.
 guest_locale=${OMARCHY_QEMU_GPU_LOCALE:-}
 locale_kernel_argument=""
 if [[ -n $guest_locale ]]; then
   case $guest_locale in
-    zh_TW.UTF-8)
+    en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8)
       locale_kernel_argument=" tryomarchy.locale=$guest_locale"
       ;;
     *)
@@ -1580,12 +1578,15 @@ if [[ -n $disk_capacity_bytes && $storage_mode == persistent && ${OMARCHY_QEMU_G
     fail 'could not apply maximum disk size'
 fi
 
-if [[ -n $guest_locale ]]; then
-  case " $launch_kernel_command_line " in
-    *' tryomarchy.locale_support=1 '*) ;;
-    *) fail 'This saved VM does not support language selection. Use English to keep using it, or Reset Omarchy to use the new factory (reset erases VM data).' ;;
-  esac
-fi
+# A saved disk owns its capability. Never apply a newer app's locale to an
+# older guest; mask the legacy every-boot writer so in-guest edits survive.
+case " $launch_kernel_command_line " in
+  *' tryomarchy.locale_support=2 '*) ;;
+  *' tryomarchy.locale_support=1 '*)
+    locale_kernel_argument=" systemd.mask=try-omarchy-locale.service"
+    ;;
+  *) locale_kernel_argument="" ;;
+esac
 
 case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   1)

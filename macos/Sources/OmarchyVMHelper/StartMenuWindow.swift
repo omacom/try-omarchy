@@ -177,8 +177,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setImmersiveMode: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> Void
-    private let languageStatus: () -> LanguageMenuState
-    private let setLanguage: (String?) -> Void
     private let integrationCacheURL: () -> URL?
     private let launch: () -> Void
     private let appVersionLabel: String
@@ -290,8 +288,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
-        languageStatus: @escaping () -> LanguageMenuState = { .systemDefault },
-        setLanguage: @escaping (String?) -> Void = { _ in },
         integrationCacheURL: @escaping () -> URL? = { nil },
         launch: @escaping () -> Void
     ) {
@@ -329,8 +325,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setImmersiveMode = setImmersiveMode
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
-        self.languageStatus = languageStatus
-        self.setLanguage = setLanguage
         self.integrationCacheURL = integrationCacheURL
         self.launch = launch
         self.appVersionLabel = appVersionLabel
@@ -742,25 +736,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 72
         )
 
-        let languageState = languageStatus()
-        let languagePresentation = StartMenuPresentation.language(state: languageState)
-        let languageRow = permissionRow(
-            symbolName: "globe",
-            title: "Language",
-            detail: languagePresentation.detail,
-            granted: languagePresentation.isNonDefault,
-            statusLabels: (languagePresentation.statusLabel, languagePresentation.statusLabel),
-            actions: [
-                (
-                    languagePresentation.actionTitle,
-                    languagePresentation.isNonDefault
-                        ? #selector(useDefaultLanguage)
-                        : #selector(selectTraditionalChineseLanguage)
-                ),
-            ],
-            actionsEnabled: languageState.supportsSelection
-        )
-
         let storageStatus = storageLocationStatus()
         var storageRow: NSView?
         if let storagePath = storageLocation() {
@@ -817,7 +792,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow(), languageRow])
+        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
         if let integrationStatus = GuestIntegrationCache.read(integrationCacheURL()),
            integrationStatus.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
             integrationRowViews.insert(permissionRow(
@@ -1739,18 +1714,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
-    }
-
-    @objc private func selectTraditionalChineseLanguage() {
-        guard !launchInProgress, !resetInProgress else { return }
-        setLanguage(GuestLocaleCatalog.traditionalChinese.localeToken)
-        render()
-    }
-
-    @objc private func useDefaultLanguage() {
-        guard !launchInProgress, !resetInProgress else { return }
-        setLanguage(nil)
-        render()
     }
 
     private func confirmReset() {

@@ -24,6 +24,7 @@ class LocaleScriptTests(unittest.TestCase):
         cmdline = root / "cmdline"
         cmdline.write_text(command_line + "\n", encoding="utf-8")
         locale_conf = root / "locale.conf"
+        (root / "locale-pending").touch()
         if initial_contents is not None:
             locale_conf.write_text(initial_contents, encoding="utf-8")
             locale_conf.chmod(0o640)
@@ -37,6 +38,7 @@ class LocaleScriptTests(unittest.TestCase):
                 "PATH": "/usr/bin:/bin",
                 "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(cmdline),
                 "TRY_OMARCHY_LOCALE_CONF_PATH": str(locale_conf),
+                "TRY_OMARCHY_LOCALE_PENDING_PATH": str(root / "locale-pending"),
             },
         )
         return result, locale_conf, temporary
@@ -78,7 +80,7 @@ class LocaleScriptTests(unittest.TestCase):
             )
 
     def test_each_allowlisted_locale_writes_the_matching_lang_line(self) -> None:
-        for locale in ("en_US.UTF-8", "zh_TW.UTF-8"):
+        for locale in ("en_US.UTF-8", "zh_TW.UTF-8", "zh_CN.UTF-8"):
             result, locale_conf, temporary = self.run_script(
                 f"root=/dev/vda rw tryomarchy.locale={locale}"
             )
@@ -89,7 +91,7 @@ class LocaleScriptTests(unittest.TestCase):
                 )
 
     def test_locale_not_on_allowlist_falls_back_to_english(self) -> None:
-        for locale in ("fr_FR.UTF-8", "en_US", "zh_CN.UTF-8", "en_US.UTF-8x"):
+        for locale in ("fr_FR.UTF-8", "en_US", "zh_HK.UTF-8", "en_US.UTF-8x"):
             result, locale_conf, temporary = self.run_script(
                 f"root=/dev/vda rw tryomarchy.locale={locale}"
             )
@@ -125,33 +127,23 @@ class LocaleScriptTests(unittest.TestCase):
                 )
             self.assertFalse(marker.exists())
 
-    def test_running_twice_leaves_identical_contents(self) -> None:
-        temporary = tempfile.TemporaryDirectory()
+    def test_later_boot_preserves_guest_edits_even_if_host_language_changes(self) -> None:
+        result, conf, temporary = self.run_script("tryomarchy.locale=zh_TW.UTF-8")
         with temporary:
-            root = Path(temporary.name)
-            cmdline = root / "cmdline"
-            cmdline.write_text(
-                "root=/dev/vda rw tryomarchy.locale=zh_TW.UTF-8\n", encoding="utf-8"
-            )
-            locale_conf = root / "locale.conf"
-            env = {
+            self.assertEqual(result.returncode, 0, result.stderr)
+            root = conf.parent
+            self.assertFalse((root / "locale-pending").exists())
+            conf.write_text("# Guest choice\nLANG=ja_JP.UTF-8\nLC_TIME=en_GB.UTF-8\n")
+            (root / "cmdline").write_text("tryomarchy.locale=en_US.UTF-8\n")
+            result = subprocess.run([str(SCRIPT)], capture_output=True, text=True, env={
                 "PATH": "/usr/bin:/bin",
-                "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(cmdline),
-                "TRY_OMARCHY_LOCALE_CONF_PATH": str(locale_conf),
-            }
-            for _ in range(2):
-                result = subprocess.run(
-                    [str(SCRIPT)],
-                    check=False,
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    env=env,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                locale_conf.read_text(encoding="utf-8"), "LANG=zh_TW.UTF-8\n"
-            )
+                "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(root / "cmdline"),
+                "TRY_OMARCHY_LOCALE_CONF_PATH": str(conf),
+                "TRY_OMARCHY_LOCALE_PENDING_PATH": str(root / "locale-pending"),
+            })
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(conf.read_text(),
+                             "# Guest choice\nLANG=ja_JP.UTF-8\nLC_TIME=en_GB.UTF-8\n")
 
     def test_refuses_to_write_through_a_symlink(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -163,6 +155,7 @@ class LocaleScriptTests(unittest.TestCase):
             )
             target = root / "outside-target"
             locale_conf = root / "locale.conf"
+            (root / "locale-pending").touch()
             locale_conf.symlink_to(target)
             result = subprocess.run(
                 [str(SCRIPT)],
@@ -174,10 +167,12 @@ class LocaleScriptTests(unittest.TestCase):
                     "PATH": "/usr/bin:/bin",
                     "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(cmdline),
                     "TRY_OMARCHY_LOCALE_CONF_PATH": str(locale_conf),
+                    "TRY_OMARCHY_LOCALE_PENDING_PATH": str(root / "locale-pending"),
                 },
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(target.exists())
+            self.assertTrue((root / "locale-pending").exists())
 
 
 if __name__ == "__main__":

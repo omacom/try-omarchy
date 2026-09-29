@@ -1003,8 +1003,9 @@ struct SavedGuestLanguageSupportTests {
         let commandLine = kit.appendingPathComponent("command-line")
         for (line, expected) in [
             ("root=/dev/vda rw", false),
-            ("root=/dev/vda rw tryomarchy.locale_support=10", false),
-            ("root=/dev/vda rw tryomarchy.locale_support=1\n", true),
+            ("root=/dev/vda rw tryomarchy.locale_support=1", false),
+            ("root=/dev/vda rw tryomarchy.locale_support=20", false),
+            ("root=/dev/vda rw tryomarchy.locale_support=2\n", true),
         ] {
             try Data(line.utf8).write(to: commandLine)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: commandLine.path)
@@ -1015,7 +1016,7 @@ struct SavedGuestLanguageSupportTests {
         #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: [:], metrics: supportedMetrics, preference: preference))
         try FileManager.default.removeItem(at: commandLine)
         let target = root.appendingPathComponent("untrusted-command-line")
-        try Data("tryomarchy.locale_support=1\n".utf8).write(to: target)
+        try Data("tryomarchy.locale_support=2\n".utf8).write(to: target)
         try FileManager.default.createSymbolicLink(at: commandLine, withDestinationURL: target)
         #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
     }

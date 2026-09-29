@@ -270,20 +270,4 @@ struct StartMenuPresentationTests {
             == "Omarchy opens in a window with the Mac menu bar and Dock available.")
     }
 
-    @Test("language presentation distinguishes the system default from a chosen locale")
-    func languageStates() {
-        let systemDefault = StartMenuPresentation.language(state: .systemDefault)
-        #expect(!systemDefault.isNonDefault)
-        #expect(systemDefault.statusLabel == "○  English")
-        #expect(systemDefault.detail.contains("English"))
-        #expect(systemDefault.actionTitle.contains("繁體中文"))
-
-        let traditionalChinese = StartMenuPresentation.language(
-            state: LanguageMenuState(selectedLocale: GuestLocaleCatalog.traditionalChinese)
-        )
-        #expect(traditionalChinese.isNonDefault)
-        #expect(traditionalChinese.statusLabel == "●  Traditional Chinese (繁體中文)")
-        #expect(traditionalChinese.detail.contains("Traditional Chinese"))
-        #expect(traditionalChinese.actionTitle == "Use English (Default)")
-    }
 }

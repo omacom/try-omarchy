@@ -211,21 +211,23 @@ creates the account on first boot.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain
   unchanged.
-- Traditional Chinese is available to opt into from the start menu's Language
-  row, without changing the default session: the choice becomes the
-  `tryomarchy.locale=zh_TW.UTF-8` kernel argument, and a guest oneshot unit
-  consumes it to write `LANG` into `/etc/locale.conf` before either login
-  entry point starts, which is where the login shell takes it from. `zh_TW.UTF-8`
-  is generated alongside `en_US.UTF-8`, fcitx5 is seeded with US and Chewing
-  (Bopomofo) input, a fontconfig rule prefers Traditional Chinese Han glyph
-  variants for `zh-TW` text, and Chromium is launched with the Wayland IME
-  flag it needs to receive fcitx5 input at all. Leaving the row untouched
-  emits no kernel argument, and `LANG`/`KEYMAP` stay `en_US`/`us`.
-  The factory base command line records `tryomarchy.locale_support=1` in its
-  saved boot kit. Both the menu and launcher check the selected disk's support
-  instead of assuming an app update installs guest files. Older disks show a
-  disabled language row with reset guidance. Updating `LANG` preserves other
-  locale categories and comments in `/etc/locale.conf`.
+- New guests seed their locale once from the Mac's primary preferred language.
+  The launcher maps English (and unsupported languages) to `en_US.UTF-8`,
+  Traditional Chinese to `zh_TW.UTF-8`, and Simplified Chinese to `zh_CN.UTF-8`.
+  All three are generated in the factory. The selected disk's saved boot kit
+  must advertise `tryomarchy.locale_support=2` before the launcher passes a
+  `tryomarchy.locale` hint. A guest oneshot consumes the factory-only
+  `/var/lib/try-omarchy/locale-pending` marker after writing `LANG` to
+  `/etc/locale.conf`, before owner provisioning or login starts. Other locale
+  categories, comments, and file permissions are preserved. Subsequent boots
+  leave the guest's language untouched, even if the Mac's language changes.
+  Older disks with `tryomarchy.locale_support=1` retain their saved language:
+  the launcher masks their legacy every-boot locale writer for that boot.
+  Older disks without a locale capability receive no hint. Launcher language
+  preferences from earlier app versions are no longer read.
+  Keyboard input stays independent: fcitx5 is seeded with US and Chewing
+  (Bopomofo), the fontconfig rule prefers Traditional Chinese Han variants for
+  `zh-TW` text, and Chromium receives the Wayland IME flag needed for fcitx5.
 
 Resources can set an optional maximum virtual disk capacity. On the next
 normal launch, an existing disk is sparsely extended under the workspace lock,

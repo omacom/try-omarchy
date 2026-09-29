@@ -59,7 +59,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let startupPreferenceStore: StartupPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
-    private let languagePreferenceStore: LanguagePreferenceStore
     private let storageLocationStore: StorageLocationPreferenceStore
     private let volumeProbe: VolumeProbing
     private let volumeRootDetector: VolumeRootDetecting
@@ -110,7 +109,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         startupPreferenceStore: StartupPreferenceStore = StartupPreferenceStore(),
         resourcePreferenceStore: VMResourcePreferenceStore = VMResourcePreferenceStore(),
         resourceLimits: VMResourceLimits = .current,
-        languagePreferenceStore: LanguagePreferenceStore = LanguagePreferenceStore(),
         storageLocationStore: StorageLocationPreferenceStore = StorageLocationPreferenceStore(),
         volumeProbe: VolumeProbing = URLVolumeProbe(),
         volumeRootDetector: VolumeRootDetecting = FileManagerVolumeRootDetector(),
@@ -130,7 +128,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.startupPreferenceStore = startupPreferenceStore
         self.resourcePreferenceStore = resourcePreferenceStore
         self.resourceLimits = resourceLimits
-        self.languagePreferenceStore = languagePreferenceStore
         self.storageLocationStore = storageLocationStore
         self.volumeProbe = volumeProbe
         self.volumeRootDetector = volumeRootDetector
@@ -284,16 +281,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 self?.appReleaseChecker.menuTitle ?? "Check for Updates…"
             },
             checkForAppUpdates: { [weak self] in self?.checkForAppUpdates(nil) },
-            languageStatus: { [weak self] in
-                LanguageMenuState.make(
-                    preference: self?.languagePreferenceStore.load() ?? .systemDefault,
-                    supportsSelection: self?.supportsLanguageSelection() ?? false
-                )
-            },
-            setLanguage: { [weak self] localeToken in
-                guard self?.supportsLanguageSelection() == true else { return }
-                self?.languagePreferenceStore.save(LanguagePreference(localeToken: localeToken))
-            },
             integrationCacheURL: { [weak self] in
                 guard let self else { return nil }
                 return GuestIntegrationCache.url(storageRoot: QEMUGPUStorageSpaceEstimate.storageRootURL(
@@ -569,7 +556,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         let language = LanguageLaunchConfiguration.make(
             baseEnvironment: resources.environment,
-            preference: languagePreferenceStore.load(),
             supportsSelection: supportsLanguageSelection()
         )
         var storageEnvironment = language.environment

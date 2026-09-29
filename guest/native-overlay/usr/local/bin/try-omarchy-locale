@@ -1,23 +1,16 @@
 #!/bin/sh
 
-# Write a host-chosen UI locale (tryomarchy.locale=<value> on the kernel
-# command line) into /etc/locale.conf. Run by try-omarchy-locale.service,
-# early enough that the value is in place before anything starts a login
-# session.
-#
-# This used to be a system generator that wrote /run/environment.d instead,
-# which works for XMODIFIERS (nothing else sets it) but not for LANG:
-# Omarchy's session starts through uwsm, which reads the systemd user
-# manager's environment, merges in the *login shell's* environment -- whose
-# LANG comes from /etc/locale.conf via PAM -- and pushes the merge back over
-# D-Bus after environment.d has already run. English always wins that race.
-# A generator must never write persistent state, so this lives in a real
-# (enabled) oneshot unit instead, and writes /etc/locale.conf directly.
+# Seed LANG from the Mac on a fresh factory's first boot, before login or
+# owner provisioning. Once consumed, the factory marker is never recreated;
+# subsequent boots preserve language choices made inside Omarchy.
 
 set -eu
 
 cmdline_path=${TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/proc/cmdline}
 locale_conf=${TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf}
+pending=${TRY_OMARCHY_LOCALE_PENDING_PATH:-/var/lib/try-omarchy/locale-pending}
+[ -f "$pending" ] || exit 0
+[ ! -L "$pending" ] || exit 1
 
 # Refuse to write through a symlink (dangling or not). This runs as root on
 # every boot, and locale_conf's target would otherwise be unchecked.
@@ -26,10 +19,7 @@ locale_conf=${TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf}
 command_line=""
 IFS= read -r command_line <"$cmdline_path" || exit 1
 
-# Default to the image's own default locale. This is deliberate, not merely
-# a placeholder: writing it even when no token is present is what makes
-# switching back to English in the launcher work on a persistent VM, instead
-# of leaving a stale non-English locale from an earlier boot in place.
+# Unsupported or absent host language uses the factory default.
 locale=en_US.UTF-8
 set -f
 for argument in $command_line; do
@@ -42,7 +32,7 @@ for argument in $command_line; do
       # reads on every login, so anything else is ignored (keeping whatever
       # is already selected) rather than trusted or shell-interpolated.
       case $candidate in
-        en_US.UTF-8 | zh_TW.UTF-8) locale=$candidate ;;
+        en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8) locale=$candidate ;;
       esac
       ;;
   esac
@@ -85,3 +75,6 @@ if contents != updated:
         if os.path.exists(temporary):
             os.unlink(temporary)
 PY
+
+# Keep the marker on failure so the next boot can retry.
+rm -- "$pending"

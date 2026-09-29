@@ -572,7 +572,7 @@
     "initramfsSource": "/boot/initramfs-linux.img",
     "disk": "rootfs.ext4",
     "compressedDisk": "rootfs.ext4.zst",
-    "kernelCommandLine": "root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog tryomarchy.locale_support=1",
+    "kernelCommandLine": "root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=4 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog tryomarchy.locale_support=2",
     "minimumMemoryMiB": 2048,
     "recommendedMemoryMiB": 4096,
     "minimumCpuCount": 4,

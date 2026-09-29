@@ -843,17 +843,26 @@ run_scenario hvf-trace-relative 1 '' OMARCHY_QEMU_GPU_HVF_TRACE_LOG=hvf-trace.lo
 assert_contains "$(<"$test_root/hvf-trace-relative/stderr")" 'must be an absolute path'
 [[ ! -f $test_root/hvf-trace-relative/qemu.log ]] || fail 'relative HVF trace path started QEMU'
 
-# An app update must not advertise its own locale capability for an older
-# selected disk. Check both the rejection and a supported saved boot kit.
-run_scenario locale-unsupported 1 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
-assert_contains "$(<"$test_root/locale-unsupported/stderr")" 'does not support language selection'
-[[ ! -f $test_root/locale-unsupported/qemu.log ]] || fail 'unsupported locale started QEMU'
+# The selected disk owns locale support. Unsupported images ignore the hint;
+# legacy every-boot writers are masked, and new images seed only once.
+run_scenario locale-unsupported 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
+assert_not_contains "$(<"$test_root/locale-unsupported/qemu.log")" 'tryomarchy.locale='
 saved_command_line=$(<"$persistent_root/boot/command-line")
 printf '%s tryomarchy.locale_support=1\n' "$saved_command_line" >"$persistent_root/boot/command-line"
-run_scenario locale-supported 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
-assert_contains "$(<"$test_root/locale-supported/qemu.log")" 'tryomarchy.locale=zh_TW.UTF-8'
-run_scenario locale-english 0 '' OMARCHY_QEMU_GPU_LOCALE=
-assert_not_contains "$(<"$test_root/locale-english/qemu.log")" 'tryomarchy.locale='
+run_scenario locale-legacy 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
+assert_contains "$(<"$test_root/locale-legacy/qemu.log")" 'systemd.mask=try-omarchy-locale.service'
+assert_not_contains "$(<"$test_root/locale-legacy/qemu.log")" 'tryomarchy.locale='
+run_scenario locale-legacy-no-hint 0 '' OMARCHY_QEMU_GPU_LOCALE=
+assert_contains "$(<"$test_root/locale-legacy-no-hint/qemu.log")" 'systemd.mask=try-omarchy-locale.service'
+printf '%s tryomarchy.locale_support=2\n' "$saved_command_line" >"$persistent_root/boot/command-line"
+for locale in en_US.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8; do
+  run_scenario "locale-$locale" 0 '' "OMARCHY_QEMU_GPU_LOCALE=$locale"
+  assert_contains "$(<"$test_root/locale-$locale/qemu.log")" "tryomarchy.locale=$locale"
+done
+run_scenario locale-invalid 1 '' OMARCHY_QEMU_GPU_LOCALE=fr_FR.UTF-8
+assert_contains "$(<"$test_root/locale-invalid/stderr")" 'unsupported guest locale'
+run_scenario locale-default 0 '' OMARCHY_QEMU_GPU_LOCALE=
+assert_not_contains "$(<"$test_root/locale-default/qemu.log")" 'tryomarchy.locale='
 printf '%s\n' "$saved_command_line" >"$persistent_root/boot/command-line"
 
 # Simulate installing a newer app build after the first VM was created. The
@@ -864,10 +873,10 @@ printf '%s\n' "$saved_command_line" >"$persistent_root/boot/command-line"
 printf 'new-kernel\n' >"$guest/vmlinuz-linux"
 printf 'new-initramfs\n' >"$guest/initramfs-linux.img"
 /usr/bin/plutil -replace kernelCommandLine -string \
-  'root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog tryomarchy.locale_support=1' \
+  'root=/dev/vda rw rootwait console=tty0 console=hvc0 loglevel=5 systemd.show_status=false rd.systemd.show_status=false mitigations=off nowatchdog tryomarchy.locale_support=2' \
   "$guest/launch.plist"
-run_scenario locale-older-disk-new-app 1 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
-assert_contains "$(<"$test_root/locale-older-disk-new-app/stderr")" 'does not support language selection'
+run_scenario locale-older-disk-new-app 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
+assert_not_contains "$(<"$test_root/locale-older-disk-new-app/qemu.log")" 'tryomarchy.locale='
 printf 'previous boot console\n' >"$persistent_root/console.log"
 run_scenario enabled 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2223:22
 [[ -f $persistent_root/console.log.1 ]] || \
