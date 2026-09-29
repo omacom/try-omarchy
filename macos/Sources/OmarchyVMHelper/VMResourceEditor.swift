@@ -113,7 +113,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         diskField.setAccessibilityHelp("Leave empty to keep the current capacity. Increases apply on the next launch; existing disks cannot shrink.")
         let diskRow = resourceRow(
             title: "Maximum disk size (GiB)",
-            detail: "Current minimum: \(minimumDiskGiB) GiB. Can only increase.",
+            detail: "Can only increase.",
             control: diskField
         )
         let diskNote = label(
