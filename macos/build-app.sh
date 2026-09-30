@@ -286,7 +286,15 @@ mv "$contents/Resources/runtime/bin/qemu-system-aarch64" "$bundled_qemu"
 
 sign_options=(--force --sign "$sign_identity")
 if [[ $sign_identity != - ]]; then
-  sign_options+=(--options runtime --timestamp)
+  sign_options+=(--options runtime)
+  if [[ $configuration == production ]]; then
+    sign_options+=(--timestamp)
+  else
+    # Local rebuilds need a stable identity, not a distribution timestamp.
+    # Explicitly disable it: Developer ID identities otherwise request one
+    # by default, including when selected as a development fallback.
+    sign_options+=(--timestamp=none)
+  fi
 fi
 app_sign_options=("${sign_options[@]}" --identifier "$bundle_identifier")
 qemu_sign_options=("${sign_options[@]}" --identifier "$bundle_identifier")

@@ -49,6 +49,11 @@ survive rebuilds after you grant them once. Production keeps
 `dev.tryomarchy.native` and its own privacy decisions. The first development
 build with this new identity needs fresh grants.
 
+`make build`, `make app`, and `make run` all use this development identity;
+opening the generated `.app` directly works the same way. Development signing
+is local, with secure timestamping disabled, and does not notarize the app.
+Production keeps secure timestamping and the release notarization workflow.
+
 If several eligible certificates are installed, choose one explicitly:
 
 ```sh
