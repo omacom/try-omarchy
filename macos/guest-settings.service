@@ -2,7 +2,7 @@
 Description=Try Omarchy shared-folder safety and settings integration
 ConditionPathExists=!/etc/initrd-release
 After=local-fs.target
-Before=display-manager.service
+Before=display-manager.service omarchy-provision-owner.service
 
 [Service]
 Type=oneshot

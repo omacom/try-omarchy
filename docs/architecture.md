@@ -66,6 +66,12 @@ given to Cocoa. New and reset factory users also load an overlay that sets
 homes keep their current Hyprland input. See
 [Mac keyboard](mac-keyboard.md).
 
+The guest follows the Mac's current time zone by default. A launch hint seeds
+the zone before owner provisioning; a separate root-only virtio port publishes
+live zone changes. A manual selection inside Omarchy opts out across later Mac
+changes and VM reboots. Internet clock synchronization remains independent.
+See [Mac time zone and guest clock](host-timezone.md).
+
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
 session through wake. Before macOS sleeps it synchronously pauses the guest

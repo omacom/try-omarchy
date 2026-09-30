@@ -2115,7 +2115,7 @@ HOTPLUG=1
             ):
                 check(
                     (staged_root / installed_path).read_bytes() == (source / upstream_path).read_bytes(),
-                    f"materialized 4.0.3 system integration matches upstream: {installed_path}",
+                    f"materialized system integration matches upstream: {installed_path}",
                 )
             icon_names = {path.name for path in staged_icons.iterdir() if path.is_file()}
             expected_normalized_icons = {

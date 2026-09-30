@@ -5,7 +5,7 @@ import Foundation
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --host-keyboard-geometry | --wait-for-qmp QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --host-keyboard-geometry | --host-timezone | --wait-for-qmp QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
 }
 
@@ -19,6 +19,21 @@ private func effectiveArguments() -> [String] {
 
 let arguments = effectiveArguments()
 do {
+    if arguments.first == "--host-timezone" {
+        guard arguments.count == 1 else { usage() }
+        let zone = HostTimeZone.current()
+        guard HostTimeZone.isValid(zone) else { throw HelperError.io("unsupported Mac time zone") }
+        print(zone)
+        exit(0)
+    }
+    if arguments.first == "--bridge-native-timezone" {
+        guard arguments.count == 3, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        // Default SIGTERM/SIGINT termination closes the socket and unblocks
+        // the guest. This bridge owns no state or resources requiring cleanup.
+        let bridge = try NativeTimeZoneBridge(targetPID: pid, socketPath: arguments[2])
+        try bridge.run()
+        exit(0)
+    }
     if arguments.first == "--storage-sha256" {
         guard arguments.count == 2 else { usage() }
         print(try StorageIO.sha256(path: arguments[1]))

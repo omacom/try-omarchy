@@ -6,7 +6,7 @@
     "filesystemLabel": "omarchy-factory",
     "filesystemUuid": "89054943-1f4e-4f14-b934-d6db3fba4254",
     "sizeMiB": 6144,
-    "sourceDateEpoch": 1788886195
+    "sourceDateEpoch": 1789450452
   },
   "guest": {
     "profile": "factory",
@@ -23,10 +23,10 @@
   },
   "upstream": {
     "repository": "https://github.com/basecamp/omarchy",
-    "commit": "0534987009061cbe2dacdde4ad564092ab698d12",
-    "tree": "139193701d7ddc948c12dfa2d15de070546ee520",
-    "treeSha256": "21d4d4edec113126aaa65d04adb7d5a422f4b18d685c1e2e08fa5c51b621fa60",
-    "release": "4.0.3",
+    "commit": "c668141e9c42b13c80c9ca4ea108e11708c5e8a5",
+    "tree": "1d48adc1ba8636fd9362f7b9bf8819f3ac3258a4",
+    "treeSha256": "c7ae35645b64a205a3ac7af094b17ea0f406a710eb00185470a76f3ae8367952",
+    "release": "4.0.4",
     "version": "4.0.0.alpha",
     "channel": "quattro",
     "license": "MIT"
