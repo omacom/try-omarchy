@@ -11,7 +11,7 @@ struct ApplicationPresentationTests {
         #expect(ApplicationPresentation.runningActivationPolicy == .accessory)
     }
 
-    @Test("the application menu exposes standard quit and window shortcuts")
+    @Test("the application menu exposes standard application, text editing, and window shortcuts")
     func standardApplicationMenu() throws {
         let application = NSApplication.shared
         let previousMainMenu = application.mainMenu
@@ -38,6 +38,25 @@ struct ApplicationPresentationTests {
         let updates = try #require(appMenu.items.first(where: { $0.title == "Check for Updates…" }))
         #expect(updates.action == #selector(VMApplicationController.checkForAppUpdates(_:)))
         #expect(updates.target === updatesTarget)
+
+        let editMenu = try #require(application.mainMenu?.items.compactMap(\.submenu).first(where: {
+            $0.title == "Edit"
+        }))
+        let editingCommands: [(String, Selector, String, NSEvent.ModifierFlags)] = [
+            ("Undo", Selector(("undo:")), "z", [.command]),
+            ("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            ("Cut", #selector(NSText.cut(_:)), "x", [.command]),
+            ("Copy", #selector(NSText.copy(_:)), "c", [.command]),
+            ("Paste", #selector(NSText.paste(_:)), "v", [.command]),
+            ("Select All", #selector(NSText.selectAll(_:)), "a", [.command]),
+        ]
+        for (title, action, shortcut, modifiers) in editingCommands {
+            let item = try #require(editMenu.items.first(where: { $0.title == title }))
+            #expect(item.action == action)
+            #expect(item.keyEquivalent == shortcut)
+            #expect(item.keyEquivalentModifierMask == modifiers)
+            #expect(item.target == nil)
+        }
 
         let windowMenu = try #require(application.windowsMenu)
         let close = try #require(windowMenu.items.first(where: {
