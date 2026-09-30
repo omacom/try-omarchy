@@ -2440,16 +2440,14 @@ HOTPLUG=1
         check(source_status == "", "backport verification leaves the pinned checkout untouched")
 
         upstream_screensaver = read(source / "bin/omarchy-screensaver")
-        upstream_cursor_restore = (
-            "  hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null "
-            "|| hyprctl keyword cursor:invisible false &>/dev/null || true"
+        override_spec = importlib.util.spec_from_file_location(
+            "screensaver_override", GUEST / "scripts/verify-screensaver-override.py"
         )
-        native_cursor_restore = "  /usr/local/bin/omarchy-native-cursor-restore 2>/dev/null || true"
+        override_module = importlib.util.module_from_spec(override_spec)
+        override_spec.loader.exec_module(override_module)
         check(
-            upstream_screensaver.count(upstream_cursor_restore) == 1
-            and read(screensaver_override)
-            == upstream_screensaver.replace(upstream_cursor_restore, native_cursor_restore),
-            "native screensaver override differs from pinned upstream only at cursor restoration",
+            read(screensaver_override) == override_module.expected_override(upstream_screensaver),
+            "native screensaver override changes only cursor restoration and effect input/lifetime",
         )
 
     print("native guest contract verified")

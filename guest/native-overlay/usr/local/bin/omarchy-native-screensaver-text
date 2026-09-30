@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Keep screensaver text inside the live terminal, including small VM windows."""
+
+import os
+from pathlib import Path
+import sys
+import unicodedata
+
+
+def columns(line):
+    return sum(0 if unicodedata.combining(c) else
+               2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+               for c in line.expandtabs(4))
+
+
+def main():
+    try:
+        text = Path(sys.argv[1]).read_text()
+    except (OSError, UnicodeError):
+        text = "Omarchy\n"
+    try:
+        size = os.get_terminal_size(sys.stdin.fileno())
+    except OSError:
+        print(text, end="")
+        return
+    lines = text.splitlines()
+    if (not any(line.strip() for line in lines)
+            or len(lines) > size.lines
+            or max((columns(line) for line in lines), default=0) > size.columns):
+        text = "Omarchy"[:max(1, size.columns)] + "\n"
+    print(text, end="")
+
+
+if __name__ == "__main__":
+    main()
