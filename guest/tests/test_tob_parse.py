@@ -148,6 +148,34 @@ class TobParseTests(unittest.TestCase):
         for limit in (-2, 0, 100, 101):
             self.assertRejected(f"present=1 status=charging capacity=42 ac=1 charge_limit={limit}\n".encode())
 
+    def test_physical_readings_round_trip_and_clear_on_disconnect_or_legacy_host(self) -> None:
+        import json
+        message = bridge.decode_message(json.dumps({
+            "type": "state", "present": True, "state": "not-charging", "percentage": 95,
+            "acConnected": True, "timeToEmptySeconds": None, "timeToFullSeconds": None,
+            "chargeLimit": 95, "chargeNowMicroAh": 4652000, "chargeFullMicroAh": 4970000,
+            "chargeFullDesignMicroAh": 6075000, "voltageMicroV": 12537000, "cycleCount": 213,
+        }).encode())
+        parsed = self.fields(bridge.format_state_line(message))
+        for key, field in bridge.DETAIL_FIELDS.items():
+            self.assertEqual(parsed[field], message[key])
+        self.assertEqual(parsed["capacity"], 95)
+        self.assertEqual(parsed["charge_limit"], 95)
+        for line in (bridge.unknown_state_line(message), b"present=1 status=full capacity=95 ac=1\n"):
+            cleared = self.fields(line)
+            for field in bridge.DETAIL_FIELDS.values():
+                self.assertEqual(cleared[field], -1)
+
+    def test_invalid_physical_readings_reject_the_whole_snapshot(self) -> None:
+        for field in bridge.DETAIL_FIELDS.values():
+            for value in (-2, 2147483648, "invalid"):
+                self.assertRejected(f"present=1 status=charging capacity=42 ac=1 {field}={value}\n".encode())
+        for field in ("charge_full", "charge_full_design", "voltage_now"):
+            self.assertRejected(f"present=1 status=charging capacity=42 ac=1 {field}=0\n".encode())
+        parsed = self.fields(b"present=1 status=discharging capacity=0 ac=0 charge_now=0 cycle_count=0\n")
+        self.assertEqual(parsed["charge_now"], 0)
+        self.assertEqual(parsed["cycle_count"], 0)
+
     def test_accepts_the_agents_absent_line(self) -> None:
         message = bridge.decode_message(
             b'{"type":"state","present":false,"percentage":null,"state":"unknown",'

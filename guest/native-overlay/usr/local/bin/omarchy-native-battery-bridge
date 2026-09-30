@@ -10,7 +10,8 @@ virtserialport:
 
 Each accepted snapshot is written as one line to the try-omarchy-battery
 kernel module, which republishes it as BAT0/ADP0. This agent sends exactly
-one request on start ({"type":"refresh"}), because a guest opening the port
+one refresh request on start, opting into charge limits and physical readings,
+because a guest opening the port
 is invisible on the host's socket chardev. Nothing else flows guest-to-host.
 """
 
@@ -26,10 +27,17 @@ PORT = Path("/dev/virtio-ports/dev.tryomarchy.battery")
 STATE_FILE = Path("/sys/devices/platform/try-omarchy-battery/state")
 STATES = ("charging", "discharging", "full", "not-charging", "unknown")
 MAX_LINE_BYTES = 4096
-REFRESH_LINE = b'{"type":"refresh","chargeLimit":true}\n'
+REFRESH_LINE = b'{"type":"refresh","chargeLimit":true,"batteryDetails":true}\n'
 SCHEMA = {
     "type", "present", "percentage", "state",
     "acConnected", "timeToEmptySeconds", "timeToFullSeconds",
+}
+DETAIL_FIELDS = {
+    "chargeNowMicroAh": "charge_now",
+    "chargeFullMicroAh": "charge_full",
+    "chargeFullDesignMicroAh": "charge_full_design",
+    "voltageMicroV": "voltage_now",
+    "cycleCount": "cycle_count",
 }
 
 
@@ -42,7 +50,7 @@ def decode_message(line: bytes) -> dict[str, Any]:
     message = json.loads(line)
     if not isinstance(message, dict) or message.get("type") != "state":
         raise ValueError("host sent an invalid battery message")
-    if set(message) not in (SCHEMA, SCHEMA | {"chargeLimit"}):
+    if not SCHEMA <= set(message) <= SCHEMA | {"chargeLimit"} | set(DETAIL_FIELDS):
         raise ValueError("host battery message has an unexpected schema")
     if not isinstance(message["present"], bool) or not isinstance(message["acConnected"], bool):
         raise ValueError("battery presence flags must be booleans")
@@ -68,6 +76,15 @@ def decode_message(line: bytes) -> dict[str, Any]:
     ):
         raise ValueError("chargeLimit must be null or an integer 1-99 on a present battery")
     message["chargeLimit"] = limit
+    for key in DETAIL_FIELDS:
+        value = message.get(key)
+        minimum = 0 if key in ("chargeNowMicroAh", "cycleCount") else 1
+        if value is not None and (
+            not message["present"] or not isinstance(value, int)
+            or isinstance(value, bool) or not minimum <= value <= 2147483647
+        ):
+            raise ValueError(f"{key} must be null or a valid integer on a present battery")
+        message[key] = value
     return message
 
 
@@ -78,11 +95,15 @@ def format_state_line(message: dict[str, Any]) -> bytes:
         return f"present=0 ac={ac}\n".encode()
     empty = message["timeToEmptySeconds"]
     full = message["timeToFullSeconds"]
+    details = " ".join(
+        f"{field}={-1 if message.get(key) is None else message[key]}"
+        for key, field in DETAIL_FIELDS.items()
+    )
     return (
         f"present=1 status={message['state']} capacity={message['percentage']} "
         f"ac={ac} time_to_empty={-1 if empty is None else empty} "
         f"time_to_full={-1 if full is None else full} "
-        f"charge_limit={message['chargeLimit'] if message['chargeLimit'] is not None else -1}\n"
+        f"charge_limit={message['chargeLimit'] if message['chargeLimit'] is not None else -1} {details}\n"
     ).encode()
 
 
@@ -94,7 +115,8 @@ def unknown_state_line(last: dict[str, Any] | None) -> bytes:
     ac = 1 if last["acConnected"] else 0
     return (
         f"present=1 status=unknown capacity={last['percentage']} "
-        f"ac={ac} time_to_empty=-1 time_to_full=-1 charge_limit=-1\n"
+        f"ac={ac} time_to_empty=-1 time_to_full=-1 charge_limit=-1 "
+        + " ".join(f"{field}=-1" for field in DETAIL_FIELDS.values()) + "\n"
     ).encode()
 
 

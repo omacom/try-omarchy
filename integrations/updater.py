@@ -24,7 +24,7 @@ COMPONENTS = {
     'battery': ('Mac battery in the Omarchy bar', 'install-battery-into-existing-guest.sh'),
 }
 # Matches PACKAGE_VERSION in the module's dkms.conf and the factory package.
-BATTERY_VERSION = '1.1.0'
+BATTERY_VERSION = '1.2.0'
 BATTERY_MODULE_FILES = ('try-omarchy-battery.c', 'Makefile', 'dkms.conf')
 BATTERY_PORT = Path('/dev/virtio-ports/dev.tryomarchy.battery')
 BATTERY_STATE = Path('/sys/devices/platform/try-omarchy-battery/state')

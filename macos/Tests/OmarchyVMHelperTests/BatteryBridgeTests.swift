@@ -115,6 +115,60 @@ import Testing
         policy.markSent(HostBatterySnapshot(descriptions: [description()], chargeLimit: 80))
         #expect(policy.shouldSend(HostBatterySnapshot(descriptions: [description()], chargeLimit: 95), forced: false))
     }
+
+    @Test func physicalDetailsAreNegotiatedIndependentlyAndAbsentBatteryClearsThem() throws {
+        let details = HostBatteryDetails(properties: ["CycleCount": 213])
+        let snapshot = HostBatterySnapshot(descriptions: [description()], chargeLimit: 95, details: details)
+        let limitOnly = try JSONSerialization.jsonObject(with: snapshot.encode(includeChargeLimit: true)) as! [String: Any]
+        #expect(limitOnly["cycleCount"] == nil)
+        let extended = try JSONSerialization.jsonObject(with: snapshot.encode(includeChargeLimit: true, includeBatteryDetails: true)) as! [String: Any]
+        #expect(extended["cycleCount"] as? Int == 213)
+        #expect(extended["chargeFullMicroAh"] is NSNull)
+        let absent = HostBatterySnapshot(descriptions: [], details: details)
+        #expect(absent.details.cycleCount == nil)
+        var policy = BatterySendPolicy()
+        policy.markSent(snapshot)
+        #expect(policy.shouldSend(HostBatterySnapshot(descriptions: [description()], chargeLimit: 95,
+            details: HostBatteryDetails(properties: ["CycleCount": 214])), forced: false))
+    }
+}
+
+@Suite struct HostBatteryDetailsTests {
+    @Test func nestedAppleSiliconReadingsUsePhysicalUnits() {
+        let details = HostBatteryDetails(properties: [
+            "CurrentCapacity": 95, "MaxCapacity": 100, "Voltage": 12537, "CycleCount": 213,
+            "BatteryData": ["RemainingCapacity": 4652, "FullChargeCapacity": 4970, "DesignCapacity": 6075],
+        ])
+        #expect(details.chargeNowMicroAh == 4_652_000)
+        #expect(details.chargeFullMicroAh == 4_970_000)
+        #expect(details.chargeFullDesignMicroAh == 6_075_000)
+        #expect(details.voltageMicroV == 12_537_000)
+        #expect(details.cycleCount == 213)
+    }
+
+    @Test func olderRawReadingsAndZeroCyclesAreSupported() {
+        let details = HostBatteryDetails(properties: [
+            "AppleRawCurrentCapacity": 0, "AppleRawMaxCapacity": 4970,
+            "DesignCapacity": 6075, "CycleCount": 0,
+        ])
+        #expect(details.chargeNowMicroAh == 0)
+        #expect(details.chargeFullMicroAh == 4_970_000)
+        #expect(details.chargeFullDesignMicroAh == 6_075_000)
+        #expect(details.cycleCount == 0)
+        #expect(details.voltageMicroV == nil)
+    }
+
+    @Test func normalizedAndMalformedReadingsNeverBecomePhysicalCapacity() {
+        let normalized = HostBatteryDetails(properties: ["CurrentCapacity": 95, "MaxCapacity": 100])
+        #expect(normalized.chargeNowMicroAh == nil)
+        #expect(normalized.chargeFullMicroAh == nil)
+        for value in [true, -1, 0, Int.max, 1.5, "4970"] as [Any] {
+            let details = HostBatteryDetails(properties: ["AppleRawMaxCapacity": value, "Voltage": value])
+            #expect(details.chargeFullMicroAh == nil)
+            #expect(details.voltageMicroV == nil)
+        }
+        #expect(HostBatteryDetails(properties: ["CycleCount": true]).cycleCount == nil)
+    }
 }
 
 @objc(TryOmarchyTestChargingPolicy)

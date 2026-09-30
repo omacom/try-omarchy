@@ -13,8 +13,9 @@ struct HostBatterySnapshot: Equatable {
     let timeToEmptySeconds: Int?
     let timeToFullSeconds: Int?
     let chargeLimit: Int?
+    let details: HostBatteryDetails
 
-    init(descriptions: [[String: Any]], chargeLimit: Int? = nil) {
+    init(descriptions: [[String: Any]], chargeLimit: Int? = nil, details: HostBatteryDetails = HostBatteryDetails()) {
         let internalBattery = descriptions.first { description in
             description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType
                 && description[kIOPSIsPresentKey] as? Bool != false
@@ -27,9 +28,11 @@ struct HostBatterySnapshot: Equatable {
             timeToEmptySeconds = nil
             timeToFullSeconds = nil
             self.chargeLimit = nil
+            self.details = HostBatteryDetails()
             return
         }
         present = true
+        self.details = details
         self.chargeLimit = chargeLimit.flatMap { (1..<100).contains($0) ? $0 : nil }
         let current = battery[kIOPSCurrentCapacityKey] as? Int ?? 0
         let maximum = battery[kIOPSMaxCapacityKey] as? Int ?? 100
@@ -53,7 +56,7 @@ struct HostBatterySnapshot: Equatable {
         timeToFullSeconds = state == "charging" ? seconds(kIOPSTimeToFullChargeKey) : nil
     }
 
-    func encode(includeChargeLimit: Bool = false) -> Data {
+    func encode(includeChargeLimit: Bool = false, includeBatteryDetails: Bool = false) -> Data {
         var object: [String: Any] = [
             "type": "state",
             "present": present,
@@ -65,6 +68,13 @@ struct HostBatterySnapshot: Equatable {
         ]
         // Older guest agents reject extra keys. Advertise only after opt-in.
         if includeChargeLimit { object["chargeLimit"] = chargeLimit as Any? ?? NSNull() }
+        if includeBatteryDetails {
+            object["chargeNowMicroAh"] = details.chargeNowMicroAh as Any? ?? NSNull()
+            object["chargeFullMicroAh"] = details.chargeFullMicroAh as Any? ?? NSNull()
+            object["chargeFullDesignMicroAh"] = details.chargeFullDesignMicroAh as Any? ?? NSNull()
+            object["voltageMicroV"] = details.voltageMicroV as Any? ?? NSNull()
+            object["cycleCount"] = details.cycleCount as Any? ?? NSNull()
+        }
         var data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         data.append(0x0A)
         return data
@@ -78,7 +88,7 @@ struct HostBatterySnapshot: Equatable {
         let descriptions = list.compactMap {
             IOPSGetPowerSourceDescription(blob, $0)?.takeUnretainedValue() as? [String: Any]
         }
-        return HostBatterySnapshot(descriptions: descriptions, chargeLimit: HostChargeLimit.capture())
+        return HostBatterySnapshot(descriptions: descriptions, chargeLimit: HostChargeLimit.capture(), details: HostBatteryDetails.capture())
     }
 }
 
@@ -141,6 +151,7 @@ final class NativeBatteryBridge: @unchecked Sendable {
     private let stopLock = NSLock()
     private var policy = BatterySendPolicy()
     private var supportsChargeLimit = false
+    private var supportsBatteryDetails = false
     private var heartbeat: DispatchSourceTimer?
     private var powerSource: CFRunLoopSource?
     private var notificationRunLoop: CFRunLoop?
@@ -183,7 +194,8 @@ final class NativeBatteryBridge: @unchecked Sendable {
                     // work onto stateQueue.
                     if Self.isRefreshRequest(line) {
                         let request = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
-                        sendSync(forced: true, includeChargeLimit: request?["chargeLimit"] as? Bool == true)
+                        sendSync(forced: true, includeChargeLimit: request?["chargeLimit"] as? Bool == true,
+                                 includeBatteryDetails: request?["batteryDetails"] as? Bool == true)
                     }
                 }
             } else if count == 0 {
@@ -293,10 +305,11 @@ final class NativeBatteryBridge: @unchecked Sendable {
     /// write instead of piling up unbounded closures on `stateQueue`. Must
     /// never be called from `stateQueue` itself (the heartbeat timer calls
     /// `sendOnQueue` directly for exactly that reason) or this deadlocks.
-    private func sendSync(forced: Bool, includeChargeLimit: Bool) {
+    private func sendSync(forced: Bool, includeChargeLimit: Bool, includeBatteryDetails: Bool) {
         stateQueue.sync {
             // Each refresh also resets negotiation when an older agent reconnects.
             supportsChargeLimit = includeChargeLimit
+            supportsBatteryDetails = includeBatteryDetails
             sendOnQueue(forced: forced)
         }
     }
@@ -307,7 +320,7 @@ final class NativeBatteryBridge: @unchecked Sendable {
         let snapshot = HostBatterySnapshot.capture()
         guard policy.shouldSend(snapshot, forced: forced) else { return }
         do {
-            try NativeBridgeSocket.writeAll(snapshot.encode(includeChargeLimit: supportsChargeLimit), to: descriptor, label: "battery")
+            try NativeBridgeSocket.writeAll(snapshot.encode(includeChargeLimit: supportsChargeLimit, includeBatteryDetails: supportsBatteryDetails), to: descriptor, label: "battery")
             policy.markSent(snapshot)
         } catch {
             fputs("[battery-bridge] \(error.localizedDescription)\n", stderr)

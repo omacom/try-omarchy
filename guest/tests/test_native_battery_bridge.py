@@ -82,6 +82,21 @@ class DecodeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bridge.decode_message(json.dumps(message).encode())
 
+    def test_physical_readings_validate_units_and_presence(self) -> None:
+        decoded = bridge.decode_message(state(chargeFullMicroAh=4970000, cycleCount=0))
+        self.assertEqual(decoded["chargeFullMicroAh"], 4970000)
+        self.assertEqual(decoded["cycleCount"], 0)
+        self.assertIsNone(decoded["voltageMicroV"])
+        for key in bridge.DETAIL_FIELDS:
+            for value in (-1, True, "213", 1.5, 2147483648):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    bridge.decode_message(state(**{key: value}))
+            with self.assertRaises(ValueError):
+                bridge.decode_message(state(present=False, percentage=None, **{key: 213}))
+        for key in ("chargeFullMicroAh", "chargeFullDesignMicroAh", "voltageMicroV"):
+            with self.assertRaises(ValueError):
+                bridge.decode_message(state(**{key: 0}))
+
 
 class StateLineTests(unittest.TestCase):
     def test_full_snapshot_line(self) -> None:
@@ -89,7 +104,8 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.format_state_line(decoded),
             b"present=1 status=discharging capacity=57 ac=0 "
-            b"time_to_empty=8100 time_to_full=-1 charge_limit=-1\n",
+            b"time_to_empty=8100 time_to_full=-1 charge_limit=-1 "
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
         )
 
     def test_charge_limit_is_independent_of_percentage_and_ac(self) -> None:
@@ -106,7 +122,8 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.format_state_line(decoded),
             b"present=1 status=charging capacity=57 ac=1 "
-            b"time_to_empty=-1 time_to_full=2700 charge_limit=-1\n",
+            b"time_to_empty=-1 time_to_full=2700 charge_limit=-1 "
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
         )
 
     def test_desktop_mac_omits_battery_keys(self) -> None:
@@ -121,7 +138,8 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.unknown_state_line(decoded),
             b"present=1 status=unknown capacity=57 ac=0 "
-            b"time_to_empty=-1 time_to_full=-1 charge_limit=-1\n",
+            b"time_to_empty=-1 time_to_full=-1 charge_limit=-1 "
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
         )
 
     def test_unknown_line_without_history_reports_absent(self) -> None:
@@ -130,7 +148,7 @@ class StateLineTests(unittest.TestCase):
 
 class RefreshTests(unittest.TestCase):
     def test_refresh_request_shape(self) -> None:
-        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh","chargeLimit":true}\n')
+        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh","chargeLimit":true,"batteryDetails":true}\n')
 
 
 if __name__ == "__main__":
