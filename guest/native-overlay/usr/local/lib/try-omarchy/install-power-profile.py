@@ -31,11 +31,13 @@ def install(root, hooks):
         digest = hashlib.sha256(source).hexdigest()
         if digest == hook["afterSha256"]:
             continue
-        if digest != hook["beforeSha256"]:
+        version = next((candidate for candidate in [hook, *hook.get("previousVersions", [])]
+                        if digest == candidate["beforeSha256"]), None)
+        if version is None:
             print(f"Keeping unrecognized {relative}; power profile hook not installed.", flush=True)
             continue
         result = source.decode()
-        for before, after in hook["replacements"]:
+        for before, after in version["replacements"]:
             if result.count(before) != 1:
                 raise ValueError("power profile preimage mismatch")
             result = result.replace(before, after)

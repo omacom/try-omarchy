@@ -1,7 +1,6 @@
 --- a/bin/omarchy-powerprofiles-list
 +++ b/bin/omarchy-powerprofiles-list
-@@ -8,10 +8,9 @@
-   exit 1
+@@ -9,9 +9,8 @@
  fi
  
 -powerprofilesctl list 2>/dev/null |
@@ -19,7 +18,7 @@
 +fi
 --- a/bin/omarchy-powerprofiles-set
 +++ b/bin/omarchy-powerprofiles-set
-@@ -1,63 +1,27 @@
+@@ -1,6 +1,6 @@
  #!/bin/bash
  
 -# omarchy:summary=Set and remember the power profile for AC or battery use
@@ -28,7 +27,7 @@
 +# omarchy:args=[autodetect|ac|battery] [default]
  
  action="${1:-autodetect}"
- requested_profile="${2:-}"
+@@ -8,56 +8,20 @@
  
  usage() {
 -  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance]" >&2
@@ -94,48 +93,41 @@
 -fi
 --- a/shell/plugins/panels/power/Panel.qml
 +++ b/shell/plugins/panels/power/Panel.qml
-@@ -17,6 +17,7 @@
-   property var systemInfo: ({})
+@@ -18,4 +18,5 @@
    property var profiles: []
    property string activeProfile: ""
 +  readonly property bool managedByMacOS: profiles.length === 1 && profiles[0] === "default"
    property int profileIndex: 0
    property bool cursorActive: false
-   readonly property bool showPercentage: setting("showPercentage", false) === true
-@@ -164,7 +165,7 @@
-   }
+@@ -165,5 +166,5 @@
  
    function setProfile(profile) {
 -    if (!profile || actionProc.running) return
 +    if (managedByMacOS || !profile || actionProc.running) return
      actionProc.command = ["omarchy-powerprofiles-set", root.discharging ? "battery" : "ac", profile]
      actionProc.running = true
-   }
-@@ -466,8 +467,20 @@
-             fontFamily: root.bar.fontFamily
-           }
- 
-+          Text {
-+            visible: root.managedByMacOS
-+            width: parent.width
-+            text: "Default, managed by macOS"
-+            textFormat: Text.PlainText
-+            color: root.bar.foreground
-+            font.family: root.bar.fontFamily
-+            font.pixelSize: Style.font.bodySmall
-+            wrapMode: Text.WordWrap
-+          }
-+
-           Row {
-             id: profileRow
-+            visible: !root.managedByMacOS
-             width: parent.width
-             spacing: Style.space(6)
- 
+@@ -482,7 +483,7 @@
+                 required property int index
+                 width: profileRow.cellWidth
+-                iconText: root.profileIcon(String(modelData))
++                iconText: root.managedByMacOS ? "\uf179" : root.profileIcon(String(modelData))
+                 iconSize: Style.font.title
+-                text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)
++                text: root.managedByMacOS ? "macOS" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)
+                 fontSize: Style.font.bodySmall
+                 foreground: root.bar.foreground
+@@ -492,5 +493,7 @@
+                 bordered: true
+                 active: root.activeProfile === modelData
+-                hasCursor: root.cursorActive && root.profileIndex === index
++                selected: root.managedByMacOS
++                enabled: !root.managedByMacOS
++                hasCursor: !root.managedByMacOS && root.cursorActive && root.profileIndex === index
+                 onClicked: root.setProfile(modelData)
+                 onHovered: function(h) {
 --- a/shell/plugins/menu/Menu.qml
 +++ b/shell/plugins/menu/Menu.qml
-@@ -274,8 +274,8 @@
-       actionFor: function(value) { return "omarchy-font-set " + Util.shellQuote(value) }
+@@ -275,7 +275,7 @@
      },
      "power-profiles": {
 -      script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",

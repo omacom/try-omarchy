@@ -2234,6 +2234,24 @@ HOTPLUG=1
                     == (staged_omarchy / target["path"]).read_bytes(),
                     f"power profile boot upgrade matches factory: {target['path']}",
                 )
+                for previous in hook.get("previousVersions", []):
+                    # Reconstruct the reviewed earlier presentation and exercise
+                    # the upgrade path used by guests with the text-only label.
+                    legacy = (upgrade_root / hook["path"]).read_text()
+                    for before, after in reversed(previous["replacements"]):
+                        check(legacy.count(after) == 1, "legacy profile inverse is unambiguous")
+                        legacy = legacy.replace(after, before)
+                    check(
+                        hashlib.sha256(legacy.encode()).hexdigest() == previous["beforeSha256"],
+                        "earlier power profile presentation has its reviewed preimage",
+                    )
+                    (upgrade_root / hook["path"]).write_text(legacy)
+                    profile_installer.install(upgrade_root, [hook])
+                    check(
+                        (upgrade_root / hook["path"]).read_bytes()
+                        == (staged_omarchy / target["path"]).read_bytes(),
+                        "earlier text-only profile upgrades to the macOS button",
+                    )
 
             onepassword_installer_path = (
                 staged_omarchy / "bin/omarchy-install-service-1password"

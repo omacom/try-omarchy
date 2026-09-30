@@ -137,10 +137,12 @@ readings.
 
 ## Power profile
 
-The battery panel and the menu's power-profile provider show **Default, managed
-by macOS** as informational text. Linux power profiles cannot control the Mac's
-CPU or energy policy through QEMU/HVF. Change energy modes in macOS System
-Settings; the label does not claim to mirror the Mac's current energy mode.
+The battery panel shows one selected **macOS** profile button with the Apple
+logo. It uses the native profile-button styling and accepts no mouse or
+keyboard interaction. The menu's power-profile provider shows **Default,
+managed by macOS** as informational text. Linux power profiles cannot control
+the Mac's CPU or energy policy through QEMU/HVF. Change energy modes in macOS
+System Settings; the guest does not mirror the Mac's current energy mode.
 
 The guest profile commands expose only `default`. Startup and AC/battery
 transitions leave power policy alone, and requests for Linux performance modes

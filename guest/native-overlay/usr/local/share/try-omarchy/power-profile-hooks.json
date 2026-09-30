@@ -24,7 +24,7 @@
   {
     "path": "usr/share/omarchy/shell/plugins/panels/power/Panel.qml",
     "beforeSha256": "560e17a5144d3e2ea1e0ad36c2aec563909b535551e1e66e061f5fb25f1d4ec0",
-    "afterSha256": "7e2bd5bf3b179ac3881c1a2450db26d7e3cb183abec43746805cfe817e218c9f",
+    "afterSha256": "78f928c92ce0562293523df227cfd2d087726ea1d6ab5ab8af192364d1a7eda2",
     "replacements": [
       [
         "  property string activeProfile: \"\"\n",
@@ -35,9 +35,48 @@
         "    if (managedByMacOS || !profile || actionProc.running) return"
       ],
       [
-        "          Row {\n            id: profileRow\n",
-        "          Text {\n            visible: root.managedByMacOS\n            width: parent.width\n            text: \"Default, managed by macOS\"\n            textFormat: Text.PlainText\n            color: root.bar.foreground\n            font.family: root.bar.fontFamily\n            font.pixelSize: Style.font.bodySmall\n            wrapMode: Text.WordWrap\n          }\n\n          Row {\n            id: profileRow\n            visible: !root.managedByMacOS\n"
+        "                iconText: root.profileIcon(String(modelData))",
+        "                iconText: root.managedByMacOS ? \"\\uf179\" : root.profileIcon(String(modelData))"
+      ],
+      [
+        "                text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)",
+        "                text: root.managedByMacOS ? \"macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
+      ],
+      [
+        "                active: root.activeProfile === modelData",
+        "                active: root.activeProfile === modelData\n                selected: root.managedByMacOS\n                enabled: !root.managedByMacOS"
+      ],
+      [
+        "                hasCursor: root.cursorActive && root.profileIndex === index",
+        "                hasCursor: !root.managedByMacOS && root.cursorActive && root.profileIndex === index"
       ]
+    ],
+    "previousVersions": [
+      {
+        "beforeSha256": "7e2bd5bf3b179ac3881c1a2450db26d7e3cb183abec43746805cfe817e218c9f",
+        "replacements": [
+          [
+            "          Text {\n            visible: root.managedByMacOS\n            width: parent.width\n            text: \"Default, managed by macOS\"\n            textFormat: Text.PlainText\n            color: root.bar.foreground\n            font.family: root.bar.fontFamily\n            font.pixelSize: Style.font.bodySmall\n            wrapMode: Text.WordWrap\n          }\n\n          Row {\n            id: profileRow\n            visible: !root.managedByMacOS\n",
+            "          Row {\n            id: profileRow\n"
+          ],
+          [
+            "                iconText: root.profileIcon(String(modelData))",
+            "                iconText: root.managedByMacOS ? \"\\uf179\" : root.profileIcon(String(modelData))"
+          ],
+          [
+            "                text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)",
+            "                text: root.managedByMacOS ? \"macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
+          ],
+          [
+            "                active: root.activeProfile === modelData",
+            "                active: root.activeProfile === modelData\n                selected: root.managedByMacOS\n                enabled: !root.managedByMacOS"
+          ],
+          [
+            "                hasCursor: root.cursorActive && root.profileIndex === index",
+            "                hasCursor: !root.managedByMacOS && root.cursorActive && root.profileIndex === index"
+          ]
+        ]
+      }
     ]
   },
   {
