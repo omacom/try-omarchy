@@ -222,8 +222,12 @@ clean-all:
 	  cache="$$user_home/Library/Caches/dev.tryomarchy.native"; \
 	  preferences="$$user_home/Library/Preferences/dev.tryomarchy.native.plist"; \
 	  saved_state="$$user_home/Library/Saved Application State/dev.tryomarchy.native.savedState"; \
+	  development_cache="$$user_home/Library/Caches/dev.tryomarchy.native.development"; \
+	  development_preferences="$$user_home/Library/Preferences/dev.tryomarchy.native.development.plist"; \
+	  development_saved_state="$$user_home/Library/Saved Application State/dev.tryomarchy.native.development.savedState"; \
 	  echo "Removing persistent VM disks and app state from $$app_support..."; \
-	  rm -rf -- "$$app_support" "$$cache" "$$preferences" "$$saved_state"
+	  rm -rf -- "$$app_support" "$$cache" "$$preferences" "$$saved_state" \
+	    "$$development_cache" "$$development_preferences" "$$development_saved_state"
 	@user_id=$$(id -u); \
 	  find /private/tmp -maxdepth 1 -user "$$user_id" \
 	    \( -name 'omarchy-qemu-source-build.*' \
