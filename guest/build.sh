@@ -96,7 +96,11 @@ pacman-key --populate omarchy
 output=$(mkdir -p "$output" && cd "$output" && pwd)
 work=$(mkdir -p "$work" && cd "$work" && pwd)
 if [[ -z $source_dir ]]; then
-  source_dir="$work/omarchy-source"
+  # Keep each pin separate: a release update must not reuse or rewrite the
+  # previous release's checkout in the persistent build cache.
+  source_commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["upstream"]["commit"])' "$spec")
+  [[ $source_commit =~ ^[0-9a-f]{40}$ ]] || fail "invalid upstream commit"
+  source_dir="$work/omarchy-source-$source_commit"
   "$guest_dir/scripts/fetch-source.sh" --destination "$source_dir" --spec "$spec"
 else
   source_dir=$(cd "$source_dir" && pwd)

@@ -14,6 +14,11 @@ The privileged ARM64 Docker build writes verified artifacts to `dist/guest/`.
 Its persistent package/source cache lives in a project-scoped Docker volume, so
 repeat builds do not start from zero.
 
+Source checkouts are cached separately by pinned Omarchy commit, so updating
+the release preserves the previous checkout and reuses the package cache.
+Each checkout must still match its pinned commit and tree and have no local
+changes. Legacy `omarchy-source` caches are left untouched.
+
 Hyprland compilation limits parallel jobs using the CPU count and the smaller
 of Linux available memory and visible cgroup v1/v2 memory budgets (including
 ancestor limits). It reserves 1 GiB and budgets 1.5 GiB per job, with a minimum
