@@ -105,6 +105,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         memoryPopup.setAccessibilityLabel("Memory")
         memoryPopup.setAccessibilityHelp("Higher allocations may affect macOS performance; at least 4 GiB stays available to macOS")
 
+        diskField.placeholderString = "Current: \(minimumDiskGiB) GiB"
         diskField.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         diskField.delegate = self
         diskField.identifier = NSUserInterfaceItemIdentifier("vm-resources-disk")
