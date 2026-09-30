@@ -132,6 +132,7 @@ def component_files(root: Path, component: str) -> list[Path]:
         paths.extend([p for p in regular_files(root / "integrations") if p.suffix != ".md" and p.name != ".DS_Store"])
         paths.extend(regular_files(root / "guest/scripts"))
         paths.extend(regular_files(root / "guest/native-overlay"))
+        paths.extend(regular_files(root / "guest/native-module"))
         paths.extend(
             [
                 root / "LICENSE",

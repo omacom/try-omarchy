@@ -30,8 +30,10 @@ Integrations**, or with `try-omarchy-integrations` in the guest terminal.
 - sudo Touch ID: installs support; pairing is explicit and can be tested or repaired.
 - Mac battery: installs the [host battery](host-battery.md) module and bridge, so
   the Mac's charge appears in the Omarchy bar. The guest builds the module with
-  DKMS. VMs that already have it, including factory images that ship it, are left
-  as they are.
+  DKMS. VMs with the current integration are left as they are; older installed
+  versions are upgraded by **Install/update integration support**. Rebuilding
+  the Mac app or factory image does not update an existing VM's installed module
+  and bridge.
 
 The bundle contains upstream sudo Touch ID support and the Mac battery mirror.
 Additional integrations can be added after their own upstream review. The manager does not
