@@ -1613,6 +1613,15 @@ settings_payload="$resources_dir/guest-settings"
   fail "the bundled settings integration is missing"
 settings_unit=$(base64 < "$settings_payload/guest-settings.service" | tr -d '\r\n')
 settings_kernel_argument=" systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$settings_unit systemd.wants=try-omarchy-settings.service"
+# Mask the old disk's mount unit for this boot. The payload service mounts the
+# personal share with the bundled safe helper before installing settings.
+# A payload failure must leave sharing unavailable, never fall back to writeback.
+mac_share_kernel_argument=""
+if [[ -n $shared_folder ]]; then
+  [[ -f $settings_payload/omarchy-native-mac-share ]] || \
+    fail "the bundled shared-folder safety integration is missing"
+  mac_share_kernel_argument=" systemd.mask=omarchy-native-mac-share.service"
+fi
 # QEMU escapes commas in key-value option values by doubling them.
 settings_payload_escaped=${settings_payload//,/,,}
 
@@ -1668,6 +1677,14 @@ if [[ $QEMU_NETWORK_MODE == bridged ]]; then
   fi
 fi
 
+launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$locale_kernel_argument"
+# ARM64 truncates boot arguments at 2048 bytes. Losing the mask or credential
+# could restore the older guest's writeback mount, so refuse that launch.
+if [[ -n $shared_folder ]]; then
+  launch_append_bytes=$(printf '%s' "$launch_append" | wc -c | tr -d ' ')
+  (( launch_append_bytes < 2048 )) || fail "shared-folder safety boot arguments exceed the ARM64 limit"
+fi
+
 qemu_args=(
   -name 'Try Omarchy'
   "${qemu_virtualization_args[@]}"
@@ -1689,7 +1706,7 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -kernel "$launch_kernel"
   -initrd "$launch_initramfs"
-  -append "$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$keyboard_kernel_argument$locale_kernel_argument"
+  -append "$launch_append"
   -drive "if=none,id=omarchy-root,file=$working_disk,format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root'
   -device "$gpu_device"

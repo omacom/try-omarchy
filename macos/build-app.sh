@@ -199,12 +199,13 @@ install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
 install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
-# Ship the same narrow settings payload to existing VMs at boot.
+# Ship settings and the shared-folder safety helper to existing VMs at boot.
 settings_payload="$contents/Resources/guest-settings"
 mkdir -p "$settings_payload"
 install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
 install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
 for relative in \
+  usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
   etc/udev/rules.d/92-omarchy-native-settings.rules \
   usr/share/applications/try-omarchy-settings.desktop \

@@ -162,7 +162,11 @@ cannot present settings. The command times out after three seconds and reports
 errors through a desktop notification and stderr. The channel only opens the
 settings UI; it does not accept preference values or other host commands.
 
-The updated Mac app installs these entry points on existing disks at boot. A
+The updated Mac app installs these entry points on existing disks at boot. Its
+boot service first mounts any personal Mac share with `cache=readahead`, while
+the launcher masks the old guest's share-mount unit for that boot. This applies
+the [shared-folder safety mitigation](../docs/shared-folder-safety.md) without
+changing the guest kernel or on-disk share helper. A
 separate read-only 9p share contains only the bundled settings installer and its
 files. A systemd boot credential supplies a temporary service that installs
 those files, reloads the udev rule, and unmounts the share. This uses systemd's
