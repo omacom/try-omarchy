@@ -245,6 +245,8 @@ mkdir -p "$settings_payload"
 install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
 install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
 for relative in \
+  usr/local/share/try-omarchy/power-profile-hooks.json \
+  usr/local/lib/try-omarchy/install-power-profile.py \
   usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
   usr/local/bin/try-omarchy-timezone \

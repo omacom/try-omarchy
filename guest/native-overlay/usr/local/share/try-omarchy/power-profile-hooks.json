@@ -1,0 +1,54 @@
+[
+  {
+    "path": "usr/bin/omarchy-powerprofiles-list",
+    "beforeSha256": "3d2e4b3d5ad974aa78c97a653d3fe937bd263063369a57f14918748502d1f609",
+    "afterSha256": "7d400e3f4c3dc74809a006b14e712ebdf3dfe45765a24d1db4f85a602bb1b9cc",
+    "replacements": [
+      [
+        "powerprofilesctl list 2>/dev/null |\n  awk -v with_state=\"${1:+1}\" '/^\\s*[* ]\\s*[a-zA-Z0-9-]+:$/ {\n    active = ($1 == \"*\") ? 1 : 0\n    gsub(/^[*[:space:]]+|:$/, \"\")\n    print $0 (with_state ? \"\\t\" active : \"\")\n  }' |\n  tac\n",
+        "# The VM uses macOS power management; there is no Linux profile driver.\nif [[ ${1:-} == \"--active-state\" ]]; then\n  printf 'default\\t1\\n'\nelse\n  printf 'default\\n'\nfi\n"
+      ]
+    ]
+  },
+  {
+    "path": "usr/bin/omarchy-powerprofiles-set",
+    "beforeSha256": "4595bb75e4000e2fc01bd3c7f1e578d07aecfa54e9dcd4e2d32d653c35bc66a9",
+    "afterSha256": "85c47a6ae1d45add248f85fa27dad359c06bc16fc9e3900631603a790f6c53d7",
+    "replacements": [
+      [
+        "#!/bin/bash\n\n# omarchy:summary=Set and remember the power profile for AC or battery use\n# omarchy:args=[autodetect|ac|battery] [power-saver|balanced|performance]\n\naction=\"${1:-autodetect}\"\nrequested_profile=\"${2:-}\"\n\nusage() {\n  echo \"Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance]\" >&2\n  exit 1\n}\n\n(( $# <= 2 )) || usage\n\ncase \"$action\" in\n  autodetect)\n    # Use the same signal as the shell (UPower.onBattery) so every entry point\n    # saves and restores the profile under the same ac/battery key.\n    if [[ $(busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower OnBattery 2>/dev/null) == \"b true\" ]]; then\n      action=battery\n    else\n      action=ac\n    fi\n    ;;\n  ac | battery) ;;\n  *) usage ;;\nesac\n\nmapfile -t profiles < <(omarchy-powerprofiles-list)\n\nprofile_available() {\n  [[ \" ${profiles[*]} \" == *\" $1 \"* ]]\n}\n\nstate_dir=\"${OMARCHY_POWERPROFILES_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/powerprofiles}\"\nstate_file=\"$state_dir/$action\"\n\nif [[ -n $requested_profile ]]; then\n  profile_available \"$requested_profile\" || {\n    echo \"Power profile is not available: $requested_profile\" >&2\n    exit 1\n  }\n\n  profile=\"$requested_profile\"\nelif [[ -r $state_file ]]; then\n  profile=$(<\"$state_file\")\nfi\n\nif [[ -z ${profile:-} ]] || ! profile_available \"$profile\"; then\n  if [[ $action == \"ac\" ]] && profile_available performance; then\n    profile=performance\n  else\n    profile=balanced\n  fi\nfi\n\npowerprofilesctl set \"$profile\" || exit\n\nif [[ -n $requested_profile ]]; then\n  mkdir -p \"$state_dir\"\n  printf '%s\\n' \"$requested_profile\" >\"$state_file\"\nfi\n",
+        "#!/bin/bash\n\n# omarchy:summary=Report the VM power profile managed by macOS\n# omarchy:args=[autodetect|ac|battery] [default]\n\naction=\"${1:-autodetect}\"\nrequested_profile=\"${2:-}\"\n\nusage() {\n  echo \"Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [default]\" >&2\n  exit 1\n}\n\n(( $# <= 2 )) || usage\ncase \"$action\" in\n  autodetect | ac | battery) ;;\n  *) usage ;;\nesac\n\n# Startup and AC transitions are no-ops. The guest cannot select a Mac mode.\nif [[ -n $requested_profile ]]; then\n  if [[ $requested_profile != default ]]; then\n    echo \"Power profiles are managed by macOS; only default is available.\" >&2\n    exit 1\n  fi\n  echo \"Default, managed by macOS\"\nfi\n"
+      ]
+    ]
+  },
+  {
+    "path": "usr/share/omarchy/shell/plugins/panels/power/Panel.qml",
+    "beforeSha256": "560e17a5144d3e2ea1e0ad36c2aec563909b535551e1e66e061f5fb25f1d4ec0",
+    "afterSha256": "7e2bd5bf3b179ac3881c1a2450db26d7e3cb183abec43746805cfe817e218c9f",
+    "replacements": [
+      [
+        "  property string activeProfile: \"\"\n",
+        "  property string activeProfile: \"\"\n  readonly property bool managedByMacOS: profiles.length === 1 && profiles[0] === \"default\"\n"
+      ],
+      [
+        "    if (!profile || actionProc.running) return",
+        "    if (managedByMacOS || !profile || actionProc.running) return"
+      ],
+      [
+        "          Row {\n            id: profileRow\n",
+        "          Text {\n            visible: root.managedByMacOS\n            width: parent.width\n            text: \"Default, managed by macOS\"\n            textFormat: Text.PlainText\n            color: root.bar.foreground\n            font.family: root.bar.fontFamily\n            font.pixelSize: Style.font.bodySmall\n            wrapMode: Text.WordWrap\n          }\n\n          Row {\n            id: profileRow\n            visible: !root.managedByMacOS\n"
+      ]
+    ]
+  },
+  {
+    "path": "usr/share/omarchy/shell/plugins/menu/Menu.qml",
+    "beforeSha256": "0154d0ec3855fbb48aa06eaa724a19f3c07c377494d4a3de65daed2d7d9100e3",
+    "afterSha256": "bcbeefec65fddec4747c8bd715bf419c49a1b646b99d52aa882b85825f130b89",
+    "replacements": [
+      [
+        "      script: \"current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\\\t%s\\\\t%s\\\\n' \\\"$p\\\" \\\"$p\\\" \\\"$current\\\"; done\",\n      icon: \"\\udb81\\udc0b\",\n      actionFor: function(value) { return \"omarchy-powerprofiles-set autodetect \" + Util.shellQuote(value) }",
+        "      script: \"printf 'Default, managed by macOS\\\\tdefault\\\\tdefault\\\\n'\",\n      icon: \"\\udb81\\udc0b\",\n      actionFor: function(value) { return \"\" }"
+      ]
+    ]
+  }
+]

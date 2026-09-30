@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import py_compile
@@ -194,6 +195,7 @@ def main() -> None:
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
             "mirror-macos-timezone",
+            "macos-power-profile",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -2207,6 +2209,31 @@ HOTPLUG=1
                         == target["afterSha256"],
                         f"backport produces reviewed postimage: {backport['id']} {target['path']}",
                     )
+
+            # Existing guests receive the same reviewed command and QML bytes
+            # through the app's boot payload, without replacing their disk.
+            profile_hooks = json.loads(read(
+                GUEST / "native-overlay/usr/local/share/try-omarchy/power-profile-hooks.json"
+            ))
+            profile_module_spec = importlib.util.spec_from_file_location(
+                "power_profile_installer",
+                GUEST / "native-overlay/usr/local/lib/try-omarchy/install-power-profile.py",
+            )
+            profile_installer = importlib.util.module_from_spec(profile_module_spec)
+            profile_module_spec.loader.exec_module(profile_installer)
+            upgrade_root = Path(temporary) / "upgrade"
+            profile_backport = next(b for b in backports if b["id"] == "macos-power-profile")
+            for hook, target in zip(profile_hooks, profile_backport["targets"]):
+                destination = upgrade_root / hook["path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / target["path"], destination)
+            profile_installer.install(upgrade_root, profile_hooks)
+            for hook, target in zip(profile_hooks, profile_backport["targets"]):
+                check(
+                    (upgrade_root / hook["path"]).read_bytes()
+                    == (staged_omarchy / target["path"]).read_bytes(),
+                    f"power profile boot upgrade matches factory: {target['path']}",
+                )
 
             onepassword_installer_path = (
                 staged_omarchy / "bin/omarchy-install-service-1password"

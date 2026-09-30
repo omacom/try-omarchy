@@ -513,6 +513,35 @@
             "afterSha256": "134c9cc00a0c638a3f0259e5674b99771f7d6bba957226176b0cd5e1646e40ca"
           }
         ]
+      },
+      {
+        "id": "macos-power-profile",
+        "description": "Show the read-only default power profile managed by macOS in the battery panel and menu.",
+        "reference": "https://github.com/basecamp/omarchy/blob/c668141e9c42b13c80c9ca4ea108e11708c5e8a5/bin/omarchy-powerprofiles-set",
+        "patch": "patches/omarchy/macos-power-profile.patch",
+        "patchSha256": "df6ab2aed094fa8b9cca73e5702159ed8438d98b6b0d3cbd5301bf0b598bea7c",
+        "targets": [
+          {
+            "path": "bin/omarchy-powerprofiles-list",
+            "beforeSha256": "3d2e4b3d5ad974aa78c97a653d3fe937bd263063369a57f14918748502d1f609",
+            "afterSha256": "7d400e3f4c3dc74809a006b14e712ebdf3dfe45765a24d1db4f85a602bb1b9cc"
+          },
+          {
+            "path": "bin/omarchy-powerprofiles-set",
+            "beforeSha256": "4595bb75e4000e2fc01bd3c7f1e578d07aecfa54e9dcd4e2d32d653c35bc66a9",
+            "afterSha256": "85c47a6ae1d45add248f85fa27dad359c06bc16fc9e3900631603a790f6c53d7"
+          },
+          {
+            "path": "shell/plugins/panels/power/Panel.qml",
+            "beforeSha256": "560e17a5144d3e2ea1e0ad36c2aec563909b535551e1e66e061f5fb25f1d4ec0",
+            "afterSha256": "7e2bd5bf3b179ac3881c1a2450db26d7e3cb183abec43746805cfe817e218c9f"
+          },
+          {
+            "path": "shell/plugins/menu/Menu.qml",
+            "beforeSha256": "0154d0ec3855fbb48aa06eaa724a19f3c07c377494d4a3de65daed2d7d9100e3",
+            "afterSha256": "bcbeefec65fddec4747c8bd715bf419c49a1b646b99d52aa882b85825f130b89"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [

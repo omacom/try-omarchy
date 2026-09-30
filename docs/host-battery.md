@@ -135,6 +135,19 @@ agents keep their existing wire schemas. Existing guests need the updated
 integration installed and the updated Mac bridge running to receive these
 readings.
 
+## Power profile
+
+The battery panel and the menu's power-profile provider show **Default, managed
+by macOS** as informational text. Linux power profiles cannot control the Mac's
+CPU or energy policy through QEMU/HVF. Change energy modes in macOS System
+Settings; the label does not claim to mirror the Mac's current energy mode.
+
+The guest profile commands expose only `default`. Startup and AC/battery
+transitions leave power policy alone, and requests for Linux performance modes
+are rejected. No `power-profiles-daemon` package or host control bridge is needed.
+The app's boot settings payload applies this presentation to matching existing
+guest files on the next launch, preserving customized or unrecognized files.
+
 ## Critical battery policy
 
 `/etc/UPower/UPower.conf.d/90-try-omarchy.conf` sets two keys:

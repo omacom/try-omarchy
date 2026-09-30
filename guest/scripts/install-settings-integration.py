@@ -12,6 +12,8 @@ import tempfile
 
 
 FILES = {
+    "power-profile-hooks.json": ("usr/local/share/try-omarchy/power-profile-hooks.json", 0o644),
+    "install-power-profile.py": ("usr/local/lib/try-omarchy/install-power-profile.py", 0o644),
     "omarchy-native-settings": ("usr/local/bin/omarchy-native-settings", 0o755),
     "92-omarchy-native-settings.rules": ("etc/udev/rules.d/92-omarchy-native-settings.rules", 0o644),
     "try-omarchy-settings.desktop": ("usr/share/applications/try-omarchy-settings.desktop", 0o644),
@@ -124,6 +126,7 @@ def main():
     if sys.argv[1:] or os.geteuid() != 0:
         raise SystemExit("Run the bundled installer as root, without arguments")
     install_system(payload, Path("/"))
+    subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-power-profile.py"], check=True)
     subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-timezone-menus.py"], check=True)
     # Run before owner provisioning, including in older unprovisioned factories.
     # The live service starts after provisioning so a different setup selection

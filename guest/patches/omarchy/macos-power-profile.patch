@@ -1,0 +1,147 @@
+--- a/bin/omarchy-powerprofiles-list
++++ b/bin/omarchy-powerprofiles-list
+@@ -8,10 +8,9 @@
+   exit 1
+ fi
+ 
+-powerprofilesctl list 2>/dev/null |
+-  awk -v with_state="${1:+1}" '/^\s*[* ]\s*[a-zA-Z0-9-]+:$/ {
+-    active = ($1 == "*") ? 1 : 0
+-    gsub(/^[*[:space:]]+|:$/, "")
+-    print $0 (with_state ? "\t" active : "")
+-  }' |
+-  tac
++# The VM uses macOS power management; there is no Linux profile driver.
++if [[ ${1:-} == "--active-state" ]]; then
++  printf 'default\t1\n'
++else
++  printf 'default\n'
++fi
+--- a/bin/omarchy-powerprofiles-set
++++ b/bin/omarchy-powerprofiles-set
+@@ -1,63 +1,27 @@
+ #!/bin/bash
+ 
+-# omarchy:summary=Set and remember the power profile for AC or battery use
+-# omarchy:args=[autodetect|ac|battery] [power-saver|balanced|performance]
++# omarchy:summary=Report the VM power profile managed by macOS
++# omarchy:args=[autodetect|ac|battery] [default]
+ 
+ action="${1:-autodetect}"
+ requested_profile="${2:-}"
+ 
+ usage() {
+-  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance]" >&2
++  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [default]" >&2
+   exit 1
+ }
+ 
+ (( $# <= 2 )) || usage
+-
+ case "$action" in
+-  autodetect)
+-    # Use the same signal as the shell (UPower.onBattery) so every entry point
+-    # saves and restores the profile under the same ac/battery key.
+-    if [[ $(busctl get-property org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower OnBattery 2>/dev/null) == "b true" ]]; then
+-      action=battery
+-    else
+-      action=ac
+-    fi
+-    ;;
+-  ac | battery) ;;
++  autodetect | ac | battery) ;;
+   *) usage ;;
+ esac
+ 
+-mapfile -t profiles < <(omarchy-powerprofiles-list)
+-
+-profile_available() {
+-  [[ " ${profiles[*]} " == *" $1 "* ]]
+-}
+-
+-state_dir="${OMARCHY_POWERPROFILES_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/powerprofiles}"
+-state_file="$state_dir/$action"
+-
++# Startup and AC transitions are no-ops. The guest cannot select a Mac mode.
+ if [[ -n $requested_profile ]]; then
+-  profile_available "$requested_profile" || {
+-    echo "Power profile is not available: $requested_profile" >&2
++  if [[ $requested_profile != default ]]; then
++    echo "Power profiles are managed by macOS; only default is available." >&2
+     exit 1
+-  }
+-
+-  profile="$requested_profile"
+-elif [[ -r $state_file ]]; then
+-  profile=$(<"$state_file")
++  fi
++  echo "Default, managed by macOS"
+ fi
+-
+-if [[ -z ${profile:-} ]] || ! profile_available "$profile"; then
+-  if [[ $action == "ac" ]] && profile_available performance; then
+-    profile=performance
+-  else
+-    profile=balanced
+-  fi
+-fi
+-
+-powerprofilesctl set "$profile" || exit
+-
+-if [[ -n $requested_profile ]]; then
+-  mkdir -p "$state_dir"
+-  printf '%s\n' "$requested_profile" >"$state_file"
+-fi
+--- a/shell/plugins/panels/power/Panel.qml
++++ b/shell/plugins/panels/power/Panel.qml
+@@ -17,6 +17,7 @@
+   property var systemInfo: ({})
+   property var profiles: []
+   property string activeProfile: ""
++  readonly property bool managedByMacOS: profiles.length === 1 && profiles[0] === "default"
+   property int profileIndex: 0
+   property bool cursorActive: false
+   readonly property bool showPercentage: setting("showPercentage", false) === true
+@@ -164,7 +165,7 @@
+   }
+ 
+   function setProfile(profile) {
+-    if (!profile || actionProc.running) return
++    if (managedByMacOS || !profile || actionProc.running) return
+     actionProc.command = ["omarchy-powerprofiles-set", root.discharging ? "battery" : "ac", profile]
+     actionProc.running = true
+   }
+@@ -466,8 +467,20 @@
+             fontFamily: root.bar.fontFamily
+           }
+ 
++          Text {
++            visible: root.managedByMacOS
++            width: parent.width
++            text: "Default, managed by macOS"
++            textFormat: Text.PlainText
++            color: root.bar.foreground
++            font.family: root.bar.fontFamily
++            font.pixelSize: Style.font.bodySmall
++            wrapMode: Text.WordWrap
++          }
++
+           Row {
+             id: profileRow
++            visible: !root.managedByMacOS
+             width: parent.width
+             spacing: Style.space(6)
+ 
+--- a/shell/plugins/menu/Menu.qml
++++ b/shell/plugins/menu/Menu.qml
+@@ -274,8 +274,8 @@
+       actionFor: function(value) { return "omarchy-font-set " + Util.shellQuote(value) }
+     },
+     "power-profiles": {
+-      script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",
++      script: "printf 'Default, managed by macOS\\tdefault\\tdefault\\n'",
+       icon: "\udb81\udc0b",
+-      actionFor: function(value) { return "omarchy-powerprofiles-set autodetect " + Util.shellQuote(value) }
++      actionFor: function(value) { return "" }
+     }
+   })
