@@ -64,6 +64,7 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 
 mkdir -p "$resources/guest-settings"
 cp "$macos_dir/guest-settings.service" "$resources/guest-settings/guest-settings.service"
+cp "$macos_dir/../guest/native-overlay/usr/local/bin/omarchy-native-mac-share" "$resources/guest-settings/omarchy-native-mac-share"
 cp "$macos_dir/../guest/scripts/install-settings-integration.py" "$resources/guest-settings/install.py"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'

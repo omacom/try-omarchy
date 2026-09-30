@@ -147,6 +147,14 @@ guest mounts the tag at `/mnt/mac` before the display manager starts, and a
 user unit links `~/<folder name>` to it at login; the name travels on the
 kernel command line as `omarchy.shared_folder_name=<base64url>`.
 
+The personal share uses `cache=readahead`, which omits 9p writeback caching.
+When sharing is enabled, the launcher masks the older guest's
+`omarchy-native-mac-share.service` for that boot. The existing settings boot
+credential unit runs the current mount helper from the app's dedicated read-only
+payload before installing settings and before login, then unmounts that payload. This applies the same policy
+to older persistent guests without replacing their on-disk helper or paired
+kernel. See [shared-folder safety](shared-folder-safety.md).
+
 Optional port mappings are stored as a versioned launcher preference, validated
 again at every Swift-to-shell boundary, and translated into QEMU user-network
 `hostfwd` rules. The host side is always bound explicitly to `127.0.0.1`; the

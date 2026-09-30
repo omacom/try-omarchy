@@ -233,6 +233,12 @@ first Omarchy account created during
 provisioning. Additional guest accounts can reach the same share, with each
 entry's normal Unix permission bits deciding whether they can modify it.
 
+The share uses `cache=readahead` to avoid the 9p writeback corruption risk in
+older guest kernels. Writable shared memory mappings are unavailable; keep
+databases and mmap-based IPC files on the guest's local disk. See
+[shared-folder safety](docs/shared-folder-safety.md) for existing-VM protection,
+verification, and mitigation on older app versions.
+
 ## Passing a USB device to Omarchy (experimental)
 
 Passthrough is off until you pick a device. Use **Choose…** next to **USB

@@ -77,6 +77,7 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 mkdir -p "$resources/guest-settings" "$resources/integrations"
 printf '{}\n' >"$resources/integrations/manifest.json"
 cp "$macos_dir/guest-settings.service" "$resources/guest-settings/guest-settings.service"
+cp "$macos_dir/../guest/native-overlay/usr/local/bin/omarchy-native-mac-share" "$resources/guest-settings/omarchy-native-mac-share"
 cp "$macos_dir/../guest/scripts/install-settings-integration.py" "$resources/guest-settings/install.py"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
@@ -994,6 +995,34 @@ assert_contains "$(<"$test_root/recovery-relaunch/qemu.log")" loglevel=3
 assert_keyboard_lockstep "$test_root/recovery-relaunch/qemu.log" iso
 assert_not_contains "$(<"$recovery_root/boot/command-line")" tryomarchy.keyboard=
 assert_contains "$(<"$recovery_root/rootfs.ext4")" legacy-user-disk
+
+# Old persistent guests must receive the safe mount unit with their own boot kit.
+assert_not_contains "$disabled_qemu" 'systemd.mask=omarchy-native-mac-share.service'
+mkdir -p "$test_root/Shared fixture"
+for mode in persistent ephemeral; do
+  argument=''
+  [[ $mode != ephemeral ]] || argument=--ephemeral
+  run_scenario "shared-$mode" 0 "$argument" OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+  shared_qemu=$(<"$test_root/shared-$mode/qemu.log")
+  assert_contains "$shared_qemu" 'systemd.mask=omarchy-native-mac-share.service'
+  assert_contains "$shared_qemu" "systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$(base64 < "$macos_dir/guest-settings.service" | tr -d '\r\n')"
+  assert_contains "$shared_qemu" 'omarchy.shared_folder_name='
+  if [[ $mode == persistent ]]; then
+    assert_line_pair "$test_root/shared-$mode/qemu.log" -kernel "$persistent_root/boot/kernel"
+    assert_line_pair "$test_root/shared-$mode/qemu.log" -initrd "$persistent_root/boot/initramfs"
+  fi
+done
+mv "$resources/guest-settings/omarchy-native-mac-share" "$resources/guest-settings/helper.saved"
+run_scenario missing-share-helper 1 '' OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+[[ ! -e $test_root/missing-share-helper/qemu.log ]] || fail 'unsafe QEMU launch without safety helper'
+mv "$resources/guest-settings/helper.saved" "$resources/guest-settings/omarchy-native-mac-share"
+
+# Never let ARM64 truncate the safety credential or old-service mask.
+share_saved_command_line=$(<"$persistent_root/boot/command-line")
+printf '%s fixture.padding=%02048d\n' "$share_saved_command_line" 0 >"$persistent_root/boot/command-line"
+run_scenario oversized-share-boot 1 '' OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+[[ ! -e $test_root/oversized-share-boot/qemu.log ]] || fail 'unsafe launch with truncated safety arguments'
+printf '%s\n' "$share_saved_command_line" >"$persistent_root/boot/command-line"
 
 run_scenario preset 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2222:22
 assert_line_pair "$test_root/preset/qemu.log" -netdev \
