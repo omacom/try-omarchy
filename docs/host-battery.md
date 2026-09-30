@@ -163,10 +163,18 @@ the pinned `upower 1.91.4` classifies `Ignore` itself as a risky action, and
 without `AllowRiskyCriticalPowerAction=true` it silently refuses to honor the
 setting and falls back through HybridSleep, then Hibernate, then PowerOff —
 the guest would suspend or shut itself down on a low reading with no warning
-that the configured policy had been overridden. With both keys set, Omarchy
-still shows its low- and critical-battery warnings, but the VM never acts on
-them. The Mac's own power handling is the only authority over what actually
-happens to the battery.
+that the configured policy had been overridden. With both keys set, the VM
+never automatically suspends or powers off because of a critical battery.
+The Mac's own power handling is the authority.
+
+Omarchy's battery service checks every 30 seconds and on AC/battery transitions.
+While unplugged and discharging, it sends **Time to recharge!** at 10% or below
+with critical notification urgency, bypassing Do Not Disturb. It warns once
+per low-battery episode and rearms when charging resumes or the level rises
+above 10%. Charging held at a limit does not trigger it. There is no separate
+second warning at 5%; critical urgency describes the 10% notification.
+The `battery-low` hook runs with the percentage. The bundled warning-sound hook
+is a `.sample` file and is disabled until the user enables it.
 
 ## Retrofitting an existing guest
 
