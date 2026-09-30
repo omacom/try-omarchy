@@ -214,6 +214,12 @@ def wl_paste_selection() -> tuple[str, bytes] | None:
 
 def emit_selection() -> int:
     """`wl-paste --watch` callback: print the selection as one text line."""
+    # The watcher supplies the selection on stdin. Drain it before asking the
+    # owner for its types/content again: an unread large selection can fill
+    # the pipe and block the owner, including our second request to that owner.
+    if read_bounded(sys.stdin.fileno(), MAX_PAYLOAD_BYTES, 15) is None:
+        log("watcher selection is too large or too slow; skipping")
+        return 0
     selection = wl_paste_selection()
     if selection is None:
         return 0

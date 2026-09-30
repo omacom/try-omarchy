@@ -7,9 +7,12 @@ import base64
 import importlib.util
 from importlib.machinery import SourceFileLoader
 import json
+import io
 import os
 from pathlib import Path
+import threading
 import unittest
+from unittest.mock import patch
 
 
 BRIDGE_PATH = (
@@ -34,6 +37,43 @@ class Recorder:
 
     def copy(self, mime: str, payload: bytes) -> None:
         self.copied.append((mime, payload))
+
+
+class WatcherInputTests(unittest.TestCase):
+    def test_large_watcher_input_is_drained_before_querying_owner(self) -> None:
+        reader, writer = os.pipe()
+        delivered = threading.Event()
+        payload = b"\x89PNG\r\n" + b"x" * (1024 * 1024)
+
+        def supply_selection():
+            try:
+                offset = 0
+                while offset < len(payload):
+                    offset += os.write(writer, payload[offset:])
+                delivered.set()
+            except BrokenPipeError:
+                pass
+            finally:
+                os.close(writer)
+
+        def query_owner():
+            if not delivered.wait(1):
+                raise TimeoutError("owner is blocked feeding the watcher callback")
+            return bridge.PNG_FORMAT, payload
+
+        thread = threading.Thread(target=supply_selection)
+        thread.start()
+        output = io.StringIO()
+        try:
+            with os.fdopen(reader, "rb") as incoming:
+                with patch.object(bridge.sys, "stdin", incoming), patch.object(bridge.sys, "stdout", output):
+                    with patch.object(bridge, "wl_paste_selection", query_owner):
+                        self.assertEqual(bridge.emit_selection(), 0)
+        finally:
+            thread.join(timeout=2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(bridge.parse_watch_line(output.getvalue().strip().encode()),
+                         (bridge.PNG_FORMAT, payload))
 
 
 class MessageCodingTests(unittest.TestCase):
