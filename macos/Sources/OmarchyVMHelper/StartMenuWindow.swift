@@ -1384,14 +1384,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     private func automaticStartSettingRow() -> NSView {
         let detail = virtualMachineRunning
-            ? "Skip the start menu on launch. Open settings anytime from Omarchy’s Setup menu."
-            : "Skip this menu on launch. Hold Option while opening the app to show it again."
+            ? "Launch Omarchy with your saved settings. Open settings anytime from Omarchy’s Setup menu."
+            : "Launch Omarchy with your saved settings. Hold Option while opening the app to show the launcher."
         return toggleSettingRow(
-            titleText: "Start automatically",
+            titleText: "Skip launcher",
             detailText: detail,
             symbolName: "play.circle",
             identifier: "automatic-start",
-            accessibilityLabel: "Start automatically",
+            accessibilityLabel: "Skip launcher",
             isEnabled: startAutomatically(),
             action: #selector(changeStartAutomatically(_:))
         ).row
@@ -1836,9 +1836,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             sender.state = .off
             let alert = NSAlert()
             alert.alertStyle = .informational
-            alert.messageText = "Start Omarchy automatically?"
+            alert.messageText = "Skip launcher?"
             alert.informativeText = """
-                Omarchy will start with your saved settings whenever you open Try Omarchy.
+                Opening Try Omarchy will skip the launcher and start Omarchy with your saved settings.
 
                 To see the launcher again, hold Option while opening the app. Inside Omarchy, open the Omarchy menu and choose Setup → Try Omarchy Settings.
                 """
