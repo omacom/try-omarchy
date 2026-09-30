@@ -193,6 +193,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "t3code-arm64-desktop",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -338,9 +339,17 @@ def main() -> None:
                 "applicationUrl": "https://release.files.ghostty.org/1.3.1/ghostty-1.3.1.tar.gz",
                 "applicationSha256": "3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb",
                 "factoryProvenance": "installer-only",
+            },
+            {
+                "id": "t3code-arm64",
+                "userInitiated": True,
+                "delivery": "latest-stable-vendor-appimage",
+                "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+                "verification": "github-asset-sha256",
+                "factoryProvenance": "installer-only"
             }
         ],
-        "Vivaldi, 1Password, and Ghostty installation are explicit post-build trust boundaries",
+        "Vivaldi, 1Password, Ghostty, and T3 Code installation are explicit post-build trust boundaries",
     )
 
     pacman_conf = read(GUEST / spec["inputs"]["pacmanConfig"])
@@ -2166,13 +2175,18 @@ HOTPLUG=1
             "background picker preserves directory order and sorts within each directory",
         )
 
+        patched_targets: dict[str, str] = {}
         for backport in backports:
             for target in backport["targets"]:
+                path = target["path"]
+                preimage = patched_targets.get(path) or hashlib.sha256(
+                    (source / path).read_bytes()
+                ).hexdigest()
                 check(
-                    hashlib.sha256((source / target["path"]).read_bytes()).hexdigest()
-                    == target["beforeSha256"],
-                    f"pinned source matches backport preimage: {backport['id']} {target['path']}",
+                    preimage == target["beforeSha256"],
+                    f"pinned source or earlier backport matches backport preimage: {backport['id']} {path}",
                 )
+                patched_targets[path] = target["afterSha256"]
 
         with tempfile.TemporaryDirectory() as temporary:
             staged_root = Path(temporary) / "root"
@@ -2196,13 +2210,11 @@ HOTPLUG=1
                 text=True,
                 capture_output=True,
             )
-            for backport in backports:
-                for target in backport["targets"]:
-                    check(
-                        hashlib.sha256((staged_omarchy / target["path"]).read_bytes()).hexdigest()
-                        == target["afterSha256"],
-                        f"backport produces reviewed postimage: {backport['id']} {target['path']}",
-                    )
+            for path, postimage in patched_targets.items():
+                check(
+                    hashlib.sha256((staged_omarchy / path).read_bytes()).hexdigest() == postimage,
+                    f"backports produce reviewed postimage: {path}",
+                )
 
             onepassword_installer_path = (
                 staged_omarchy / "bin/omarchy-install-service-1password"
@@ -2301,6 +2313,19 @@ HOTPLUG=1
                 and 'omarchy-pkg-present vivaldi' in menu
                 and 'omarchy-cmd-present vivaldi-stable' in menu,
                 "Vivaldi appears in Install, Remove, and Default Browser menus",
+            )
+            t3code_appimage = "${XDG_DATA_HOME:-$HOME/.local/share}/try-omarchy/t3code"
+            for relative in ("bin/omarchy-install-ai-t3-code", "bin/omarchy-remove-ai-t3-code"):
+                subprocess.run(["bash", "-n", str(staged_omarchy / relative)], check=True)
+            install_t3code = read(staged_omarchy / "bin/omarchy-install-ai-t3-code")
+            remove_t3code = read(staged_omarchy / "bin/omarchy-remove-ai-t3-code")
+            check(
+                "/usr/local/lib/try-omarchy/install-t3code-arm64\n" in install_t3code
+                and f'"{t3code_appimage}/t3" theme set omarchy' in install_t3code
+                and "/usr/local/lib/try-omarchy/install-t3code-arm64 --remove\nfi\nomarchy-pkg-drop t3code-bin\n" in remove_t3code
+                and f'"when":"! omarchy-pkg-present t3code-bin && [[ ! -e {t3code_appimage}/T3-Code.AppImage ]]"' in menu
+                and f'"when":"omarchy-pkg-present t3code-bin || [[ -d {t3code_appimage} ]]"' in menu,
+                "T3 Code install, removal, and menu entries follow the ARM64 AppImage",
             )
             check(
                 "/opt/vivaldi/" in theme_browser

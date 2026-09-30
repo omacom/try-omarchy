@@ -61,3 +61,9 @@ See `guest/spec.json`, `guest/packages.lock.json`, and
 `macos/build-qemu-gpu-runtime.sh` for exact source identities and checksums.
 Before distributing a release, follow `docs/releasing.md` and audit the assembled
 bundle's notices and corresponding-source obligations.
+
+**T3 Code** (<https://github.com/pingdotgg/t3code>, MIT, with bundled
+third-party notices) downloads only when requested. The installer verifies the
+official ARM64 AppImage against GitHub's SHA-256; subsequent updates use T3 Code's
+updater. Downloads trust upstream GitHub and HTTPS. The app payload is not
+redistributed in the factory image.

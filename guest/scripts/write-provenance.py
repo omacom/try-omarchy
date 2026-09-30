@@ -86,15 +86,25 @@ def main() -> None:
     trees["themes"] = digest_path(omarchy / "themes")
 
     backports = authenticity.get("backports", [])
+    # A later backport may patch an earlier one's output, so each file must hold
+    # the postimage of the last backport that targets it.
+    final_targets: dict[str, tuple[str, str]] = {}
     for backport in backports:
         patch = args.spec.parent / backport["patch"]
         patch_digest = digest_file(patch)
         if patch_digest != backport["patchSha256"]:
             raise SystemExit(f"backport patch digest mismatch: {backport['id']}")
         for target in backport["targets"]:
-            installed = installed_target_file(root, omarchy, target["path"])
-            if digest_file(installed) != target["afterSha256"]:
-                raise SystemExit(f"backport target digest mismatch: {backport['id']} {target['path']}")
+            prior = final_targets.get(target["path"])
+            if prior and target["beforeSha256"] != prior[1]:
+                raise SystemExit(
+                    f"backport preimage does not follow {prior[0]}: {backport['id']} {target['path']}"
+                )
+            final_targets[target["path"]] = (backport["id"], target["afterSha256"])
+    for relative, (backport_id, after) in final_targets.items():
+        installed = installed_target_file(root, omarchy, relative)
+        if digest_file(installed) != after:
+            raise SystemExit(f"backport target digest mismatch: {backport_id} {relative}")
 
     payload = {
         "schemaVersion": 1,

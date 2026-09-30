@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+app_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+# Run the CLI bundled in the mounted AppImage, so it follows desktop updates.
+export ELECTRON_RUN_AS_NODE=1
+exec "$app_dir/T3-Code.AppImage" -e '
+const entry = process.env.APPDIR + "/resources/app.asar/apps/server/dist/bin.mjs";
+const child = require("node:child_process").spawnSync(
+  process.execPath, [entry, ...process.argv.slice(1)], { stdio: "inherit" }
+);
+if (child.error) console.error(child.error.message);
+process.exit(child.status ?? 1);
+' -- "$@"

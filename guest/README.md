@@ -188,3 +188,8 @@ It never forces a shutdown on a timer. **Shut down to manage…** returns to the
 native settings window without automatic startup so location and reset remain
 accessible. A normal Linux reboot keeps the current QEMU process and therefore
 does not apply these launch settings.
+
+## Optional T3 Code desktop
+
+Choose **Install → AI → T3 Code**, then use T3 Code’s settings for updates and
+nightly builds. See [T3 Code](../docs/t3code.md).

@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Install the official AppImage on demand; let T3 Code own subsequent updates."""
+import argparse
+import fcntl
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import tempfile
+
+ASSETS = Path('/usr/local/share/try-omarchy/t3code')
+SPEC = Path('/usr/share/try-omarchy/build-spec.json')
+ASSET_PINS = {'t3code-wrapper': 'wrapperSha256', 't3': 'cliSha256',
+              'resolve-release.py': 'resolverSha256'}
+DEPENDENCIES = ['fuse2', 'alsa-lib', 'at-spi2-core', 'cairo', 'dbus', 'expat',
+                'gdk-pixbuf2', 'glib2', 'glibc', 'gtk3', 'hicolor-icon-theme',
+                'libcups', 'libdrm', 'gcc-libs', 'libx11', 'libxcb', 'libxcomposite',
+                'libxdamage', 'libxext', 'libxfixes', 'libxkbcommon', 'libxrandr',
+                'mesa', 'nspr', 'nss', 'pango', 'systemd-libs', 'xdg-utils', 'zlib']
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def sha256(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def safe_path(path):
+    # Do not follow user-created symlinks when writing or deleting app assets.
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise ValueError(f'refusing symlink destination: {path}')
+
+
+def data_home():
+    path = Path(os.environ.get('XDG_DATA_HOME') or str(Path.home() / '.local/share'))
+    if not path.is_absolute() or any(c in str(path) for c in '\n\r'):
+        raise ValueError('XDG_DATA_HOME must be an absolute path without line breaks')
+    return path
+
+
+def fetch(url, destination):
+    run('curl', '--fail', '--location', '--proto', '=https', '--proto-redir', '=https',
+        '--tlsv1.2', '--connect-timeout', '15', '--max-time', '600', '--silent',
+        '--show-error', url, '-o', str(destination))
+
+
+def atomic_write(path, content, mode=0o644):
+    safe_path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.t3code-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(content)
+            os.fchmod(stream.fileno(), mode)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def desktop_quote(path):
+    # Desktop Entry Exec has its own quoting rules, including field codes.
+    return '"' + str(path).replace('\\', '\\\\\\\\').replace('"', '\\\\"').replace('`', '\\\\`').replace('$', '\\\\$').replace('%', '%%') + '"'
+
+
+def install(assets=ASSETS, spec_path=SPEC, remove=False):
+    home = data_home()
+    app_dir = home / 'try-omarchy/t3code'
+    desktop = home / 'applications/t3code.desktop'
+    safe_path(app_dir)
+    safe_path(desktop)
+    app_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock = app_dir.parent / '.t3code-install.lock'
+    safe_path(lock)
+    with lock.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        if remove:
+            # The menu separately applies Omarchy's existing data-removal policy.
+            if app_dir.exists():
+                shutil.rmtree(app_dir)
+            desktop.unlink(missing_ok=True)
+            # T3 Code registers itself as the t3code:// handler. Drop that entry
+            # only when it launches this AppImage, not a separately managed build.
+            handler = home / 'applications/com.t3tools.T3Code.desktop'
+            safe_path(handler)
+            exec_line = f'\nExec={desktop_quote(app_dir / "T3-Code.AppImage")} %U\n'
+            if handler.is_file() and exec_line in handler.read_text(errors='replace'):
+                handler.unlink()
+            refresh_desktop(home)
+            return
+        pins = json.loads(spec_path.read_text())['supplyChain']['t3code']
+        for name, key in ASSET_PINS.items():
+            source = assets / name
+            if source.is_symlink() or not source.is_file() or sha256(source) != pins[key]:
+                raise ValueError(f'T3 Code asset digest mismatch: {name}')
+        image = app_dir / 'T3-Code.AppImage'
+        safe_path(image)
+        # Re-running Install must never overwrite a newer build or a nightly.
+        if not image.exists():
+            with tempfile.TemporaryDirectory(prefix='.t3code-download.', dir=app_dir.parent) as temp:
+                stage = Path(temp)
+                fetch(pins['releaseApi'], stage / 'release.json')
+                module_spec = importlib.util.spec_from_file_location('t3release', assets / 'resolve-release.py')
+                release = importlib.util.module_from_spec(module_spec)
+                module_spec.loader.exec_module(release)
+                version, url, digest = release.resolve(json.loads((stage / 'release.json').read_text()))
+                download = stage / 'T3-Code.AppImage'
+                fetch(url, download)
+                if sha256(download) != digest:
+                    raise ValueError('AppImage checksum mismatch; the installed app was not changed')
+                download.chmod(0o755)
+                run('omarchy-pkg-add', *DEPENDENCIES)
+                # Extract just a launcher icon. The executable remains an intact AppImage.
+                icon_relative = 'usr/share/icons/hicolor/256x256/apps/t3code.png'
+                run(str(download), '--appimage-extract', icon_relative, cwd=stage,
+                    stdout=subprocess.DEVNULL)
+                icon = stage / 'squashfs-root' / icon_relative
+                if not icon.is_file() or icon.is_symlink():
+                    raise ValueError('AppImage is missing its desktop icon')
+                app_dir.mkdir(exist_ok=True)
+                atomic_write(app_dir / 't3code.png', icon.read_bytes())
+                os.replace(download, image)
+                print(f'Installed T3 Code {version} AppImage.')
+        else:
+            if not image.is_file() or not os.access(image, os.W_OK | os.X_OK):
+                raise ValueError('Existing AppImage is not a writable executable')
+            run('omarchy-pkg-add', *DEPENDENCIES)
+            print('Keeping the installed AppImage and its selected update channel.')
+        for name in ('t3code-wrapper', 't3'):
+            atomic_write(app_dir / name, (assets / name).read_bytes(), 0o755)
+        entry = ('[Desktop Entry]\nName=T3 Code\nComment=Desktop control surface for local coding agents\n'
+                 f'Exec={desktop_quote(app_dir / "t3code-wrapper")} %U\n'
+                 f'Icon={str(app_dir / "t3code.png").replace(chr(92), chr(92)*2)}\n'
+                 'Terminal=false\nType=Application\nStartupWMClass=t3code\n'
+                 'Categories=Development;\nMimeType=x-scheme-handler/t3code;\n')
+        atomic_write(desktop, entry.encode())
+        refresh_desktop(home)
+        print('Use T3 Code Settings to switch channels and install future updates.')
+
+
+def refresh_desktop(home):
+    if (home / 'applications').is_dir() and shutil.which('update-desktop-database'):
+        run('update-desktop-database', str(home / 'applications'))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--from-checkout', type=Path)
+    parser.add_argument('--remove', action='store_true')
+    args = parser.parse_args()
+    if os.geteuid() == 0:
+        parser.error('run as your normal guest user, without sudo')
+    if platform.machine() != 'aarch64':
+        parser.error('this installer supports only aarch64')
+    assets, spec = ASSETS, SPEC
+    if args.from_checkout:
+        assets = args.from_checkout / 'guest/native-overlay/usr/local/share/try-omarchy/t3code'
+        spec = args.from_checkout / 'guest/spec.json'
+    try:
+        install(assets, spec, args.remove)
+    except KeyError as error:
+        parser.exit(1, f'install-t3code-arm64: build spec is missing T3 Code pin {error}\n')
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        parser.exit(1, f'install-t3code-arm64: {error}\n')
+
+
+if __name__ == '__main__':
+    main()

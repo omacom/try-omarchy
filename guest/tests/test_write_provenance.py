@@ -100,6 +100,46 @@ class WriteProvenanceTests(unittest.TestCase):
             self.assertIn("backport target digest mismatch", result.stderr)
             self.assertFalse(output.exists())
 
+    def chain_backport(self, spec: Path, before: str, after: bytes) -> None:
+        payload = json.loads(spec.read_text(encoding="utf-8"))
+        first = payload["authenticity"]["backports"][0]
+        payload["authenticity"]["backports"].append(
+            {
+                **first,
+                "id": "follow-up",
+                "targets": [
+                    {"path": "shell/example.qml", "beforeSha256": before, "afterSha256": digest(after)}
+                ],
+            }
+        )
+        spec.write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_accepts_a_backport_that_patches_an_earlier_postimage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.chain_backport(spec, digest(target.read_bytes()), b"patched twice\n")
+            target.write_bytes(b"patched twice\n")
+            result = self.run_writer(root, spec, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_a_chained_file_that_still_holds_the_earlier_postimage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.chain_backport(spec, digest(target.read_bytes()), b"patched twice\n")
+            result = self.run_writer(root, spec, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backport target digest mismatch: follow-up", result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_rejects_a_chained_preimage_that_skips_the_earlier_backport(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.chain_backport(spec, digest(b"upstream\n"), b"patched twice\n")
+            target.write_bytes(b"patched twice\n")
+            result = self.run_writer(root, spec, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backport preimage does not follow fixture", result.stderr)
+
     def test_verifies_a_staged_root_command_through_its_package_path_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root, spec, _, output = self.fixture(temporary)

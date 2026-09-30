@@ -563,6 +563,7 @@ if (
     fail("upstream identity is not pinned")
 
 supply_chain_keys = {
+    "t3code",
     "ghostty",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
@@ -718,6 +719,26 @@ if yay != {
     "licenseSha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2",
 }:
     fail("factory yay component is not the reviewed ARM64 release")
+t3code = exact_keys(
+    supply_chain.get("t3code"),
+    {
+        "cliSha256",
+        "installerSha256",
+        "releaseApi",
+        "resolverSha256",
+        "wrapperSha256",
+    },
+    "build spec T3 Code component",
+)
+if t3code != {
+    "releaseApi": "https://api.github.com/repos/pingdotgg/t3code/releases/latest",
+    "wrapperSha256": "f5737b71c625e760e80d39e4905d514f2c1faa5785ca7dfbc8166900caae0678",
+    "cliSha256": "8d1eb5fcb90961562c50dbe72ebc7b0703acd4b5dec43069d066f6866edd12b0",
+    "resolverSha256": "a2baf2c0950cc1b8042e46f21347156211af0c250600cff03cfb5b381cb0653d",
+    "installerSha256": "f0df8b3bb6e4bcccb9aa77e965c94dbdb504acdf8acc181b389f6599ee5de94c"
+}:
+    fail("build spec T3 Code installer differs from the reviewed release policy")
+
 ghostty = exact_keys(
     supply_chain.get("ghostty"),
     {

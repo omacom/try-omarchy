@@ -1,0 +1,62 @@
+--- a/bin/omarchy-install-ai-t3-code
++++ b/bin/omarchy-install-ai-t3-code
+@@ -9,7 +9,11 @@
+ T3CODE_STATE_DIR="$T3CODE_HOME/userdata"
+ 
+ echo "Installing T3 Code..."
+-omarchy-pkg-add t3code-bin
++if [[ $(uname -m) == aarch64 ]]; then
++  /usr/local/lib/try-omarchy/install-t3code-arm64
++else
++  omarchy-pkg-add t3code-bin
++fi
+ 
+ echo "Matching T3 Code to the current theme..."
+ mkdir -p "$T3CODE_STATE_DIR"
+@@ -21,8 +25,12 @@
+ 
+ omarchy-theme-set-t3code
+ 
+-# The packaged CLI selects the published palette before the app's first launch.
+-t3 theme set omarchy --base-dir "$T3CODE_HOME"
++# The bundled CLI selects the published palette before the app's first launch.
++if [[ $(uname -m) == aarch64 ]]; then
++  "${XDG_DATA_HOME:-$HOME/.local/share}/try-omarchy/t3code/t3" theme set omarchy --base-dir "$T3CODE_HOME"
++else
++  t3 theme set omarchy --base-dir "$T3CODE_HOME"
++fi
+ 
+ echo "Opening T3 Code..."
+ setsid uwsm-app -- gtk-launch t3code >/dev/null 2>&1 &
+--- a/bin/omarchy-remove-ai-t3-code
++++ b/bin/omarchy-remove-ai-t3-code
+@@ -5,6 +5,9 @@
+ 
+ set -e
+ 
++if [[ $(uname -m) == aarch64 ]]; then
++  /usr/local/lib/try-omarchy/install-t3code-arm64 --remove
++fi
+ omarchy-pkg-drop t3code-bin
+ 
+ # T3 Code drives agents that keep their own state -- ~/.claude.json, ~/.grok,
+--- a/default/omarchy/omarchy-menu.jsonc
++++ b/default/omarchy/omarchy-menu.jsonc
+@@ -241,7 +241,7 @@
+   "install.ai.grok-bot": {"icon":"","iconFont":"omarchy","label":"Grok Bot","when":"! omarchy-pkg-present grok-bot","action":"omarchy-install-and-launch 'Grok Bot' grok-bot grok-bot"},
+   "install.ai.lm-studio": {"icon":"","iconFont":"omarchy","label":"LM Studio","when":"! omarchy-pkg-present lmstudio-bin","action":"omarchy-install-app 'LM Studio' lmstudio-bin"},
+   "install.ai.ollama": {"icon":"","iconFont":"omarchy","label":"Ollama","when":"! omarchy-cmd-present ollama","action":"if omarchy-cmd-present nvidia-smi; then ollama_pkg=ollama-cuda; elif omarchy-cmd-present rocminfo; then ollama_pkg=ollama-rocm; else ollama_pkg=ollama; fi; omarchy-install-app Ollama \"$ollama_pkg\""},
+-  "install.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","when":"! omarchy-pkg-present t3code-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-t3-code"},
++  "install.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","when":"! omarchy-pkg-present t3code-bin && [[ ! -e ${XDG_DATA_HOME:-$HOME/.local/share}/try-omarchy/t3code/T3-Code.AppImage ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-t3-code"},
+   "install.ai.hermes": {"icon":"","iconFont":"omarchy","label":"Hermes Desktop","when":"! omarchy-pkg-present hermes-desktop","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-hermes"},
+   "install.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","when":"! omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-openclaw"},
+   "install.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","when":"! omarchy-pkg-present perplexity","action":"omarchy-install-and-launch Perplexity perplexity perplexity"},
+@@ -336,7 +336,7 @@
+   "remove.development.elixir.elixir": {"icon":"","label":"Elixir","when":"[[ -d $HOME/.local/share/mise/installs/elixir ]]","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-remove-dev-env elixir'"},
+   "remove.development.elixir.phoenix": {"icon":"","label":"Phoenix","when":"[[ -d $HOME/.local/share/mise/installs/elixir ]]","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-remove-dev-env phoenix'"},
+   "remove.ai": {"icon":"󱚤","label":"AI","title":"Remove"},
+-  "remove.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","when":"omarchy-pkg-present t3code-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-t3-code"},
++  "remove.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","when":"omarchy-pkg-present t3code-bin || [[ -d ${XDG_DATA_HOME:-$HOME/.local/share}/try-omarchy/t3code ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-t3-code"},
+   "remove.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","when":"omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-openclaw"},
+   "remove.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","when":"omarchy-pkg-present perplexity","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-perplexity"},
+ 
