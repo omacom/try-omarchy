@@ -117,7 +117,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
             control: diskField
         )
         let diskNote = label(
-            "Uses Mac storage as data is written, up to this capacity. Space is not reserved;",
+            "Uses Mac storage as data is written, up to this capacity. Space is not reserved.",
             size: 11, muted: true
         )
         let cpuRow = resourceRow(
