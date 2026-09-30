@@ -1087,15 +1087,23 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         review.setAccessibilityLabel("Review VM integrations")
         review.isEnabled = !controlsBusy && !resetInProgress
             && !microphoneRequestInFlight && !cameraRequestInFlight
-        let row = NSStackView(views: [symbol, labels, review])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(symbol)
+        row.addSubview(labels)
+        row.addSubview(review)
         NSLayoutConstraint.activate([
             symbol.widthAnchor.constraint(equalToConstant: 20),
             symbol.heightAnchor.constraint(equalToConstant: 20),
+            symbol.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            symbol.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            labels.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
+            labels.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: review.leadingAnchor, constant: -12),
             explanation.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            review.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            review.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             review.widthAnchor.constraint(equalToConstant: 90),
             review.heightAnchor.constraint(equalToConstant: 30),
             row.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
