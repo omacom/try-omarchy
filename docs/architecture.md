@@ -66,7 +66,7 @@ given to Cocoa. New and reset factory users also load an overlay that sets
 homes keep their current Hyprland input. See
 [Mac keyboard](mac-keyboard.md).
 
-New guest setup defaults to an explicit **Mirror macOS (time zone)** option.
+New guest setup defaults to an explicit **Same as macOS** option.
 A launch hint seeds the zone before owner provisioning; a separate root-only
 virtio port publishes live zone changes. The same option in Omarchy's timezone
 menu resumes mirroring immediately. Choosing any specific zone keeps it fixed,

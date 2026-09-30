@@ -16,6 +16,7 @@ LOCALTIME = Path("/etc/localtime")
 ZONEINFO = Path("/usr/share/zoneinfo")
 HOST_ZONE = Path("/run/try-omarchy/host-timezone")
 PROVISIONING_PENDING = Path("/var/lib/omarchy/provisioning/pending")
+FOLLOW_MAC_LABEL = "Same as macOS"
 
 
 def zone_path(zone, zoneinfo=ZONEINFO):
@@ -99,7 +100,7 @@ def select_manual(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO
 def mirror_label(host_zone=HOST_ZONE, zoneinfo=ZONEINFO):
     zone = host_zone.read_text().strip()
     zone_path(zone, zoneinfo)
-    return f"Mirror macOS ({zone})"
+    return FOLLOW_MAC_LABEL
 
 
 def follow(zone=None, force=False, selection=None):
@@ -109,13 +110,11 @@ def follow(zone=None, force=False, selection=None):
     with (STATE.parent / "timezone.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if selection is not None:
-            match = re.fullmatch(r"Mirror macOS \(([A-Za-z0-9_+/-]+)\)", selection)
-            if not match:
+            if selection != FOLLOW_MAC_LABEL:
                 select_manual(selection)
                 return True
-            # The label is a snapshot. Apply the latest host zone, even when
-            # the Mac changed while the picker was open.
-            zone_path(match[1])
+            # Apply the latest host zone, including changes while the picker
+            # was open.
             force = True
         if zone is None:
             zone = HOST_ZONE.read_text().strip()

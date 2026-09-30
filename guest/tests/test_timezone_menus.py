@@ -35,7 +35,7 @@ class TimezoneMenuTests(unittest.TestCase):
                         CAPTURE=str(self.root / 'capture'), CHOICE='', CANCEL='0')
         self.command('try-omarchy-timezone', '''
 if [ "$1" = --mirror-label ]; then
-  echo 'Mirror macOS (Asia/Tokyo)'
+  echo 'Same as macOS'
 else
   printf '%s\\n' "$@" >"$CAPTURE.applied"
 fi
@@ -67,10 +67,10 @@ if [ -n "$CHOICE" ]; then printf '%s\\n' "$CHOICE"; else head -n 1 "$CAPTURE.opt
         source = (SHARE / 'timezone-setup.sh').read_text()
         result = self.shell(source + '\nomarchy_prompt_timezone\nprintf "%s" "$timezone"\n')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, 'Mirror macOS (Asia/Tokyo)')
+        self.assertEqual(result.stdout, 'Same as macOS')
         self.assertEqual((self.root / 'capture.options').read_text().splitlines(),
-                         ['Mirror macOS (Asia/Tokyo)', 'Asia/Tokyo', 'Europe/Lisbon', 'UTC'])
-        self.assertIn('--selected\nMirror macOS (Asia/Tokyo)', (self.root / 'capture.arguments').read_text())
+                         ['Same as macOS', 'Asia/Tokyo', 'Europe/Lisbon', 'UTC'])
+        self.assertIn('--selected\nSame as macOS', (self.root / 'capture.arguments').read_text())
         self.assertFalse((self.root / 'capture.applied').exists())
         self.env['CHOICE'] = 'Asia/Tokyo'
         result = self.shell(source + '\nomarchy_prompt_timezone\nprintf "%s" "$timezone"\n')
@@ -87,14 +87,14 @@ if [ -n "$CHOICE" ]; then printf '%s\\n' "$CHOICE"; else head -n 1 "$CAPTURE.opt
     def test_owner_confirmation_applies_the_explicit_selection(self):
         owner = (self.bin / 'omarchy-provision-owner').read_text()
         function = 'configure_timezone() {' + owner.split('configure_timezone() {', 1)[1].split('\n}', 1)[0] + '\n}\n'
-        for selection in ('Mirror macOS (Asia/Tokyo)', 'Asia/Tokyo'):
+        for selection in ('Same as macOS', 'Asia/Tokyo'):
             result = self.shell(function + '\ntimezone=' + shlex.quote(selection) + '\nconfigure_timezone\n')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((self.root / 'capture.applied').read_text().splitlines(), ['--select', selection])
 
     def test_settings_menu_switches_both_directions_and_cancel_is_a_noop(self):
         menu = (self.bin / 'omarchy-menu-timezone').read_text()
-        for selection in ('Mirror macOS (Asia/Tokyo)', 'Asia/Tokyo'):
+        for selection in ('Same as macOS', 'Asia/Tokyo'):
             self.env['CHOICE'] = selection
             result = self.shell(menu)
             self.assertEqual(result.returncode, 0, result.stderr)

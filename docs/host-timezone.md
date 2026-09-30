@@ -1,17 +1,16 @@
 # Mac time zone and guest clock
 
-Owner setup defaults to **Mirror macOS (Asia/Tokyo)**, with the Mac's current
-IANA time zone shown in parentheses. Keeping this option follows the Mac's
-zone automatically. Selecting any ordinary zone chooses a fixed guest zone,
-even if it currently matches the Mac. The confirmation screen shows that exact
-choice; backing out of the form does not save a timezone policy.
+Owner setup defaults to **Same as macOS**. Keeping this option follows the Mac's
+current time zone automatically. Selecting any ordinary zone chooses a fixed
+guest zone, even if it currently matches the Mac. The confirmation screen shows
+that exact choice; backing out of the form does not save a timezone policy.
 
-The same **Mirror macOS (…)** option is the first entry in Omarchy's timezone
+**Same as macOS** is also the first entry in Omarchy's timezone
 menu. Selecting it immediately applies the latest received Mac zone and resumes
 live following, without restarting the guest or app. If the Mac changes while
-the picker is open, selecting Mirror uses the latest received zone rather than
-the older zone displayed in the label. Selecting a specific zone immediately
-stops mirroring and persists that choice across reboots and later Mac changes.
+the picker is open, selecting Same as macOS uses the latest received zone.
+Selecting a specific zone immediately stops mirroring and persists that choice
+across reboots and later Mac changes.
 
 While mirroring, a dedicated root-only virtio port (`dev.tryomarchy.timezone`)
 receives the Mac's current zone every five seconds. The guest applies changes
@@ -56,9 +55,9 @@ systemctl status try-omarchy-timezone.service
 journalctl -u try-omarchy-timezone.service -b
 ```
 
-For runtime validation, use a disposable VM: confirm **Mirror macOS (Asia/Tokyo)**
+For runtime validation, use a disposable VM: confirm **Same as macOS**
 is preselected when the Mac is in Tokyo, finish setup, then publish another Mac
 zone and confirm both `timedatectl` and the bar change without a restart. Pick the
 current zone explicitly, change the Mac again, and reboot; the fixed selection
-must remain. Select Mirror in the timezone menu and confirm immediate following,
+must remain. Select Same as macOS in the timezone menu and confirm immediate following,
 including subsequent live changes. Confirm NTP stays active throughout.

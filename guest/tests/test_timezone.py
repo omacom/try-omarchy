@@ -144,9 +144,9 @@ class TimeZoneTests(unittest.TestCase):
     def test_mirror_label_is_readable_without_private_policy_state(self):
         host = self.root / "host-timezone"
         host.write_text("Asia/Tokyo\n")
-        self.assertEqual(sync.mirror_label(host, self.zones), "Mirror macOS (Asia/Tokyo)")
+        self.assertEqual(sync.mirror_label(host, self.zones), "Same as macOS")
         host.write_text("Europe/Lisbon\n")
-        self.assertEqual(sync.mirror_label(host, self.zones), "Mirror macOS (Europe/Lisbon)")
+        self.assertEqual(sync.mirror_label(host, self.zones), "Same as macOS")
 
     def test_selecting_mirror_uses_latest_host_zone_and_resumes_without_restart(self):
         host = self.root / "host-timezone"
@@ -155,7 +155,7 @@ class TimeZoneTests(unittest.TestCase):
              mock.patch.object(sync, "HOST_ZONE", host), \
              mock.patch.object(sync, "zone_path"), \
              mock.patch.object(sync, "synchronize", return_value=True) as synchronize:
-            self.assertTrue(sync.follow(selection="Mirror macOS (Asia/Tokyo)"))
+            self.assertTrue(sync.follow(selection="Same as macOS"))
         synchronize.assert_called_once_with("America/New_York", force=True, preserve_existing=True)
 
     def test_fixed_picker_selection_does_not_need_host_channel(self):
