@@ -193,6 +193,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "virgl-nightlight",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -2351,6 +2352,10 @@ HOTPLUG=1
             if shutil.which("node"):
                 subprocess.run(
                     ["node", str(GUEST / "tests/notification-lock-state.test.js"), str(staged_omarchy)],
+                    check=True,
+                )
+                subprocess.run(
+                    ["node", str(GUEST / "tests/nightlight-queue.test.js"), str(staged_omarchy)],
                     check=True,
                 )
             idle_service = read(staged_omarchy / "shell/plugins/services/idle/Service.qml")

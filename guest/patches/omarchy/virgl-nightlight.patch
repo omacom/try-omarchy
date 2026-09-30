@@ -1,0 +1,131 @@
+--- a/bin/omarchy-toggle-nightlight
++++ b/bin/omarchy-toggle-nightlight
+@@ -2,6 +2,18 @@
+ 
+ # omarchy:summary=Toggle nightlight screen temperature
+-# omarchy:args=[--status]
++# omarchy:args=[--status | --temperature 4000|6500]
+ # omarchy:examples=omarchy toggle nightlight
++
++# The native guest has no DRM CTM. Keep the command and shell on one backend.
++case " $(cat /proc/cmdline) " in
++  *" omarchy.qemu_virgl=1 "*) exec omarchy-native-nightlight "$@" ;;
++esac
++
++if (( $# > 0 )) && [[ ${1:-} != --status ]]; then
++  if (( $# != 2 )) || [[ $1 != --temperature || ! $2 =~ ^(4000|6500)$ ]]; then
++    echo "Usage: omarchy-toggle-nightlight [--status | --temperature 4000|6500]" >&2
++    exit 2
++  fi
++fi
+ 
+ ON_TEMP=4000
+@@ -43,5 +55,7 @@
+ CURRENT_TEMP=$(current_temp)
+ 
+-if [[ -z $CURRENT_TEMP || $CURRENT_TEMP == $OFF_TEMP ]]; then
++if [[ ${1:-} == --temperature ]]; then
++  TARGET_TEMP=$2
++elif [[ -z $CURRENT_TEMP || $CURRENT_TEMP == $OFF_TEMP ]]; then
+   TARGET_TEMP=$ON_TEMP
+ else
+--- a/shell/plugins/services/nightlight/Service.qml
++++ b/shell/plugins/services/nightlight/Service.qml
+@@ -1,4 +1,5 @@
+ import QtQuick
+ import Quickshell.Io
++import Quickshell.Hyprland
+ import "NightlightModel.js" as NightlightModel
+ 
+@@ -18,9 +19,18 @@
+   readonly property bool enabled: stateLoaded && NightlightModel.isNightlight(temperature)
+ 
++  // Requested intent is separate from the last confirmed compositor state.
++  property var requestedTemperature: null
++  property bool refreshPending: false
+   property bool hasPendingTemperature: false
+   property int pendingTemperature: 0
+ 
+   function refresh() {
+-    if (!statusProbe.running) statusProbe.running = true
++    if (applyProcess.running) return
++    if (statusProbe.running) {
++      root.refreshPending = true
++      return
++    }
++    root.refreshPending = false
++    statusProbe.running = true
+   }
+ 
+@@ -30,11 +40,12 @@
+ 
+   function toggle() {
+-    setNightlight(!enabled)
++    var enabling = !(requestedTemperature !== null
++      ? NightlightModel.isNightlight(requestedTemperature) : enabled)
++    setNightlight(enabling)
++    return enabling
+   }
+ 
+   function applyTemperature(temp) {
+-    root.temperature = temp
+-    root.stateLoaded = true
+-
++    root.requestedTemperature = temp
+     if (applyProcess.running) {
+       root.pendingTemperature = temp
+@@ -47,7 +58,5 @@
+ 
+   function runApply(temp) {
+-    applyProcess.command = ["bash", "-lc",
+-      "pgrep -x hyprsunset >/dev/null || { setsid uwsm-app -- hyprsunset >/dev/null 2>&1 & sleep 1; }; " +
+-      "hyprctl hyprsunset temperature " + Number(temp)]
++    applyProcess.command = ["omarchy-toggle-nightlight", "--temperature", String(temp)]
+     applyProcess.running = true
+   }
+@@ -55,9 +64,14 @@
+   Process {
+     id: statusProbe
+-    command: ["hyprctl", "hyprsunset", "temperature"]
++    command: ["omarchy-toggle-nightlight", "--status"]
+     stdout: StdioCollector {
+       waitForEnd: true
+       onStreamFinished: {
+-        root.temperature = NightlightModel.temperatureFromOutput(text)
++        try {
++          var state = JSON.parse(text)
++          root.temperature = typeof state.temperature === "number" ? state.temperature : null
++        } catch (error) {
++          root.temperature = null
++        }
+         root.stateLoaded = true
+       }
+@@ -68,4 +82,8 @@
+         root.stateLoaded = true
+       }
++      if (applyProcess.running) return
++      // A probe already in flight when an apply finished may be stale.
++      if (root.refreshPending) root.refresh()
++      else root.requestedTemperature = null
+     }
+   }
+@@ -81,4 +99,11 @@
+ 
+       root.refresh()
++    }
++  }
++
++  Connections {
++    target: Hyprland
++    function onRawEvent(event) {
++      if (event.name === "configreloaded") root.refresh()
+     }
+   }
+@@ -108,6 +133,5 @@
+ 
+     function toggle(): string {
+-      var enabling = !root.enabled
+-      root.setNightlight(enabling)
++      var enabling = root.toggle()
+       return enabling ? "enabled" : "disabled"
+     }

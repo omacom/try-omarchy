@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Apply Omarchy's manual night-light toggle on the Virtio/VirGL display."""
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+
+SHADER = Path(__file__).resolve().parents[1] / "share/try-omarchy/nightlight.frag"
+
+
+def hyprctl(*args):
+    result = subprocess.run(
+        ["hyprctl", *args], capture_output=True, text=True, timeout=3, check=True
+    )
+    return result.stdout
+
+
+def current_shader():
+    value = json.loads(hyprctl("getoption", "decoration:screen_shader", "-j"))["str"]
+    if not isinstance(value, str):
+        raise ValueError("invalid screen shader response")
+    return "" if value == "[[EMPTY]]" else value
+
+
+def status():
+    enabled = current_shader() == str(SHADER)
+    return {"enabled": enabled, "temperature": 4000 if enabled else 6500}
+
+
+def apply(temperature):
+    previous = current_shader()
+    enabling = temperature == 4000 if temperature is not None else previous != str(SHADER)
+    if enabling:
+        if previous and previous != str(SHADER):
+            raise ValueError("A custom screen shader is active. Disable it before enabling night light.")
+        if not SHADER.is_file():
+            raise ValueError("The night-light shader is missing. Reinstall the night-light integration.")
+        target = str(SHADER)
+    else:
+        # Never clear a shader selected by the user after night light was enabled.
+        if previous != str(SHADER):
+            return
+        target = ""
+
+    hyprctl("eval", "hl.config({ decoration = { screen_shader = " + json.dumps(target) + " } })")
+    if current_shader() != target:
+        raise ValueError("Hyprland did not apply the night-light screen shader.")
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ["--status"]:
+        try:
+            print(json.dumps(status()))
+            return 0
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            print(json.dumps({"enabled": False, "temperature": None}))
+            return 1
+
+    temperature = None
+    if args:
+        if len(args) != 2 or args[0] != "--temperature" or args[1] not in ("4000", "6500"):
+            print("Usage: omarchy-native-nightlight [--status | --temperature 4000|6500]", file=sys.stderr)
+            return 2
+        temperature = int(args[1])
+
+    try:
+        # Serialize the keybinding and bar button without storing a second copy
+        # of the enabled state. A config reload or user override stays truthful.
+        runtime = Path(os.environ["XDG_RUNTIME_DIR"])
+        instance = hashlib.sha256(os.environ["HYPRLAND_INSTANCE_SIGNATURE"].encode()).hexdigest()[:16]
+        with (runtime / f"try-omarchy-nightlight-{instance}.lock").open("a") as lock:
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise ValueError("Another night-light change is still running.")
+                    time.sleep(0.05)
+            apply(temperature)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        message = str(error)
+        print(f"Night light: {message}", file=sys.stderr)
+        try:
+            subprocess.run(["notify-send", "Night light unavailable", message], timeout=3, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return 1
+
+    try:
+        subprocess.run(["omarchy-shell", "-q", "nightlight", "refresh"], timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass  # The renderer setting remains valid while the shell is restarting.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
