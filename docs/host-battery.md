@@ -137,8 +137,8 @@ readings.
 
 ## Power profile
 
-The battery panel shows one selected **macOS** profile button with the Apple
-logo. It uses the native profile-button styling and accepts no mouse or
+The battery panel shows one selected **Managed by macOS** profile button with the
+Apple logo, sized to its content and native padding. It accepts no mouse or
 keyboard interaction. The menu's power-profile provider shows **Default,
 managed by macOS** as informational text. Linux power profiles cannot control
 the Mac's CPU or energy policy through QEMU/HVF. Change energy modes in macOS

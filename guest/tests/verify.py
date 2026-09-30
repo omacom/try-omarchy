@@ -2236,7 +2236,7 @@ HOTPLUG=1
                 )
                 for previous in hook.get("previousVersions", []):
                     # Reconstruct the reviewed earlier presentation and exercise
-                    # the upgrade path used by guests with the text-only label.
+                    # the upgrade path used by guests with an earlier label or button.
                     legacy = (upgrade_root / hook["path"]).read_text()
                     for before, after in reversed(previous["replacements"]):
                         check(legacy.count(after) == 1, "legacy profile inverse is unambiguous")
@@ -2250,7 +2250,7 @@ HOTPLUG=1
                     check(
                         (upgrade_root / hook["path"]).read_bytes()
                         == (staged_omarchy / target["path"]).read_bytes(),
-                        "earlier text-only profile upgrades to the macOS button",
+                        "earlier power profile presentation upgrades to the current macOS button",
                     )
 
             onepassword_installer_path = (

@@ -24,7 +24,7 @@
   {
     "path": "usr/share/omarchy/shell/plugins/panels/power/Panel.qml",
     "beforeSha256": "560e17a5144d3e2ea1e0ad36c2aec563909b535551e1e66e061f5fb25f1d4ec0",
-    "afterSha256": "78f928c92ce0562293523df227cfd2d087726ea1d6ab5ab8af192364d1a7eda2",
+    "afterSha256": "6efe9c44dc5ea763f6d2246319ea94cf8e5944c0722421eac06da448c5744566",
     "replacements": [
       [
         "  property string activeProfile: \"\"\n",
@@ -40,7 +40,7 @@
       ],
       [
         "                text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)",
-        "                text: root.managedByMacOS ? \"macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
+        "                text: root.managedByMacOS ? \"Managed by macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
       ],
       [
         "                active: root.activeProfile === modelData",
@@ -49,6 +49,10 @@
       [
         "                hasCursor: root.cursorActive && root.profileIndex === index",
         "                hasCursor: !root.managedByMacOS && root.cursorActive && root.profileIndex === index"
+      ],
+      [
+        "                width: profileRow.cellWidth",
+        "                width: root.managedByMacOS ? implicitWidth : profileRow.cellWidth"
       ]
     ],
     "previousVersions": [
@@ -74,6 +78,27 @@
           [
             "                hasCursor: root.cursorActive && root.profileIndex === index",
             "                hasCursor: !root.managedByMacOS && root.cursorActive && root.profileIndex === index"
+          ],
+          [
+            "                width: profileRow.cellWidth",
+            "                width: root.managedByMacOS ? implicitWidth : profileRow.cellWidth"
+          ],
+          [
+            "                text: root.managedByMacOS ? \"macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)",
+            "                text: root.managedByMacOS ? \"Managed by macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
+          ]
+        ]
+      },
+      {
+        "beforeSha256": "78f928c92ce0562293523df227cfd2d087726ea1d6ab5ab8af192364d1a7eda2",
+        "replacements": [
+          [
+            "                width: profileRow.cellWidth",
+            "                width: root.managedByMacOS ? implicitWidth : profileRow.cellWidth"
+          ],
+          [
+            "                text: root.managedByMacOS ? \"macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)",
+            "                text: root.managedByMacOS ? \"Managed by macOS\" : String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)"
           ]
         ]
       }
