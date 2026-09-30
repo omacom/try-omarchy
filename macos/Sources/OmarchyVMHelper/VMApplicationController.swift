@@ -158,6 +158,19 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         appReleaseWindow?.show()
     }
 
+    @objc func showSettings(_ sender: Any?) {
+        if childRunning {
+            _ = showRunningSettings()
+        } else if !lifecycle.isStopping && !isPresentingBlockingAlert {
+            startMenuWindow?.bringToFront()
+        }
+    }
+
+    @objc func openHelpLink(_ sender: NSMenuItem) {
+        guard let link = ApplicationHelpLink(rawValue: sender.tag) else { return }
+        NSWorkspace.shared.open(link.url)
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         startMenuWindow?.applicationDidBecomeActive()
     }
@@ -654,7 +667,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard childRunning, virtualMachineReachedStart,
               (!lifecycle.isStopping || lifecycle.settingsAction != nil),
               !isPresentingBlockingAlert, let startMenuWindow else { return false }
-        guard !startMenuWindow.window.isVisible else { return true }
+        if startMenuWindow.window.isVisible || startMenuWindow.window.isMiniaturized {
+            startMenuWindow.bringToFront()
+            return true
+        }
         settingsReturnApplication = NSWorkspace.shared.frontmostApplication
         startMenuWindow.show()
         return true

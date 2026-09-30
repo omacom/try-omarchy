@@ -16,16 +16,20 @@ struct ApplicationPresentationTests {
         let application = NSApplication.shared
         let previousMainMenu = application.mainMenu
         let previousWindowMenu = application.windowsMenu
+        let previousServicesMenu = application.servicesMenu
+        let previousHelpMenu = application.helpMenu
         defer {
             application.mainMenu = previousMainMenu
             application.windowsMenu = previousWindowMenu
+            application.servicesMenu = previousServicesMenu
+            application.helpMenu = previousHelpMenu
         }
 
-        let updatesTarget = NSObject()
+        let actionsTarget = NSObject()
         ApplicationPresentation.installMainMenu(
             in: application,
             applicationName: "Try Omarchy",
-            updatesTarget: updatesTarget
+            actionsTarget: actionsTarget
         )
 
         let appMenu = try #require(application.mainMenu?.items.first?.submenu)
@@ -37,7 +41,25 @@ struct ApplicationPresentationTests {
 
         let updates = try #require(appMenu.items.first(where: { $0.title == "Check for Updates…" }))
         #expect(updates.action == #selector(VMApplicationController.checkForAppUpdates(_:)))
-        #expect(updates.target === updatesTarget)
+        #expect(updates.target === actionsTarget)
+
+        let settings = try #require(appMenu.items.first(where: { $0.title == "Settings…" }))
+        #expect(settings.action == #selector(VMApplicationController.showSettings(_:)))
+        #expect(settings.target === actionsTarget)
+        #expect(settings.keyEquivalent == ",")
+        #expect(settings.keyEquivalentModifierMask == [.command])
+
+        let hideOthers = try #require(appMenu.items.first(where: { $0.title == "Hide Others" }))
+        #expect(hideOthers.action == #selector(NSApplication.hideOtherApplications(_:)))
+        #expect(hideOthers.keyEquivalent == "h")
+        #expect(hideOthers.keyEquivalentModifierMask == [.command, .option])
+        #expect(hideOthers.target == nil)
+        let showAll = try #require(appMenu.items.first(where: { $0.title == "Show All" }))
+        #expect(showAll.action == #selector(NSApplication.unhideAllApplications(_:)))
+        #expect(showAll.target == nil)
+
+        let services = try #require(appMenu.items.first(where: { $0.title == "Services" })?.submenu)
+        #expect(services === application.servicesMenu)
 
         let editMenu = try #require(application.mainMenu?.items.compactMap(\.submenu).first(where: {
             $0.title == "Edit"
@@ -64,5 +86,18 @@ struct ApplicationPresentationTests {
         }))
         #expect(close.keyEquivalent == "w")
         #expect(close.action == #selector(NSWindow.performClose(_:)))
+        let bringAllToFront = try #require(windowMenu.items.first(where: { $0.title == "Bring All to Front" }))
+        #expect(bringAllToFront.action == #selector(NSApplication.arrangeInFront(_:)))
+        #expect(bringAllToFront.target == nil)
+
+        let helpMenu = try #require(application.helpMenu)
+        #expect(application.mainMenu?.items.last?.submenu === helpMenu)
+        #expect(helpMenu.items.map(\.title) == ["Try Omarchy Help", "Troubleshooting", "Report an Issue…"])
+        for link in ApplicationHelpLink.allCases {
+            let item = try #require(helpMenu.items.first(where: { $0.tag == link.rawValue }))
+            #expect(item.action == #selector(VMApplicationController.openHelpLink(_:)))
+            #expect(item.target === actionsTarget)
+            #expect(item.keyEquivalent == (link == .usage ? "?" : ""))
+        }
     }
 }

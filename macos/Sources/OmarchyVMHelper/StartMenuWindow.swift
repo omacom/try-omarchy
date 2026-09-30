@@ -339,7 +339,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 832),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -413,6 +413,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Reuse the current view hierarchy so open editors keep their drafts.
+    func bringToFront() {
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
+        window.attachedSheet?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 
     func refreshAppReleaseStatus() {
