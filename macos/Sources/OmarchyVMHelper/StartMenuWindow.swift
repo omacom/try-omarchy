@@ -177,6 +177,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setImmersiveMode: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> Void
+    private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
     private let integrationCacheURL: () -> URL?
     private let launch: () -> Void
     private let appVersionLabel: String
@@ -199,7 +200,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var closeRunningSettings: (() -> Void)?
     private var shutdownInProgress = false
     private var requestSettingsAction: ((VMRunLifecycle.SettingsAction) -> Void)?
-    private var controlsBusy: Bool { launchInProgress || shutdownInProgress }
+    private var automaticStartupConfirmationInProgress = false
+    private var controlsBusy: Bool {
+        launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress
+    }
     private var prelaunchControlsLocked: Bool { controlsBusy || virtualMachineRunning }
     private var pendingResetSpaceEstimate: String?
     private var resetConfirmationPrompt: ResetConfirmationPrompt?
@@ -285,6 +289,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> Void = { _ in },
+        confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() },
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
@@ -325,6 +330,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setImmersiveMode = setImmersiveMode
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
+        self.confirmAutomaticStartup = confirmAutomaticStartup
         self.integrationCacheURL = integrationCacheURL
         self.launch = launch
         self.appVersionLabel = appVersionLabel
@@ -1817,7 +1823,28 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func changeStartAutomatically(_ sender: NSButton) {
         guard !controlsBusy, !resetInProgress else { return }
-        setStartAutomatically(sender.state == .on)
+        if sender.state == .on {
+            // Keep the preference and toggle off until the user confirms.
+            sender.state = .off
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Start Omarchy automatically?"
+            alert.informativeText = """
+                Omarchy will start with your saved settings whenever you open Try Omarchy.
+
+                To see the launcher again, hold Option while opening the app. Inside Omarchy, open the Omarchy menu and choose Setup → Try Omarchy Settings.
+                """
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            automaticStartupConfirmationInProgress = true
+            let confirmed = confirmAutomaticStartup(alert) == .alertFirstButtonReturn
+            automaticStartupConfirmationInProgress = false
+            guard confirmed, !controlsBusy, !resetInProgress else { return }
+            setStartAutomatically(true)
+            sender.state = .on
+        } else {
+            setStartAutomatically(false)
+        }
         (sender as? OmarchyToggleButton)?.refreshAppearance()
     }
 

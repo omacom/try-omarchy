@@ -5,15 +5,27 @@ import Testing
 @Suite("Start menu automatic startup", .serialized)
 @MainActor
 struct StartMenuStartupTests {
-    @Test("Automatic startup uses the launch action without presenting the menu")
-    func startsWithoutShowingMenu() throws {
+    @Test("Enabling automatic startup requires confirmation before saving",
+          arguments: [true, false])
+    func confirmsAutomaticStartup(confirmed: Bool) throws {
         _ = NSApplication.shared
         var automaticStart = false
         var launchCount = 0
+        var confirmationCount = 0
         let menu = makeMenu(
             storageState: { .defaultLocation },
             startAutomatically: { automaticStart },
             setStartAutomatically: { automaticStart = $0 },
+            confirmAutomaticStartup: { alert in
+                confirmationCount += 1
+                #expect(!automaticStart)
+                #expect(launchCount == 0)
+                #expect(alert.messageText == "Start Omarchy automatically?")
+                #expect(alert.informativeText.contains("hold Option while opening the app"))
+                #expect(alert.informativeText.contains("Setup → Try Omarchy Settings"))
+                #expect(alert.buttons.map(\.title) == ["OK", "Cancel"])
+                return confirmed ? .alertFirstButtonReturn : .alertSecondButtonReturn
+            },
             launch: { launchCount += 1 }
         )
         defer { menu.dismiss() }
@@ -24,7 +36,9 @@ struct StartMenuStartupTests {
         ) as? NSButton)
         #expect(toggle.state == .off)
         toggle.performClick(nil)
-        #expect(automaticStart)
+        #expect(automaticStart == confirmed)
+        #expect(toggle.state == (confirmed ? .on : .off))
+        #expect(confirmationCount == 1)
         #expect(launchCount == 0)
 
         menu.launchOmarchy()
@@ -34,7 +48,7 @@ struct StartMenuStartupTests {
         let launchingToggle = try #require(descendant(
             withIdentifier: "automatic-start-toggle", in: content
         ) as? NSButton)
-        #expect(launchingToggle.state == .on)
+        #expect(launchingToggle.state == (confirmed ? .on : .off))
         #expect(!launchingToggle.isEnabled)
     }
 
@@ -48,6 +62,10 @@ struct StartMenuStartupTests {
             storageState: { .defaultLocation },
             startAutomatically: { automaticStart },
             setStartAutomatically: { automaticStart = $0 },
+            confirmAutomaticStartup: { _ in
+                Issue.record("Disabling automatic startup must not ask for confirmation")
+                return .alertSecondButtonReturn
+            },
             launch: { launchCount += 1 }
         )
         defer { menu.dismiss() }
@@ -89,6 +107,7 @@ struct StartMenuStartupTests {
         storageState: @escaping () -> StorageLocationMenuState,
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> Void = { _ in },
+        confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
         launch: @escaping () -> Void = {}
     ) -> StartMenuWindow {
         StartMenuWindow(
@@ -117,6 +136,7 @@ struct StartMenuStartupTests {
             setImmersiveMode: { _ in },
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
+            confirmAutomaticStartup: confirmAutomaticStartup,
             launch: launch
         )
     }
