@@ -213,44 +213,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var resourceEditor: VMResourceEditor?
     private(set) var usbDeviceEditor: USBDeviceEditor?
     private weak var immersiveCaption: NSTextField?
-    private lazy var permissionWindowRestorer = PermissionWindowRestorer(
-        canRestore: { [weak self] in
-            guard let self else { return false }
-            return self.window.isVisible
-                && !self.controlsBusy
-                && !self.resetInProgress
-                && !self.microphoneRequestInFlight
-                && !self.cameraRequestInFlight
-                && self.window.attachedSheet == nil
-                && NSApp.modalWindow == nil
-                && self.portForwardingEditor == nil
-                && self.resourceEditor == nil
-                && self.usbDeviceEditor == nil
-        },
-        isApplicationActive: { NSApp.isActive },
-        orderFrontRegardless: { [weak self] frame in
-            guard let self else { return }
-            self.window.setFrame(frame, display: false)
-            self.window.orderFrontRegardless()
-        },
-        activateApplication: {
-            // `activate(ignoringOtherApps:)` is deprecated on the deployment
-            // target. The system permission UI cooperatively yields to this
-            // modern activation request as it closes.
-            NSApp.activate()
-        },
-        makeKeyAndOrderFront: { [weak self] frame in
-            guard let self else { return }
-            self.window.setFrame(frame, display: false)
-            self.window.makeKeyAndOrderFront(nil)
-        },
-        retryDelays: [0.1, 0.3],
-        schedule: { delay, action in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                action()
-            }
-        }
-    )
+    private var accessibilityRow: StartMenuPermissionRow?
+    private var microphoneRow: StartMenuPermissionRow?
+    private var cameraRow: StartMenuPermissionRow?
+    private var permissionDisabledButtons: [(NSButton, Bool)] = []
 
     init(
         accessibilityStatus: @escaping () -> Bool,
@@ -450,15 +416,59 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func refreshPermissionStatus() {
-        guard window.isVisible, !controlsBusy, !resetInProgress else { return }
-        render()
+        guard accessibilityRow != nil, !controlsBusy, !resetInProgress else { return }
+        updatePermissionRows()
     }
 
     func applicationDidBecomeActive() {
+        // Returning from Settings or a system prompt must not rebuild the
+        // launcher, probe VM storage, or disturb an open sheet or its draft.
         refreshPermissionStatus()
-        // Refresh replaces the view hierarchy, so key/front restoration must
-        // be the final operation rather than something a render can disturb.
-        permissionWindowRestorer.applicationDidBecomeActive()
+    }
+
+    private func updatePermissionRows() {
+        let granted = accessibilityStatus()
+        accessibilityRow?.update(
+            StartMenuPermissionPresentation(
+                detail: "Needed for the native keyboard experience with Super shortcuts.",
+                isGranted: granted,
+                actionTitle: granted ? nil : "Open Settings",
+                action: .request
+            ),
+            action: #selector(beginAccessibilityRequest)
+        )
+        let microphone = StartMenuPresentation.microphone(
+            state: microphoneStatus(), requestInFlight: microphoneRequestInFlight
+        )
+        microphoneRow?.update(microphone, action: microphone.action == .openSettings
+            ? #selector(openMicrophoneSettings) : #selector(beginMicrophoneRequest))
+        let camera = StartMenuPresentation.camera(
+            state: cameraStatus(), requestInFlight: cameraRequestInFlight
+        )
+        cameraRow?.update(camera, action: camera.action == .openSettings
+            ? #selector(openCameraSettings) : #selector(beginCameraRequest))
+        updatePermissionRequestControls()
+    }
+
+    /// Preserve each control's own eligibility while a system prompt is open.
+    /// Rendering also uses this gate, so a refresh cannot strand disabled controls.
+    private func updatePermissionRequestControls() {
+        let waiting = microphoneRequestInFlight || cameraRequestInFlight
+        if waiting, permissionDisabledButtons.isEmpty {
+            func disableButtons(in view: NSView) {
+                if let button = view as? NSButton {
+                    permissionDisabledButtons.append((button, button.isEnabled))
+                    button.isEnabled = false
+                }
+                view.subviews.forEach { disableButtons(in: $0) }
+            }
+            disableButtons(in: content)
+        } else if !waiting {
+            for (button, wasEnabled) in permissionDisabledButtons {
+                button.isEnabled = wasEnabled
+            }
+            permissionDisabledButtons.removeAll()
+        }
     }
 
     func promptForReset() {
@@ -468,7 +478,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
-        permissionWindowRestorer.cancel()
         resetConfirmationPrompt?.cancel(in: window)
         resetConfirmationPrompt = nil
         portForwardingEditor?.dismiss()
@@ -573,6 +582,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     @objc private func reviewIntegrations() { GuestIntegrationSetup.show(window: window) }
 
     private func render() {
+        for (button, wasEnabled) in permissionDisabledButtons {
+            button.isEnabled = wasEnabled
+        }
+        permissionDisabledButtons.removeAll()
         let preservedScrollOffset = startMenuScrollView?.contentView.bounds.minY ?? 0
         startMenuScrollView = nil
         content.subviews.forEach { $0.removeFromSuperview() }
@@ -620,45 +633,19 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         headingStack.alignment = .centerY
         headingStack.spacing = 14
 
-        let accessibilityGranted = accessibilityStatus()
-        let accessibilityRow = permissionRow(
-            symbolName: "accessibility",
-            title: "Accessibility",
-            detail: "Needed for the native keyboard experience with Super shortcuts.",
-            granted: accessibilityGranted,
-            actionTitle: accessibilityGranted ? nil : "Open Settings",
-            action: #selector(beginAccessibilityRequest)
+        let accessibilityRow = StartMenuPermissionRow(
+            symbolName: "accessibility", title: "Accessibility", target: self
         )
-
-        let microphonePresentation = StartMenuPresentation.microphone(
-            state: microphoneStatus(),
-            requestInFlight: microphoneRequestInFlight
+        let microphoneRow = StartMenuPermissionRow(
+            symbolName: "mic", title: "Microphone access", target: self
         )
-        let microphoneRow = permissionRow(
-            symbolName: "mic",
-            title: "Microphone access",
-            detail: microphonePresentation.detail,
-            granted: microphonePresentation.isGranted,
-            actionTitle: microphonePresentation.actionTitle,
-            action: microphonePresentation.action == .openSettings
-                ? #selector(openMicrophoneSettings)
-                : #selector(beginMicrophoneRequest)
+        let cameraRow = StartMenuPermissionRow(
+            symbolName: "camera", title: "Camera access", target: self
         )
-
-        let cameraPresentation = StartMenuPresentation.camera(
-            state: cameraStatus(),
-            requestInFlight: cameraRequestInFlight
-        )
-        let cameraRow = permissionRow(
-            symbolName: "camera",
-            title: "Camera access",
-            detail: cameraPresentation.detail,
-            granted: cameraPresentation.isGranted,
-            actionTitle: cameraPresentation.actionTitle,
-            action: cameraPresentation.action == .openSettings
-                ? #selector(openCameraSettings)
-                : #selector(beginCameraRequest)
-        )
+        self.accessibilityRow = accessibilityRow
+        self.microphoneRow = microphoneRow
+        self.cameraRow = cameraRow
+        updatePermissionRows()
 
         let sharedFolder = sharedFolderStatus()
         let sharedFolderPresentation = StartMenuPresentation.sharedFolder(state: sharedFolder)
@@ -869,8 +856,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         reset.isEnabled = canResetStorage
             && !prelaunchControlsLocked
             && !resetInProgress
-            && !microphoneRequestInFlight
-            && !cameraRequestInFlight
         reset.toolTip = canResetStorage
             ? "Erase this VM and return it to factory settings"
             : "Reset is unavailable for a disposable VM"
@@ -892,9 +877,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
         launchButton.keyEquivalent = launchInProgress ? "" : "\r"
         launchButton.isEnabled = virtualMachineRunning || (!launchInProgress
-            && !resetInProgress
-            && !microphoneRequestInFlight
-            && !cameraRequestInFlight)
+            && !resetInProgress)
         launchButton.identifier = NSUserInterfaceItemIdentifier("launch-button")
         launchButton.setAccessibilityLabel(launchButtonTitle)
         if launchInProgress {
@@ -1048,6 +1031,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             )
         )
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        updatePermissionRequestControls()
     }
 
     private func integrationAttentionNotice(_ status: GuestIntegrationCache) -> NSView {
@@ -1086,7 +1070,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         review.identifier = NSUserInterfaceItemIdentifier("integration-attention-review")
         review.setAccessibilityLabel("Review VM integrations")
         review.isEnabled = !controlsBusy && !resetInProgress
-            && !microphoneRequestInFlight && !cameraRequestInFlight
         labels.translatesAutoresizingMaskIntoConstraints = false
         let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -1278,8 +1261,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 action: action
             )
             button.isEnabled = actionsEnabled
-                && !microphoneRequestInFlight
-                && !cameraRequestInFlight
                 && !controlsBusy
                 && !resetInProgress
             let identifier = actions.count == 1
@@ -1450,7 +1431,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             target: self,
             action: action
         )
-        toggle.isEnabled = !microphoneRequestInFlight && !controlsBusy && !resetInProgress
+        toggle.isEnabled = !controlsBusy && !resetInProgress
         toggle.identifier = NSUserInterfaceItemIdentifier("\(identifier)-toggle")
         toggle.setAccessibilityLabel(accessibilityLabel)
         toggle.setAccessibilityTitleUIElement(title)
@@ -1479,29 +1460,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func beginAccessibilityRequest() {
-        permissionWindowRestorer.cancel()
         requestAccessibility()
-        render()
+        updatePermissionRows()
     }
 
     @objc private func beginMicrophoneRequest() {
         guard microphoneStatus() == .notDetermined, !microphoneRequestInFlight else { return }
-        permissionWindowRestorer.cancel()
-        let windowFrame = window.frame
         microphoneRequestInFlight = true
-        render()
+        updatePermissionRows()
         requestMicrophone { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.microphoneRequestInFlight = false
-                self.render()
-                self.permissionWindowRestorer.requestDidFinish(preserving: windowFrame)
+                self.updatePermissionRows()
             }
         }
     }
 
     @objc private func openMicrophoneSettings() {
-        permissionWindowRestorer.cancel()
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
         ) else { return }
@@ -1510,22 +1486,18 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func beginCameraRequest() {
         guard cameraStatus() == .notDetermined, !cameraRequestInFlight else { return }
-        permissionWindowRestorer.cancel()
-        let windowFrame = window.frame
         cameraRequestInFlight = true
-        render()
+        updatePermissionRows()
         requestCamera { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.cameraRequestInFlight = false
-                self.render()
-                self.permissionWindowRestorer.requestDidFinish(preserving: windowFrame)
+                self.updatePermissionRows()
             }
         }
     }
 
     @objc private func openCameraSettings() {
-        permissionWindowRestorer.cancel()
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
         ) else { return }
@@ -1533,7 +1505,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func openStorageLocation() {
-        permissionWindowRestorer.cancel()
         guard let storageLocationURL = storageLocationURL() else { return }
         do {
             if !FileManager.default.fileExists(atPath: storageLocationURL.path) {
@@ -1583,7 +1554,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func beginStorageLocationSelection() {
         guard canResetStorage, !prelaunchControlsLocked, !resetInProgress else { return }
-        permissionWindowRestorer.cancel()
         let panel = NSOpenPanel()
         panel.title = "Choose where to keep the Omarchy VM"
         panel.message = "Omarchy puts its VM files straight into the folder you choose \u{2014} it does not create a folder inside it. Pick an empty folder, or one Omarchy already uses. The drive must be APFS."
@@ -1648,7 +1618,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
               !resetInProgress,
               !microphoneRequestInFlight,
               !cameraRequestInFlight else { return }
-        permissionWindowRestorer.cancel()
         let panel = NSOpenPanel()
         panel.title = "Choose a folder to share with Omarchy"
         panel.message = "Omarchy will be able to read and change everything inside this folder, linked as ~/<folder name>."
@@ -1691,7 +1660,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         guard !controlsBusy, !resetInProgress,
               !microphoneRequestInFlight, !cameraRequestInFlight,
               usbDeviceEditor == nil, window.attachedSheet == nil else { return }
-        permissionWindowRestorer.cancel()
         let state = usbDeviceStatus()
         let editor = USBDeviceEditor(
             preference: USBDevicePreference(device: state.device, isEnabled: state.isEnabled),
@@ -1723,7 +1691,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func beginNetworkConfiguration() {
         guard !controlsBusy, !resetInProgress, networkEditor == nil else { return }
-        permissionWindowRestorer.cancel()
         let editor = NetworkEditor(preferences: networkPreferences(), interfaces: VMBridgeInterfaces.available(),
             identity: networkIdentity, save: saveNetworkPreferences, didClose: { [weak self] in
                 self?.networkEditor = nil
@@ -1735,7 +1702,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func beginPortForwardingConfiguration() {
         guard !controlsBusy, !resetInProgress, portForwardingEditor == nil else { return }
-        permissionWindowRestorer.cancel()
         let editor = PortForwardingEditor(
             mappings: portForwardingStatus(),
             save: { [weak self] mappings in
@@ -1758,7 +1724,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         guard !controlsBusy, !resetInProgress,
               !microphoneRequestInFlight, !cameraRequestInFlight,
               resourceEditor == nil, window.attachedSheet == nil else { return }
-        permissionWindowRestorer.cancel()
         let editor = VMResourceEditor(
             resources: resources(),
             limits: resourceLimits,
@@ -1798,7 +1763,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
               !microphoneRequestInFlight,
               !cameraRequestInFlight,
               resetConfirmationPrompt == nil else { return }
-        permissionWindowRestorer.cancel()
         let estimate = storageSpaceEstimate()
         var detail = "This permanently erases everything in this Omarchy virtual machine, including apps, files, accounts, and settings. This cannot be undone or recovered."
         // With a chosen data folder there can be more than one workspace on the

@@ -8,7 +8,7 @@ enum OmarchyControlStyle {
 
 final class OmarchyActionButton: NSButton {
     private let omarchyStyle: OmarchyControlStyle
-    private let displayTitle: String
+    private var displayTitle: String
     private var hoverTrackingArea: NSTrackingArea?
     private var isPointerInside = false
     private var isPointerDown = false
@@ -34,6 +34,12 @@ final class OmarchyActionButton: NSButton {
 
     override var isEnabled: Bool {
         didSet { refreshAppearance() }
+    }
+
+    func updateTitle(_ title: String) {
+        displayTitle = title.uppercased()
+        setAccessibilityLabel(title)
+        refreshAppearance()
     }
 
     override func updateTrackingAreas() {

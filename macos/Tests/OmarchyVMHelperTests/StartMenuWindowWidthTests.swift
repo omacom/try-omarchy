@@ -183,18 +183,133 @@ struct StartMenuWindowWidthTests {
         #expect(reset.isEnabled)
     }
 
+    @Test("returning to the launcher preserves controls and skips storage probes")
+    func activationPreservesLauncher() throws {
+        _ = NSApplication.shared
+        var storageReads = 0
+        var granted = false
+        let menu = makeMenu(storageState: {
+            storageReads += 1
+            return .defaultLocation
+        }, accessibilityStatus: { granted })
+        menu.prepareForPresentation(visibleFrame: nil)
+        defer { menu.dismiss() }
+        let content = try #require(menu.window.contentView)
+        let scroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content))
+        let launch = try #require(descendant(withIdentifier: "launch-button", in: content))
+        let detail = try #require(descendant(withIdentifier: "permission-detail-accessibility", in: content))
+        let initialReads = storageReads
+        let frame = menu.window.frame
+
+        for _ in 0..<10 { menu.applicationDidBecomeActive() }
+        granted = true
+        menu.applicationDidBecomeActive()
+
+        #expect(storageReads == initialReads)
+        #expect(menu.window.frame == frame)
+        #expect(descendant(withIdentifier: "start-menu-scroll", in: content) === scroll)
+        #expect(descendant(withIdentifier: "launch-button", in: content) === launch)
+        #expect(descendant(withIdentifier: "permission-detail-accessibility", in: content) === detail)
+        let status = try #require(descendant(withIdentifier: "permission-status-accessibility", in: content) as? NSTextField)
+        #expect(status.stringValue == "●  Yes")
+    }
+
+    @Test("permission completion updates in place and never resurrects a hidden launcher",
+          arguments: [false, true], [false, true])
+    func permissionCompletion(camera: Bool, allowed: Bool) async throws {
+        _ = NSApplication.shared
+        var storageReads = 0
+        var granted = false
+        var completion: ((Bool) -> Void)?
+        let menu = makeMenu(storageState: {
+            storageReads += 1
+            return .defaultLocation
+        }, permissionsGranted: false,
+           microphoneStatus: { granted ? .authorized : .denied },
+           cameraStatus: { granted ? .authorized : .denied },
+           requestPermission: { completion = $0 })
+        menu.prepareForPresentation(visibleFrame: nil)
+        defer { menu.dismiss() }
+        let content = try #require(menu.window.contentView)
+        let scroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content))
+        let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+        let frame = menu.window.frame
+        let initialReads = storageReads
+        let symbol = camera ? "camera" : "mic"
+        let action = try #require(descendant(withIdentifier: "permission-action-\(symbol)", in: content) as? NSButton)
+        action.performClick(nil)
+        let finish = try #require(completion)
+        #expect(!launch.isEnabled)
+        #expect(!action.isEnabled)
+        #expect(action.accessibilityLabel() == "Waiting…")
+        menu.applicationDidBecomeActive()
+        #expect(storageReads == initialReads)
+        // A deliberate re-presentation during the prompt must restore the
+        // newly created controls' eligibility when its callback arrives.
+        #expect(descendant(withIdentifier: "start-menu-scroll", in: content) === scroll)
+        #expect(descendant(withIdentifier: "launch-button", in: content) === launch)
+        menu.prepareForPresentation(visibleFrame: nil)
+        let readsAfterPresentation = storageReads
+        let refreshedScroll = try #require(descendant(withIdentifier: "start-menu-scroll", in: content))
+        let refreshedAction = try #require(descendant(withIdentifier: "permission-action-\(symbol)", in: content) as? NSButton)
+        let refreshedLaunch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+        #expect(!refreshedLaunch.isEnabled)
+        menu.dismiss()
+        granted = allowed
+        finish(allowed)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        #expect(!menu.window.isVisible)
+        #expect(menu.window.frame == frame)
+        #expect(storageReads == readsAfterPresentation)
+        #expect(descendant(withIdentifier: "start-menu-scroll", in: content) === refreshedScroll)
+        #expect(descendant(withIdentifier: "launch-button", in: content) === refreshedLaunch)
+        #expect(refreshedLaunch.isEnabled)
+        let status = try #require(descendant(withIdentifier: "permission-status-\(symbol)", in: content) as? NSTextField)
+        #expect(status.stringValue == (allowed ? "●  Yes" : "○  No"))
+        #expect(refreshedAction.isHidden == allowed)
+        #expect(refreshedAction.accessibilityLabel() == (allowed ? "" : "Open Settings"))
+    }
+
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
         permissionsGranted: Bool = true,
-        usbState: @escaping () -> USBDeviceMenuState = { .disabled }
+        usbState: @escaping () -> USBDeviceMenuState = { .disabled },
+        accessibilityStatus: (() -> Bool)? = nil,
+        microphoneStatus: (() -> MicrophoneAuthorizationState)? = nil,
+        cameraStatus: (() -> CameraAuthorizationState)? = nil,
+        requestPermission: ((@escaping (Bool) -> Void) -> Void)? = nil
     ) -> StartMenuWindow {
-        StartMenuWindow(
-            accessibilityStatus: { permissionsGranted },
-            microphoneStatus: { permissionsGranted ? .authorized : .notDetermined },
-            cameraStatus: { permissionsGranted ? .authorized : .notDetermined },
+        var requestFinished = false
+        return StartMenuWindow(
+            accessibilityStatus: accessibilityStatus ?? { permissionsGranted },
+            microphoneStatus: {
+                if requestFinished, let microphoneStatus { return microphoneStatus() }
+                return permissionsGranted ? .authorized : .notDetermined
+            },
+            cameraStatus: {
+                if requestFinished, let cameraStatus { return cameraStatus() }
+                return permissionsGranted ? .authorized : .notDetermined
+            },
             requestAccessibility: {},
-            requestMicrophone: { completion in completion(true) },
-            requestCamera: { completion in completion(true) },
+            requestMicrophone: { completion in
+                if let requestPermission {
+                    requestPermission { granted in
+                        requestFinished = true
+                        completion(granted)
+                    }
+                } else { completion(true) }
+            },
+            requestCamera: { completion in
+                if let requestPermission {
+                    requestPermission { granted in
+                        requestFinished = true
+                        completion(granted)
+                    }
+                } else { completion(true) }
+            },
             canResetStorage: true,
             storageLocation: { storageState().displayPath },
             storageLocationURL: {
