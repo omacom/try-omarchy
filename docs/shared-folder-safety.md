@@ -44,7 +44,7 @@ The existing home-directory link service still uses the selected folder's name.
 
 Close applications using the share, shut down Linux cleanly, and launch it again
 from the updated Mac app. An app update does not change a currently mounted
-share. **Restart Try Omarchy…** also starts a new QEMU process; merely rebooting
+share. **Restart Omarchy…** also starts a new QEMU process; merely rebooting
 Linux inside an old QEMU process retains that process's original boot arguments.
 Returning to an older app also restores that app's old policy unless the guest
 helper was separately mitigated.

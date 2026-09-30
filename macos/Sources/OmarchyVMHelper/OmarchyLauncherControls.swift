@@ -42,6 +42,11 @@ final class OmarchyActionButton: NSButton {
         refreshAppearance()
     }
 
+    override var intrinsicContentSize: NSSize {
+        let titleSize = attributedTitle.size()
+        return NSSize(width: ceil(titleSize.width) + 32, height: ceil(titleSize.height) + 16)
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTrackingArea {
@@ -151,6 +156,7 @@ final class OmarchyActionButton: NSButton {
                 .kern: 0.35,
             ]
         )
+        invalidateIntrinsicContentSize()
     }
 }
 

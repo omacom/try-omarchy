@@ -862,8 +862,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         reset.heightAnchor.constraint(equalToConstant: 30).isActive = true
         reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 154).isActive = true
 
-        let manage = OmarchyActionButton(title: "Shut down to manage…", style: .secondary, target: self, action: #selector(shutDownToManage))
-        manage.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        let manage = OmarchyActionButton(title: "Shut Down…", style: .secondary, target: self, action: #selector(shutDownToManage))
+        manage.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        manage.setContentCompressionResistancePriority(.required, for: .horizontal)
         manage.identifier = NSUserInterfaceItemIdentifier("manage-vm-button")
         manage.isEnabled = !controlsBusy
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
@@ -910,10 +911,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let resetTitle = NSTextField(labelWithString: "Factory reset")
         resetTitle.font = .monospacedSystemFont(ofSize: 13, weight: .bold)
         resetTitle.textColor = OmarchyStartMenuTheme.foreground
-        let resetDetail = NSTextField(wrappingLabelWithString: "Erase this VM and return it to factory settings.")
+        let resetDetail = NSTextField(wrappingLabelWithString: virtualMachineRunning
+            ? "Shut down Omarchy to change the VM location or reset it to factory settings."
+            : "Erase this VM and return it to factory settings.")
         resetDetail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         resetDetail.textColor = OmarchyStartMenuTheme.muted
-        resetDetail.maximumNumberOfLines = 2
+        resetDetail.maximumNumberOfLines = 3
         let resetLabels = NSStackView(views: [resetTitle, resetDetail])
         resetLabels.orientation = .vertical
         resetLabels.alignment = .leading
@@ -930,8 +933,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resetRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
         let resetCard = themedCard(containing: resetRow, identifier: "reset-card")
 
-        let restart = OmarchyActionButton(title: "Restart Try Omarchy…", style: .secondary, target: self, action: #selector(restartOmarchy))
-        restart.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        let restart = OmarchyActionButton(title: "Restart Omarchy…", style: .secondary, target: self, action: #selector(restartOmarchy))
+        restart.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        restart.setContentCompressionResistancePriority(.required, for: .horizontal)
         restart.identifier = NSUserInterfaceItemIdentifier("restart-vm-button")
         restart.isEnabled = !controlsBusy
         let restartCaption = NSTextField(wrappingLabelWithString: shutdownInProgress

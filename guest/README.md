@@ -164,8 +164,8 @@ image must never contain shared SSH host private keys.
 
 ## Settings access from an existing VM
 
-New factory images include **Setup → Try Omarchy Settings** and a searchable
-application entry. Both run `omarchy-native-settings`, which sends
+New factory images include a branded **Setup → Try Omarchy Settings** entry,
+which also appears once in global search. It runs `omarchy-native-settings`, which sends
 `open-settings\n` through `/dev/virtio-ports/dev.tryomarchy.settings`. The Mac
 app replies `opened\n` after presenting its window, or `unavailable\n` if it
 cannot present settings. The command times out after three seconds and reports
@@ -186,15 +186,18 @@ logged under `try-omarchy-settings.service` and does not prevent normal boot.
 The service has a 20-second timeout and retries on the next launch.
 
 Installation is idempotent. It does not reset the disk, upgrade Linux packages,
-or require network access or a user `sudo` command. Existing user menu files
-are preserved; those users can search for **Try Omarchy Settings** in the
-application launcher. Accounts without a custom extension file also receive
-**Setup → Try Omarchy Settings**. Home-directory operations run as that user.
+or require network access or a user `sudo` command. Custom menu content is
+preserved. The installer updates only an unchanged legacy settings entry to
+use the Omarchy logo. Users whose menu omits settings receive a branded,
+searchable application fallback; the application entry is hidden when the menu
+already supplies settings to avoid duplicate results. Accounts without an
+extension file receive **Setup → Try Omarchy Settings**. Home-directory
+operations run as that user.
 
 The settings window saves CPU, memory, sharing, port forwarding, and immersive mode for the
-next QEMU launch. **Restart Try Omarchy…** requests a clean Linux shutdown and
+next QEMU launch. **Restart Omarchy…** requests a clean Linux shutdown and
 waits for QEMU to exit before starting a new process with the saved settings.
-It never forces a shutdown on a timer. **Shut down to manage…** returns to the
+It never forces a shutdown on a timer. **Shut Down…** returns to the
 native settings window without automatic startup so location and reset remain
 accessible. A normal Linux reboot keeps the current QEMU process and therefore
 does not apply these launch settings.

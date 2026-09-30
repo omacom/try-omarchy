@@ -1,6 +1,7 @@
 {
   "setup.try-omarchy": {
-    "icon": "",
+    "icon": "",
+    "iconFont": "omarchy",
     "label": "Try Omarchy Settings",
     "description": "Open the Mac app settings",
     "action": "omarchy-native-settings",
