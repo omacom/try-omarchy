@@ -494,6 +494,25 @@
             "afterSha256": "b65dd81b1bd9820445d1e7ca60c0a978c684c96e3e0280522c60944d1f676be4"
           }
         ]
+      },
+      {
+        "id": "spotify-arm64-web-app",
+        "description": "Install and launch Omarchy's Spotify web app on aarch64, where Spotify ships no native app.",
+        "reference": "https://github.com/omacom/try-omarchy/issues/263",
+        "patch": "patches/omarchy/spotify-arm64-web-app.patch",
+        "patchSha256": "384cb9644ae3b25d5e18ebbeb7e747105deedfdd7c2f992d5ac4f15b30c0559a",
+        "targets": [
+          {
+            "path": "bin/omarchy-install-service-spotify",
+            "beforeSha256": "5828b7146be7a5cfe82c16b903b04d360ea28a4398231b1efefd89eec3042c75",
+            "afterSha256": "6ebadf840889a9744efa21dd3f0e8a9278acb0d61392bf21e9940e5c8a10aff2"
+          },
+          {
+            "path": "bin/omarchy-launch-spotify",
+            "beforeSha256": "588347776795ab020e4c3814eb7e79ab438ffdce828ed4f9f0a9d8fd17c7d1e3",
+            "afterSha256": "9b1e977b8017d95d2e7a9dbe35a1e7b42967341c5cc79af78b17c6ca41270e8d"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [
