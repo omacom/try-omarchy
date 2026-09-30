@@ -235,7 +235,8 @@ after validating its metadata and boot kit. The native helper binds the change
 to the inspected inode and original size and never shrinks the disk. APFS
 allocates blocks as guest writes arrive; the configured capacity does not
 reserve host space. New launcher settings default to 64 GiB, raised to the
-existing capacity when larger. Blank settings preserve the current capacity.
+existing capacity when larger. The editor always displays a capacity; older
+settings without one display the existing or factory capacity.
 New VMs use the selected capacity when their factory clone is prepared.
 
 Nothing is overwritten while the app runs. The app bundle and packaged factory

@@ -105,19 +105,18 @@ final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
         memoryPopup.setAccessibilityLabel("Memory")
         memoryPopup.setAccessibilityHelp("Higher allocations may affect macOS performance; at least 4 GiB stays available to macOS")
 
-        diskField.placeholderString = "Keep current"
         diskField.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
         diskField.delegate = self
         diskField.identifier = NSUserInterfaceItemIdentifier("vm-resources-disk")
         diskField.setAccessibilityLabel("Maximum disk size in GiB")
-        diskField.setAccessibilityHelp("Leave empty to keep the current capacity. Increases apply on the next launch; existing disks cannot shrink.")
+        diskField.setAccessibilityHelp("Increases apply on the next launch; existing disks cannot shrink.")
         let diskRow = resourceRow(
             title: "Maximum disk size (GiB)",
             detail: "Can only increase.",
             control: diskField
         )
         let diskNote = label(
-            "Uses Mac storage as data is written, up to this capacity. Space is not reserved; keep free space on the Mac. Leave blank to keep the current size.",
+            "Uses Mac storage as data is written, up to this capacity. Space is not reserved;",
             size: 11, muted: true
         )
         let cpuRow = resourceRow(
@@ -261,7 +260,7 @@ final class VMResourceEditor: NSObject, NSWindowDelegate, NSTextFieldDelegate {
     private func setFields(_ resources: VMResources) {
         cpuPopup.selectItem(withTag: resources.cpuCount)
         memoryPopup.selectItem(withTag: resources.memoryGiB)
-        diskField.stringValue = resources.diskGiB.map { String(max($0, minimumDiskGiB)) } ?? ""
+        diskField.stringValue = String(max(resources.diskGiB ?? minimumDiskGiB, minimumDiskGiB))
         updateValidation()
     }
 

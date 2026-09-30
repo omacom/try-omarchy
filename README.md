@@ -169,9 +169,9 @@ whole maximum in advance. For example, choosing 256 GiB does not immediately
 use 256 GiB on the Mac. The volume still needs free space as the VM fills it;
 the maximum is guest capacity, not a quota on backups or total app storage.
 
-Leave the field blank to retain the current capacity (or the factory capacity
-for a new VM). Larger values sparsely extend the stopped disk at the next
-launch; the guest expands its root filesystem on boot. Existing disks cannot
+Keep the displayed value to retain the current capacity. Larger values sparsely
+extend the stopped disk at the next launch; the guest expands its root filesystem
+on boot. Existing disks cannot
 shrink. **Use Defaults** selects 64 GiB, or the existing capacity if larger.
 Previously saved settings without a disk maximum retain their current capacity.
 A disk previously grown with the CLI remains at least that large. For direct launcher script usage,

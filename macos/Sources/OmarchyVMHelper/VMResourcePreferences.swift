@@ -52,20 +52,15 @@ struct VMResourceLimits: Equatable {
         )
     }
 
-    func validate(cpuCount: String, memoryGiB: String, diskGiB: String = "", minimumDiskGiB: Int = 1) throws -> VMResources {
+    func validate(cpuCount: String, memoryGiB: String, diskGiB: String = "64", minimumDiskGiB: Int = 1) throws -> VMResources {
         guard let cpus = Self.wholeNumber(cpuCount), cpuRange.contains(cpus) else {
             throw VMResourceInputError.invalidCPUCount(cpuRange.upperBound)
         }
         guard let memory = Self.wholeNumber(memoryGiB), memoryChoicesGiB.contains(memory) else {
             throw VMResourceInputError.invalidMemory(memoryChoicesGiB)
         }
-        let diskText = diskGiB.trimmingCharacters(in: .whitespacesAndNewlines)
-        var disk: Int?
-        if !diskText.isEmpty {
-            guard let value = Self.wholeNumber(diskText), value >= minimumDiskGiB, value <= 8192 else {
-                throw VMResourceInputError.invalidDisk(minimumDiskGiB)
-            }
-            disk = value
+        guard let disk = Self.wholeNumber(diskGiB), disk >= minimumDiskGiB, disk <= 8192 else {
+            throw VMResourceInputError.invalidDisk(minimumDiskGiB)
         }
         return VMResources(cpuCount: cpus, memoryGiB: memory, diskGiB: disk)
     }

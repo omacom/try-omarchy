@@ -138,6 +138,9 @@ struct VMResourceEditorTests {
         let disk: NSTextField = try control("disk", in: editor)
         let save: NSButton = try control("save", in: editor)
         #expect(disk.stringValue == "64")
+        disk.stringValue = ""
+        editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
+        #expect(!save.isEnabled)
         disk.stringValue = "32"
         editor.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: disk))
         #expect(!save.isEnabled)
@@ -147,6 +150,23 @@ struct VMResourceEditorTests {
         #expect(saved == nil)
         save.performClick(nil)
         #expect(saved?.diskGiB == 256)
+    }
+
+    @Test("Older settings show the current capacity and unchanged Save preserves it", arguments: [16, 256])
+    func currentDiskCapacity(capacity: Int) throws {
+        _ = NSApplication.shared
+        var saved: VMResources?
+        let editor = VMResourceEditor(
+            resources: VMResources(cpuCount: 8, memoryGiB: 8), limits: limits,
+            minimumDiskGiB: capacity, save: { saved = $0 }, didClose: {}
+        )
+        defer { editor.dismiss() }
+        let disk: NSTextField = try control("disk", in: editor)
+        let save: NSButton = try control("save", in: editor)
+        #expect(disk.stringValue == String(capacity))
+        #expect(save.isEnabled)
+        save.performClick(nil)
+        #expect(saved?.diskGiB == capacity)
     }
 
     private func control<T: NSView>(_ name: String, in editor: VMResourceEditor) throws -> T {

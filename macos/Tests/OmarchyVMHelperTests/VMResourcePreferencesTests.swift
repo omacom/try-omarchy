@@ -18,16 +18,16 @@ struct VMResourcePreferencesTests {
     @Test("All host cores and twelve GiB are selectable")
     func allCores() throws {
         let resources = try limits().validate(cpuCount: "18", memoryGiB: "12")
-        #expect(resources == VMResources(cpuCount: 18, memoryGiB: 12))
-        #expect(StartMenuPresentation.resources(resources) == "18 processor cores · 12 GiB memory")
+        #expect(resources == VMResources(cpuCount: 18, memoryGiB: 12, diskGiB: 64))
+        #expect(StartMenuPresentation.resources(resources) == "18 processor cores · 12 GiB memory · 64 GiB disk")
     }
 
     @Test("Both resource limits accept their boundaries")
     func boundaries() throws {
         #expect(try limits().validate(cpuCount: "4", memoryGiB: "4")
-            == VMResources(cpuCount: 4, memoryGiB: 4))
+            == VMResources(cpuCount: 4, memoryGiB: 4, diskGiB: 64))
         #expect(try limits().validate(cpuCount: "18", memoryGiB: "44")
-            == VMResources(cpuCount: 18, memoryGiB: 44))
+            == VMResources(cpuCount: 18, memoryGiB: 44, diskGiB: 64))
         #expect(limits(memoryGiB: 16).memoryChoicesGiB == [4, 6, 8, 12])
         #expect(limits(memoryGiB: 8).memoryChoicesGiB == [4])
         #expect(throws: VMResourceInputError.self) {
@@ -156,12 +156,11 @@ struct VMResourcePreferencesTests {
         for value in ["64", "8192"] {
             #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64).diskGiB == Int(value))
         }
-        for value in ["0", "63", "8193", "1.5", "-1", "abc", "999999999999999999999"] {
+        for value in ["", " ", "0", "63", "8193", "1.5", "-1", "abc", "999999999999999999999"] {
             #expect(throws: VMResourceInputError.self) {
                 try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: value, minimumDiskGiB: 64)
             }
         }
-        #expect(try limits().validate(cpuCount: "4", memoryGiB: "4", diskGiB: "", minimumDiskGiB: 64).diskGiB == nil)
     }
 
     private final class DefaultsFixture {
