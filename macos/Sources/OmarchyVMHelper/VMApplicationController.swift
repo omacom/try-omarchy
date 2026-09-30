@@ -1139,12 +1139,18 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 break
             }
             if presentation.showsStartupFailure {
-                startMenuWindow?.dismiss()
-                startMenuWindow = nil
+                let message = VMStartupFailure.message(
+                    status: status,
+                    standardError: recentStandardError
+                )
+                if let startMenuWindow {
+                    startMenuWindow.launchDidFail(errorMessage: message)
+                    return
+                }
                 let alert = NSAlert()
                 alert.alertStyle = .critical
                 alert.messageText = "Try Omarchy couldn’t start"
-                alert.informativeText = "The app’s virtual machine stopped during startup. Reinstall the latest Omarchy app and try again."
+                alert.informativeText = message
                 alert.addButton(withTitle: "Close")
                 alert.runModal()
             }
