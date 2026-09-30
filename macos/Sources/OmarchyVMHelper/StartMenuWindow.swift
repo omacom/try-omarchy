@@ -1844,11 +1844,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             sender.state = .off
             let alert = NSAlert()
             alert.alertStyle = .informational
-            alert.messageText = "Skip launcher?"
+            alert.messageText = "Skip the launcher"
             alert.informativeText = """
-                Opening Try Omarchy will skip the launcher and start Omarchy with your saved settings.
+                If this setting is on, Omarchy will start automatically with your current settings whenever you open Try Omarchy.
 
-                To see the launcher again, hold Option while opening the app. Inside Omarchy, open the Omarchy menu and choose Setup → Try Omarchy Settings.
+                To see the launcher again, hold Option while opening the app, or inside Omarchy, open the Omarchy menu and choose Setup → Try Omarchy Settings.
                 """
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")

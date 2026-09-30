@@ -20,7 +20,7 @@ struct StartMenuStartupTests {
                 confirmationCount += 1
                 #expect(!automaticStart)
                 #expect(launchCount == 0)
-                #expect(alert.messageText == "Skip launcher?")
+                #expect(alert.messageText == "Skip the launcher")
                 #expect(alert.informativeText.contains("hold Option while opening the app"))
                 #expect(alert.informativeText.contains("Setup → Try Omarchy Settings"))
                 #expect(alert.buttons.map(\.title) == ["OK", "Cancel"])
