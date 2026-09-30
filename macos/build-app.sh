@@ -213,6 +213,7 @@ for relative in \
   etc/udev/rules.d/96-try-omarchy-timezone.rules \
   etc/udev/rules.d/92-omarchy-native-settings.rules \
   usr/share/applications/try-omarchy-settings.desktop \
+  usr/share/applications/try-omarchy-follow-timezone.desktop \
   etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
   install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
 done

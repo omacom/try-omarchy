@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
+from types import SimpleNamespace
+import subprocess
 
 
 GUEST = Path(__file__).resolve().parents[1]
@@ -43,7 +46,9 @@ class TimeZoneTests(unittest.TestCase):
 
     def test_new_guest_and_travel_follow_current_mac_without_repeated_writes(self):
         self.assertTrue(self.apply("Asia/Tokyo"))
+        state_inode = self.state.stat().st_ino
         self.assertFalse(self.apply("Asia/Tokyo"))
+        self.assertEqual(self.state.stat().st_ino, state_inode)
         self.assertTrue(self.apply("America/New_York"))
         self.assertEqual(self.applied, ["Asia/Tokyo", "America/New_York"])
         self.assertEqual(self.localtime.resolve(), self.zones / "America/New_York")
@@ -105,3 +110,37 @@ class TimeZoneTests(unittest.TestCase):
         self.assertFalse(self.apply("UTC"))
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o600)
         self.assertTrue(self.apply("Etc/GMT+9"))
+
+    def test_old_guest_without_record_starts_following_mac_by_default(self):
+        self.replace_zone(self.zones / "Europe/Lisbon")
+        self.assertTrue(self.apply("Asia/Tokyo"))
+        self.assertEqual(self.localtime.resolve(), self.zones / "Asia/Tokyo")
+        self.assertEqual(json.loads(self.state.read_text())["mode"], "auto")
+
+    def test_follow_mac_action_resumes_mirroring_after_manual_override(self):
+        self.apply("Asia/Tokyo")
+        self.replace_zone(self.zones / "Europe/Lisbon")
+        self.assertFalse(self.apply("America/New_York"))
+        self.assertTrue(sync.synchronize("Asia/Tokyo", self.state, self.localtime,
+                                         self.zones, self.replace_zone, force=True))
+        self.assertEqual(json.loads(self.state.read_text())["mode"], "auto")
+        self.assertTrue(self.apply("America/New_York"))
+
+    def test_desktop_refresh_has_user_session_and_omarchy_environment(self):
+        user = SimpleNamespace(pw_uid=1000, pw_name="owner", pw_dir="/home/owner")
+        with mock.patch("pwd.getpwall", return_value=[user]), \
+             mock.patch.object(Path, "is_dir", return_value=True), \
+             mock.patch.object(sync.subprocess, "run") as run:
+            sync.refresh_desktops()
+        args = run.call_args.args[0]
+        self.assertEqual(args[:5], ["runuser", "-u", "owner", "--", "env"])
+        self.assertIn("XDG_RUNTIME_DIR=/run/user/1000", args)
+        self.assertIn("OMARCHY_PATH=/home/owner/.local/share/omarchy", args)
+        self.assertEqual(args[-4:], ["omarchy-shell", "-q", "omarchy.clock", "refresh"])
+
+    def test_unresponsive_desktop_does_not_break_time_zone_following(self):
+        user = SimpleNamespace(pw_uid=1000, pw_name="owner", pw_dir="/home/owner")
+        with mock.patch("pwd.getpwall", return_value=[user]), \
+             mock.patch.object(Path, "is_dir", return_value=True), \
+             mock.patch.object(sync.subprocess, "run", side_effect=subprocess.TimeoutExpired("shell", 5)):
+            sync.refresh_desktops()

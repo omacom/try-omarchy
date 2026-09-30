@@ -18,12 +18,16 @@ update; an outside replacement opts out, even if it points to the same zone.
 A guest override detected at the next launch is preserved before applying the
 new Mac hint. Unsupported zone names are rejected without changing the guest.
 
+Use **Follow Mac Time Zone** in Omarchy's application launcher to return to
+automatic following after a manual selection. The action opens a terminal for
+ordinary guest sudo authorization; no command needs to be typed.
+
 The app supplies this small integration through its existing read-only boot
-settings payload, including to older saved guests. On its first installation,
-the guest adopts the current Mac zone; earlier guests have no host-following
-record that can distinguish a geolocation default from a manual selection.
-After that initialization, guest selections take precedence. Factory reset
-removes the record and resumes following the current Mac.
+settings payload, including to older saved guests. A guest without a tracking
+record is assumed to be using its default zone and starts following the Mac,
+including an older provisioned VM. Manual choices made after initialization
+are preserved. New VMs and factory resets follow the current Mac by default,
+including when the bundled factory predates this integration.
 
 The zone determines regional display and daylight-saving rules. Clock accuracy
 is independent: `systemd-timesyncd` remains enabled and uses the guest's network

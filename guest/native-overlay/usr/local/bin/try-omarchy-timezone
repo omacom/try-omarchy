@@ -2,6 +2,7 @@
 """Follow the Mac's zone until a guest user changes /etc/localtime."""
 
 import json
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ PORT = Path("/dev/virtio-ports/dev.tryomarchy.timezone")
 STATE = Path("/var/lib/try-omarchy/timezone.json")
 LOCALTIME = Path("/etc/localtime")
 ZONEINFO = Path("/usr/share/zoneinfo")
+HOST_ZONE = Path("/run/try-omarchy/host-timezone")
 
 
 def zone_path(zone, zoneinfo=ZONEINFO):
@@ -48,13 +50,15 @@ def save_state(state, path=STATE):
             os.unlink(temporary)
 
 
-def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None):
+def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None, force=False):
     target = zone_path(zone, zoneinfo)
     try:
         state = json.loads(state_path.read_text())
     except FileNotFoundError:
         state = None
     current = fingerprint(localtime)
+    if force:
+        state = None
     if state is not None:
         if state["mode"] == "manual":
             return False
@@ -63,7 +67,8 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
             print("Guest time zone changed manually; keeping the guest selection.", flush=True)
             return False
     if localtime.is_symlink() and localtime.resolve() == target.resolve():
-        save_state({"mode": "auto", "zone": zone, "fingerprint": current}, state_path)
+        if state is None or state["zone"] != zone:
+            save_state({"mode": "auto", "zone": zone, "fingerprint": current}, state_path)
         return False
     # Use timedated so its D-Bus clients see the change too. Leave the RTC and
     # NTP clock discipline alone: they both continue to use UTC.
@@ -76,6 +81,21 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
     return True
 
 
+def follow(zone=None, force=False):
+    # Serialize the daemon, boot initializer, and user action. Otherwise a
+    # simultaneous snapshot could mistake our own update for a manual change.
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    with (STATE.parent / "timezone.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if zone is None:
+            zone = HOST_ZONE.read_text().strip()
+        zone_path(zone)
+        HOST_ZONE.parent.mkdir(parents=True, exist_ok=True)
+        if not HOST_ZONE.exists() or HOST_ZONE.read_text().strip() != zone:
+            HOST_ZONE.write_text(zone + "\n")
+        return synchronize(zone, force=force)
+
+
 def refresh_desktops():
     # The current Quickshell clock caches its zone; ask each logged-in user
     # session to refresh using the same action as Omarchy's timezone picker.
@@ -83,11 +103,18 @@ def refresh_desktops():
     for user in pwd.getpwall():
         runtime = Path(f"/run/user/{user.pw_uid}")
         if 1000 <= user.pw_uid < 65534 and runtime.is_dir():
-            subprocess.run(["runuser", "-u", user.pw_name, "--", "env",
-                            f"XDG_RUNTIME_DIR={runtime}",
-                            f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus",
-                            "omarchy-shell", "-q", "omarchy.clock", "refresh"],
-                           check=False, timeout=5)
+            omarchy = Path(user.pw_dir) / ".local/share/omarchy"
+            if not omarchy.is_dir():
+                omarchy = Path("/usr/share/omarchy")
+            try:
+                subprocess.run(["runuser", "-u", user.pw_name, "--", "env",
+                                f"XDG_RUNTIME_DIR={runtime}",
+                                f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus",
+                                f"OMARCHY_PATH={omarchy}",
+                                "omarchy-shell", "-q", "omarchy.clock", "refresh"],
+                               check=False, timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Could not refresh {user.pw_name}'s clock: {error}", file=sys.stderr, flush=True)
 
 
 def main():
@@ -98,7 +125,12 @@ def main():
         zones = [token.split("=", 1)[1] for token in tokens if token.startswith("tryomarchy.timezone=")]
         if len(zones) != 1:
             raise ValueError("missing or ambiguous Mac time zone boot hint")
-        synchronize(zones[0])
+        follow(zones[0])
+        return
+    if sys.argv[1:] == ["--follow-mac"]:
+        if follow(force=True):
+            refresh_desktops()
+        print("Time zone will now follow the Mac.", flush=True)
         return
     if sys.argv[1:]:
         raise ValueError("unexpected arguments")
@@ -115,7 +147,7 @@ def main():
                 message = json.loads(line)
                 if not isinstance(message, dict) or set(message) != {"type", "zone"} or message["type"] != "timezone":
                     raise ValueError("unexpected time zone message")
-                if synchronize(message["zone"]):
+                if follow(message["zone"]):
                     refresh_desktops()
             except (ValueError, KeyError) as error:
                 print(f"Rejected time zone message: {error}", file=sys.stderr, flush=True)

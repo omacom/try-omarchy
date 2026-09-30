@@ -5,7 +5,7 @@ import Foundation
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --host-keyboard-geometry | --wait-for-qmp QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --host-keyboard-geometry | --host-timezone | --wait-for-qmp QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
 }
 

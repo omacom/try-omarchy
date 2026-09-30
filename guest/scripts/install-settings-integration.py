@@ -17,6 +17,7 @@ FILES = {
     "tzupdate": ("usr/local/bin/tzupdate", 0o755),
     "try-omarchy-timezone.service": ("usr/lib/systemd/system/try-omarchy-timezone.service", 0o644),
     "96-try-omarchy-timezone.rules": ("etc/udev/rules.d/96-try-omarchy-timezone.rules", 0o644),
+    "try-omarchy-follow-timezone.desktop": ("usr/share/applications/try-omarchy-follow-timezone.desktop", 0o644),
 }
 MENU = ".config/omarchy/extensions/omarchy-menu.jsonc"
 
