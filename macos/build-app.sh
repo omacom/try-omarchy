@@ -207,6 +207,10 @@ install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$sett
 for relative in \
   usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
+  usr/local/bin/try-omarchy-timezone \
+  usr/local/bin/tzupdate \
+  usr/lib/systemd/system/try-omarchy-timezone.service \
+  etc/udev/rules.d/96-try-omarchy-timezone.rules \
   etc/udev/rules.d/92-omarchy-native-settings.rules \
   usr/share/applications/try-omarchy-settings.desktop \
   etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do

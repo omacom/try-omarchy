@@ -84,10 +84,15 @@ if [[ ${1:-} == --host-keyboard-geometry ]]; then
   printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
   exit 0
 fi
+if [[ ${1:-} == --host-timezone ]]; then
+  printf '%s\n' Asia/Tokyo
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
-   || ${1:-} == --bridge-native-camera ]]; then
+   || ${1:-} == --bridge-native-camera \
+   || ${1:-} == --bridge-native-timezone ]]; then
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
   done

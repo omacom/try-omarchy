@@ -13,6 +13,10 @@ FILES = {
     "omarchy-native-settings": ("usr/local/bin/omarchy-native-settings", 0o755),
     "92-omarchy-native-settings.rules": ("etc/udev/rules.d/92-omarchy-native-settings.rules", 0o644),
     "try-omarchy-settings.desktop": ("usr/share/applications/try-omarchy-settings.desktop", 0o644),
+    "try-omarchy-timezone": ("usr/local/bin/try-omarchy-timezone", 0o755),
+    "tzupdate": ("usr/local/bin/tzupdate", 0o755),
+    "try-omarchy-timezone.service": ("usr/lib/systemd/system/try-omarchy-timezone.service", 0o644),
+    "96-try-omarchy-timezone.rules": ("etc/udev/rules.d/96-try-omarchy-timezone.rules", 0o644),
 }
 MENU = ".config/omarchy/extensions/omarchy-menu.jsonc"
 
@@ -60,6 +64,13 @@ def main():
     if sys.argv[1:] or os.geteuid() != 0:
         raise SystemExit("Run the bundled installer as root, without arguments")
     install_system(payload, Path("/"))
+    # Run before owner provisioning, including in older unprovisioned factories.
+    # The live service starts after provisioning so a different setup selection
+    # is recognized as a manual override rather than overwritten.
+    subprocess.run(["/usr/local/bin/try-omarchy-timezone", "--initialize"], check=True)
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "enable", "try-omarchy-timezone.service"], check=True)
+    subprocess.run(["systemctl", "--no-block", "start", "try-omarchy-timezone.service"], check=True)
     subprocess.run(["udevadm", "control", "--reload-rules"], check=True)
     subprocess.run(["udevadm", "trigger", "--subsystem-match=virtio-ports"], check=True)
     # Run home-directory operations as their owner, never with root privileges.

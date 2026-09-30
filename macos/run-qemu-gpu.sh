@@ -1150,6 +1150,7 @@ audio_bridge_pid=""
 authentication_bridge_pid=""
 camera_bridge_pid=""
 battery_bridge_pid=""
+timezone_bridge_pid=""
 clipboard_bridge_pid=""
 network_link_bridge_pid=""
 integration_bridge_pid=""
@@ -1200,6 +1201,9 @@ cleanup() {
   fi
   if [[ $battery_bridge_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$battery_bridge_pid" 20
+  fi
+  if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+    terminate_child "$timezone_bridge_pid" 20
   fi
   if [[ $clipboard_bridge_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$clipboard_bridge_pid" 20
@@ -1479,6 +1483,7 @@ audio_bridge_socket="/tmp/${work_dir##*/}/audio.sock"
 authentication_bridge_socket="/tmp/${work_dir##*/}/authentication.sock"
 camera_bridge_socket="/tmp/${work_dir##*/}/camera.sock"
 battery_bridge_socket="/tmp/${work_dir##*/}/battery.sock"
+timezone_bridge_socket="/tmp/${work_dir##*/}/timezone.sock"
 clipboard_bridge_socket="/tmp/${work_dir##*/}/clipboard.sock"
 settings_bridge_socket="/tmp/${work_dir##*/}/settings.sock"
 integration_bridge_socket="/tmp/${work_dir##*/}/integrations.sock"
@@ -1613,6 +1618,14 @@ settings_payload="$resources_dir/guest-settings"
   fail "the bundled settings integration is missing"
 settings_unit=$(base64 < "$settings_payload/guest-settings.service" | tr -d '\r\n')
 settings_kernel_argument=" systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$settings_unit systemd.wants=try-omarchy-settings.service"
+# Read the current Mac zone at launch, never from a build-time setting or a
+# saved launcher preference. Reject separators before forming a kernel token.
+host_timezone=$("$native_bridge" --host-timezone) || fail "cannot read the Mac time zone"
+[[ -n $host_timezone && ${#host_timezone} -le 128 ]] || fail "invalid Mac time zone"
+case "$host_timezone" in
+  *[!A-Za-z0-9_+/-]*|/*|*/|*//*|.|..|./*|../*|*/./*|*/../*) fail "invalid Mac time zone" ;;
+esac
+timezone_kernel_argument=" tryomarchy.timezone=$host_timezone"
 # Mask the old disk's mount unit for this boot. The payload service mounts the
 # personal share with the bundled safe helper before installing settings.
 # A payload failure must leave sharing unavailable, never fall back to writeback.
@@ -1677,13 +1690,11 @@ if [[ $QEMU_NETWORK_MODE == bridged ]]; then
   fi
 fi
 
-launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$locale_kernel_argument"
+launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$locale_kernel_argument$timezone_kernel_argument"
 # ARM64 truncates boot arguments at 2048 bytes. Losing the mask or credential
 # could restore the older guest's writeback mount, so refuse that launch.
-if [[ -n $shared_folder ]]; then
-  launch_append_bytes=$(printf '%s' "$launch_append" | wc -c | tr -d ' ')
-  (( launch_append_bytes < 2048 )) || fail "shared-folder safety boot arguments exceed the ARM64 limit"
-fi
+launch_append_bytes=$(printf '%s' "$launch_append" | wc -c | tr -d ' ')
+(( launch_append_bytes < 2048 )) || fail "shared-folder safety boot arguments exceed the ARM64 limit"
 
 qemu_args=(
   -name 'Try Omarchy'
@@ -1740,6 +1751,8 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera'
   -chardev "socket,id=omarchy-battery-bridge,path=$battery_bridge_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery'
+  -chardev "socket,id=omarchy-timezone-bridge,path=$timezone_bridge_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
 )
 
 if [[ -f $resources_dir/integrations/manifest.json ]]; then
@@ -1839,7 +1852,7 @@ printf '%s\n' "$qemu_pid" >"$work_dir/.qemu.pid"
 chmod 600 "$work_dir/.qemu.pid"
 
 for ((attempt = 0; attempt < 100; attempt++)); do
-  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $battery_bridge_socket && -S $clipboard_bridge_socket && -S $settings_bridge_socket ]]; then
+  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $battery_bridge_socket && -S $timezone_bridge_socket && -S $clipboard_bridge_socket && -S $settings_bridge_socket ]]; then
     break
   fi
   kill -0 "$qemu_pid" 2>/dev/null || fail "QEMU exited before creating its private QMP socket"
@@ -1850,6 +1863,7 @@ done
 [[ -S $authentication_bridge_socket ]] || fail "QEMU did not create its private authentication bridge socket"
 [[ -S $camera_bridge_socket ]] || fail "QEMU did not create its private camera bridge socket"
 [[ -S $battery_bridge_socket ]] || fail "QEMU did not create its private battery bridge socket"
+[[ -S $timezone_bridge_socket ]] || fail "QEMU did not create its private time zone bridge socket"
 [[ -S $clipboard_bridge_socket ]] || fail "QEMU did not create its private clipboard bridge socket"
 [[ -S $settings_bridge_socket ]] || fail "QEMU did not create its private settings bridge socket"
 # The socket file appears before QEMU's main loop accepts connections, and the
@@ -1908,6 +1922,14 @@ start_battery_bridge() {
 }
 start_battery_bridge
 battery_bridge_restarts=0
+
+start_timezone_bridge() {
+  "$native_bridge" --bridge-native-timezone \
+    "$qemu_pid" "$timezone_bridge_socket" 9>&- &
+  timezone_bridge_pid=$!
+}
+start_timezone_bridge
+timezone_bridge_restarts=0
 
 if [[ -f $resources_dir/integrations/manifest.json ]]; then
   integration_cache="$work_dir/integration-status.json"
@@ -2043,6 +2065,21 @@ while true; do
       fi
     fi
   fi
+  if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+    timezone_bridge_state=$(ps -p "$timezone_bridge_pid" -o state= 2>/dev/null || true)
+    if [[ -z $timezone_bridge_state || $timezone_bridge_state == *Z* ]]; then
+      if wait "$timezone_bridge_pid"; then timezone_bridge_status=0; else timezone_bridge_status=$?; fi
+      timezone_bridge_pid=""
+      if (( timezone_bridge_restarts < 5 )); then
+        timezone_bridge_restarts=$((timezone_bridge_restarts + 1))
+        echo "[qemu-gpu] time zone bridge exited (status $timezone_bridge_status); restarting ($timezone_bridge_restarts/5)" >&2
+        sleep 1
+        start_timezone_bridge
+      else
+        echo "[qemu-gpu] time zone synchronization is unavailable for the rest of this session" >&2
+      fi
+    fi
+  fi
   sleep 0.1
 done
 
@@ -2081,4 +2118,8 @@ if [[ $battery_bridge_pid =~ ^[0-9]+$ ]]; then
   terminate_child "$battery_bridge_pid" 20
 fi
 battery_bridge_pid=""
+if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+  terminate_child "$timezone_bridge_pid" 20
+fi
+timezone_bridge_pid=""
 exit "$qemu_status"

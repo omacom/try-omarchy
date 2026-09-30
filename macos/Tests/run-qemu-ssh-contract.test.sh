@@ -101,6 +101,10 @@ if [[ ${1:-} == --host-keyboard-geometry ]]; then
   printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
   exit 0
 fi
+if [[ ${1:-} == --host-timezone ]]; then
+  printf '%s\n' "${FAKE_HOST_TIMEZONE:-Asia/Tokyo}"
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio && ${FAKE_SHUTDOWN_RACE:-0} == 1 ]]; then
   printf '%s\n' "$$" >"$FAKE_QEMU_LOG.audio.pid"
 fi
@@ -115,7 +119,8 @@ if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
    || ${1:-} == --bridge-native-camera \
-   || ${1:-} == --bridge-native-battery ]]; then
+   || ${1:-} == --bridge-native-battery \
+   || ${1:-} == --bridge-native-timezone ]]; then
   if [[ $1 == --bridge-native-audio && ${FAKE_AUDIO_EXIT_EARLY:-0} == 1 ]]; then
     exit 0
   fi
@@ -607,6 +612,14 @@ run_scenario() {
 
 run_scenario disabled 0 ''
 disabled_qemu=$(<"$test_root/disabled/qemu.log")
+assert_contains "$disabled_qemu" 'tryomarchy.timezone=Asia/Tokyo'
+assert_contains "$disabled_qemu" 'name=dev.tryomarchy.timezone'
+run_scenario timezone-travel 0 '' FAKE_HOST_TIMEZONE=America/New_York
+assert_contains "$(<"$test_root/timezone-travel/qemu.log")" 'tryomarchy.timezone=America/New_York'
+run_scenario timezone-injection 1 '' 'FAKE_HOST_TIMEZONE=UTC systemd.unit=rescue.target'
+assert_contains "$(<"$test_root/timezone-injection/stderr")" 'invalid Mac time zone'
+run_scenario timezone-traversal 1 '' FAKE_HOST_TIMEZONE=../UTC
+assert_contains "$(<"$test_root/timezone-traversal/stderr")" 'invalid Mac time zone'
 assert_contains "$disabled_qemu" 'systemd.wants=try-omarchy-settings.service'
 assert_contains "$disabled_qemu" "systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$(base64 < "$macos_dir/guest-settings.service" | tr -d '\r\n')"
 assert_line_pair "$test_root/disabled/qemu.log" -fsdev \
@@ -651,7 +664,7 @@ for argument in pathlib.Path(sys.argv[1]).read_text().splitlines():
     port = (fields["bus"], fields["nr"])
     assert port not in ports, f"Duplicate virtual serial port: {port}"
     ports.add(port)
-assert len(ports) == 8, f"Expected all eight guest channels, got {ports}"
+assert len(ports) == 9, f"Expected all nine guest channels, got {ports}"
 PYPORTS
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
