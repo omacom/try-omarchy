@@ -862,7 +862,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         reset.heightAnchor.constraint(equalToConstant: 30).isActive = true
         reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 154).isActive = true
 
-        let manage = OmarchyActionButton(title: "Shut Down…", style: .secondary, target: self, action: #selector(shutDownToManage))
+        let manage = OmarchyActionButton(title: "Shut Down", style: .secondary, target: self, action: #selector(shutDownToManage))
         manage.heightAnchor.constraint(equalToConstant: 36).isActive = true
         manage.setContentCompressionResistancePriority(.required, for: .horizontal)
         manage.identifier = NSUserInterfaceItemIdentifier("manage-vm-button")
@@ -933,7 +933,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resetRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
         let resetCard = themedCard(containing: resetRow, identifier: "reset-card")
 
-        let restart = OmarchyActionButton(title: "Restart Omarchy…", style: .secondary, target: self, action: #selector(restartOmarchy))
+        let restart = OmarchyActionButton(title: "Restart Omarchy", style: .secondary, target: self, action: #selector(restartOmarchy))
         restart.heightAnchor.constraint(equalToConstant: 36).isActive = true
         restart.setContentCompressionResistancePriority(.required, for: .horizontal)
         restart.identifier = NSUserInterfaceItemIdentifier("restart-vm-button")
@@ -943,10 +943,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             : "CPU, memory, shared folder, networking, port forwarding, and immersive mode changes apply when Try Omarchy next starts. Restart to apply them now.")
         restartCaption.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         restartCaption.textColor = OmarchyStartMenuTheme.muted
+        restartCaption.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        restartCaption.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let runningActions = NSStackView(views: [restartCaption, restart])
-        runningActions.orientation = .vertical
-        runningActions.alignment = .leading
-        runningActions.spacing = 6
+        runningActions.orientation = .horizontal
+        runningActions.alignment = .centerY
+        runningActions.spacing = 16
         runningActions.identifier = NSUserInterfaceItemIdentifier("running-settings-actions")
         var settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
         var integrationNotice: NSView?
@@ -1018,7 +1020,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
         if virtualMachineRunning {
             runningActions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            restartCaption.widthAnchor.constraint(equalTo: runningActions.widthAnchor).isActive = true
         }
 
         content.layoutSubtreeIfNeeded()

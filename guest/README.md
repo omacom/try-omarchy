@@ -195,9 +195,9 @@ extension file receive **Setup → Try Omarchy Settings**. Home-directory
 operations run as that user.
 
 The settings window saves CPU, memory, sharing, port forwarding, and immersive mode for the
-next QEMU launch. **Restart Omarchy…** requests a clean Linux shutdown and
+next QEMU launch. **Restart Omarchy** requests a clean Linux shutdown and
 waits for QEMU to exit before starting a new process with the saved settings.
-It never forces a shutdown on a timer. **Shut Down…** returns to the
+It never forces a shutdown on a timer. **Shut Down** returns to the
 native settings window without automatic startup so location and reset remain
 accessible. A normal Linux reboot keeps the current QEMU process and therefore
 does not apply these launch settings.
