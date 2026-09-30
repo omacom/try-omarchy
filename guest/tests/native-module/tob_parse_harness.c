@@ -130,9 +130,9 @@ int main(void)
 		printf("ERR %d\n", -error);
 		return 0;
 	}
-	printf("OK present=%d status=%d capacity=%d ac=%d time_to_empty=%d time_to_full=%d\n",
+	printf("OK present=%d status=%d capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d\n",
 	       parsed.present ? 1 : 0, parsed.status, parsed.capacity,
 	       parsed.ac_online ? 1 : 0, parsed.time_to_empty,
-	       parsed.time_to_full);
+	       parsed.time_to_full, parsed.charge_limit);
 	return 0;
 }

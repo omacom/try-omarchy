@@ -26,7 +26,7 @@ PORT = Path("/dev/virtio-ports/dev.tryomarchy.battery")
 STATE_FILE = Path("/sys/devices/platform/try-omarchy-battery/state")
 STATES = ("charging", "discharging", "full", "not-charging", "unknown")
 MAX_LINE_BYTES = 4096
-REFRESH_LINE = b'{"type":"refresh"}\n'
+REFRESH_LINE = b'{"type":"refresh","chargeLimit":true}\n'
 SCHEMA = {
     "type", "present", "percentage", "state",
     "acConnected", "timeToEmptySeconds", "timeToFullSeconds",
@@ -42,7 +42,7 @@ def decode_message(line: bytes) -> dict[str, Any]:
     message = json.loads(line)
     if not isinstance(message, dict) or message.get("type") != "state":
         raise ValueError("host sent an invalid battery message")
-    if set(message) != SCHEMA:
+    if set(message) not in (SCHEMA, SCHEMA | {"chargeLimit"}):
         raise ValueError("host battery message has an unexpected schema")
     if not isinstance(message["present"], bool) or not isinstance(message["acConnected"], bool):
         raise ValueError("battery presence flags must be booleans")
@@ -61,6 +61,13 @@ def decode_message(line: bytes) -> dict[str, Any]:
             not isinstance(value, int) or isinstance(value, bool) or value < 0
         ):
             raise ValueError(f"{key} must be null or a non-negative integer")
+    limit = message.get("chargeLimit")
+    if limit is not None and (
+        not message["present"] or not isinstance(limit, int)
+        or isinstance(limit, bool) or not 1 <= limit < 100
+    ):
+        raise ValueError("chargeLimit must be null or an integer 1-99 on a present battery")
+    message["chargeLimit"] = limit
     return message
 
 
@@ -74,7 +81,8 @@ def format_state_line(message: dict[str, Any]) -> bytes:
     return (
         f"present=1 status={message['state']} capacity={message['percentage']} "
         f"ac={ac} time_to_empty={-1 if empty is None else empty} "
-        f"time_to_full={-1 if full is None else full}\n"
+        f"time_to_full={-1 if full is None else full} "
+        f"charge_limit={message['chargeLimit'] if message['chargeLimit'] is not None else -1}\n"
     ).encode()
 
 
@@ -86,7 +94,7 @@ def unknown_state_line(last: dict[str, Any] | None) -> bytes:
     ac = 1 if last["acConnected"] else 0
     return (
         f"present=1 status=unknown capacity={last['percentage']} "
-        f"ac={ac} time_to_empty=-1 time_to_full=-1\n"
+        f"ac={ac} time_to_empty=-1 time_to_full=-1 charge_limit=-1\n"
     ).encode()
 
 

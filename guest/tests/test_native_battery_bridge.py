@@ -64,6 +64,18 @@ class DecodeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bridge.decode_message(line)
 
+    def test_optional_charge_limit_and_legacy_host(self) -> None:
+        self.assertIsNone(bridge.decode_message(state())["chargeLimit"])
+        self.assertEqual(bridge.decode_message(state(chargeLimit=95))["chargeLimit"], 95)
+        self.assertIsNone(bridge.decode_message(state(chargeLimit=None))["chargeLimit"])
+
+    def test_rejects_invalid_charge_limits(self) -> None:
+        for limit in (-1, 0, 100, 101, True, "95", 95.5):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                bridge.decode_message(state(chargeLimit=limit))
+        with self.assertRaises(ValueError):
+            bridge.decode_message(state(present=False, percentage=None, chargeLimit=95))
+
     def test_extra_keys_are_rejected(self) -> None:
         message = json.loads(state())
         message["extra"] = 1
@@ -77,8 +89,14 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.format_state_line(decoded),
             b"present=1 status=discharging capacity=57 ac=0 "
-            b"time_to_empty=8100 time_to_full=-1\n",
+            b"time_to_empty=8100 time_to_full=-1 charge_limit=-1\n",
         )
+
+    def test_charge_limit_is_independent_of_percentage_and_ac(self) -> None:
+        decoded = bridge.decode_message(state(percentage=42, chargeLimit=95))
+        self.assertIn(b"capacity=42", bridge.format_state_line(decoded))
+        self.assertIn(b"charge_limit=95", bridge.format_state_line(decoded))
+        self.assertIn(b"charge_limit=-1", bridge.unknown_state_line(decoded))
 
     def test_charging_snapshot_line(self) -> None:
         decoded = bridge.decode_message(
@@ -88,7 +106,7 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.format_state_line(decoded),
             b"present=1 status=charging capacity=57 ac=1 "
-            b"time_to_empty=-1 time_to_full=2700\n",
+            b"time_to_empty=-1 time_to_full=2700 charge_limit=-1\n",
         )
 
     def test_desktop_mac_omits_battery_keys(self) -> None:
@@ -103,7 +121,7 @@ class StateLineTests(unittest.TestCase):
         self.assertEqual(
             bridge.unknown_state_line(decoded),
             b"present=1 status=unknown capacity=57 ac=0 "
-            b"time_to_empty=-1 time_to_full=-1\n",
+            b"time_to_empty=-1 time_to_full=-1 charge_limit=-1\n",
         )
 
     def test_unknown_line_without_history_reports_absent(self) -> None:
@@ -112,7 +130,7 @@ class StateLineTests(unittest.TestCase):
 
 class RefreshTests(unittest.TestCase):
     def test_refresh_request_shape(self) -> None:
-        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh"}\n')
+        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh","chargeLimit":true}\n')
 
 
 if __name__ == "__main__":

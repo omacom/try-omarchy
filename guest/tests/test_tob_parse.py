@@ -132,6 +132,22 @@ class TobParseTests(unittest.TestCase):
         self.assertEqual(parsed["time_to_empty"], 8100)
         self.assertEqual(parsed["time_to_full"], -1)
 
+    def test_charge_limit_round_trips_and_resets_for_legacy_host(self) -> None:
+        message = {
+            "present": True, "state": "charging", "percentage": 42,
+            "acConnected": True, "timeToEmptySeconds": None,
+            "timeToFullSeconds": None, "chargeLimit": 95,
+        }
+        parsed = self.fields(bridge.format_state_line(message))
+        self.assertEqual(parsed["charge_limit"], 95)
+        self.assertEqual(parsed["capacity"], 42)
+        self.assertEqual(self.fields(b"present=1 status=full capacity=95 ac=1\n")["charge_limit"], -1)
+        self.assertEqual(self.fields(bridge.unknown_state_line(message))["charge_limit"], -1)
+
+    def test_invalid_charge_limit_rejects_the_whole_snapshot(self) -> None:
+        for limit in (-2, 0, 100, 101):
+            self.assertRejected(f"present=1 status=charging capacity=42 ac=1 charge_limit={limit}\n".encode())
+
     def test_accepts_the_agents_absent_line(self) -> None:
         message = bridge.decode_message(
             b'{"type":"state","present":false,"percentage":null,"state":"unknown",'

@@ -95,6 +95,72 @@ import Testing
         ])
         #expect(snapshot.percentage == 50)
     }
+
+    @Test func chargeLimitIsOptionalAndIndependentOfCurrentCharge() throws {
+        let snapshot = HostBatterySnapshot(descriptions: [description(percent: 42)], chargeLimit: 95)
+        #expect(snapshot.percentage == 42)
+        #expect(snapshot.chargeLimit == 95)
+        let legacy = try JSONSerialization.jsonObject(with: snapshot.encode()) as! [String: Any]
+        #expect(legacy["chargeLimit"] == nil)
+        let extended = try JSONSerialization.jsonObject(with: snapshot.encode(includeChargeLimit: true)) as! [String: Any]
+        #expect(extended["chargeLimit"] as? Int == 95)
+        for limit in [0, 100, 101] {
+            #expect(HostBatterySnapshot(descriptions: [description()], chargeLimit: limit).chargeLimit == nil)
+        }
+        #expect(HostBatterySnapshot(descriptions: [], chargeLimit: 95).chargeLimit == nil)
+    }
+
+    @Test func changingOnlyTheChargeLimitSendsANewSnapshot() {
+        var policy = BatterySendPolicy()
+        policy.markSent(HostBatterySnapshot(descriptions: [description()], chargeLimit: 80))
+        #expect(policy.shouldSend(HostBatterySnapshot(descriptions: [description()], chargeLimit: 95), forced: false))
+    }
+}
+
+@objc(TryOmarchyTestChargingPolicy)
+final class TestChargingPolicy: NSObject, NSSecureCoding {
+    static var supportsSecureCoding: Bool { true }
+    let reason: String
+    let limit: Int
+    let terminated: Bool
+
+    init(_ reason: String, limit: Int, terminated: Bool = false) {
+        self.reason = reason
+        self.limit = limit
+        self.terminated = terminated
+    }
+    required init?(coder: NSCoder) { fatalError("Encoding fixture only") }
+    func encode(with coder: NSCoder) {
+        coder.encode(reason as NSString, forKey: "reason")
+        coder.encode(limit, forKey: "soclimit")
+        coder.encode(terminated, forKey: "terminated")
+    }
+}
+
+@Suite struct HostChargeLimitTests {
+    private func plist(_ policies: [TestChargingPolicy]) throws -> Data {
+        let encoder = NSKeyedArchiver(requiringSecureCoding: true)
+        encoder.setClassName("ChargeCtrlPolicy", for: TestChargingPolicy.self)
+        encoder.encode(policies as NSArray, forKey: NSKeyedArchiveRootObjectKey)
+        encoder.finishEncoding()
+        return try PropertyListSerialization.data(fromPropertyList: ["policies": encoder.encodedData], format: .binary, options: 0)
+    }
+
+    @Test func onlyActiveManualPoliciesSupplyALimit() throws {
+        #expect(HostChargeLimit.read(try plist([
+            TestChargingPolicy("optimizedCharging", limit: 80),
+            TestChargingPolicy("manualChargeLimit", limit: 85, terminated: true),
+            TestChargingPolicy("manualChargeLimit", limit: 95),
+        ])) == 95)
+    }
+
+    @Test func missingDisabledAndMalformedPoliciesHaveNoLimit() throws {
+        #expect(HostChargeLimit.read(Data("invalid".utf8)) == nil)
+        #expect(HostChargeLimit.read(try plist([])) == nil)
+        for limit in [-1, 0, 100, 101] {
+            #expect(HostChargeLimit.read(try plist([TestChargingPolicy("manualChargeLimit", limit: limit)])) == nil)
+        }
+    }
 }
 
 @Suite struct BatterySendPolicyTests {

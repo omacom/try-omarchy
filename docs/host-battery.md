@@ -23,7 +23,8 @@ half-informed:
 
 ```json
 {"type":"state","present":true,"percentage":57,"state":"discharging",
- "acConnected":false,"timeToEmptySeconds":8100,"timeToFullSeconds":null}
+ "acConnected":false,"timeToEmptySeconds":8100,"timeToFullSeconds":null,
+ "chargeLimit":95}
 ```
 
 `state` is one of `charging`, `discharging`, `full`, `not-charging`,
@@ -38,7 +39,7 @@ and sends one on every coalesced IOKit change and every 30 seconds regardless,
 as a safety net against a missed notification. A guest opening the virtio port
 is not observable on the host's socket chardev, so
 `omarchy-native-battery-bridge`, the guest agent, sends one request line on
-start, `{"type":"refresh"}`, and the host answers with a fresh snapshot. The
+start, `{"type":"refresh","chargeLimit":true}`, and the host answers with a fresh snapshot. The
 host ignores any other guest input.
 
 ## Sysfs contract
@@ -49,7 +50,7 @@ exposes one writable attribute,
 guest agent writes it as one whole snapshot per write:
 
 ```text
-present=1 status=discharging capacity=57 ac=0 time_to_empty=8100 time_to_full=-1
+present=1 status=discharging capacity=57 ac=0 time_to_empty=8100 time_to_full=-1 charge_limit=95
 present=0 ac=1
 ```
 
@@ -67,6 +68,33 @@ one missing a required key for the state it declares, is rejected whole and
 the module keeps the previous state. `BAT0` is registered on the first
 `present=1` write and unregistered on the next `present=0`, so a desktop Mac
 never creates it and the bar has nothing to render.
+
+## Configured charge limit
+
+The host reads the active `manualChargeLimit` policy from macOS's
+`/Library/Preferences/com.apple.powerd.charging.plist`, without changing it.
+This powerd archive is undocumented; missing, unreadable, or changed formats
+produce no limit. Optimized Battery Charging's temporary holds and limits
+managed independently by third-party utilities are not treated as a configured
+macOS limit. A value of 100 means no reduced limit.
+
+The guest opts into the optional `chargeLimit` JSON field with its refresh
+request. Older guests receive the original seven-key snapshot; newer guests
+also accept that legacy snapshot from an older app. The limit is an integer
+1–99 or `null`. The module accepts `charge_limit=-1` for unknown or absent
+limits and publishes known values as the read-only standard
+`BAT0/charge_control_end_threshold` property. The actual battery percentage
+always remains independent of this limit.
+
+Omarchy's existing `omarchy-battery-status` command reads this property, and
+the native power panel shows its **Charge limit** row while charging is held.
+This change does not alter the upstream bar layout or make that conditional
+row visible while charging or discharging. On disconnect, the guest clears
+the limit along with the time estimates.
+
+Existing guests need **Install/update integration support** to build and load
+the 1.1.0 module and restart the agent. The installer reloads an older loaded
+module; integration status checks the loaded version as well as the DKMS build.
 
 ## Time estimates
 
@@ -113,16 +141,16 @@ Integrations** inside Omarchy, and choose **Install/update integration
 support**. The integration runs
 `guest/scripts/install-battery-into-existing-guest.sh` from the app's read-only
 integration bundle. It installs eight files (the three DKMS sources under
-`/usr/src/try-omarchy-battery-1.0.0/`, the bridge and its unit, and the udev,
-module-load, and UPower drop-ins), runs `dkms install try-omarchy-battery/1.0.0`,
+`/usr/src/try-omarchy-battery-1.1.0/`, the bridge and its unit, and the udev,
+module-load, and UPower drop-ins), runs `dkms install try-omarchy-battery/1.1.0`,
 loads the module, reloads udev, and enables
 `omarchy-native-battery-bridge.service`. Because the module is installed
 through DKMS, the pacman DKMS hook rebuilds it whenever a later `pacman -Syu`
 bumps the guest kernel, so the retrofit survives guest kernel updates — a
 factory reset is never required.
 
-A guest that already has the module, from the factory image or an earlier
-retrofit, is left untouched. When the module cannot be built — no DKMS on an
+A guest whose files, DKMS build, and loaded module already match the current
+integration is left untouched. Older battery integrations are upgraded. When the module cannot be built — no DKMS on an
 image before v0.3.0, or a kernel update that has not been followed by a restart
 — the battery reports `disabled` with the reason and the other integrations
 still install.

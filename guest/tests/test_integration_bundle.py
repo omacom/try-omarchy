@@ -364,6 +364,7 @@ class IntegrationBundleTests(unittest.TestCase):
 
     def test_battery_install_requires_current_kernel_build_loaded_module_and_enabled_service(self):
         state = self.bundle.parent / 'battery-state'
+        version = self.bundle.parent / 'battery-version'
         enabled = False
 
         def check(args, **kwargs):
@@ -371,6 +372,7 @@ class IntegrationBundleTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0 if enabled else 1)
 
         with patch.object(updater, 'BATTERY_STATE', state), \
+             patch.object(updater, 'BATTERY_MODULE_VERSION', version), \
              patch.object(updater, 'battery_module_built', return_value=False) as built, \
              patch.object(updater, 'run', side_effect=check) as run:
             self.assertFalse(updater.battery_install_complete())
@@ -380,6 +382,10 @@ class IntegrationBundleTests(unittest.TestCase):
             state.write_text('')
             self.assertFalse(updater.battery_install_complete())
             enabled = True
+            self.assertFalse(updater.battery_install_complete())
+            version.write_text('1.0.0\n')
+            self.assertFalse(updater.battery_install_complete())
+            version.write_text(updater.BATTERY_VERSION + '\n')
             self.assertTrue(updater.battery_install_complete())
 
     def test_battery_unavailable_reasons(self):

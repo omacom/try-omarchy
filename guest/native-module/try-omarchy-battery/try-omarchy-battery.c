@@ -33,6 +33,7 @@ struct tob_state {
 	bool ac_online;
 	int time_to_empty;
 	int time_to_full;
+	int charge_limit;
 };
 
 static struct platform_device *tob_pdev;
@@ -47,6 +48,7 @@ static struct tob_state tob_state = {
 	.ac_online = true,
 	.time_to_empty = -1,
 	.time_to_full = -1,
+	.charge_limit = -1,
 };
 
 static const struct {
@@ -76,6 +78,7 @@ static enum power_supply_property tob_bat_properties[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG,
 	POWER_SUPPLY_PROP_TIME_TO_FULL_AVG,
+	POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_MODEL_NAME,
@@ -113,6 +116,12 @@ static int tob_bat_get_property(struct power_supply *psy,
 			error = -ENODATA;
 		else
 			val->intval = tob_state.time_to_full;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
+		if (tob_state.charge_limit < 0)
+			error = -ENODATA;
+		else
+			val->intval = tob_state.charge_limit;
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -172,6 +181,7 @@ static int tob_parse(const char *buf, size_t count, struct tob_state *next)
 	next->ac_online = false;
 	next->time_to_empty = -1;
 	next->time_to_full = -1;
+	next->charge_limit = -1;
 
 	copy = kstrndup(buf, count, GFP_KERNEL);
 	if (!copy)
@@ -209,6 +219,11 @@ static int tob_parse(const char *buf, size_t count, struct tob_state *next)
 			    next->capacity < 0 || next->capacity > 100)
 				goto out;
 			saw_capacity = true;
+		} else if (!strcmp(token, "charge_limit")) {
+			if (kstrtoint(value, 10, &next->charge_limit) ||
+			    (next->charge_limit != -1 &&
+			     (next->charge_limit < 1 || next->charge_limit > 99)))
+				goto out;
 		} else if (!strcmp(token, "time_to_empty")) {
 			if (kstrtoint(value, 10, &next->time_to_empty) ||
 			    next->time_to_empty < -1)
@@ -243,10 +258,10 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 		return sysfs_emit(buf, "present=0 ac=%d\n",
 				  snapshot.ac_online ? 1 : 0);
 	return sysfs_emit(buf,
-			  "present=1 status=%s capacity=%d ac=%d time_to_empty=%d time_to_full=%d\n",
+			  "present=1 status=%s capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d\n",
 			  tob_status_token(snapshot.status), snapshot.capacity,
 			  snapshot.ac_online ? 1 : 0, snapshot.time_to_empty,
-			  snapshot.time_to_full);
+			  snapshot.time_to_full, snapshot.charge_limit);
 }
 
 static ssize_t state_store(struct device *dev, struct device_attribute *attr,
@@ -267,7 +282,8 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 		      next.status != tob_state.status ||
 		      next.capacity != tob_state.capacity ||
 		      next.time_to_empty != tob_state.time_to_empty ||
-		      next.time_to_full != tob_state.time_to_full;
+		      next.time_to_full != tob_state.time_to_full ||
+		      next.charge_limit != tob_state.charge_limit;
 	tob_state = next;
 	mutex_unlock(&tob_state_lock);
 
@@ -355,4 +371,4 @@ module_exit(tob_exit);
 MODULE_AUTHOR("Try Omarchy");
 MODULE_DESCRIPTION("Mirror the host Mac's battery as guest BAT0/ADP0");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.0.0");
+MODULE_VERSION("1.1.0");

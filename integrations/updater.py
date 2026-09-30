@@ -24,10 +24,11 @@ COMPONENTS = {
     'battery': ('Mac battery in the Omarchy bar', 'install-battery-into-existing-guest.sh'),
 }
 # Matches PACKAGE_VERSION in the module's dkms.conf and the factory package.
-BATTERY_VERSION = '1.0.0'
+BATTERY_VERSION = '1.1.0'
 BATTERY_MODULE_FILES = ('try-omarchy-battery.c', 'Makefile', 'dkms.conf')
 BATTERY_PORT = Path('/dev/virtio-ports/dev.tryomarchy.battery')
 BATTERY_STATE = Path('/sys/devices/platform/try-omarchy-battery/state')
+BATTERY_MODULE_VERSION = Path('/sys/module/try_omarchy_battery/version')
 BATTERY_SERVICE = 'omarchy-native-battery-bridge.service'
 KERNEL_MODULES = Path('/usr/lib/modules')
 BOOTSTRAP_FILES = {
@@ -180,6 +181,8 @@ def battery_install_complete():
     # A completed DKMS build alone does not prove the module was loaded or the
     # bridge was enabled. A failed retrofit may have stopped between those steps.
     return (battery_module_built() and BATTERY_STATE.exists()
+            and BATTERY_MODULE_VERSION.is_file()
+            and BATTERY_MODULE_VERSION.read_text().strip() == BATTERY_VERSION
             and run(['systemctl', 'is-enabled', '--quiet', BATTERY_SERVICE], check=False).returncode == 0)
 
 
