@@ -248,6 +248,9 @@ for relative in \
   usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
   usr/local/bin/try-omarchy-timezone \
+  usr/local/share/try-omarchy/timezone-setup.sh \
+  usr/local/share/try-omarchy/timezone-menu-hooks.json \
+  usr/local/lib/try-omarchy/install-timezone-menus.py \
   usr/local/bin/tzupdate \
   usr/lib/systemd/system/try-omarchy-timezone.service \
   etc/udev/rules.d/96-try-omarchy-timezone.rules \

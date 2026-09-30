@@ -494,6 +494,25 @@
             "afterSha256": "b65dd81b1bd9820445d1e7ca60c0a978c684c96e3e0280522c60944d1f676be4"
           }
         ]
+      },
+      {
+        "id": "mirror-macos-timezone",
+        "description": "Offer explicit live macOS time zone mirroring in owner setup and the timezone menu.",
+        "reference": "https://github.com/themartiano/try-omarchy/pull/290",
+        "patch": "patches/omarchy/mirror-macos-timezone.patch",
+        "patchSha256": "e7bd2f1c3735f1e3de202a9d5b655ff71d8a17019fea011b7fed6951823daa37",
+        "targets": [
+          {
+            "path": "bin/omarchy-provision-owner",
+            "beforeSha256": "5c71fd5730473850a598628e1d82dda3b5517a31b8a8b1e64e24e08ee73b7dea",
+            "afterSha256": "be9b355f15a987d4402578682c870736519f3b1982da93e1473c1165ee27be5c"
+          },
+          {
+            "path": "bin/omarchy-menu-timezone",
+            "beforeSha256": "3b36b51935d43e5ab31ea7c12a8adcec310165ccceabe16b6ddf060bbb2ccbe0",
+            "afterSha256": "134c9cc00a0c638a3f0259e5674b99771f7d6bba957226176b0cd5e1646e40ca"
+          }
+        ]
       }
     ],
     "postBuildUserInstallers": [

@@ -1,0 +1,41 @@
+diff --git a/bin/omarchy-provision-owner b/bin/omarchy-provision-owner
+--- a/bin/omarchy-provision-owner
++++ b/bin/omarchy-provision-owner
+@@ -38,6 +38,8 @@
+ # runtime package it bundles, so an install and the first boot that finishes it
+ # can never offer different layouts or accept different usernames.
+ source "$OMARCHY_PATH/install/provisioning/setup-form.sh"
++# Try Omarchy exposes an explicit host-following choice in the same setup form.
++source /usr/local/share/try-omarchy/timezone-setup.sh
+ 
+ # Unlike a fresh install target, this machine already has accounts; a pinned
+ # resume (below) bypasses the prompt entirely.
+@@ -821,14 +823,7 @@
+ # Apply the owner's timezone, deferred to first boot with the rest of the user
+ # step, overwriting the placeholder (UTC) the deferred install seeded.
+ configure_timezone() {
+-  [[ -n ${timezone:-} ]] || return 0
+-  if timedatectl set-timezone "$timezone" 2>&1; then
+-    return 0
+-  fi
+-  # Fallback only if the zone file exists, so a bad zone can't point
+-  # /etc/localtime at nothing and break every localtime read afterward.
+-  [[ -e /usr/share/zoneinfo/$timezone ]] &&
+-    ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime 2>&1 || true
++  /usr/local/bin/try-omarchy-timezone --select "${timezone:-UTC}"
+ }
+ 
+ finalize_user() {
+diff --git a/bin/omarchy-menu-timezone b/bin/omarchy-menu-timezone
+--- a/bin/omarchy-menu-timezone
++++ b/bin/omarchy-menu-timezone
+@@ -6,7 +6,7 @@
+ 
+ set -e
+ 
+-timezone=$(timedatectl list-timezones | omarchy-menu-select "Set timezone" -- --width 520 --maxheight 520) || exit 1
+-sudo timedatectl set-timezone "$timezone"
++timezone=$({ /usr/local/bin/try-omarchy-timezone --mirror-label 2>/dev/null || true; timedatectl list-timezones; } | omarchy-menu-select "Set timezone" -- --width 520 --maxheight 520) || exit 1
++sudo /usr/local/bin/try-omarchy-timezone --select "$timezone"
+ omarchy-shell -q omarchy.clock refresh
+ omarchy-notification-send "Timezone is now set to $timezone"

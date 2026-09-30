@@ -193,6 +193,7 @@ def main() -> None:
             "lutris-aarch64-unavailable",
             "keyboard-us-acentos",
             "ghostty-arm64-terminal",
+            "mirror-macos-timezone",
         ],
         "Omarchy backports are explicitly ordered and identified",
     )
@@ -205,7 +206,8 @@ def main() -> None:
         )
         check(
             backport.get("reference", "").startswith(
-                ("https://github.com/basecamp/omarchy/", "https://github.com/omacom/try-omarchy/")
+                ("https://github.com/basecamp/omarchy/", "https://github.com/omacom/try-omarchy/",
+                 "https://github.com/themartiano/try-omarchy/")
             ),
             f"backport has a public review reference: {backport['id']}",
         )

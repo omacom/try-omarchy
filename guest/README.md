@@ -100,8 +100,9 @@ from before paired boot kits are migrated once by a recovery initramfs that
 reads their `/boot` directory with the root disk mounted read-only.
 
 The Mac time-zone integration is delivered through the app's boot settings
-payload to new and existing guests. It follows live Mac zone changes until the
-user selects a zone inside Omarchy, while guest NTP stays enabled. See
+payload to new and existing guests. New setup defaults to **Mirror macOS**;
+the timezone menu can switch between live mirroring and any fixed zone without
+a restart. Existing untracked guests keep their zone. Guest NTP stays enabled. See
 [Mac time zone and guest clock](../docs/host-timezone.md).
 
 Omarchy's built-in updater remains available for updates supported by this ARM

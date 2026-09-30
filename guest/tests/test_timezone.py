@@ -111,11 +111,59 @@ class TimeZoneTests(unittest.TestCase):
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o600)
         self.assertTrue(self.apply("Etc/GMT+9"))
 
-    def test_old_guest_without_record_starts_following_mac_by_default(self):
+    def test_new_unprovisioned_guest_without_record_starts_following_mac(self):
         self.replace_zone(self.zones / "Europe/Lisbon")
         self.assertTrue(self.apply("Asia/Tokyo"))
         self.assertEqual(self.localtime.resolve(), self.zones / "Asia/Tokyo")
         self.assertEqual(json.loads(self.state.read_text())["mode"], "auto")
+
+    def test_existing_configured_guest_without_record_keeps_its_zone(self):
+        self.replace_zone(self.zones / "Europe/Lisbon")
+        self.assertFalse(sync.synchronize("Asia/Tokyo", self.state, self.localtime,
+                                         self.zones, self.replace_zone, preserve_existing=True))
+        self.assertEqual(self.localtime.resolve(), self.zones / "Europe/Lisbon")
+        self.assertEqual(json.loads(self.state.read_text()), {"mode": "manual"})
+        self.assertFalse(self.apply("America/New_York"))
+
+    def test_explicit_same_zone_choice_stops_mirroring_even_without_a_file_change(self):
+        self.apply("Asia/Tokyo")
+        sync.select_manual("Asia/Tokyo", self.state, self.localtime, self.zones, lambda _: None)
+        self.assertFalse(self.apply("America/New_York"))
+        self.assertEqual(self.localtime.resolve(), self.zones / "Asia/Tokyo")
+        self.assertEqual(json.loads(self.state.read_text()), {"mode": "manual"})
+
+    def test_failed_manual_selection_keeps_previous_policy(self):
+        self.apply("Asia/Tokyo")
+        before = self.state.read_bytes()
+        def fail(_):
+            raise OSError("timedated unavailable")
+        with self.assertRaises(OSError):
+            sync.select_manual("Europe/Lisbon", self.state, self.localtime, self.zones, fail)
+        self.assertEqual(self.state.read_bytes(), before)
+
+    def test_mirror_label_is_readable_without_private_policy_state(self):
+        host = self.root / "host-timezone"
+        host.write_text("Asia/Tokyo\n")
+        self.assertEqual(sync.mirror_label(host, self.zones), "Mirror macOS (Asia/Tokyo)")
+        host.write_text("Europe/Lisbon\n")
+        self.assertEqual(sync.mirror_label(host, self.zones), "Mirror macOS (Europe/Lisbon)")
+
+    def test_selecting_mirror_uses_latest_host_zone_and_resumes_without_restart(self):
+        host = self.root / "host-timezone"
+        host.write_text("America/New_York\n")
+        with mock.patch.object(sync, "STATE", self.state), \
+             mock.patch.object(sync, "HOST_ZONE", host), \
+             mock.patch.object(sync, "zone_path"), \
+             mock.patch.object(sync, "synchronize", return_value=True) as synchronize:
+            self.assertTrue(sync.follow(selection="Mirror macOS (Asia/Tokyo)"))
+        synchronize.assert_called_once_with("America/New_York", force=True, preserve_existing=True)
+
+    def test_fixed_picker_selection_does_not_need_host_channel(self):
+        with mock.patch.object(sync, "STATE", self.state), \
+             mock.patch.object(sync, "HOST_ZONE", self.root / "missing-host"), \
+             mock.patch.object(sync, "select_manual") as manual:
+            self.assertTrue(sync.follow(selection="Asia/Tokyo"))
+        manual.assert_called_once_with("Asia/Tokyo")
 
     def test_follow_mac_action_resumes_mirroring_after_manual_override(self):
         self.apply("Asia/Tokyo")

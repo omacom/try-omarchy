@@ -16,6 +16,9 @@ FILES = {
     "92-omarchy-native-settings.rules": ("etc/udev/rules.d/92-omarchy-native-settings.rules", 0o644),
     "try-omarchy-settings.desktop": ("usr/share/applications/try-omarchy-settings.desktop", 0o644),
     "try-omarchy-timezone": ("usr/local/bin/try-omarchy-timezone", 0o755),
+    "timezone-setup.sh": ("usr/local/share/try-omarchy/timezone-setup.sh", 0o644),
+    "timezone-menu-hooks.json": ("usr/local/share/try-omarchy/timezone-menu-hooks.json", 0o644),
+    "install-timezone-menus.py": ("usr/local/lib/try-omarchy/install-timezone-menus.py", 0o644),
     "tzupdate": ("usr/local/bin/tzupdate", 0o755),
     "try-omarchy-timezone.service": ("usr/lib/systemd/system/try-omarchy-timezone.service", 0o644),
     "96-try-omarchy-timezone.rules": ("etc/udev/rules.d/96-try-omarchy-timezone.rules", 0o644),
@@ -121,6 +124,7 @@ def main():
     if sys.argv[1:] or os.geteuid() != 0:
         raise SystemExit("Run the bundled installer as root, without arguments")
     install_system(payload, Path("/"))
+    subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-timezone-menus.py"], check=True)
     # Run before owner provisioning, including in older unprovisioned factories.
     # The live service starts after provisioning so a different setup selection
     # is recognized as a manual override rather than overwritten.

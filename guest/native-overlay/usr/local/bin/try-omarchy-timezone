@@ -15,6 +15,7 @@ STATE = Path("/var/lib/try-omarchy/timezone.json")
 LOCALTIME = Path("/etc/localtime")
 ZONEINFO = Path("/usr/share/zoneinfo")
 HOST_ZONE = Path("/run/try-omarchy/host-timezone")
+PROVISIONING_PENDING = Path("/var/lib/omarchy/provisioning/pending")
 
 
 def zone_path(zone, zoneinfo=ZONEINFO):
@@ -50,12 +51,16 @@ def save_state(state, path=STATE):
             os.unlink(temporary)
 
 
-def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None, force=False):
+def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None,
+                force=False, preserve_existing=False):
     target = zone_path(zone, zoneinfo)
     try:
         state = json.loads(state_path.read_text())
     except FileNotFoundError:
         state = None
+    if state is None and preserve_existing and not force:
+        save_state({"mode": "manual"}, state_path)
+        return False
     current = fingerprint(localtime)
     if force:
         state = None
@@ -81,19 +86,45 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
     return True
 
 
-def follow(zone=None, force=False):
+def select_manual(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None):
+    target = zone_path(zone, zoneinfo)
+    if apply is None:
+        subprocess.run(["timedatectl", "set-timezone", zone], check=True, timeout=5)
+    else:
+        apply(target)
+    # Record intent even when timedated leaves an already-correct zone alone.
+    save_state({"mode": "manual"}, state_path)
+
+
+def mirror_label(host_zone=HOST_ZONE, zoneinfo=ZONEINFO):
+    zone = host_zone.read_text().strip()
+    zone_path(zone, zoneinfo)
+    return f"Mirror macOS ({zone})"
+
+
+def follow(zone=None, force=False, selection=None):
     # Serialize the daemon, boot initializer, and user action. Otherwise a
     # simultaneous snapshot could mistake our own update for a manual change.
     STATE.parent.mkdir(parents=True, exist_ok=True)
     with (STATE.parent / "timezone.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if selection is not None:
+            match = re.fullmatch(r"Mirror macOS \(([A-Za-z0-9_+/-]+)\)", selection)
+            if not match:
+                select_manual(selection)
+                return True
+            # The label is a snapshot. Apply the latest host zone, even when
+            # the Mac changed while the picker was open.
+            zone_path(match[1])
+            force = True
         if zone is None:
             zone = HOST_ZONE.read_text().strip()
         zone_path(zone)
         HOST_ZONE.parent.mkdir(parents=True, exist_ok=True)
         if not HOST_ZONE.exists() or HOST_ZONE.read_text().strip() != zone:
             HOST_ZONE.write_text(zone + "\n")
-        return synchronize(zone, force=force)
+        return synchronize(zone, force=force,
+                           preserve_existing=not PROVISIONING_PENDING.exists())
 
 
 def refresh_desktops():
@@ -118,6 +149,10 @@ def refresh_desktops():
 
 
 def main():
+    # Public read-only presentation; changing policy still requires guest sudo.
+    if sys.argv[1:] == ["--mirror-label"]:
+        print(mirror_label())
+        return
     if os.geteuid() != 0:
         raise PermissionError("time zone synchronization requires root")
     if sys.argv[1:] == ["--initialize"]:
@@ -131,6 +166,10 @@ def main():
         if follow(force=True):
             refresh_desktops()
         print("Time zone will now follow the Mac.", flush=True)
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == "--select":
+        if follow(selection=sys.argv[2]):
+            refresh_desktops()
         return
     if sys.argv[1:]:
         raise ValueError("unexpected arguments")
