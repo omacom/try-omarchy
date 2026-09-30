@@ -34,14 +34,22 @@ for release signing and notarization:
 
 ```sh
 macos/build-app.sh \
+  --configuration production \
   --dmg \
   --guest-dir dist/guest \
   --sign-identity "Developer ID Application: Example (TEAMID)" \
   --notarize-profile try-omarchy
 ```
 
-Local app builds are ad-hoc signed by default. To keep Accessibility and other
-macOS privacy grants across rebuilds, use a stable Apple Development identity:
+Local app builds appear as **Try Omarchy Dev**, with bundle ID
+`dev.tryomarchy.native.development`. They automatically select an installed
+Apple Development certificate (or Developer ID Application if no development
+certificate is available), so Accessibility, Camera, and Microphone grants can
+survive rebuilds after you grant them once. Production keeps
+`dev.tryomarchy.native` and its own privacy decisions. The first development
+build with this new identity needs fresh grants.
+
+If several eligible certificates are installed, choose one explicitly:
 
 ```sh
 make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
@@ -50,6 +58,11 @@ make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
 `make package` uses `PACKAGE_SIGN_IDENTITY` and `PACKAGE_NOTARY_PROFILE`, which
 default to the configured release credentials. It fails instead of producing
 an unnotarized fallback.
+Production assembly goes to `dist/release.noindex/Try Omarchy.app`, leaving the
+development bundle in place. Without an installed certificate, development
+stops with setup instructions instead of silently invalidating existing grants.
+Create an Apple Development certificate in Xcode to enable persistence, or use
+`DEVELOPMENT_SIGN_IDENTITY=-` when intentionally testing ad-hoc builds.
 Runtime caches are private to `macos/.build/`; user-facing output always goes
 to `dist/`. The generated app lives inside `dist/app.noindex/`, which keeps a
 development build from appearing beside an installed copy in Command-Space.
@@ -134,8 +147,8 @@ parallel forwarding path exists.
 Ad-hoc signing identifies one exact build, so macOS intentionally invalidates
 its privacy grants when that build is replaced. The app's **Open Settings**
 action repairs a stale Accessibility entry and registers the installed build,
-but a stable Apple Development or Developer ID signature is required for the
-grant to survive future updates.
+and scopes the repair to the running app's bundle ID. A stable Apple Development
+or Developer ID signature is required for the grant to survive future updates.
 
 See the root `README.md`, `docs/architecture.md`, and `docs/releasing.md` for the
 supported platform, runtime boundaries, and distribution checklist.

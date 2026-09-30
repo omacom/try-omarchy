@@ -838,6 +838,17 @@ the bundle normally, but Spotlight will not present it beside an installed
 copy as a second, indistinguishable Command-Space result. The first app rebuild
 after this layout change removes the old generated bundle from `dist/`.
 
+Local builds use a separate **Try Omarchy Dev** privacy identity and automatically
+select an installed Apple Development signing certificate, falling back to
+Developer ID Application. Grant Accessibility, Camera, and Microphone once for
+development; those decisions can then survive rebuilds with the same signing
+identity. `make package` and `make release` keep the production identity and its
+separate permission flow, and write the app to `dist/release.noindex/`.
+If several certificates are available, set `DEVELOPMENT_SIGN_IDENTITY` to the
+one you want. Without a certificate, local builds stop with setup instructions.
+Use `DEVELOPMENT_SIGN_IDENTITY=-` for intentional ad-hoc builds, which still
+require renewed grants after rebuilds.
+
 Launching also ensures that the guest, runtime, and native app are current, so
 the normal follow-up command is:
 
@@ -884,7 +895,9 @@ All generated output has one predictable home:
 ```text
 dist/
 ├── app.noindex/
-│   └── Try Omarchy.app
+│   └── Try Omarchy.app    # development identity
+├── release.noindex/
+│   └── Try Omarchy.app    # production identity
 ├── TryOmarchy.dmg        # after make package or make release
 └── guest/                # verified guest build artifacts
 ```

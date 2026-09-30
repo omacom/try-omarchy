@@ -9,7 +9,7 @@ override BUILD_CACHE := $(ROOT)/scripts/build-cache.py
 override BUILD_STATE := $(ROOT)/.build/state
 RELEASE_SIGN_IDENTITY ?= Developer ID Application: Eduardo Martinez (RZC79MPD34)
 RELEASE_NOTARY_PROFILE ?= try-omarchy
-DEVELOPMENT_SIGN_IDENTITY ?= -
+DEVELOPMENT_SIGN_IDENTITY ?= auto
 PACKAGE_SIGN_IDENTITY ?= $(RELEASE_SIGN_IDENTITY)
 PACKAGE_NOTARY_PROFILE ?= $(RELEASE_NOTARY_PROFILE)
 FORCE ?= 0
@@ -34,8 +34,9 @@ help:
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component' \
 	  '  make run            Build the app from existing artifacts and open it' \
+	  '                      Automatically select a stable development certificate' \
 	  '  make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: ..."' \
-	  '                      Keep macOS privacy grants across local rebuilds' \
+	  '                      Choose a certificate when several are available' \
 	  '  make update-omarchy OMARCHY_RELEASE=x.y.z' \
 	  '                      Pin an upstream release and refresh the ARM64 lock' \
 	  '  make package        Create a signed and notarized distribution DMG' \
@@ -80,6 +81,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hvf-mapped-sections.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-virtio-pinch.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-build-cache.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-development-sign-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
 	@$(ROOT)/macos/Tests/macos-compatibility.test.sh
@@ -111,8 +113,9 @@ runtime:
 	  "$(ROOT)/macos/build-qemu-gpu-runtime.sh"
 
 app: guest runtime
-	@OMARCHY_FORCE_BUILD="$(FORCE)" \
-	  OMARCHY_CODESIGN_IDENTITY="$(DEVELOPMENT_SIGN_IDENTITY)" \
+	@identity=$$(python3 "$(ROOT)/macos/development-sign-identity.py" "$(DEVELOPMENT_SIGN_IDENTITY)") || exit 1; \
+	  OMARCHY_FORCE_BUILD="$(FORCE)" \
+	  OMARCHY_CODESIGN_IDENTITY="$$identity" \
 	  "$(BUILD_CACHE)" \
 	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" app -- \
 	  "$(ROOT)/macos/build-app.sh" --guest-dir "$(GUEST_DIST)"
@@ -149,6 +152,7 @@ package-preflight: version-preflight
 package: package-preflight
 	@$(MAKE) --no-print-directory guest runtime
 	@$(ROOT)/macos/build-app.sh \
+	  --configuration production \
 	  --dmg \
 	  --guest-dir "$(GUEST_DIST)" \
 	  --sign-identity "$(PACKAGE_SIGN_IDENTITY)" \
@@ -161,6 +165,7 @@ release-preflight: version-preflight
 release: release-preflight
 	@$(MAKE) --no-print-directory guest runtime
 	@$(ROOT)/macos/build-app.sh \
+	  --configuration production \
 	  --dmg \
 	  --guest-dir "$(GUEST_DIST)" \
 	  --sign-identity "$(RELEASE_SIGN_IDENTITY)" \

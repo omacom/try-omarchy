@@ -34,7 +34,7 @@ before continuing with the normal build and verification sequence.
 
 Outputs are written to:
 
-- `dist/app.noindex/Try Omarchy.app`
+- `dist/release.noindex/Try Omarchy.app` (production)
 - `dist/TryOmarchy.dmg`
 - `dist/guest/`
 
@@ -43,7 +43,9 @@ the app and DMG with Developer ID, submit the DMG to Apple's notarization
 service, and staple the resulting tickets. Neither command falls back to an
 unnotarized build. Both commands first ensure the content-hashed guest and
 runtime artifacts are current; packaging and signing themselves always run
-freshly. Another maintainer can override the release defaults:
+freshly. Development stays at `dist/app.noindex/Try Omarchy.app` with a separate
+bundle ID and privacy grants, so production permission flows can be tested
+independently. Another maintainer can override the release defaults:
 
 ```sh
 make release \

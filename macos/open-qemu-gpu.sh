@@ -60,7 +60,7 @@ info_plist="$app/Contents/Info.plist"
 bundle_identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$info_plist" 2>/dev/null) || {
   fail "built app has no bundle identifier"
 }
-[[ $bundle_identifier == dev.tryomarchy.native ]] || {
+[[ $bundle_identifier == dev.tryomarchy.native.development ]] || {
   fail "built app has an unexpected bundle identifier: $bundle_identifier"
 }
 bundle_executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$info_plist" 2>/dev/null) || {

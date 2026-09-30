@@ -5,11 +5,13 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 Usage: macos/build-app.sh [--open] [--dmg] [--guest-dir DIR]
+                                  [--configuration development|production]
                                   [--sign-identity IDENTITY]
                                   [--notarize-profile PROFILE]
 
-Build a self-contained Apple Silicon app. Developer ID signing is used when
---sign-identity is supplied; otherwise the local build is ad-hoc signed.
+Build a self-contained Apple Silicon app. Development builds select a stable
+local signing certificate automatically. Production builds require an explicit
+signing identity. --dmg requires --configuration production.
 --notarize-profile implies --dmg and names a notarytool keychain profile.
 EOF
   exit 64
@@ -18,12 +20,18 @@ EOF
 open_app=0
 build_dmg=0
 guest_dir=
-sign_identity=${OMARCHY_CODESIGN_IDENTITY:--}
+configuration=development
+sign_identity=${OMARCHY_CODESIGN_IDENTITY:-auto}
 notarize_profile=
 while (($#)); do
   case "$1" in
     --open) open_app=1; shift ;;
     --dmg) build_dmg=1; shift ;;
+    --configuration)
+      (($# >= 2)) || usage
+      configuration=$2
+      shift 2
+      ;;
     --guest-dir)
       (($# >= 2)) || usage
       guest_dir=$2
@@ -52,9 +60,32 @@ macos_major=$(sw_vers -productVersion | cut -d. -f1)
 
 macos_dir=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$macos_dir/.." && pwd -P)
+case "$configuration" in
+  development)
+    bundle_identifier=dev.tryomarchy.native.development
+    app_display_name='Try Omarchy Dev'
+    (( build_dmg == 0 )) || {
+      echo 'build-app: --dmg requires --configuration production' >&2
+      exit 1
+    }
+    sign_identity=$(python3 "$macos_dir/development-sign-identity.py" "$sign_identity")
+    ;;
+  production)
+    bundle_identifier=dev.tryomarchy.native
+    app_display_name='Try Omarchy'
+    [[ $sign_identity != auto ]] || {
+      echo 'build-app: production requires --sign-identity (use - for an explicit ad-hoc test build)' >&2
+      exit 1
+    }
+    ;;
+  *) usage ;;
+esac
 helper="$macos_dir/.build/release/omarchy-vm-helper"
 legacy_app="$repo_dir/dist/Try Omarchy.app"
 app="$repo_dir/dist/app.noindex/Try Omarchy.app"
+if [[ $configuration == production ]]; then
+  app="$repo_dir/dist/release.noindex/Try Omarchy.app"
+fi
 contents="$app/Contents"
 bundled_qemu="$contents/Resources/runtime/bin/Try Omarchy"
 module_cache="$macos_dir/.build/module-cache"
@@ -121,7 +152,7 @@ if [[ -e $legacy_app || -L $legacy_app ]]; then
   fi
   rm -rf -- "$legacy_app"
 fi
-mkdir -p "$repo_dir/dist/app.noindex"
+mkdir -p "$(dirname "$app")"
 # A .noindex container is the supported per-directory Spotlight exclusion.
 # Removing and unregistering the legacy bundle above also prevents a previously
 # indexed build at the old path from surviving this migration.
@@ -185,6 +216,15 @@ PYTHON
 install -m 0644 "$macos_dir/network-helper/vendor/LICENSE" "$contents/Resources/network/LICENSE.socket_vmnet"
 install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
+python3 - "$contents/Info.plist" "$bundle_identifier" "$app_display_name" <<'PYTHON'
+import plistlib, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+value = plistlib.loads(path.read_bytes())
+value["CFBundleIdentifier"] = sys.argv[2]
+value["CFBundleName"] = value["CFBundleDisplayName"] = sys.argv[3]
+path.write_bytes(plistlib.dumps(value))
+PYTHON
 python3 "$repo_dir/scripts/app_version.py" \
   --root "$repo_dir" --plist "$contents/Info.plist"
 install -m 0644 "$macos_dir/Credits.rtf" "$contents/Resources/Credits.rtf"
@@ -248,8 +288,8 @@ sign_options=(--force --sign "$sign_identity")
 if [[ $sign_identity != - ]]; then
   sign_options+=(--options runtime --timestamp)
 fi
-app_sign_options=("${sign_options[@]}" --identifier dev.tryomarchy.native)
-qemu_sign_options=("${sign_options[@]}" --identifier dev.tryomarchy.native)
+app_sign_options=("${sign_options[@]}" --identifier "$bundle_identifier")
+qemu_sign_options=("${sign_options[@]}" --identifier "$bundle_identifier")
 for library in "$contents/Resources/runtime/lib"/*.dylib; do
   codesign "${sign_options[@]}" "$library"
 done
