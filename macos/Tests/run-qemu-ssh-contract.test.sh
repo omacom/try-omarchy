@@ -312,10 +312,6 @@ _qps_permissions() { /usr/bin/stat -f '%Lp' "$1"; }
 _qps_lstat_kind() { /usr/bin/stat -f '%HT' "$1"; }
 _qps_size() { /usr/bin/stat -f '%z' "$1"; }
 qemu_persistent_storage_release_lock() { :; }
-qemu_persistent_storage_materialize_source() {
-  printf 'materialize\n' >>"$FAKE_STORAGE_LOG"
-  return 1
-}
 qemu_persistent_storage_select_existing() {
   printf 'select-existing\n' >>"$FAKE_STORAGE_LOG"
   QEMU_SELECTED_DISK="$FAKE_PERSISTENT_ROOT/rootfs.ext4"

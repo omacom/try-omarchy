@@ -88,7 +88,7 @@ fi
 exec /usr/bin/open \
   -n \
   -W \
-  --env OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1 \
+  --env OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0 \
   ${usb_environment[@]+"${usb_environment[@]}"} \
   --stdin /dev/null \
   --stdout /dev/null \

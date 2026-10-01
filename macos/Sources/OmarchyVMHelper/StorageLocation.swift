@@ -66,31 +66,23 @@ struct BundledGuestMetrics: Equatable {
 
 /// How much room the workspace needs on the chosen volume.
 ///
-/// The factory source is a real multi-gigabyte file, written once per guest
-/// build. The working disk is an APFS clone of it that is then expanded
-/// sparsely, so it costs almost nothing at creation and grows only as the
-/// guest writes. That is why the floor and the comfort target differ so much.
+/// A new disk is decompressed directly into the workspace, then expanded
+/// sparsely. Its initial bytes and boot headroom must fit; the selected virtual
+/// capacity is a longer-term space target rather than an immediate allocation.
 struct StorageSpaceRequirement: Equatable {
     var sourceBytes: Int64
     var workingBytes: Int64
-    /// True when this volume already holds the materialized factory source for
-    /// the current guest build, which is therefore already paid for.
-    var sourceAlreadyPresent: Bool
 
     static let headroomBytes: Int64 = 1_073_741_824
 
-    private var unpaidSourceBytes: Int64 {
-        sourceAlreadyPresent ? 0 : sourceBytes
-    }
-
     /// Below this the workspace cannot even be created.
     var floorBytes: Int64 {
-        unpaidSourceBytes + Self.headroomBytes
+        sourceBytes + Self.headroomBytes
     }
 
     /// Below this the VM starts but the guest can run out of room later.
     var comfortBytes: Int64 {
-        unpaidSourceBytes + workingBytes
+        workingBytes + Self.headroomBytes
     }
 }
 
@@ -321,12 +313,7 @@ enum StorageLocationPolicy {
         if let metrics, !hasRecordedPersistentDisk {
             let requirement = StorageSpaceRequirement(
                 sourceBytes: metrics.sourceDiskBytes,
-                workingBytes: metrics.workingDiskBytes,
-                sourceAlreadyPresent: hasMaterializedSource(
-                    stateRoot: root,
-                    identity: metrics.identity,
-                    fileManager: fileManager
-                )
+                workingBytes: metrics.workingDiskBytes
             )
             guard capabilities.availableBytes >= requirement.floorBytes else {
                 throw StorageLocationPolicyError.insufficientSpace(
@@ -346,19 +333,6 @@ enum StorageLocationPolicy {
             capabilities: capabilities,
             spaceWarning: warning
         )
-    }
-
-    /// True when the factory source for this guest build is already written to
-    /// the workspace, so its bytes must not be demanded a second time.
-    static func hasMaterializedSource(
-        stateRoot: String,
-        identity: String,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        let source = URL(fileURLWithPath: stateRoot, isDirectory: true)
-            .appendingPathComponent("images", isDirectory: true)
-            .appendingPathComponent("\(identity).ext4", isDirectory: false)
-        return fileManager.fileExists(atPath: source.path)
     }
 
     static func displayPath(_ path: String, homeDirectory: String) -> String {

@@ -404,10 +404,6 @@ struct StorageLocationPolicyTests {
             identity: previousIdentity
         )
 
-        #expect(!StorageLocationPolicy.hasMaterializedSource(
-            stateRoot: container.path,
-            identity: metrics.identity
-        ))
         let resolution = try StorageLocationPolicy.validate(
             container.path,
             metrics: metrics,
@@ -507,8 +503,7 @@ struct StorageLocationPolicyTests {
 
         let requirement = StorageSpaceRequirement(
             sourceBytes: sourceBytes,
-            workingBytes: workingBytes,
-            sourceAlreadyPresent: false
+            workingBytes: workingBytes
         )
         let available = (requirement.floorBytes + requirement.comfortBytes) / 2
         let resolution = try StorageLocationPolicy.validate(
@@ -519,8 +514,8 @@ struct StorageLocationPolicyTests {
         #expect(resolution.spaceWarning != nil)
     }
 
-    @Test("an already-materialized factory image is not charged for twice")
-    func materializedSourceLowersTheFloor() throws {
+    @Test("old factory caches do not bypass space needed for a new disk")
+    func legacyFactoryCacheDoesNotLowerTheFloor() throws {
         let container = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: container) }
 
@@ -534,20 +529,19 @@ struct StorageLocationPolicyTests {
             )
         }
 
-        // The marker is always written before `images/` gains content — see
-        // `_qps_prepare_state_root` in qemu-persistent-storage.sh — so a
-        // realistic "already materialized" fixture carries both.
+        // Old versions may have left a cache, but new disks no longer use it.
         try writeValidRootMarker(in: container)
         let images = container.appendingPathComponent("images", isDirectory: true)
         try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
         try Data().write(to: images.appendingPathComponent("\(metrics.identity).ext4"))
 
-        let resolution = try StorageLocationPolicy.validate(
-            container.path,
-            metrics: metrics,
-            probe: FakeVolumeProbe(result: volume(available: tight))
-        )
-        #expect(resolution.stateRoot == container.path)
+        #expect(throws: StorageLocationPolicyError.self) {
+            try StorageLocationPolicy.validate(
+                container.path,
+                metrics: metrics,
+                probe: FakeVolumeProbe(result: volume(available: tight))
+            )
+        }
     }
 
     @Test("skips the space check when the bundle metrics are unavailable")
@@ -666,22 +660,10 @@ struct StorageSpaceRequirementTests {
     func floorCoversTheFactoryImage() {
         let requirement = StorageSpaceRequirement(
             sourceBytes: sourceBytes,
-            workingBytes: workingBytes,
-            sourceAlreadyPresent: false
+            workingBytes: workingBytes
         )
         #expect(requirement.floorBytes == sourceBytes + StorageSpaceRequirement.headroomBytes)
-        #expect(requirement.comfortBytes == sourceBytes + workingBytes)
-    }
-
-    @Test("a materialized image leaves only the headroom to find")
-    func materializedImageLeavesHeadroom() {
-        let requirement = StorageSpaceRequirement(
-            sourceBytes: sourceBytes,
-            workingBytes: workingBytes,
-            sourceAlreadyPresent: true
-        )
-        #expect(requirement.floorBytes == StorageSpaceRequirement.headroomBytes)
-        #expect(requirement.comfortBytes == workingBytes)
+        #expect(requirement.comfortBytes == workingBytes + StorageSpaceRequirement.headroomBytes)
     }
 }
 

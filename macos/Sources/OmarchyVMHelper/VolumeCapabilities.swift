@@ -85,7 +85,7 @@ struct URLVolumeProbe: VolumeProbing {
 
 /// Whether a path is the root directory of its own mounted volume — the one
 /// case a chosen storage folder is refused even when empty, since writing
-/// `disks/`, `images/`, and `locks/` directly onto a drive's top level would
+/// `boot/`, `disks/`, and `locks/` directly onto a drive's top level would
 /// mean chmod-ing (or otherwise restructuring) the volume's mount point
 /// itself rather than a folder the user chose to dedicate to Omarchy.
 protocol VolumeRootDetecting {

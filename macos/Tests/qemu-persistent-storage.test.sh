@@ -18,6 +18,14 @@ grep -Fq '/bin/rm -rf -x "$qps_discarded"' \
     exit 1
   }
 
+# Development app launches must share the stable single-disk policy, even if
+# the shell environment previously enabled identity-keyed test workspaces.
+grep -Fxq '  --env OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0 \' \
+  "$native_dir/open-qemu-gpu.sh" || {
+    printf 'qemu-persistent-storage.test: development app must use one workspace\n' >&2
+    exit 1
+  }
+
 fail() {
   printf 'qemu-persistent-storage.test: %s\n' "$*" >&2
   exit 1
@@ -268,8 +276,8 @@ assert_fails _qps_assert_boot_source_file \
 export OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/state"
 export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1
 
-# A compressed app payload is expanded once into the private immutable-image
-# cache, verified against the raw manifest digest, and reused thereafter.
+# Compressed factories are expanded straight into the selected writable disk.
+# Reset re-expands and verifies the payload without retaining an image cache.
 compressed_disk="$test_root/source.ext4.zst"
 zstd_test="$test_root/zstd"
 cp "$source_disk" "$compressed_disk"
@@ -281,15 +289,32 @@ set -euo pipefail
 EOF
 chmod 700 "$zstd_test"
 compressed_bytes=$(/usr/bin/stat -f '%z' "$compressed_disk")
-qemu_persistent_storage_materialize_source \
-  "$identity_compressed" "$compressed_disk" "$compressed_bytes" \
-  "$source_sha" "$source_bytes" "$zstd_test"
-materialized_source=$QEMU_IMMUTABLE_SOURCE_DISK
-assert cmp -s "$materialized_source" "$source_disk"
-qemu_persistent_storage_materialize_source \
-  "$identity_compressed" "$compressed_disk" "$compressed_bytes" \
-  "$source_sha" "$source_bytes" "$zstd_test"
-assert_eq "$QEMU_IMMUTABLE_SOURCE_DISK" "$materialized_source"
+compressed_state="$test_root/compressed-state"
+(
+  export OMARCHY_QEMU_GPU_STATE_ROOT="$compressed_state"
+  export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0
+  for mode in persistent reset reset; do
+    qemu_persistent_storage_select \
+      "$mode" "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" '' \
+      "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a" "$zstd_test"
+    assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
+    assert test ! -e "$compressed_state/images"
+    assert_eq "$(find "$compressed_state/disks" -name rootfs.ext4 | wc -l | tr -d '[:space:]')" 1
+    qemu_persistent_storage_release_lock
+  done
+  # A bad expanded digest must never publish a disk, even when reset is requested.
+  assert_fails qemu_persistent_storage_select \
+    reset "$identity_compressed" "$compressed_disk" "$source_sha_b" "$source_bytes" '' \
+    "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a" "$zstd_test"
+  assert test ! -e "$compressed_state/disks/current"
+  qemu_persistent_storage_release_lock
+  ephemeral_compressed="$test_root/ephemeral-compressed"
+  mkdir -m 700 "$ephemeral_compressed"
+  qemu_persistent_storage_select \
+    ephemeral "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" \
+    "$ephemeral_compressed" "$source_bytes" '' '' '' "$zstd_test"
+  assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
+)
 
 # The factory workspace grows sparsely while its immutable source stays at the
 # transport size. Relaunch validates and reuses the expanded workspace.
@@ -849,9 +874,9 @@ export OMARCHY_QEMU_GPU_STATE_ROOT=$unsupported_root
 export OMARCHY_QEMU_GPU_TEST_FS_TYPE=exfat
 assert_fails qemu_persistent_storage_select \
   persistent "$identity_a" "$source_disk" "$source_sha" "$source_bytes" ''
-assert_fails qemu_persistent_storage_materialize_source \
-  "$identity_compressed" "$compressed_disk" "$compressed_bytes" \
-  "$source_sha" "$source_bytes" "$zstd_test"
+assert_fails qemu_persistent_storage_select \
+  persistent "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" '' \
+  "$source_bytes" '' '' '' "$zstd_test"
 unset OMARCHY_QEMU_GPU_TEST_FS_TYPE
 assert test ! -e "$unsupported_root/disks"
 assert test ! -e "$unsupported_root/images"
@@ -862,14 +887,14 @@ export OMARCHY_QEMU_GPU_STATE_ROOT=$saved_state_root
 cramped_root="$test_root/cramped-state"
 export OMARCHY_QEMU_GPU_STATE_ROOT=$cramped_root
 export OMARCHY_QEMU_GPU_TEST_FREE_BYTES=1024
-assert_fails qemu_persistent_storage_materialize_source \
-  "$identity_compressed" "$compressed_disk" "$compressed_bytes" \
-  "$source_sha" "$source_bytes" "$zstd_test"
+assert_fails qemu_persistent_storage_select \
+  persistent "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" '' \
+  "$source_bytes" '' '' '' "$zstd_test"
 assert_fails qemu_persistent_storage_select \
   persistent "$identity_a" "$source_disk" "$source_sha" "$source_bytes" ''
 unset OMARCHY_QEMU_GPU_TEST_FREE_BYTES
 assert test ! -e "$cramped_root/disks/current"
-assert_eq "$(find "$cramped_root/images" -type f | wc -l | tr -d '[:space:]')" 0
+assert test ! -e "$cramped_root/images"
 export OMARCHY_QEMU_GPU_STATE_ROOT=$saved_state_root
 
 # The same volume succeeds once the room is there, proving the guard is what

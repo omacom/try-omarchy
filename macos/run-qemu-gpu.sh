@@ -1513,15 +1513,10 @@ if (( selected_existing == 0 )); then
     expanded_disk_bytes=$disk_capacity_bytes
   fi
   source_disk="$guest_dir/rootfs.ext4"
+  source_decoder=''
   if [[ ! -e $source_disk && ! -L $source_disk ]]; then
-    qemu_persistent_storage_materialize_source \
-      "$bundle_identity" \
-      "$guest_dir/rootfs.ext4.zst" \
-      "$compressed_disk_bytes" \
-      "$source_disk_sha" \
-      "$source_disk_bytes" \
-      "$resources_dir/runtime/bin/zstd" || fail "could not materialize the bundled root disk"
-    source_disk=$QEMU_IMMUTABLE_SOURCE_DISK
+    source_disk="$guest_dir/rootfs.ext4.zst"
+    source_decoder="$resources_dir/runtime/bin/zstd"
   fi
   if qemu_persistent_storage_select \
     "$storage_mode" \
@@ -1533,7 +1528,8 @@ if (( selected_existing == 0 )); then
     "$expanded_disk_bytes" \
     "$bundled_kernel" \
     "$bundled_initramfs" \
-    "$kernel_command_line"; then
+    "$kernel_command_line" \
+    "$source_decoder"; then
     :
   else
     storage_status=$?

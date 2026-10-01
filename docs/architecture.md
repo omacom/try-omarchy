@@ -246,6 +246,12 @@ creates the account on first boot.
   (Bopomofo), the fontconfig rule prefers Traditional Chinese Han variants for
   `zh-TW` text, and Chromium receives the Wayland IME flag needed for fcitx5.
 
+New and reset VMs decompress the compressed factory directly into their
+unpublished writable disk, verify its expanded size and digest, and publish it
+atomically. No expanded factory-image cache is retained. Development launches
+through `make run` use the same single-workspace policy as normal app launches;
+reset and ephemeral mode select the current factory for testing.
+
 Resources can set an optional maximum virtual disk capacity. On the next
 normal launch, an existing disk is sparsely extended under the workspace lock,
 after validating its metadata and boot kit. The native helper binds the change
@@ -254,7 +260,7 @@ allocates blocks as guest writes arrive; the configured capacity does not
 reserve host space. New launcher settings default to 64 GiB, raised to the
 existing capacity when larger. The editor always displays a capacity; older
 settings without one display the existing or factory capacity.
-New VMs use the selected capacity when their factory clone is prepared.
+New VMs use the selected capacity when their writable disk is prepared.
 
 Nothing is overwritten while the app runs. The app bundle and packaged factory
 disk remain unchanged. Normal user launches use one private writable disk under
@@ -297,10 +303,9 @@ launcher receives that choice as `OMARCHY_QEMU_GPU_STATE_ROOT`. The chosen
 folder is used as-is: it is never restructured with a folder created inside
 it, so it must already be empty (or already be a workspace Omarchy has used)
 — a populated folder or a drive's top level is refused with an explanation
-instead. The volume must
-be APFS: the storage library clones the factory image with `cp -c` and expands
-the working disk sparsely, and it serializes launches with a `lockf` advisory
-lock. On exFAT the same expansion allocates the full working size immediately,
+instead. The volume must be APFS: the storage library expands the working
+disk sparsely and uses `cp -c` for uncompressed development sources. It
+serializes launches with a `lockf` advisory lock. On exFAT the same expansion allocates the full working size immediately,
 and on a network share the lock is unreliable. Both layers check independently, the app
 when the folder is chosen and the shell library again at launch, because the
 volume can change in between. A location change never moves the existing VM;

@@ -80,12 +80,14 @@ Runtime caches are private to `macos/.build/`; user-facing output always goes
 to `dist/`. The generated app lives inside `dist/app.noindex/`, which keeps a
 development build from appearing beside an installed copy in Command-Space.
 
-Normal app launches maintain one stable user VM disk under
-`~/Library/Application Support/Try Omarchy/VM/v1`. Storage integration tests
-and specialized development runs can opt into identity-keyed parallel disks by
-setting `OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1`; release behavior leaves it
-unset. Each persistent disk keeps the identity of the factory that created it
-and is paired with a private, validated boot kit containing that factory's
+Normal app launches and `make run` maintain one stable user VM disk under
+`~/Library/Application Support/Try Omarchy/VM/v1`, reused across factory builds.
+Use `make reset` to replace it with the current factory or `make run-ephemeral`
+to test that factory without retaining its disk. Storage integration tests and
+specialized direct-script runs can opt into identity-keyed parallel disks by
+setting `OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1`; the development app wrapper
+explicitly disables this mode. Each persistent disk keeps the identity of the
+factory that created it and is paired with a private, validated boot kit containing that factory's
 kernel, initramfs, and base command line. App updates reuse the disk and its
 boot kit; the current bundled factory is selected only for a new, reset, or
 ephemeral VM. This keeps an older root filesystem on its matching kernel-module
@@ -116,10 +118,14 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
-Reset reuses the verified, identity-keyed factory cache and APFS cloning. The
-validated native helper streams SHA-256 through CryptoKit, including the full
-expanded factory digest on a cache miss. Each storage transaction flushes its
-written files before its staging directory, then flushes the parent after the
+New and reset VMs decompress the bundled factory directly into the staged
+writable disk; no expanded factory-image cache is retained. Reset therefore
+repeats decompression and digest verification. The validated native helper
+streams SHA-256 through CryptoKit, including the full expanded factory digest.
+Existing VMs launch without decompression. Confirmed reset also removes safely
+recognized disks left by older development launches; normal launch preserves
+those disks and requests reset if there are several. Each storage transaction
+flushes its written files before its staging directory, then flushes the parent after the
 atomic rename. This avoids repeated system-wide `sync` calls without dropping
 checksums, workspace locks, or interrupted-transaction recovery. A newly created
 workspace still uses one global sync to persist its marker and directory
