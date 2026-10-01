@@ -318,7 +318,7 @@ def install(user, selected):
         run(['systemctl', 'restart', 'try-omarchy-integrations.service'])
         atomic_json(STATE / 'progress.json', {'status': 'complete'})
         print('Integrations installed and checked. Backups retained in ' + str(STATE))
-        print('Open Omarchy Menu > Setup > Try Omarchy Integrations for updates and optional features.')
+        print('Open Omarchy Menu > Setup > Try Omarchy Integrations for optional Touch ID setup or manual repair.')
 
 
 def menu_entry(path=None, refresh=True):
@@ -343,6 +343,9 @@ def menu_entry(path=None, refresh=True):
 def review():
     manifest(BUNDLE)
     print('\nTry Omarchy Integrations\n')
+    print('Routine integration updates run before login through the Mac launcher.')
+    print('Shut down Omarchy, then choose Update > Update and Launch in Try Omarchy when offered.')
+    print('Use this menu for optional Touch ID setup or manual repair of skipped integrations.\n')
     for name in COMPONENTS:
         try:
             state = 'installed' if files_current(name) else 'available or needs repair'
@@ -352,7 +355,7 @@ def review():
         if reason:
             state = 'unavailable (' + reason + ')'
         print(f'  {COMPONENTS[name][0]}: {state}')
-    print('\n1. Install/update integration support\n2. Set up or test Touch ID for sudo\n3. Exit')
+    print('\n1. Manually install/repair integration support (fallback)\n2. Set up or test Touch ID for sudo\n3. Exit')
     choice = input('\nChoose [1-3]: ').strip()
     if choice == '2':
         try:

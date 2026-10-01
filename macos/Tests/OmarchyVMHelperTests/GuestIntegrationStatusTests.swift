@@ -6,39 +6,6 @@ import Testing
 struct GuestIntegrationStatusTests {
     private let identity = String(repeating: "a", count: 64)
 
-    @Test("Integration notices stay hidden until a check needs user attention")
-    func attention() {
-        let current = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
-            components: ["bootstrap": "current", "sudo": "current", "battery": "disabled"], paired: false)
-        for state in ["checking", "unknown"] {
-            let cache = GuestIntegrationCache(checkedAt: Date(), state: state, report: current)
-            #expect(!cache.needsReview(expectedIdentity: "different"))
-        }
-        let empty = GuestIntegrationCache(checkedAt: Date(), state: "reported", report: nil)
-        #expect(!empty.needsReview(expectedIdentity: identity))
-        let healthy = GuestIntegrationCache(checkedAt: Date(), state: "reported", report: current)
-        #expect(!healthy.needsReview(expectedIdentity: identity))
-        #expect(!healthy.needsReview(expectedIdentity: nil))
-        #expect(healthy.needsReview(expectedIdentity: String(repeating: "b", count: 64)))
-
-        let repair = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
-            components: ["bootstrap": "repair", "sudo": "current"], paired: true)
-        #expect(GuestIntegrationCache(checkedAt: Date(), state: "reported", report: repair)
-            .needsReview(expectedIdentity: identity))
-        #expect(GuestIntegrationCache(checkedAt: Date(), state: "no-response", report: nil)
-            .needsReview(expectedIdentity: identity))
-
-        for report in [
-            GuestIntegrationReport(schema: 1, version: 2, identity: identity,
-                components: ["bootstrap": "current", "sudo": "current"], paired: true),
-            GuestIntegrationReport(schema: 1, version: 1, identity: identity,
-                components: ["bootstrap": "current", "sudo": "current", "clock": "current"], paired: true),
-        ] {
-            #expect(!GuestIntegrationCache(checkedAt: Date(), state: "reported", report: report)
-                .needsReview(expectedIdentity: "different"))
-        }
-    }
-
     @Test("Only a complete current report can be up to date")
     func states() throws {
         let current = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
@@ -61,32 +28,27 @@ struct GuestIntegrationStatusTests {
             components: ["bootstrap": "current", "sudo": "current", "battery": "current"], paired: true)
         let decoded = try GuestIntegrationReport.decode(JSONEncoder().encode(current))
         #expect(decoded.summary(expectedIdentity: identity) == "Up to date")
-        #expect(!decoded.needsReview(expectedIdentity: identity))
         let disabled = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
             components: ["bootstrap": "current", "sudo": "current", "battery": "disabled"], paired: true)
         #expect(disabled.summary(expectedIdentity: identity) == "Up to date")
-        #expect(!disabled.needsReview(expectedIdentity: identity))
         let repair = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
             components: ["bootstrap": "current", "sudo": "current", "battery": "repair"], paired: true)
         #expect(repair.summary(expectedIdentity: identity) == "Repair available")
-        #expect(repair.needsReview(expectedIdentity: identity))
     }
 
-    @Test("A guest with only the earlier sudo bundle is offered the battery update")
+    @Test("A guest with only the earlier sudo bundle reports an available update")
     func earlierBundle() {
         let report = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
             components: ["bootstrap": "current", "sudo": "current"], paired: true)
         let bundled = String(repeating: "b", count: 64)
         #expect(report.summary(expectedIdentity: bundled) == "Updates available")
-        #expect(report.needsReview(expectedIdentity: bundled))
     }
 
-    @Test("Additional guest integrations are not offered a smaller bundle")
+    @Test("Additional guest integrations require a matching app")
     func additionalIntegrations() {
         let report = GuestIntegrationReport(schema: 1, version: 1, identity: identity,
             components: ["bootstrap": "current", "sudo": "current", "clock": "current"], paired: true)
         #expect(report.summary(expectedIdentity: "different").contains("use matching app"))
-        #expect(!report.needsReview(expectedIdentity: "different"))
     }
 
     @Test("Malformed and incomplete guest reports cannot establish status")

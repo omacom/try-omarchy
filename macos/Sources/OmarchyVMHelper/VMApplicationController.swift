@@ -298,12 +298,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 self?.appReleaseChecker.menuTitle ?? "Check for Updates…"
             },
             checkForAppUpdates: { [weak self] in self?.checkForAppUpdates(nil) },
-            integrationCacheURL: { [weak self] in
-                guard let self else { return nil }
-                return GuestIntegrationCache.url(storageRoot: QEMUGPUStorageSpaceEstimate.storageRootURL(
-                    environment: self.baseEnvironment, preference: self.storageLocationStore.load()
-                ))
-            },
             bootFixCacheURL: { [weak self] in self?.bootFixCacheURL() },
             launch: { [weak self] in
                 self?.startVirtualMachine()

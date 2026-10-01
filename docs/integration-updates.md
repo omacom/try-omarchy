@@ -85,14 +85,21 @@ changed by Update. Customized or unsupported steps are reported, not forced.
 
 The normal supported setup is **Update and Launch**, without pasting a command.
 The guest review remains available for opt-in pairing and unsupported/custom
-repairs. When an integration check finds updates, repairs, or no response from the VM,
-the Mac launcher shows an attention notice above its settings, with the reason
-and a highlighted **Review…** button.
-Launch Omarchy and paste the supplied command into an Omarchy terminal. It mounts
-the app's dedicated read-only 9p share at `/mnt/try-omarchy-updates` and opens a
-review. The share is separate from the optional personal shared folder and needs no SSH connection.
+repairs under **Omarchy Menu > Setup > Try Omarchy Integrations**. The Mac
+launcher uses the launch-time Update action and per-fix results for routine
+updates; it does not show a separate manual-install banner or menu-bar prompt.
 
-Choose **Install/update integration support** and review replacements before
+If the guest menu entry is missing and the launch-time update cannot install it,
+launch Omarchy and paste this fallback command into an Omarchy terminal:
+
+```sh
+sudo mkdir -p /mnt/try-omarchy-updates && (mountpoint -q /mnt/try-omarchy-updates || sudo mount -t 9p -o trans=virtio,version=9p2000.L,ro tryomarchy-updates /mnt/try-omarchy-updates) && bash /mnt/try-omarchy-updates/setup
+```
+
+It mounts the app's dedicated read-only 9p share and opens a review. The share is
+separate from the optional personal shared folder and needs no SSH connection.
+
+Choose **Manually install/repair integration support (fallback)** and review replacements before
 confirming. Installation asks for the Linux user's sudo authorization, retains
 backups, and verifies each component before recording it as complete. Biometric
 enrollment remains a separate action. Existing PAM enrollment is preserved.
@@ -106,7 +113,8 @@ Integrations**, or with `try-omarchy-integrations` in the guest terminal.
 - Mac battery: installs the [host battery](host-battery.md) module and bridge, so
   the Mac's charge appears in the Omarchy bar. The guest builds the module with
   DKMS. VMs with the current integration are left as they are; older installed
-  versions are upgraded by **Install/update integration support**. The launcher's **Update** flow also updates eligible existing VMs on their next approved boot.
+  versions are upgraded by the launcher's **Update** flow on their next approved
+  boot. Manual installation remains available for skipped or unsupported repairs.
 
 The bundle contains upstream sudo Touch ID support and the Mac battery mirror.
 Additional integrations can be added after their own upstream review. The manager does not
@@ -128,7 +136,7 @@ An older, slow, or stopped guest agent cannot be distinguished by silence alone.
 
 When setup, updates, or repairs may be needed, an attention icon appears in the
 Mac menu bar with the status and a review action. It disappears after a healthy
-report. The app does not interrupt the VM with an automatic review dialog.
+report. The status bridge runs silently and does not show a separate review prompt.
 Checks still run on every launch.
 
 The launcher shows a compact attention notice only when the last check for the

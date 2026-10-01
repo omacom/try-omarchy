@@ -178,7 +178,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
-    private let integrationCacheURL: () -> URL?
     private let bootFixCacheURL: () -> URL?
     private let launch: () -> Void
     private let appVersionLabel: String
@@ -264,7 +263,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
-        integrationCacheURL: @escaping () -> URL? = { nil },
         bootFixCacheURL: @escaping () -> URL? = { nil },
         launch: @escaping () -> Void
     ) {
@@ -303,7 +301,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.confirmAutomaticStartup = confirmAutomaticStartup
-        self.integrationCacheURL = integrationCacheURL
         self.bootFixCacheURL = bootFixCacheURL
         self.launch = launch
         self.appVersionLabel = appVersionLabel
@@ -630,8 +627,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         }
         return false
     }
-
-    @objc private func reviewIntegrations() { GuestIntegrationSetup.show(window: window) }
 
     private func render() {
         for (button, wasEnabled) in permissionDisabledButtons {
@@ -1016,17 +1011,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             bootFixNotice = result
             settingsSections.insert(result, at: 0)
         } else if fixesPending {
-            let notice = NSTextField(wrappingLabelWithString: "VM fixes available. Update reviews and applies compatible file fixes before login.")
+            let notice = NSTextField(wrappingLabelWithString: "VM updates available. Update reviews and applies compatible fixes and integration support before login.")
             notice.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             notice.textColor = OmarchyStartMenuTheme.foreground
             bootFixNotice = notice
-            settingsSections.insert(notice, at: 0)
-        }
-        var integrationNotice: NSView?
-        if let status = GuestIntegrationCache.read(integrationCacheURL()),
-           status.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
-            let notice = integrationAttentionNotice(status)
-            integrationNotice = notice
             settingsSections.insert(notice, at: 0)
         }
         let stack = NSStackView(views: virtualMachineRunning
@@ -1087,7 +1075,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
 
-        integrationNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         bootFixNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         if virtualMachineRunning {
@@ -1112,69 +1099,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             reset.scrollToVisible(reset.bounds)
         }
         updatePermissionRequestControls()
-    }
-
-    private func integrationAttentionNotice(_ status: GuestIntegrationCache) -> NSView {
-        let title: String
-        let detail: String
-        if status.state == "no-response" {
-            title = "Check VM integrations"
-            detail = "The VM did not answer its last check. Review setup inside Omarchy."
-        } else if status.report?.identity != GuestIntegrationCache.bundledIdentity {
-            title = "VM integration update available"
-            detail = "Review and install the update inside Omarchy."
-        } else {
-            title = "VM integrations need repair"
-            detail = "Review and repair integrations inside Omarchy."
-        }
-
-        let symbol = NSImageView()
-        symbol.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
-        symbol.contentTintColor = OmarchyStartMenuTheme.accent
-        symbol.translatesAutoresizingMaskIntoConstraints = false
-        let heading = NSTextField(labelWithString: title)
-        heading.font = .monospacedSystemFont(ofSize: 12, weight: .bold)
-        heading.textColor = OmarchyStartMenuTheme.foreground
-        let explanation = NSTextField(wrappingLabelWithString: detail)
-        explanation.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        explanation.textColor = OmarchyStartMenuTheme.foreground
-        let labels = NSStackView(views: [heading, explanation])
-        labels.orientation = .vertical
-        labels.alignment = .leading
-        labels.spacing = 4
-        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        explanation.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let review = OmarchyActionButton(title: "Review…", style: .primary,
-            target: self, action: #selector(reviewIntegrations))
-        review.identifier = NSUserInterfaceItemIdentifier("integration-attention-review")
-        review.setAccessibilityLabel("Review VM integrations")
-        review.isEnabled = !controlsBusy && !resetInProgress
-        labels.translatesAutoresizingMaskIntoConstraints = false
-        let row = NSView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(symbol)
-        row.addSubview(labels)
-        row.addSubview(review)
-        NSLayoutConstraint.activate([
-            symbol.widthAnchor.constraint(equalToConstant: 20),
-            symbol.heightAnchor.constraint(equalToConstant: 20),
-            symbol.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-            symbol.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            labels.leadingAnchor.constraint(equalTo: symbol.trailingAnchor, constant: 12),
-            labels.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            labels.trailingAnchor.constraint(lessThanOrEqualTo: review.leadingAnchor, constant: -12),
-            explanation.widthAnchor.constraint(equalTo: labels.widthAnchor),
-            review.trailingAnchor.constraint(equalTo: row.trailingAnchor),
-            review.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            review.widthAnchor.constraint(equalToConstant: 90),
-            review.heightAnchor.constraint(equalToConstant: 30),
-            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-        ])
-        let notice = themedCard(containing: row, identifier: "integration-attention-notice")
-        notice.layer?.backgroundColor = OmarchyStartMenuTheme.accent.withAlphaComponent(0.10).cgColor
-        notice.layer?.borderColor = OmarchyStartMenuTheme.accent.withAlphaComponent(0.55).cgColor
-        return notice
     }
 
     private func sectionHeading(_ text: String) -> NSTextField {
