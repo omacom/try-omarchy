@@ -27,6 +27,12 @@ silently raise the app's deployment target. VirGL 1.3.0 is built from source
 with the pinned startergo 1.0.42 patch set and its dual-source shader regression
 tests; ANGLE 1.0.16 and libepoxy 1.0.5 retain their Sequoia bottles. This keeps
 the accelerated Alacritty fix without bundling the Tahoe-only VirGL bottle.
+VirGL uses `debugoptimized` (`-O2`) with assertions enabled, retaining diagnostics
+without shipping an unoptimized graphics command path.
+
+To leave capacity for other host applications during a runtime rebuild, use
+`OMARCHY_RUNTIME_BUILD_JOBS=2 make runtime`. The override bounds Ninja compilation
+for VirGL, libslirp, and QEMU; otherwise Ninja selects its usual parallelism.
 
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. The app builder is also directly usable

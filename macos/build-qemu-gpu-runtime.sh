@@ -16,10 +16,20 @@ The build is Apple-Silicon/HVF-only. It enables Cocoa+VirGL, SLIRP user
 networking, SDL duplex audio, and virtio-9p folder sharing. All downloaded source archives and wheels are
 immutable and checksum-pinned; scratch sources are removed on every exit.
 
+Set OMARCHY_RUNTIME_BUILD_JOBS to a positive integer to bound compilation.
 With --archive-dir, reuse already-downloaded pinned archives from DIR. Every
 archive is copied into private scratch space and checksum-verified before use.
 EOF
 }
+
+ninja_jobs=()
+if [[ -n ${OMARCHY_RUNTIME_BUILD_JOBS:-} ]]; then
+  [[ $OMARCHY_RUNTIME_BUILD_JOBS =~ ^[1-9][0-9]{0,5}$ ]] || {
+    echo 'qemu-source-build: OMARCHY_RUNTIME_BUILD_JOBS must be a positive integer' >&2
+    exit 64
+  }
+  ninja_jobs=(-j "$OMARCHY_RUNTIME_BUILD_JOBS")
+fi
 
 archive_cache=
 while (($#)); do
@@ -590,7 +600,8 @@ for virgl_patch in "${virgl_patches[@]}"; do
 done
 virgl_build="$virgl_source/build"
 meson="$tool_root/$meson_root/meson.py"
-log "Building patched VirGL 1.3.0 for macOS $macos_deployment_target"
+# Optimize the graphics command path while retaining assertions and diagnostics.
+log "Building optimized patched VirGL 1.3.0 for macOS $macos_deployment_target"
 env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
   DYLD_LIBRARY_PATH="$private_libraries" \
@@ -599,9 +610,9 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   OBJCFLAGS="-mmacosx-version-min=$macos_deployment_target -Werror=unguarded-availability-new" \
   LDFLAGS="-mmacosx-version-min=$macos_deployment_target -Wl,-headerpad_max_install_names" \
   python3 "$meson" setup "$virgl_build" "$virgl_source" \
-    --prefix="$virgl_root" --libdir=lib --buildtype=debug --wrap-mode=nodownload \
+    --prefix="$virgl_root" --libdir=lib --buildtype=debugoptimized -Db_ndebug=false --wrap-mode=nodownload \
     -Ddrm-renderers=[] -Dvenus=true -Dtests=false -Dvideo=false -Dtracing=none
-"$ninja" -C "$virgl_build"
+"$ninja" "${ninja_jobs[@]}" -C "$virgl_build"
 # These test the actual shader generator and blend-state transitions, without a VM.
 env DYLD_LIBRARY_PATH="$private_libraries" \
   python3 "$virgl_tap/tests/run-driver-regressions.py" \
@@ -624,7 +635,7 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   LDFLAGS="-mmacosx-version-min=$macos_deployment_target -Wl,-headerpad_max_install_names" \
   python3 "$meson" setup "$slirp_build" "$source_parent/$slirp_source_root" \
     --prefix="$slirp_root" --libdir=lib --buildtype=release --wrap-mode=nodownload
-"$ninja" -C "$slirp_build"
+"$ninja" "${ninja_jobs[@]}" -C "$slirp_build"
 # The explicit build above completed the test binaries using our private Ninja.
 env DYLD_LIBRARY_PATH="$slirp_build:$private_libraries" \
   python3 "$meson" test -C "$slirp_build" --no-rebuild --print-errorlogs
@@ -715,7 +726,7 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
   DYLD_LIBRARY_PATH="$private_libraries" \
   DYLD_FALLBACK_LIBRARY_PATH="$private_libraries" \
-  "$ninja" -C "$build_dir" qemu-system-aarch64
+  "$ninja" "${ninja_jobs[@]}" -C "$build_dir" qemu-system-aarch64
 
 qemu_binary="$build_dir/qemu-system-aarch64"
 description=$(file -b "$qemu_binary")
