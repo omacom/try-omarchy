@@ -8,6 +8,16 @@ automatically by the app at boot, separately from this review workflow. It
 changes the mount policy for that boot without replacing the guest kernel or
 requiring installation of integration support.
 
+The boot payload also repairs two compatible bugs in previously shipped native
+scripts: large clipboard selections and screensaver text in small windows. It
+replaces only the exact supported stock scripts (or repairs the current version's
+file mode). Missing clipboard support, unknown versions, customized scripts,
+and symlinked scripts are left alone. The screensaver's native helpers must be
+absent or match the bundled versions before any screensaver file is updated;
+custom branding text is never replaced. Unsupported files are logged in
+`journalctl -u try-omarchy-settings.service -b`. These small fixes do not change
+enrollment, the guest kernel, packages, or the integration manager's status.
+
 ## First setup
 
 When an integration check finds updates, repairs, or no response from the VM,

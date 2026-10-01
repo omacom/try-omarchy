@@ -249,6 +249,10 @@ for relative in \
   usr/local/lib/try-omarchy/install-power-profile.py \
   usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
+  usr/local/bin/omarchy-native-clipboard-bridge \
+  usr/bin/omarchy-screensaver \
+  usr/local/bin/omarchy-native-screensaver-text \
+  usr/local/bin/omarchy-native-cursor-restore \
   usr/local/bin/try-omarchy-timezone \
   usr/local/share/try-omarchy/timezone-setup.sh \
   usr/local/share/try-omarchy/timezone-menu-hooks.json \

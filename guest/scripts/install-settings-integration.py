@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Install only the app's settings entry points, from its read-only boot share."""
+"""Install settings and compatible stock-script fixes from the app's boot share."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -25,6 +26,18 @@ FILES = {
     "try-omarchy-timezone.service": ("usr/lib/systemd/system/try-omarchy-timezone.service", 0o644),
     "96-try-omarchy-timezone.rules": ("etc/udev/rules.d/96-try-omarchy-timezone.rules", 0o644),
     "try-omarchy-follow-timezone.desktop": ("usr/share/applications/try-omarchy-follow-timezone.desktop", 0o644),
+}
+NATIVE_FIX_FILES = {
+    "omarchy-native-clipboard-bridge": "usr/local/bin/omarchy-native-clipboard-bridge",
+    "omarchy-screensaver": "usr/bin/omarchy-screensaver",
+    "omarchy-native-screensaver-text": "usr/local/bin/omarchy-native-screensaver-text",
+    "omarchy-native-cursor-restore": "usr/local/bin/omarchy-native-cursor-restore",
+}
+# Exact previously shipped scripts, before the large-selection and small-window
+# fixes. Unknown versions and user edits must not be replaced at boot.
+PREVIOUS_NATIVE_HASHES = {
+    "omarchy-native-clipboard-bridge": "03e3c6cf56f04c98434c32c7a4dd45a5ef1ab6dbcb4a76afbd186085c1d37bd5",
+    "omarchy-screensaver": "34c480f6eaabef574b700aa7b023b2048eaf4400cfdf6e04227e642c02191ed2",
 }
 MENU = ".config/omarchy/extensions/omarchy-menu.jsonc"
 DESKTOP = ".local/share/applications/try-omarchy-settings.desktop"
@@ -112,10 +125,47 @@ def install_user(payload, home):
     install_bytes(desktop if has_settings else visible_desktop, destination, 0o644)
 
 
+def matches_managed_file(path, source, previous=None, allow_absent=False):
+    if path.is_symlink():
+        return False
+    if not path.exists():
+        return allow_absent
+    if not path.is_file():
+        return False
+    contents = path.read_bytes()
+    return contents == source or hashlib.sha256(contents).hexdigest() == previous
+
+
+def install_native_fixes(payload, root):
+    for name, previous in PREVIOUS_NATIVE_HASHES.items():
+        destination = root / NATIVE_FIX_FILES[name]
+        if not destination.exists() and not destination.is_symlink():
+            continue
+        source = (payload / name).read_bytes()
+        if not matches_managed_file(destination, source, previous):
+            print(f"Keeping customized or unsupported {name}", flush=True)
+            continue
+        helpers = (
+            ("omarchy-native-screensaver-text", "omarchy-native-cursor-restore")
+            if name == "omarchy-screensaver" else ()
+        )
+        # A customized helper must not be combined with a new caller. Check all
+        # dependencies before writing any part of the screensaver update.
+        if any(not matches_managed_file(root / NATIVE_FIX_FILES[helper],
+                                        (payload / helper).read_bytes(), allow_absent=True)
+               for helper in helpers):
+            print("Keeping screensaver with customized native helpers", flush=True)
+            continue
+        for helper in helpers:
+            install_file(payload / helper, root / NATIVE_FIX_FILES[helper], 0o755)
+        install_bytes(source, destination, 0o755)
+
+
 def install_system(payload, root):
     for name, (relative, mode) in FILES.items():
         install_file(payload / name, root / relative, mode)
     install_menu(payload / "omarchy-menu.jsonc", root / "etc/skel")
+    install_native_fixes(payload, root)
 
 
 def main():
