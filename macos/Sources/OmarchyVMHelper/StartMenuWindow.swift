@@ -1010,12 +1010,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             result.identifier = NSUserInterfaceItemIdentifier("boot-fixes-result")
             bootFixNotice = result
             settingsSections.insert(result, at: 0)
-        } else if fixesPending {
-            let notice = NSTextField(wrappingLabelWithString: "VM updates available. Update reviews and applies compatible fixes and integration support before login.")
-            notice.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            notice.textColor = OmarchyStartMenuTheme.foreground
-            bootFixNotice = notice
-            settingsSections.insert(notice, at: 0)
         }
         let stack = NSStackView(views: virtualMachineRunning
             ? [headingStack, runningActions] + settingsSections + [resetHeading, resetCard]
