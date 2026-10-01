@@ -22,6 +22,8 @@ archive is copied into private scratch space and checksum-verified before use.
 EOF
 }
 
+# Use the guarded array expansions below: Bash 3.2 treats an empty array as
+# unbound under nounset, even when it has been initialized.
 ninja_jobs=()
 if [[ -n ${OMARCHY_RUNTIME_BUILD_JOBS:-} ]]; then
   [[ $OMARCHY_RUNTIME_BUILD_JOBS =~ ^[1-9][0-9]{0,5}$ ]] || {
@@ -612,7 +614,7 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   python3 "$meson" setup "$virgl_build" "$virgl_source" \
     --prefix="$virgl_root" --libdir=lib --buildtype=debugoptimized -Db_ndebug=false --wrap-mode=nodownload \
     -Ddrm-renderers=[] -Dvenus=true -Dtests=false -Dvideo=false -Dtracing=none
-"$ninja" "${ninja_jobs[@]}" -C "$virgl_build"
+"$ninja" ${ninja_jobs[@]+"${ninja_jobs[@]}"} -C "$virgl_build"
 # These test the actual shader generator and blend-state transitions, without a VM.
 env DYLD_LIBRARY_PATH="$private_libraries" \
   python3 "$virgl_tap/tests/run-driver-regressions.py" \
@@ -635,7 +637,7 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   LDFLAGS="-mmacosx-version-min=$macos_deployment_target -Wl,-headerpad_max_install_names" \
   python3 "$meson" setup "$slirp_build" "$source_parent/$slirp_source_root" \
     --prefix="$slirp_root" --libdir=lib --buildtype=release --wrap-mode=nodownload
-"$ninja" "${ninja_jobs[@]}" -C "$slirp_build"
+"$ninja" ${ninja_jobs[@]+"${ninja_jobs[@]}"} -C "$slirp_build"
 # The explicit build above completed the test binaries using our private Ninja.
 env DYLD_LIBRARY_PATH="$slirp_build:$private_libraries" \
   python3 "$meson" test -C "$slirp_build" --no-rebuild --print-errorlogs
@@ -726,7 +728,7 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
   DYLD_LIBRARY_PATH="$private_libraries" \
   DYLD_FALLBACK_LIBRARY_PATH="$private_libraries" \
-  "$ninja" "${ninja_jobs[@]}" -C "$build_dir" qemu-system-aarch64
+  "$ninja" ${ninja_jobs[@]+"${ninja_jobs[@]}"} -C "$build_dir" qemu-system-aarch64
 
 qemu_binary="$build_dir/qemu-system-aarch64"
 description=$(file -b "$qemu_binary")
