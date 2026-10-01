@@ -144,6 +144,42 @@ host scheduling, and core placement prevent treating this as an exact overhead
 measurement; it demonstrates that CPU-bound work can execute close to native
 speed, with substantial contention outliers.
 
+### Rejected fence-context experiment
+
+Stacks from an active command-heavy workload included
+`virtio_gpu_fence_poll → vrend_renderer_check_fences → eglMakeCurrent →
+ContextMtl::onUnMakeCurrent → Metal waitUntilScheduled`. Upstream VirGL still
+forces its housekeeping context before nonthreaded fence polling. A temporary
+Darwin patch instead rebound the last renderer context, retaining fence order,
+nonblocking checks, and query retirement. Its source checks, compiled deterministic
+tests, and runtime build passed, but that did not establish an actual GPU benefit.
+
+On the same current factory snapshot, the real test repeatedly created shared
+and unshared GLES contexts, checked fences and occlusion-query results, validated
+pixel colors, and destroyed all contexts. The unchanged optimized runtime passed
+60 cycles / 2,160 frames in **8.91 seconds**; the candidate passed in **70.48
+seconds**, exceeding the original 30-second test budget. It was progressing,
+not deadlocked. Basic synchronous draws completed in both versions. These are
+observations under concurrent Mac use, not a controlled percentage claim, but
+they reject this candidate as a useful optimization. The patch was removed;
+the shipping path retains the original context and synchronization behavior.
+
+Late runs also encountered host disk exhaustion. QMP reported `io-error` and
+the root block device reported `nospace`; CPU activity fell nearly to zero when
+the VM stopped. Earlier apparent stalls and late resource figures are therefore
+invalid graphics/idle evidence. Removing only the closed disposable factory copy
+restored roughly 5.4 GiB; subsequent tests used an APFS clone of the current
+factory image. The baseline then passed the context workload, with similar draw
+times before and after it. No writable personal VM disk was removed. The sampler's
+QMP guard prevents this failure from being mislabeled as efficient idle behavior.
+
+The published-package check found QEMU 11.1.1, Omarchy 4.0.4, ANGLE tap 1.0.16,
+and VirGL tap 1.0.42 already pinned. No package upgrade was needed for these tests.
+See the [QEMU download page](https://www.qemu.org/download/),
+[Omarchy release](https://github.com/basecamp/omarchy/releases/tag/v4.0.4),
+[ANGLE tap releases](https://github.com/startergo/homebrew-angle/releases), and
+[VirGL tap releases](https://github.com/startergo/homebrew-virglrenderer/releases).
+
 ### Memory and reliability
 
 The rebuilt runtime's existing disposable reclamation test verified three
@@ -238,6 +274,15 @@ Video playback CPU, dropped frames, and battery cost need separate measurements.
   earlier measurements after an invalid sample. Socket binding was denied in the
   sandbox; the same tests passed outside it. The updated sampler also ran against
   actual Linux counters and a real QEMU QMP socket.
+- After removing the fence experiment, `OMARCHY_RUNTIME_BUILD_JOBS=2 nice -n 10 make runtime`
+  passed again. The final `nice -n 10 make test TEST_JOBS=2` passed with the counts
+  above, including the profiler tests. No fence-context patch remains in the build.
+- `codesign --verify --deep --strict --verbose=2 'dist/app.noindex/Try Omarchy.app'`:
+  the later current bundle passed outside the sandbox; the sandboxed attempt failed
+  with `CSSMERR_TP_NOT_TRUSTED`. `macos/verify-macos-compatibility.sh "$PWD/dist/app.noindex/Try Omarchy.app"`
+  passed for all 22 Mach-O images. Its compiled fence-poll function matches the
+  unchanged optimized baseline, rather than the archived experiment. This artifact
+  audit does not turn the earlier interrupted `make app` into a successful build.
 
 Raw logs, workload sources, JSON measurements, and guest captures are local under
 `dist/performance-2026-10-01/` and are deliberately not committed.

@@ -230,10 +230,10 @@ def collect(args, system, monitor):
     next_sample = min(deadline, started + args.interval)
     while True:
         time.sleep(max(0, next_sample - time.monotonic()))
-        current = {pid: read(pid) for pid in args.pid}
-        current_system = read_system()
         if monitor is not None:
             monitor.check()
+        current = {pid: read(pid) for pid in args.pid}
+        current_system = read_system()
         timestamp = time.monotonic()
         for pid in args.pid:
             if current[pid]["identity"] != first[pid]["identity"]:

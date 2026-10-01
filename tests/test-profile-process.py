@@ -20,9 +20,13 @@ class ProfileTests(unittest.TestCase):
             output = Path(directory) / "profile.json"
             output.write_text("previous measurement\n")
             server = socket.socket(socket.AF_UNIX)
-            server.bind(str(path))
-            server.listen(1)
-            server.settimeout(5)
+            try:
+                server.bind(str(path))
+                server.listen(1)
+                server.settimeout(5)
+            except Exception:
+                server.close()
+                raise
             failures = []
 
             def respond():
