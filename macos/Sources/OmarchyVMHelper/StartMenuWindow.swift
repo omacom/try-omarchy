@@ -199,6 +199,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var resetPhase = VMResetPhase.checking
     private weak var resetActionButton: OmarchyActionButton?
     private var launchInProgress = false
+    private var launchPhase = VMLaunchPhase.checking
+    private weak var launchActionButton: OmarchyActionButton?
     private var virtualMachineRunning = false
     private var closeRunningSettings: (() -> Void)?
     private var shutdownInProgress = false
@@ -507,6 +509,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         window.orderOut(nil)
     }
 
+    func launchDidProgress(to phase: VMLaunchPhase) {
+        guard launchInProgress, launchPhase != phase else { return }
+        launchPhase = phase
+        launchActionButton?.updateTitle(phase.buttonTitle)
+        launchActionButton?.invalidateIntrinsicContentSize()
+        NSAccessibility.post(
+            element: window,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: phase.buttonTitle,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
     func resetDidProgress(to phase: VMResetPhase) {
         guard resetInProgress, resetPhase != phase else { return }
         resetPhase = phase
@@ -536,9 +553,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             alert.alertStyle = .informational
             alert.messageText = "Omarchy has been reset"
             if let estimate = pendingResetSpaceEstimate {
-                alert.informativeText = "The VM is back to factory settings. Up to \(estimate) of disk space was reclaimed. You can launch whenever you’re ready."
+                alert.informativeText = "The VM has been deleted. Up to \(estimate) of disk space was reclaimed. A fresh VM will be prepared when you next launch."
             } else {
-                alert.informativeText = "The VM is back to factory settings. You can launch whenever you’re ready."
+                alert.informativeText = "The VM has been deleted. A fresh VM will be prepared when you next launch."
             }
         }
         pendingResetSpaceEstimate = nil
@@ -906,13 +923,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
         let fixesPending = GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity)
-        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? "Launching Omarchy…" : (fixesPending ? "Update" : "Launch Omarchy"))
+        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : (fixesPending ? "Update" : "Launch Omarchy"))
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
             style: .primary,
             target: self,
             action: virtualMachineRunning ? #selector(closeSettings) : #selector(launchOmarchy)
         )
+        launchActionButton = launchButton
         launchButton.keyEquivalent = launchInProgress ? "" : "\r"
         launchButton.isEnabled = virtualMachineRunning || (!launchInProgress
             && !resetInProgress)
@@ -1897,6 +1915,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
               !resetInProgress,
               !microphoneRequestInFlight,
               !cameraRequestInFlight else { return }
+        launchPhase = .checking
         launchInProgress = true
         render()
         launch()

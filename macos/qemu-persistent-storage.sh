@@ -60,6 +60,11 @@ _qps_reset_progress() {
   printf '[qemu-gpu] Reset phase: %s\n' "$1" >&2
 }
 
+_qps_launch_progress() {
+  [[ ${qps_launch_in_progress:-0} == 1 ]] || return 0
+  printf '[qemu-gpu] Launch phase: %s\n' "$1" >&2
+}
+
 _qps_fail() {
   _qps_error "$*"
   return 1
@@ -1152,7 +1157,7 @@ _qps_prepare_disk() {
   local qps_source_sha=$4
   local qps_zstd=${5:-}
 
-  _qps_reset_progress preparing
+  _qps_launch_progress preparing
   if [[ -z $qps_zstd ]]; then
     _qps_clone_disk "$qps_source" "$qps_destination" "$qps_source_bytes"
     return $?
@@ -1163,7 +1168,7 @@ _qps_prepare_disk() {
     return 1
   fi
   chmod 600 "$qps_destination" || return 1
-  _qps_reset_progress verifying
+  _qps_launch_progress verifying
   if ! _qps_validate_expanded_disk "$qps_destination" "$qps_source_bytes" ||
     [[ $(_qps_sha256 "$qps_destination") != "$qps_source_sha" ]]; then
     /bin/rm -f -- "$qps_destination"
@@ -1301,7 +1306,7 @@ _qps_initialize_persistent_disk() {
       "$qps_working_bytes" 1 || true
     return 1
   fi
-  _qps_reset_progress finishing
+  _qps_launch_progress finishing
   _qps_validate_store_directory \
     "$qps_staging" "$qps_identity" "$qps_source_sha" "$qps_source_bytes" \
     "$qps_working_bytes" || return 1
@@ -1683,6 +1688,74 @@ _qps_publish_recorded_selection() {
   _qps_set_selected_boot_kit "$QPS_METADATA_IDENTITY"
 }
 
+_qps_clear_workspace_locked() {
+  local qps_identity=$1
+  local qps_storage_key=$2
+  # Validate an orphan current-identity boot entry before deleting any disk,
+  # then re-check it immediately before removal below.
+  if ! _qps_validate_boot_kit_reset_target "$qps_identity"; then
+    return 1
+  fi
+  _qps_reset_progress deleting
+  if ! _qps_reset_persistent_disk "$qps_storage_key"; then
+    return 1
+  fi
+  if [[ $qps_storage_key == current ]] && \
+    ! _qps_reset_remaining_legacy_workspaces; then
+    return 1
+  fi
+  # A prior interrupted reset can leave the current app identity's boot kit
+  # after its disk has already gone. Reset is explicitly destructive, so
+  # discard that exact app-owned entry too.
+  if ! _qps_reset_boot_kit "$qps_identity"; then
+    return 1
+  fi
+}
+
+# A confirmed UI reset only removes the recorded workspace and boot kit. It
+# requires neither a factory source disk nor enough room to create a new one.
+qemu_persistent_storage_reset() {
+  local qps_identity=${1:-}
+  local qps_storage_key=current
+  local qps_reset_in_progress=1
+  local qps_status=0
+
+  _qps_is_identity "$qps_identity" || {
+    _qps_fail 'bundle identity must be exactly 64 lowercase hexadecimal characters'
+    return 1
+  }
+  _qps_prepare_state_root || return 1
+  case "${OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK:-0}" in
+    0) ;;
+    1) qps_storage_key=$qps_identity ;;
+    *) _qps_fail 'OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK must be 0 or 1'; return 1 ;;
+  esac
+  _qps_acquire_lock "$qps_storage_key" || return 1
+  if [[ $qps_storage_key == current ]]; then
+    if ! _qps_migrate_legacy_single_workspace reset "$qps_identity"; then
+      qemu_persistent_storage_release_lock
+      return 1
+    fi
+  fi
+  _qps_reap_interrupted_work "$qps_storage_key"
+  if _qps_clear_workspace_locked "$qps_identity" "$qps_storage_key"; then
+    _qps_reset_progress finishing
+    QEMU_SELECTED_DISK=''
+    QEMU_SELECTED_STORAGE_MODE=''
+    QEMU_PERSISTENT_STORAGE_WORKING_BYTES=''
+    QEMU_PERSISTENT_STORAGE_NEEDS_BOOT_RECOVERY=0
+    QEMU_SELECTED_KERNEL=''
+    QEMU_SELECTED_INITRAMFS=''
+    QEMU_SELECTED_KERNEL_COMMAND_LINE=''
+    QEMU_PERSISTENT_STORAGE_DIRECTORY=''
+    QEMU_PERSISTENT_STORAGE_IDENTITY=''
+  else
+    qps_status=$?
+  fi
+  qemu_persistent_storage_release_lock
+  return "$qps_status"
+}
+
 _qps_select_persistent_disk() {
   local qps_mode=$1
   local qps_identity=$2
@@ -1697,6 +1770,7 @@ _qps_select_persistent_disk() {
   local qps_final=''
   local qps_status=0
   local qps_storage_key='current'
+  local qps_launch_in_progress=1
   local qps_reset_in_progress=0
   [[ $qps_mode != reset ]] || qps_reset_in_progress=1
 
@@ -1726,26 +1800,7 @@ _qps_select_persistent_disk() {
 
   _qps_reap_interrupted_work "$qps_storage_key"
   if [[ $qps_mode == reset ]]; then
-    # Validate an orphan current-identity boot entry before deleting any disk,
-    # then re-check it immediately before removal below.
-    if ! _qps_validate_boot_kit_reset_target "$qps_identity"; then
-      qemu_persistent_storage_release_lock
-      return 1
-    fi
-    _qps_reset_progress deleting
-    if ! _qps_reset_persistent_disk "$qps_storage_key"; then
-      qemu_persistent_storage_release_lock
-      return 1
-    fi
-    if [[ $qps_storage_key == current ]] && \
-      ! _qps_reset_remaining_legacy_workspaces; then
-      qemu_persistent_storage_release_lock
-      return 1
-    fi
-    # A prior interrupted reset can leave the current app identity's boot kit
-    # after its disk has already gone. Reset is explicitly destructive, so
-    # discard that exact app-owned entry before creating the fresh VM too.
-    if ! _qps_reset_boot_kit "$qps_identity"; then
+    if ! _qps_clear_workspace_locked "$qps_identity" "$qps_storage_key"; then
       qemu_persistent_storage_release_lock
       return 1
     fi
@@ -1787,6 +1842,7 @@ _qps_select_persistent_disk() {
 }
 
 _qps_select_ephemeral_disk() {
+  local qps_launch_in_progress=1
   local qps_source=$1
   local qps_source_bytes=$2
   local qps_work_directory=$3
@@ -1814,6 +1870,7 @@ _qps_select_ephemeral_disk() {
     [[ ! -e $qps_staging && ! -L $qps_staging ]] || /bin/rm -f "$qps_staging"
     return 1
   fi
+  _qps_launch_progress finishing
   _qps_fsync "$qps_staging" || return 1
   /bin/mv "$qps_staging" "$qps_final" || {
     _qps_fail 'cannot publish ephemeral root disk'

@@ -108,9 +108,10 @@ legacy disks, still use the user-facing, confirmed Reset Omarchy flow.
 That destructive flow keeps **Reset** disabled until the user types
 `Try Omarchy` exactly in a native sheet. Cancelling or dismissing the sheet
 returns control without invoking the storage reset. During reset, the disabled
-button names the current phase: checking the VM, deleting it, preparing and
-verifying the new image, then finishing the reset. Phase changes come from the
-storage process and are also announced to VoiceOver.
+button names the current phase: checking the VM, deleting it, then finishing
+the reset. The next launch prepares a new disk if needed, with its button
+showing checking, image preparation, verification, setup, and startup phases.
+Phase changes come from the launcher process and are also announced to VoiceOver.
 
 The start menu can move that workspace to any APFS folder the user picks; the
 folder is used exactly as chosen, never with a folder created inside it — a
@@ -121,9 +122,10 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
-New and reset VMs decompress the bundled factory directly into the staged
-writable disk; no expanded factory-image cache is retained. Reset therefore
-repeats decompression and digest verification. The validated native helper
+Reset deletes the VM without creating a replacement or requiring creation
+headroom. On the next launch, a missing VM decompresses the bundled factory
+directly into the staged writable disk; no expanded factory-image cache is
+retained. The validated native helper
 streams SHA-256 through CryptoKit, including the full expanded factory digest.
 Existing VMs launch without decompression. Confirmed reset also removes safely
 recognized disks left by older development launches; normal launch preserves

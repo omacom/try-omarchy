@@ -312,6 +312,11 @@ _qps_permissions() { /usr/bin/stat -f '%Lp' "$1"; }
 _qps_lstat_kind() { /usr/bin/stat -f '%HT' "$1"; }
 _qps_size() { /usr/bin/stat -f '%z' "$1"; }
 qemu_persistent_storage_release_lock() { :; }
+qemu_persistent_storage_reset() {
+  printf 'clear\n' >>"$FAKE_STORAGE_LOG"
+  /bin/rm -f "$FAKE_PERSISTENT_ROOT/rootfs.ext4"
+  /bin/rm -rf "$FAKE_PERSISTENT_ROOT/boot"
+}
 qemu_persistent_storage_select_existing() {
   printf 'select-existing\n' >>"$FAKE_STORAGE_LOG"
   QEMU_SELECTED_DISK="$FAKE_PERSISTENT_ROOT/rootfs.ext4"
@@ -1087,12 +1092,11 @@ assert_contains "$(<"$test_root/malformed/stderr")" 'canonical decimal'
 run_scenario reset-only 0 --reset-storage-only \
   OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2225:22 \
   FAKE_HOST_KEYBOARD_FAIL=1
-assert_contains "$(<"$test_root/reset-only/storage.log")" 'select reset'
+assert_contains "$(<"$test_root/reset-only/storage.log")" 'clear'
 [[ ! -e $test_root/reset-only/qemu.log ]] || fail 'reset-only launch started QEMU'
+[[ ! -e $persistent_root/rootfs.ext4 ]] || fail 'reset-only kept or created a disk'
 assert_not_contains "$(<"$test_root/reset-only/stderr")" tryomarchy.ssh_access
-assert_contains "$(<"$persistent_root/boot/kernel")" new-kernel
-assert_contains "$(<"$persistent_root/boot/initramfs")" new-initramfs
-assert_contains "$(<"$persistent_root/boot/command-line")" loglevel=5
+[[ ! -e $persistent_root/boot ]] || fail 'reset-only kept or created a boot kit'
 
 # Dry runs must construct a bridge without requesting administrator access.
 run_scenario bridge-preview 0 --ephemeral OMARCHY_QEMU_GPU_DRY_RUN=1 \

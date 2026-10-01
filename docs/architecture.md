@@ -246,11 +246,12 @@ creates the account on first boot.
   (Bopomofo), the fontconfig rule prefers Traditional Chinese Han variants for
   `zh-TW` text, and Chromium receives the Wayland IME flag needed for fcitx5.
 
-New and reset VMs decompress the compressed factory directly into their
-unpublished writable disk, verify its expanded size and digest, and publish it
+When no VM exists, launch decompresses the compressed factory directly into its
+unpublished writable disk, verifies its expanded size and digest, and publishes it
 atomically. No expanded factory-image cache is retained. Development launches
 through `make run` use the same single-workspace policy as normal app launches;
-reset and ephemeral mode select the current factory for testing.
+confirmed reset deletes the workspace, and the next launch selects the current
+factory. Ephemeral mode also selects the current factory for testing.
 
 Resources can set an optional maximum virtual disk capacity. On the next
 normal launch, an existing disk is sparsely extended under the workspace lock,
@@ -273,12 +274,13 @@ launch the existing VM without decompressing, cloning, expanding, or charging
 free space for its new factory disk.
 
 The current bundled factory applies only when no persistent VM exists, after an
-explicitly confirmed reset, or in ephemeral mode. New and reset VMs atomically
-stage the current factory's boot kit with the new writable disk. A compatible
+explicitly confirmed reset, or in ephemeral mode. Reset only deletes the VM;
+launch atomically stages the current factory's boot kit with a new writable
+disk when none exists. A compatible
 legacy identity-keyed disk can be migrated into the single workspace without
 discarding its contents. If several recognized legacy disks exist, normal
-launch stops at the start menu; confirmed reset safely removes them before
-publishing one fresh workspace. Unrecognized host files are always left
+launch stops at the start menu; confirmed reset safely removes them. The next
+launch publishes one fresh workspace. Unrecognized host files are always left
 untouched.
 
 Older schema-2 VMs predate saved boot kits. Their first preserving launch uses

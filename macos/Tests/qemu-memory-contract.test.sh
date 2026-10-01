@@ -228,6 +228,11 @@ _qps_permissions() { /usr/bin/stat -f '%Lp' "$1"; }
 _qps_lstat_kind() { /usr/bin/stat -f '%HT' "$1"; }
 _qps_size() { /usr/bin/stat -f '%z' "$1"; }
 qemu_persistent_storage_release_lock() { :; }
+qemu_persistent_storage_reset() {
+  printf 'clear\n' >>"$FAKE_STORAGE_LOG"
+  /bin/rm -f "$FAKE_PERSISTENT_ROOT/rootfs.ext4"
+  /bin/rm -rf "$FAKE_PERSISTENT_ROOT/boot"
+}
 qemu_persistent_storage_grow_selected() {
   printf 'grow:%s\n' "$1" >>"$FAKE_STORAGE_LOG"
 }

@@ -662,6 +662,9 @@ local repository. Installing a newer Try Omarchy app therefore does not apply
 all of that app's factory-image changes to an existing VM, and an in-guest
 update should not be assumed to reproduce them. A confirmed reset is the
 deliberate, destructive way to start again from the newest bundled factory.
+Reset deletes the saved VM; the next launch prepares its replacement. Launch
+shows image preparation and verification progress when a new disk is needed,
+then startup progress.
 
 ### Updating integrations in an existing VM
 

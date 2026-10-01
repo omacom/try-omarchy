@@ -298,12 +298,15 @@ compressed_state="$test_root/compressed-state"
       "$mode" "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" '' \
       "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a" "$zstd_test" \
       2>"$test_root/reset-phases.log"
-    sed -n 's/^\[qemu-gpu\] Reset phase: //p' "$test_root/reset-phases.log" >"$test_root/actual-phases"
+    sed -n -e 's/^\[qemu-gpu\] Reset phase: /reset:/p' \
+      -e 's/^\[qemu-gpu\] Launch phase: /launch:/p' \
+      "$test_root/reset-phases.log" >"$test_root/actual-phases"
     if [[ $mode == reset ]]; then
-      printf '%s\n' deleting preparing verifying finishing >"$test_root/expected-phases"
+      printf '%s\n' reset:deleting launch:preparing launch:verifying launch:finishing >"$test_root/expected-phases"
       assert cmp -s "$test_root/actual-phases" "$test_root/expected-phases"
     else
-      assert test ! -s "$test_root/actual-phases"
+      printf '%s\n' launch:preparing launch:verifying launch:finishing >"$test_root/expected-phases"
+      assert cmp -s "$test_root/actual-phases" "$test_root/expected-phases"
     fi
     assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
     assert test ! -e "$compressed_state/images"
@@ -322,6 +325,51 @@ compressed_state="$test_root/compressed-state"
     ephemeral "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" \
     "$ephemeral_compressed" "$source_bytes" '' '' '' "$zstd_test"
   assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
+)
+
+# UI reset clears the VM without a factory source or free-space headroom,
+# releases the lock, and leaves creation to the next normal launch.
+(
+  export OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/clear-only-state"
+  export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0
+  qemu_persistent_storage_select \
+    persistent "$identity_a" "$source_disk" "$source_sha" "$source_bytes" '' \
+    "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a"
+  assert_fails /bin/bash -c \
+    'source "$1"; qemu_persistent_storage_reset "$2"' \
+    qps-reset-lock-test "$native_dir/qemu-persistent-storage.sh" "$identity_a" 9>&-
+  assert test -f "$QEMU_SELECTED_DISK"
+  qemu_persistent_storage_release_lock
+  export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1
+  qemu_persistent_storage_select \
+    persistent "$identity_b" "$source_disk_b" "$source_sha_b" "$source_bytes_b" '' \
+    "$source_bytes_b" "$kernel_b" "$initramfs_b" "$kernel_command_line_b"
+  qemu_persistent_storage_release_lock
+  export OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=0
+  printf 'keep me\n' >"$OMARCHY_QEMU_GPU_STATE_ROOT/notes.txt"
+  export OMARCHY_QEMU_GPU_TEST_FREE_BYTES=0
+  qemu_persistent_storage_reset "$identity_b" 2>"$test_root/clear-phases.log"
+  assert test ! -e "$OMARCHY_QEMU_GPU_STATE_ROOT/disks/current"
+  assert test ! -e "$OMARCHY_QEMU_GPU_STATE_ROOT/disks/$identity_b"
+  assert test ! -e "$OMARCHY_QEMU_GPU_STATE_ROOT/boot/$identity_a"
+  assert test ! -e "$OMARCHY_QEMU_GPU_STATE_ROOT/boot/$identity_b"
+  assert test -f "$OMARCHY_QEMU_GPU_STATE_ROOT/notes.txt"
+  assert_fails _qps_lock_fd_is_open
+  sed -n 's/^\[qemu-gpu\] Reset phase: //p' "$test_root/clear-phases.log" >"$test_root/actual-phases"
+  printf '%s\n' deleting finishing >"$test_root/expected-phases"
+  assert cmp -s "$test_root/actual-phases" "$test_root/expected-phases"
+  assert_status "$QEMU_PERSISTENT_STORAGE_MISSING_STATUS" \
+    qemu_persistent_storage_select_existing "$identity_b" "$kernel_b" "$initramfs_b" "$kernel_command_line_b"
+  unset OMARCHY_QEMU_GPU_TEST_FREE_BYTES
+  qemu_persistent_storage_select \
+    persistent "$identity_b" "$compressed_disk" "$source_sha" "$source_bytes" '' \
+    "$source_bytes" "$kernel_b" "$initramfs_b" "$kernel_command_line_b" "$zstd_test" \
+    2>"$test_root/launch-phases.log"
+  assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
+  qemu_persistent_storage_release_lock
+  sed -n 's/^\[qemu-gpu\] Launch phase: //p' "$test_root/launch-phases.log" >"$test_root/actual-phases"
+  printf '%s\n' preparing verifying finishing >"$test_root/expected-phases"
+  assert cmp -s "$test_root/actual-phases" "$test_root/expected-phases"
 )
 
 # The factory workspace grows sparsely while its immutable source stays at the

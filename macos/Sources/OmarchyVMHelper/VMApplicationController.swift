@@ -433,12 +433,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         // Switching the setting is allowed; erasing on that same click is not,
         // so the reset is abandoned and they get an accurate confirmation the
         // next time they ask for one.
-        guard resolveStorageLocationAvailability() == .available else {
+        guard resolveStorageLocationAvailability(forReset: true) == .available else {
             startMenuWindow?.resetDidAbort()
             return
         }
         do {
-            let context = childLaunchContext()
+            let context = childLaunchContext(forReset: true)
             guard context.storageUnavailableReason == nil else {
                 startMenuWindow?.resetDidFinish(
                     errorMessage: context.storageUnavailableReason
@@ -567,7 +567,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     /// context is shared with Reset, and a reset that only wipes the VM disk
     /// should never fail because an unrelated port mapping is unavailable.
     /// `launch()` validates the composed mappings itself, after calling this.
-    private func childLaunchContext() -> ChildLaunchContext {
+    private func childLaunchContext(forReset: Bool = false) -> ChildLaunchContext {
         let audio = AudioLaunchConfiguration.make(
             baseEnvironment: QEMUGPURuntimeEnvironment.sanitizedForLaunch(baseEnvironment),
             preferences: preferenceStore.load(),
@@ -607,7 +607,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let storage = StorageLocationLaunchConfiguration.make(
             baseEnvironment: storageEnvironment,
             preference: storageLocationStore.load(),
-            metrics: bundledMetrics,
+            metrics: forReset ? nil : bundledMetrics,
             probe: volumeProbe,
             volumeRootDetector: volumeRootDetector
         )
@@ -651,6 +651,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                     switch event {
                     case .virtualMachineReady(let qmpSocketPath):
                         self?.virtualMachineDidStart(qmpSocketPath: qmpSocketPath)
+                    case .launchProgress(let phase):
+                        self?.startMenuWindow?.launchDidProgress(to: phase)
                     case .resetProgress:
                         break
                     }
@@ -933,7 +935,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         return (configured?.isEmpty == false) ? configured : nil
     }
 
-    private func resolveStorageLocationAvailability() -> StorageAvailability {
+    private func resolveStorageLocationAvailability(forReset: Bool = false) -> StorageAvailability {
         // An override wins over the preference on the way to the launcher, so
         // the preference's reachability says nothing about this run. The
         // launcher validates the override itself and fails loudly.
@@ -943,7 +945,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         do {
             _ = try StorageLocationPolicy.validate(
                 container,
-                metrics: bundledMetrics,
+                metrics: forReset ? nil : bundledMetrics,
                 probe: volumeProbe,
                 volumeRootDetector: volumeRootDetector
             )
