@@ -113,6 +113,7 @@ def component_files(root: Path, component: str) -> list[Path]:
             root / "macos/verify-macos-compatibility.sh",
         ]
         paths.extend(regular_files(root / "macos/patches"))
+        paths.extend(regular_files(root / "macos/Tests/virgl"))
         return sorted(paths)
 
     if component == "app":

@@ -27,6 +27,15 @@ silently raise the app's deployment target. VirGL 1.3.0 is built from source
 with the pinned startergo 1.0.42 patch set and its dual-source shader regression
 tests; ANGLE 1.0.16 and libepoxy 1.0.5 retain their Sequoia bottles. This keeps
 the accelerated Alacritty fix without bundling the Tahoe-only VirGL bottle.
+The launcher selects native macOS OpenGL (`cocoa,gl=on`). The local VirGL
+OpenGL compatibility patch preserves real sample counts and falls back to mutable
+multisample textures when immutable multisample storage is unavailable. This
+restores default browser acceleration through the shared VM graphics device.
+It also selects integer attributes for native Apple GL and avoids duplicate
+alpha and BGRA channel conversions. Older verified factories that record
+`angle-metal` remain accepted because the guest virtio/VirGL ABI is unchanged.
+The build runs the actual format-probe regression with controlled GL entry
+points, alongside the upstream shader and blend tests.
 VirGL uses `debugoptimized` (`-O2`) with assertions enabled, retaining diagnostics
 without shipping an unoptimized graphics command path.
 

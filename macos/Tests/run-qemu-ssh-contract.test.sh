@@ -582,6 +582,42 @@ fi
 assert_contains "$development_validation" \
   'root=/dev/vda rw rootwait console=tty0 console=hvc0'
 
+# Verified older factories retain their creation-time host renderer metadata.
+# Accept that known ABI, but reject arbitrary backends before launching QEMU.
+for renderer in angle-metal unsupported-renderer macos-opengl; do
+  /usr/bin/python3 - "$development_guest" "$renderer" <<'PY_GRAPHICS'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+guest = Path(sys.argv[1])
+spec_path = guest / "build-spec.json"
+spec = json.loads(spec_path.read_text())
+spec["runtime"]["graphics"]["hostRenderer"] = sys.argv[2]
+spec_path.write_text(json.dumps(spec) + "\n")
+manifest_path = guest / "guest-manifest.json"
+manifest = json.loads(manifest_path.read_text())
+for artifact in manifest["artifacts"]:
+    if artifact["path"] == "build-spec.json":
+        artifact["bytes"] = spec_path.stat().st_size
+        artifact["sha256"] = hashlib.sha256(spec_path.read_bytes()).hexdigest()
+manifest_path.write_text(json.dumps(manifest) + "\n")
+checksums = {artifact["path"]: artifact["sha256"] for artifact in manifest["artifacts"]}
+checksums["guest-manifest.json"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+(guest / "SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for name, digest in sorted(checksums.items())))
+PY_GRAPHICS
+  graphics_status=0
+  env PATH="$shim_dir:/usr/bin:/bin:/usr/sbin:/sbin" \
+    OMARCHY_QEMU_GPU_INSPECT_ONLY=1 "$launcher" "$development_guest" \
+    >"$test_root/graphics-$renderer.stdout" 2>"$test_root/graphics-$renderer.stderr" || graphics_status=$?
+  if [[ $renderer == unsupported-renderer ]]; then
+    [[ $graphics_status != 0 ]] || fail 'unsupported graphics backend was accepted'
+  else
+    [[ $graphics_status == 0 ]] || fail "compatible graphics metadata rejected: $renderer"
+  fi
+done
+
 run_scenario() {
   local scenario=$1
   local expected_status=$2
@@ -649,7 +685,7 @@ assert_not_contains "$disabled_qemu" hostfwd
 assert_not_contains "$disabled_qemu" tryomarchy.ssh_access
 assert_keyboard_lockstep "$test_root/disabled/qemu.log" iso
 assert_contains "$disabled_qemu" \
-  'cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=on,full-grab=on,immersive=on,swap-opt-cmd=off'
+  'cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=on,full-grab=on,immersive=on,swap-opt-cmd=off'
 assert_contains "$disabled_qemu" \
   'socket,id=omarchy-authentication-bridge,path='
 assert_contains "$disabled_qemu" \
@@ -856,7 +892,7 @@ assert_contains "$(<"$test_root/audio-failure/stderr")" 'native audio bridge exi
 run_scenario non-immersive 0 '' OMARCHY_QEMU_GPU_IMMERSIVE=0
 non_immersive_qemu=$(<"$test_root/non-immersive/qemu.log")
 assert_contains "$non_immersive_qemu" \
-  'cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=off,full-grab=on,immersive=off,swap-opt-cmd=off'
+  'cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=off,full-grab=on,immersive=off,swap-opt-cmd=off'
 
 run_scenario hvf-trace 0 '' OMARCHY_QEMU_GPU_HVF_TRACE_LOG=/private/tmp/omarchy-hvf-trace.log
 assert_line_pair "$test_root/hvf-trace/qemu.log" -trace hvf_vm_map

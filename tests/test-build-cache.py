@@ -105,6 +105,22 @@ class BuildCacheTests(unittest.TestCase):
                     self.assertNotEqual(previous, current, name)
                     previous = current
 
+    def test_runtime_fingerprint_tracks_compiled_graphics_regressions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            regression = root / "macos/Tests/virgl/test-multisample-formats.c"
+            regression.parent.mkdir(parents=True)
+            regression.write_text("initial graphics regression\n")
+            for path in build_cache.component_files(root, "runtime"):
+                if not path.exists():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("fixture\n")
+            with patch.object(build_cache, "context", return_value={}):
+                previous = build_cache.fingerprint(root, "runtime", ["build-runtime"])
+                regression.write_text("updated graphics regression\n")
+                current = build_cache.fingerprint(root, "runtime", ["build-runtime"])
+            self.assertNotEqual(previous, current)
+
     @staticmethod
     def prepare_fake_guest(root: Path) -> None:
         (root / "guest").mkdir()

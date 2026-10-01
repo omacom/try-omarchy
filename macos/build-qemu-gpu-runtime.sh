@@ -76,6 +76,7 @@ usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
+virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -103,6 +104,7 @@ shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f
 memory_reclaim_patch_sha256=5d422130996b99145d017d4429df660a07c757388ef7d52cba389766c18b0acf
 mapped_sections_patch_sha256=2991378d565faeaf114bb5948bfa9ad05c39b078e4e1f4c2a674c3283800fab0
 fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a207fb1499
+virgl_native_patch_sha256=692ed73cf88780b4c0e04c56e3cfb21cec761768dea909d755624e07d82fc60c
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
@@ -600,6 +602,8 @@ virgl_patches=(
 for virgl_patch in "${virgl_patches[@]}"; do
   patch -d "$virgl_source" -p1 -f -i "$virgl_tap/patches/$virgl_patch"
 done
+verify_file_sha "Native OpenGL browser compatibility patch" "$virgl_native_patch" "$virgl_native_patch_sha256"
+patch -d "$virgl_source" -p1 -f -i "$virgl_native_patch"
 virgl_build="$virgl_source/build"
 meson="$tool_root/$meson_root/meson.py"
 # Optimize the graphics command path while retaining assertions and diagnostics.
@@ -618,6 +622,13 @@ env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
 # These test the actual shader generator and blend-state transitions, without a VM.
 env DYLD_LIBRARY_PATH="$private_libraries" \
   python3 "$virgl_tap/tests/run-driver-regressions.py" \
+    "$virgl_build" "$work_dir/virgl-regressions" -- \
+    "-L$epoxy_root/lib" -lepoxy \
+    -framework Metal -framework CoreFoundation -lobjc \
+    "-Wl,-rpath,$epoxy_root/lib" "-Wl,-rpath,$angle_root/lib"
+# Probe real format-selection code with controlled GL availability and failures.
+env DYLD_LIBRARY_PATH="$private_libraries" \
+  python3 "$native_dir/Tests/virgl/run-regressions.py" \
     "$virgl_build" "$work_dir/virgl-regressions" -- \
     "-L$epoxy_root/lib" -lepoxy \
     -framework Metal -framework CoreFoundation -lobjc \

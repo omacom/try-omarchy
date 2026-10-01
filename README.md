@@ -94,13 +94,13 @@ depth and priority inversion.
 
 ### Graphics chain
 
-Rendering reaches the GPU through Metal, but nothing in QEMU speaks Metal.
-virglrenderer replays the guest's commands as OpenGL ES, and ANGLE translates
-those into Metal, which is why the display is started with `gl=es`.
+The display uses QEMU's native macOS OpenGL backend (`gl=on`). VirGL replays
+Linux graphics commands in an Apple OpenGL 4.1 core context, backed by the
+Apple Silicon GPU.
 
 ```
-Hyprland / Omarchy
-  |  OpenGL
+Browser / Hyprland / Omarchy
+  |  OpenGL or OpenGL ES
   v
 Mesa virgl driver                       guest
   |  command stream
@@ -108,28 +108,23 @@ Mesa virgl driver                       guest
 virtio-gpu-gl-pci  ─────────────────────────── VM boundary
   |
   v
-virglrenderer                           host, replays as OpenGL ES
+virglrenderer                           host, replays as desktop OpenGL
   |
   v
-ANGLE  (libGLESv2.dylib, libEGL.dylib)  translates GL ES -> Metal
-  |
-  v
-Metal.framework                         Apple silicon GPU
+Apple OpenGL driver / Cocoa              Apple Silicon GPU
 ```
 
-Two things this makes explicit. The guest sees a plain virtio GPU and needs no
-Apple-specific driver. And the acceleration is real rather than a software
-rasteriser: `libGLESv2.dylib` and `libEGL.dylib` link `Metal.framework`
-directly, and the guest reports the renderer as
-`ANGLE (Apple, ANGLE Metal Renderer: <chip>)`.
+The guest sees a virtio GPU and needs no Apple-specific driver. The shared
+renderer preserves real multisample support and uses mutable multisample
+textures when macOS lacks immutable multisample storage. This allows browsers
+to create the ES 3 contexts they need for default acceleration, without
+browser-specific flags. Native Apple drivers also select integer vertex
+attributes automatically, with alpha and BGRA textures converted once.
+Hardware video decoding and Vulkan remain unavailable.
 
-This chain is unchanged by the QEMU 11.1.1 move. That work touched the
-interrupt controller and the GL scanout plumbing — how a rendered texture is
-handed to the Cocoa window — not the rendering backend.
-
-Note that the upstream tap this builds from is named
-`homebrew-qemu-virgl-kosmickrisp`, but KosmicKrisp, Mesa's Vulkan-to-Metal
-driver, is not part of this path.
+The runtime also bundles pinned ANGLE libraries for its upstream compatibility
+code. ANGLE's Metal backend is not the default display path. KosmicKrisp,
+Mesa's Vulkan-to-Metal driver, is not part of this path.
 
 ### Not yet verified
 

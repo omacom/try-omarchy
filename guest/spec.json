@@ -644,7 +644,7 @@
       "device": "virtio-gpu-gl-pci",
       "display": "cocoa",
       "guestRenderer": "virgl",
-      "hostRenderer": "angle-metal"
+      "hostRenderer": "macos-opengl"
     },
     "network": {
       "device": "virtio-net-pci",

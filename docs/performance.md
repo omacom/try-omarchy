@@ -1,7 +1,7 @@
 # Performance profiling
 
 CPU instructions execute through HVF on the Apple Silicon CPU. Graphics take a
-longer path: guest Mesa → VirGL → host OpenGL ES/ANGLE → Metal → Cocoa. Accelerated
+longer path: guest Mesa → VirGL → native macOS OpenGL → Cocoa. Accelerated
 graphics therefore still have command translation, synchronization, upload, and
 presentation costs. See [architecture](architecture.md) and QEMU's
 [virtio-gpu documentation](https://www.qemu.org/docs/master/system/devices/virtio/virtio-gpu.html).
@@ -333,3 +333,78 @@ pressure. The process sampler ran without QMP because the live app owns its
 control session; this sample is not certified as healthy idle. No browser FPS,
 scroll recording, or GPU-report verification was completed. Raw diagnostic
 artifacts are ignored under `dist/browser-lag-2026-10-01/`.
+
+### Default browser acceleration fix
+
+The subsequent October 1 investigation reproduced the reported software-only
+browser status in a disposable ARM64 guest. Chromium 153.0.8010.36 with Mesa
+26.2.3 could not create its default ANGLE GLES 3 context: the host ANGLE/Metal
+path exposed GLES 3.0, but VirGL exposed only desktop OpenGL 2.1 to the guest.
+The GPU process logged `eglCreateContext` failures with `EGL_BAD_ATTRIBUTE`.
+Smooth compositor menus did not establish browser GPU acceleration.
+
+The default launcher now uses native Apple OpenGL (`cocoa,gl=on`). The shared
+VirGL patch preserves native multisampling and tests framebuffer formats with
+mutable multisample allocation when immutable multisample storage is absent.
+It also avoids reallocating multisample textures as ordinary textures, selects
+integer vertex inputs automatically for Apple's native vendor, and prevents
+duplicate alpha and BGRA conversions. Simply switching the display backend
+without these corrections still produced browser fallback or missing text and
+incorrect colors. The patch applies below all applications; no browser profile,
+GPU launch flag, or system-wide vendor override is required. Existing verified
+factory bundles with `angle-metal` host metadata remain compatible with the
+unchanged guest virtio/VirGL interface.
+
+The final production runtime was exercised in a separate 4-vCPU, 2-GiB guest at
+840 × 474. With a fresh default Chromium profile, its GPU report enabled canvas,
+GPU compositing, rasterization, OpenGL and WebGL, identified
+`ANGLE (Mesa, virgl (Apple M2 Pro), OpenGL ES 3.0 Mesa 26.2.3-arch1.1)`, and
+reported four MSAA samples. A real GLES pixel probe rendered a diagonal into a
+four-sample renderbuffer, resolved it, and found 16 partially covered pixels,
+120 white pixels and 120 black pixels. WebGL texture probes returned the
+expected RGBA and alpha values. Firefox 157 also created WebGL 2 contexts and
+rendered its interface with the same vendor policy. Actual guest screenshots
+and a Chromium scrolling/WebGL recording were inspected for text and color
+regressions; early broken native-backend captures were rejected.
+
+These checks establish functional acceleration, not a universal frame-rate
+guarantee. The final Chromium idle animation run measured about 48 animation
+callbacks per second under host memory pressure; callbacks are not presented
+frames. Startup, backing resolution, workload and host paging were not held
+constant across all exploratory runs. Full-screen scrolling performance still
+needs a controlled comparison. Video decode and encode remain software, and
+Vulkan remains disabled. WebGPU's feature-status entry was not independently
+validated as a usable device.
+
+Verification on macOS:
+
+- `OMARCHY_RUNTIME_BUILD_JOBS=2 make runtime`: passed, including the existing
+  renderer regressions, seven multisample format cases, native shader/vendor
+  regressions, and runtime signature/deployment validation.
+- `python3 tests/test-build-cache.py`: passed all 12 tests.
+- `macos/Tests/run-qemu-ssh-contract.test.sh`: passed, including native-default,
+  legacy factory compatibility and unsupported-backend rejection.
+- `make test`: passed after the final code and test changes.
+- `OMARCHY_GUEST_BUILD_JOBS=2 make guest`: blocked by the unrelated package lock:
+  the repository supplied `noto-fonts` version `1:2026.10.01-1` rather than the
+  pinned `1:2026.09.01-1`. Package pins were not refreshed for this graphics fix.
+- `(cd dist/guest && shasum -a 256 -c SHA256SUMS)`: passed all nine existing
+  factory artifacts. `macos/build-app.sh --guest-dir dist/guest` passed using
+  that verified factory and the corrected runtime. The installed-identity
+  build with `--configuration production --sign-identity` and the existing
+  local signing certificate also passed all 22 Mach-O deployment checks.
+- `OMARCHY_QEMU_GPU_INSPECT_ONLY=1 'dist/app.noindex/Try Omarchy.app/Contents/Resources/scripts/run-qemu-gpu.sh'`:
+  passed the bundled factory contract. `git diff --check` passed.
+
+Raw GPU reports, pixel probes, build logs, screenshots and recordings remain
+ignored under `dist/browser-lag-2026-10-01/`.
+
+After the user approved restarting, the signed installed app was updated with
+its existing bundle identity and a rollback copy retained in the ignored
+diagnostics directory. The personal VM booted from its existing persistent disk
+with `cocoa,gl=on`, 8 vCPUs and 8 GiB RAM. The installed renderer checksum matched
+the signed production build, and the boot console reported a clean filesystem
+and successful settings integration. The separate optional integration update
+was skipped. The UI tool could not inspect the restarted QEMU guest window, so
+the browser GPU report and visual checks above are from the disposable guest,
+not a new measurement of the personal full-screen session.

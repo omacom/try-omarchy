@@ -469,8 +469,11 @@ graphics = {
     "device": "virtio-gpu-gl-pci",
     "display": "cocoa",
     "guestRenderer": "virgl",
-    "hostRenderer": "angle-metal",
+    "hostRenderer": "macos-opengl",
 }
+# Older verified factories use the same virtio/VirGL guest ABI. Their recorded
+# host backend does not constrain the updated app's native OpenGL display.
+legacy_graphics = dict(graphics, hostRenderer="angle-metal")
 network = {
     "device": "virtio-net-pci",
     "backend": "slirp",
@@ -533,7 +536,7 @@ if (
     or runtime.get("compressedDisk") != "rootfs.ext4.zst"
     or runtime.get("virtualMachineMonitor") != "qemu-system-aarch64"
     or runtime.get("hypervisor") != "hvf"
-    or runtime.get("graphics") != graphics
+    or runtime.get("graphics") not in (graphics, legacy_graphics)
     or runtime.get("network") != network
     or runtime.get("audio") != audio
     or runtime.get("camera") != camera
@@ -1742,7 +1745,7 @@ qemu_args=(
   # Full grab keeps every Command chord with the focused guest in either
   # presentation mode. Immersive launches Full Screen and hard-hides the Mac
   # menu bar and Dock; otherwise Cocoa opens a centered, resizable window.
-  -display "cocoa,gl=es,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
+  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='

@@ -40,7 +40,15 @@ and Omarchy runs inside Linux. For a new, reset, or ephemeral VM, that pair and
 the disk originate in the current app's bundled factory. An existing persistent
 VM instead keeps the boot pair created with its disk, even after the app bundle
 is updated. Graphics travel from Linux through virtio-gpu and VirGL to the
-native Cocoa window. Storage, networking, audio, and input use their matching
+native Cocoa window. The display selects native macOS OpenGL (`gl=on`), with
+VirGL replaying commands in an Apple OpenGL 4.1 core context. Its local
+multisample patch preserves real samples and mutable texture allocation,
+allowing default browser ES 3 contexts without browser-specific overrides.
+Native Apple drivers select integer vertex attributes automatically, and alpha
+and BGRA texture paths avoid duplicate channel conversions. Older verified
+factories with ANGLE host metadata retain the same guest ABI and can use the
+updated native display without replacing their disks.
+Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
 
 On macOS 26 or newer, before the real VM starts, the launcher asks the bundled

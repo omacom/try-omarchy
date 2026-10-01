@@ -1,0 +1,133 @@
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -4410,9 +4410,9 @@
+          vrend_shader_sampler_views_mask_set(key->sampler_views_emulated_rect_mask, i);
+       }
+ 
+-      if (view->texture->target == GL_TEXTURE_BUFFER ||
+-          (vrend_format_is_emulated_alpha(view->format) &&
+-           vrend_state.use_core_profile)) {
++      /* Native GL already applies alpha swizzles in sampler state. Applying
++       * OOOR again in the shader would read zero instead of glyph coverage. */
++      if (view->texture->target == GL_TEXTURE_BUFFER) {
+          enum pipe_swizzle swizzle[4];
+          if (vrend_get_swizzle(view, swizzle)) {
+             vrend_shader_sampler_views_mask_set(key->sampler_views_lower_swizzle_mask, i);
+@@ -7662,7 +7662,10 @@
+       return true;
+ 
+    const char * a = (const char *) glGetString(GL_VENDOR);
+-   return a && !(strcmp(a, "ARM") && strcmp(a, "Google Inc. (Apple)"));
++   /* Native Apple GL needs integer vertex attributes just like ANGLE on
++    * Apple. Passing them to float shader inputs loses browser glyph data. */
++   return a && !(strcmp(a, "ARM") && strcmp(a, "Google Inc. (Apple)") &&
++                 strcmp(a, "Apple"));
+ }
+ 
+ static bool vrend_use_gbm_layout_feature(UNUSED uint32_t flags)
+@@ -8852,6 +8855,7 @@
+    struct pipe_resource *pr = &gr->base;
+ 
+    const bool format_can_texture_storage = has_feature(feat_texture_storage) &&
++        (pr->nr_samples <= 1 || has_feature(feat_storage_multisample)) &&
+         (tex_conv_table[format].flags & VIRGL_TEXTURE_CAN_TEXTURE_STORAGE);
+ 
+    if (format_can_texture_storage)
+@@ -8927,19 +8931,18 @@
+       }
+ 
+       if (pr->nr_samples > 1) {
+-         /* Metal backend (macOS): Silently downgrade MSAA to non-MSAA when not supported.
+-          * gl=es mode (ANGLE) handles MSAA correctly, so only apply this workaround
+-          * for desktop GL where Metal backend doesn't support multisampled textures. */
++         /* Native GL 4.1 supports mutable multisample textures without
++          * ARB_texture_storage_multisample. Preserve real samples there. */
+          const char *renderer_str = (const char *)glGetString(GL_RENDERER);
+          bool is_metal_backend = (renderer_str && strstr(renderer_str, "Metal"));
+          
+-         if (is_metal_backend && !vrend_state.use_gles && !has_feature(feat_storage_multisample)) {
++         if (is_metal_backend && !vrend_state.use_gles && !has_feature(feat_texture_multisample)) {
+             /* Metal backend: No MSAA support, downgrade to regular texture */
+             virgl_debug("[VREND] Metal backend: MSAA texture requested (samples=%d, target=0x%x), downgrading to non-MSAA\n",
+                         pr->nr_samples, gr->target);
+             gr->target = (gr->target == GL_TEXTURE_2D_MULTISAMPLE) ? GL_TEXTURE_2D : GL_TEXTURE_2D_ARRAY;
+             pr->nr_samples = 0;
+-         } else if (format_can_texture_storage) {
++         } else if (format_can_texture_storage && has_feature(feat_storage_multisample)) {
+             if (gr->target == GL_TEXTURE_2D_MULTISAMPLE) {
+                glTexStorage2DMultisample(gr->target, pr->nr_samples,
+                                          internalformat, pr->width0, pr->height0,
+@@ -9007,7 +9010,7 @@
+                             glformat, gltype, NULL);
+             }
+          }
+-      } else {
++      } else if (pr->nr_samples <= 1) {
+          if (format_can_texture_storage)
+             glTexStorage2D(gr->target, pr->last_level + 1, internalformat, pr->width0,
+                            gr->target == GL_TEXTURE_1D_ARRAY ? pr->array_size : pr->height0);
+@@ -9023,7 +9026,7 @@
+       }
+    }
+ 
+-   if (!format_can_texture_storage) {
++   if (!format_can_texture_storage && pr->nr_samples <= 1) {
+       glTexParameteri(gr->target, GL_TEXTURE_BASE_LEVEL, 0);
+       if (pr->last_level) {
+          glTexParameteri(gr->target, GL_TEXTURE_MAX_LEVEL, pr->last_level);
+@@ -9661,9 +9664,9 @@
+          x = info->box->x;
+          y = invert ? (int)res->base.height0 - info->box->y - info->box->height : info->box->y;
+ 
+-         /* GLES and Apple's Core Profile don't properly support BGRA format uploads.
+-          * internal format. So we fallback to performing a CPU swizzle before uploading. */
+-         if (vrend_state.use_gles || (vrend_state.use_core_profile && vrend_format_is_bgra(res->base.format))) {
++         /* GLES needs a CPU swizzle for BGRA data. Native GL accepts BGRA
++          * uploads directly; swizzling those again exchanges red and blue. */
++         if (vrend_state.use_gles) {
+             if (vrend_resource_get_internal_format_override(res) != GL_NONE) {
+                glformat = GL_RGB;
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+@@ -13083,14 +13086,13 @@
+    caps->v1.max_samples = vrend_renderer_query_multisample_caps(caps->v1.max_samples, &caps->v2);
+    virgl_debug("[VREND CAPS] After query_multisample_caps: max_samples=%u\n", caps->v1.max_samples);
+    
+-   /* For macOS Metal backend: Override to max_samples=1 to trigger Mesa's fake_sw_msaa.
+-    * Even though MSAA tests confirm 4 samples work, Mesa's format queries can't verify
+-    * multisample support, causing MaxSamples=0. Reporting 1 triggers fake_sw_msaa workaround.
+-    * Apply to both desktop GL and GLES (ANGLE) modes. */
++   /* Keep the GLES workaround. Native GL can verify and allocate real
++    * multisample formats. Clamping it to one prevents guest ANGLE from
++    * creating ES 3 contexts and disables default browser acceleration. */
+    const char *version = (const char *)glGetString(GL_VERSION);
+    bool is_metal = (version && strstr(version, "Metal"));
+    bool is_angle = (version && strstr(version, "ANGLE"));
+-   if ((is_metal || is_angle) && caps->v1.max_samples > 1) {
++   if ((is_metal || is_angle) && vrend_state.use_gles && caps->v1.max_samples > 1) {
+       virgl_debug("[VREND CAPS] %s backend: Overriding max_samples %u -> 1 for fake_sw_msaa\n", 
+                   is_angle ? "ANGLE" : "Metal",
+                   caps->v1.max_samples);
+--- a/src/vrend/vrend_formats.c
++++ b/src/vrend/vrend_formats.c
+@@ -673,8 +673,10 @@
+ {
+    bool is_desktop_gl = epoxy_is_desktop_gl();
+    for (int i = 0; i < VIRGL_FORMAT_MAX_EXTENDED; i++) {
+-      bool function_available =
+-         (table[i].flags & VIRGL_TEXTURE_CAN_TEXTURE_STORAGE) ? enable_storage : is_desktop_gl;
++      /* Ordinary immutable storage does not imply multisample storage. */
++      const bool use_storage = enable_storage &&
++         (table[i].flags & VIRGL_TEXTURE_CAN_TEXTURE_STORAGE);
++      const bool function_available = use_storage || is_desktop_gl;
+ 
+       if (table[i].internalformat != 0 &&
+           !(table[i].flags & VIRGL_TEXTURE_CAN_MULTISAMPLE) &&
+@@ -682,7 +684,7 @@
+          GLuint tex_id;
+          glGenTextures(1, &tex_id);
+          glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, tex_id);
+-         if (table[i].flags & VIRGL_TEXTURE_CAN_TEXTURE_STORAGE) {
++         if (use_storage) {
+             glTexStorage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 2,
+                                       table[i].internalformat, 32, 32, GL_TRUE);
+          } else {
