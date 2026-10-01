@@ -16,6 +16,17 @@ actual QEMU PID, rather than the launcher PID:
 python3 scripts/profile-process.py --pid QEMU_PID --seconds 60 --output dist/profile.json
 ```
 
+When sampling QEMU, add `--qmp /path/to/private/qmp.sock`. The read-only QMP guard
+checks the run state throughout the sample and rejects stops, resets, suspension,
+shutdown, guest panic, and block-I/O errors. An invalid sample does not overwrite
+an existing output file. A VM paused because its host disk is full can consume
+almost no CPU; that must not be reported as healthy desktop idle.
+
+Record host free disk space as well as memory. Leave room for writable snapshots,
+shader caches, build intermediates, and other Mac applications. Prefer APFS clones
+of disposable factory images over independent copies when setting up repeated
+tests. Never remove personal VM disks to make space for a benchmark.
+
 Repeat `--pid` to include integration helpers. CPU usage is summed across the
 selected processes; memory remains separate per process to avoid silently adding
 shared memory. The sampler checks process start identity and fails if a PID exits,
@@ -211,7 +222,7 @@ Video playback CPU, dropped frames, and battery cost need separate measurements.
 - `nice -n 10 make test TEST_JOBS=2`: failed with three settings-install tests
   during concurrent changes to the unrelated guest-upgrade flow. Those edits
   were preserved. Later workspace reruns passed, including the final Bash fix:
-  383 Swift tests in 83 suites, 321 guest tests, runtime/shell contracts, and
+  383 Swift tests in 83 suites, 334 guest tests, runtime/shell contracts, and
   16 disk-resize tests.
 - `nice -n 10 make -C dist/performance-2026-10-01/verification-source test TEST_JOBS=2`
   against an isolated `git archive 0bd5348`: passed, including 378 Swift tests,
@@ -222,6 +233,11 @@ Video playback CPU, dropped frames, and battery cost need separate measurements.
   3.2 checks verified unset, empty, and explicit compilation budgets, preserving
   argument boundaries for paths containing spaces. `bash -n` and
   `git diff --check` passed.
+- `python3 tests/test-profile-process.py`: passed all four tests, including
+  stopped/error states, transient QMP events, malformed replies, and preserving
+  earlier measurements after an invalid sample. Socket binding was denied in the
+  sandbox; the same tests passed outside it. The updated sampler also ran against
+  actual Linux counters and a real QEMU QMP socket.
 
 Raw logs, workload sources, JSON measurements, and guest captures are local under
 `dist/performance-2026-10-01/` and are deliberately not committed.

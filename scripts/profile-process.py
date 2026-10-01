@@ -2,6 +2,7 @@
 """Read-only interval CPU/memory sampling on macOS or Linux (100% = one core)."""
 
 import argparse
+from contextlib import nullcontext
 import ctypes
 import datetime
 import json
@@ -9,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import socket
 import statistics
 import sys
 import time
@@ -23,6 +25,78 @@ class DarwinUsage(ctypes.Structure):
 
 class Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+
+
+class QMPStatus:
+    """Observe VM state without pausing, resuming, or changing the guest."""
+
+    def __init__(self, path):
+        self.socket = socket.socket(socket.AF_UNIX)
+        self.socket.settimeout(3)
+        self.stream = None
+        self.sequence = 0
+        try:
+            self.socket.connect(str(path))
+            self.stream = self.socket.makefile("rwb")
+            if "QMP" not in self.message():
+                raise RuntimeError("invalid QMP greeting")
+            self.command("qmp_capabilities")
+        except Exception:
+            self.close()
+            raise
+
+    def message(self):
+        line = self.stream.readline(1024 * 1024 + 1)
+        if not line or len(line) > 1024 * 1024:
+            raise RuntimeError("QMP disconnected or exceeded the message limit")
+        try:
+            message = json.loads(line)
+        except (ValueError, UnicodeError) as error:
+            raise RuntimeError("invalid QMP message") from error
+        if not isinstance(message, dict):
+            raise RuntimeError("invalid QMP message")
+        return message
+
+    def command(self, name):
+        self.sequence += 1
+        self.stream.write((json.dumps({"execute": name, "id": self.sequence}) + "\n").encode())
+        self.stream.flush()
+        # Bound unsolicited messages as well as individual blocking reads.
+        deadline = time.monotonic() + 3
+        for _ in range(256):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("QMP reply timed out")
+            self.socket.settimeout(remaining)
+            message = self.message()
+            if message.get("event") in {"STOP", "RESET", "SUSPEND", "SHUTDOWN", "BLOCK_IO_ERROR", "GUEST_PANICKED"}:
+                raise RuntimeError(f"VM event {message['event']} invalidated this performance sample")
+            if message.get("id") == self.sequence:
+                if "error" in message or "return" not in message:
+                    raise RuntimeError(f"QMP {name} failed: {message.get('error')}")
+                return message["return"]
+        raise RuntimeError("QMP did not reply within the message limit")
+
+    def check(self):
+        status = self.command("query-status")
+        if not isinstance(status, dict) or status.get("running") is not True or status.get("status") != "running":
+            raise RuntimeError(f"VM is not running normally: {status}; low CPU here is not a desktop idle measurement")
+
+    def close(self):
+        if self.stream is not None:
+            self.stream.close()
+        self.socket.close()
+
+    def __enter__(self):
+        try:
+            self.check()
+        except Exception:
+            self.close()
+            raise
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 def darwin_reader():
@@ -128,12 +202,22 @@ def main():
     parser.add_argument("--seconds", type=positive, default=30)
     parser.add_argument("--interval", type=positive, default=1)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--qmp", type=Path, help="reject samples if this QEMU stops, resets, or reports an I/O error")
     args = parser.parse_args()
     if any(pid <= 0 for pid in args.pid) or len(set(args.pid)) != len(args.pid):
         parser.error("PIDs must be positive and unique")
     system = platform.system()
     if system not in ("Darwin", "Linux"):
         parser.error("requires macOS or Linux")
+    with QMPStatus(args.qmp) if args.qmp else nullcontext() as monitor:
+        result = collect(args, system, monitor)
+    text = json.dumps(result, indent=2) + "\n"
+    if args.output:
+        args.output.write_text(text)
+    print(text, end="")
+
+
+def collect(args, system, monitor):
     read = darwin_reader() if system == "Darwin" else linux_reader()
     read_system, counter_modulus = system_reader(system)
     started = time.monotonic()
@@ -148,6 +232,8 @@ def main():
         time.sleep(max(0, next_sample - time.monotonic()))
         current = {pid: read(pid) for pid in args.pid}
         current_system = read_system()
+        if monitor is not None:
+            monitor.check()
         timestamp = time.monotonic()
         for pid in args.pid:
             if current[pid]["identity"] != first[pid]["identity"]:
@@ -181,12 +267,10 @@ def main():
             sample["cpu_one_core_percent"] for sample in samples),
         "memory_note": "macOS footprint includes compressed memory; Linux PSS and RSS are different metrics",
         "system_cpu_note": "includes every process and kernel work; cannot attribute background activity to the selected PIDs",
+        "qmp_state_checked": monitor is not None,
         "samples": samples,
     }
-    text = json.dumps(result, indent=2) + "\n"
-    if args.output:
-        args.output.write_text(text)
-    print(text, end="")
+    return result
 
 
 if __name__ == "__main__":
