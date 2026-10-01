@@ -129,9 +129,10 @@ the system-tool fallback. App signature and runtime validation remain unchanged.
 The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
 existing `memoryPreferences` choice without rewriting it. CPU choices range
-from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB floor,
-recommends 8 GiB on hosts with at least 16 GiB, and offers 6/8/12/16 GiB choices
-with 8 GiB of host headroom. Saved values that no longer
+from 4 through all host cores. Memory recommends 8 GiB on hosts with at least
+16 GiB. Choices start at 4/6/8 GiB and continue in 4 GiB steps, keeping at least
+4 GiB for macOS; larger allocations that leave less than 8 GiB carry a
+performance note. Saved values that no longer
 fit resolve independently to their defaults without rewriting storage.
 
 The app exports `OMARCHY_QEMU_GPU_CPUS` and the established

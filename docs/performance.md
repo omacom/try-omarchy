@@ -202,6 +202,11 @@ Video playback CPU, dropped frames, and battery cost need separate measurements.
   the final fix keeps direct Ninja invocation with guarded array expansion.
 - `nice -n 10 make app`: passed before concurrent guest-upgrade edits began;
   strict app signature and all 22 Mach-O deployment targets validated.
+- `OMARCHY_RUNTIME_BUILD_JOBS=2 OMARCHY_GUEST_BUILD_JOBS=2 nice -n 10 make app`:
+  a later current-workspace assembly rebuilt and packed the guest, including a
+  successful filesystem check, but the build cache rejected the result because
+  unrelated guest migration inputs changed during compilation. No successful
+  cache state was published for that attempt.
 - `python3 macos/Tests/hvf-memory-reclaim-smoke.py --qemu macos/.build/qemu-gpu-runtime/bin/qemu-system-aarch64 --guest-dir dist/guest`: passed.
 - `nice -n 10 make test TEST_JOBS=2`: failed with three settings-install tests
   during concurrent changes to the unrelated guest-upgrade flow. Those edits
