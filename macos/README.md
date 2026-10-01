@@ -107,7 +107,10 @@ the normal launch. Unsupported storage or boot ABIs, and ambiguous multiple
 legacy disks, still use the user-facing, confirmed Reset Omarchy flow.
 That destructive flow keeps **Reset** disabled until the user types
 `Try Omarchy` exactly in a native sheet. Cancelling or dismissing the sheet
-returns control without invoking the storage reset.
+returns control without invoking the storage reset. During reset, the disabled
+button names the current phase: checking the VM, deleting it, preparing and
+verifying the new image, then finishing the reset. Phase changes come from the
+storage process and are also announced to VoiceOver.
 
 The start menu can move that workspace to any APFS folder the user picks; the
 folder is used exactly as chosen, never with a folder created inside it — a

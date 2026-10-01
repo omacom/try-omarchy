@@ -449,7 +449,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             try supervisor.start(
                 executableURL: launcherURL,
                 arguments: resetArguments(),
-                environment: QEMUGPURuntimeEnvironment.sanitizedForReset(context.environment)
+                environment: QEMUGPURuntimeEnvironment.sanitizedForReset(context.environment),
+                launchEvent: { [weak self] event in
+                    if case .resetProgress(let phase) = event {
+                        self?.startMenuWindow?.resetDidProgress(to: phase)
+                    }
+                }
             ) { [weak self] status in
                 self?.resetDidExit(status: status)
             }
@@ -646,6 +651,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                     switch event {
                     case .virtualMachineReady(let qmpSocketPath):
                         self?.virtualMachineDidStart(qmpSocketPath: qmpSocketPath)
+                    case .resetProgress:
+                        break
                     }
                 }
             ) { [weak self] status in

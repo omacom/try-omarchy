@@ -296,7 +296,15 @@ compressed_state="$test_root/compressed-state"
   for mode in persistent reset reset; do
     qemu_persistent_storage_select \
       "$mode" "$identity_compressed" "$compressed_disk" "$source_sha" "$source_bytes" '' \
-      "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a" "$zstd_test"
+      "$source_bytes" "$kernel_a" "$initramfs_a" "$kernel_command_line_a" "$zstd_test" \
+      2>"$test_root/reset-phases.log"
+    sed -n 's/^\[qemu-gpu\] Reset phase: //p' "$test_root/reset-phases.log" >"$test_root/actual-phases"
+    if [[ $mode == reset ]]; then
+      printf '%s\n' deleting preparing verifying finishing >"$test_root/expected-phases"
+      assert cmp -s "$test_root/actual-phases" "$test_root/expected-phases"
+    else
+      assert test ! -s "$test_root/actual-phases"
+    fi
     assert cmp -s "$QEMU_SELECTED_DISK" "$source_disk"
     assert test ! -e "$compressed_state/images"
     assert_eq "$(find "$compressed_state/disks" -name rootfs.ext4 | wc -l | tr -d '[:space:]')" 1

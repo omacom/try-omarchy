@@ -53,6 +53,13 @@ _qps_error() {
   printf 'qemu-persistent-storage: %s\n' "$*" >&2
 }
 
+# Bash locals in the reset selector scope this reporting to an actual reset;
+# ordinary launches and direct helper calls never emit reset progress.
+_qps_reset_progress() {
+  [[ ${qps_reset_in_progress:-0} == 1 ]] || return 0
+  printf '[qemu-gpu] Reset phase: %s\n' "$1" >&2
+}
+
 _qps_fail() {
   _qps_error "$*"
   return 1
@@ -1145,6 +1152,7 @@ _qps_prepare_disk() {
   local qps_source_sha=$4
   local qps_zstd=${5:-}
 
+  _qps_reset_progress preparing
   if [[ -z $qps_zstd ]]; then
     _qps_clone_disk "$qps_source" "$qps_destination" "$qps_source_bytes"
     return $?
@@ -1155,6 +1163,7 @@ _qps_prepare_disk() {
     return 1
   fi
   chmod 600 "$qps_destination" || return 1
+  _qps_reset_progress verifying
   if ! _qps_validate_expanded_disk "$qps_destination" "$qps_source_bytes" ||
     [[ $(_qps_sha256 "$qps_destination") != "$qps_source_sha" ]]; then
     /bin/rm -f -- "$qps_destination"
@@ -1292,6 +1301,7 @@ _qps_initialize_persistent_disk() {
       "$qps_working_bytes" 1 || true
     return 1
   fi
+  _qps_reset_progress finishing
   _qps_validate_store_directory \
     "$qps_staging" "$qps_identity" "$qps_source_sha" "$qps_source_bytes" \
     "$qps_working_bytes" || return 1
@@ -1687,6 +1697,8 @@ _qps_select_persistent_disk() {
   local qps_final=''
   local qps_status=0
   local qps_storage_key='current'
+  local qps_reset_in_progress=0
+  [[ $qps_mode != reset ]] || qps_reset_in_progress=1
 
   _qps_prepare_state_root || return 1
   case "${OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK:-0}" in
@@ -1720,6 +1732,7 @@ _qps_select_persistent_disk() {
       qemu_persistent_storage_release_lock
       return 1
     fi
+    _qps_reset_progress deleting
     if ! _qps_reset_persistent_disk "$qps_storage_key"; then
       qemu_persistent_storage_release_lock
       return 1

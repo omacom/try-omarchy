@@ -196,6 +196,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var microphoneRequestInFlight = false
     private var cameraRequestInFlight = false
     private var resetInProgress = false
+    private var resetPhase = VMResetPhase.checking
+    private weak var resetActionButton: OmarchyActionButton?
     private var launchInProgress = false
     private var virtualMachineRunning = false
     private var closeRunningSettings: (() -> Void)?
@@ -503,6 +505,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resourceEditor?.dismiss()
         resourceEditor = nil
         window.orderOut(nil)
+    }
+
+    func resetDidProgress(to phase: VMResetPhase) {
+        guard resetInProgress, resetPhase != phase else { return }
+        resetPhase = phase
+        resetActionButton?.updateTitle(phase.buttonTitle)
+        resetActionButton?.invalidateIntrinsicContentSize()
+        NSAccessibility.post(
+            element: window,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: phase.buttonTitle,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
     }
 
     func resetDidFinish(errorMessage: String?) {
@@ -865,11 +882,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let integrationHeading = sectionHeading("INTEGRATIONS")
 
         let reset = OmarchyActionButton(
-            title: resetInProgress ? "Resetting Omarchy…" : "Reset Omarchy",
+            title: resetInProgress ? resetPhase.buttonTitle : "Reset Omarchy",
             style: .danger,
             target: self,
             action: #selector(resetOmarchy)
         )
+        resetActionButton = reset
         reset.identifier = NSUserInterfaceItemIdentifier("reset-button")
         reset.isEnabled = canResetStorage
             && !prelaunchControlsLocked
@@ -1072,6 +1090,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             )
         )
         scrollView.reflectScrolledClipView(scrollView.contentView)
+        if resetInProgress {
+            reset.scrollToVisible(reset.bounds)
+        }
         updatePermissionRequestControls()
     }
 
@@ -1815,6 +1836,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             // controller, which owns the preference and can explain and offer
             // to switch, rather than asking the user to confirm erasing a
             // workspace we would only be guessing the identity of.
+            resetPhase = .checking
             resetInProgress = true
             render()
             resetStorage()
@@ -1836,6 +1858,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             resetConfirmationPrompt = nil
             guard confirmed else { return }
             pendingResetSpaceEstimate = estimate
+            resetPhase = .checking
             resetInProgress = true
             render()
             resetStorage()
