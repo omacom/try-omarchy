@@ -551,11 +551,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             alert.informativeText = errorMessage
         } else {
             alert.alertStyle = .informational
-            alert.messageText = "Omarchy has been reset"
+            alert.messageText = "Try Omarchy has been reset"
             if let estimate = pendingResetSpaceEstimate {
-                alert.informativeText = "The VM has been deleted. Up to \(estimate) of disk space was reclaimed. A fresh VM will be prepared when you next launch."
+                alert.informativeText = "The VM has been deleted. Up to \(estimate) of disk space was reclaimed. A fresh VM will be prepared on the next launch."
             } else {
-                alert.informativeText = "The VM has been deleted. A fresh VM will be prepared when you next launch."
+                alert.informativeText = "The VM has been deleted. A fresh VM will be prepared on the next launch."
             }
         }
         pendingResetSpaceEstimate = nil
@@ -574,7 +574,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     /// Clears the resetting state when the controller refused to start the
     /// reset at all. Deliberately silent, and deliberately not
     /// `resetDidFinish(errorMessage: nil)` — nothing was erased, so claiming
-    /// "Omarchy has been reset" would be a lie about a destructive action.
+    /// "Try Omarchy has been reset" would be a lie about a destructive action.
     func resetDidAbort() {
         guard resetInProgress else { return }
         resetInProgress = false
