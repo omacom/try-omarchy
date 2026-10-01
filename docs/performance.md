@@ -295,3 +295,41 @@ animations, display resolution, refresh support, checksums, durable I/O, and
 recovery policies while investigating these costs. Nested virtualization on
 newer chips, physical sleep/wake, long-session leak behavior, and a native
 Omarchy hardware comparison were not verified by this run.
+
+### Live browser-lag follow-up
+
+On October 1 at approximately 21:12–21:16 JST, a read-only investigation of the
+personal running VM followed a report of choppy browser scrolling and Brave's
+setup animation, while Omarchy menus appeared smooth. The launcher selected
+8 vCPUs, 8 GiB RAM, HVF, `virtio-gpu-gl-pci`, and Cocoa GLES. This establishes the
+VM's accelerated graphics configuration, not the browser's acceleration status.
+
+A five-second `sample` of QEMU collected 2,074 samples of its `qemu_main` thread.
+805 were inside `vrend_renderer_copy_transfer3d`, predominantly copying guest
+pixel data and uploading it through ANGLE's Metal texture path. Fence/context
+switch waits also appeared. These are sampled stacks, not measured frame times
+or proof that a particular browser produced the transfers; the guest's active
+workload was not controlled.
+
+The 16 GiB Mac reported 19,979 MiB of swap in use. A subsequent ten-second
+`vm_stat` interval recorded 63.88 MiB of swap-ins, 932 MiB of compression, and
+1,001.86 MiB of decompression system-wide. These counters cannot attribute
+pressure to one application. A separate ten-second process sample measured
+QEMU at 22.38% of one core (2.24% of ten-core host capacity), with a charged
+footprint of approximately 10,185 MiB. Footprint includes compressed memory;
+it is neither guest RAM usage nor evidence of a leak.
+
+Active host paging is therefore a credible contributor, and texture transfers
+are a graphics path worth profiling under controlled scrolling. Neither finding
+establishes a 15 FPS limit or distinguishes browser software rasterization from
+accelerated rendering. Capture the browser's `chrome://gpu` or `brave://gpu`
+feature status, renderer, and errors next, then compare frame times with host
+memory pressure relieved and identical backing resolution and browser content.
+
+No browser flags, resource preferences, or personal VM files were changed. The
+UI inspection tool could select the launcher but could not access the separate
+QEMU guest window. A second VM comparison was deferred to avoid adding memory
+pressure. The process sampler ran without QMP because the live app owns its
+control session; this sample is not certified as healthy idle. No browser FPS,
+scroll recording, or GPU-report verification was completed. Raw diagnostic
+artifacts are ignored under `dist/browser-lag-2026-10-01/`.
