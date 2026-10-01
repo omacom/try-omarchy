@@ -2,6 +2,14 @@
 
 Status: standalone integration delivery on current upstream; the payload is sudo Touch ID support and the Mac battery mirror.
 
+The Mac launcher also has a separate consent-gated boot-file migration path.
+It reuses the existing settings boot payload and settings status port for exact
+stock clipboard/screensaver helpers and Alacritty wrapper retirement. It does
+not invoke this bundle's sudo or battery installers. The review, Skip
+confirmation, disk/bundle-bound consent, durable file journal, interrupted
+recovery, and per-fix results are documented in
+[integration updates](../docs/integration-updates.md#updates-at-launch).
+
 The app bundles a reviewed integration payload independently of the factory disk.
 A dedicated read-only 9p share (tryomarchy-updates) exposes it to old guests.
 Users approve the first mount/install inside the guest with their Linux password.

@@ -338,6 +338,16 @@ reviewed guest integrations, with user-approved installation and per-VM status
 reporting. It does not replace the pinned kernel or reproduce every factory
 change. Factory reset remains the way to opt into the complete new factory.
 
+Compatible stock-file fixes use a separate consent-gated boot runner in the
+app's settings payload. The launcher reviews the update and binds approval to
+the selected disk and exact fix bundle. The temporary guest service journals,
+applies, and verifies clipboard/screensaver helper fixes and the Alacritty
+wrapper retirement before graphical login; it restores originals on failure
+and recovers interrupted file transactions even when the next launch skips
+updates. Results return through the settings port and remain advisory. No
+packages, PAM policy, kernel modules, or boot artifacts are upgraded by this
+runner. See [integration updates](integration-updates.md#updates-at-launch).
+
 Optional, user-initiated installers run after the factory image has been built
 and are a separate trust boundary. They may resolve a mutable current release
 from a vendor or community package source, or download an exact vendor artifact

@@ -244,6 +244,8 @@ settings_payload="$contents/Resources/guest-settings"
 mkdir -p "$settings_payload"
 install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
 install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
+install -m 0644 "$repo_dir/guest/scripts/migrate-boot-fixes.py" "$settings_payload/migrate.py"
+install -m 0644 "$repo_dir/guest/native-overlay/usr/local/sbin/try-omarchy-migrate-alacritty" "$settings_payload/try-omarchy-migrate-alacritty"
 for relative in \
   usr/local/share/try-omarchy/power-profile-hooks.json \
   usr/local/lib/try-omarchy/install-power-profile.py \
@@ -266,6 +268,7 @@ for relative in \
   etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
   install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
 done
+python3 "$repo_dir/guest/scripts/migrate-boot-fixes.py" --manifest "$settings_payload"
 install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
 python3 "$repo_dir/integrations/build-bundle.py" "$contents/Resources/integrations"
 for guest_resource in \

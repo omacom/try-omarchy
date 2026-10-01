@@ -8,7 +8,47 @@ automatically by the app at boot, separately from this review workflow. It
 changes the mount policy for that boot without replacing the guest kernel or
 requiring installation of integration support.
 
-The boot payload also repairs two compatible bugs in previously shipped native
+## Updates at launch
+
+Compatible file fixes have a separate **Update** action at the bottom of the
+Mac launcher when the selected VM has not been checked against the current fix
+bundle, or its last check still has pending work. Automatic startup pauses at
+the launcher when that review is needed. A new VM keeps **Launch Omarchy**.
+
+**Update** opens a review listing clipboard and screensaver helper fixes and
+retirement of the exact stock Alacritty software-rendering wrapper. Choose
+**Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
+**Skip and Launch** confirmation and leaves the fixes available for a later
+launch. The existing settings, timezone integration, and shared-folder safety
+payload still run; Skip applies only to these optional file fixes.
+
+Approval is limited to the reviewed bundle and selected disk's file identity,
+rechecked under the workspace lock. The existing temporary boot service runs
+the file fixes before graphical login, without command pasting or a Linux
+password prompt. It does not require an integration agent in the old VM.
+
+Only exact supported stock versions are replaced. Customized files, unsafe
+paths, and unsupported workarounds are preserved and reported as skipped.
+The runner saves a root-private journal before changing any file, verifies the
+entire change set, and restores original bytes, ownership, and permissions if
+a file update fails. An interrupted transaction is restored on the next boot,
+even if that launch skips updates. Successful backups remain under
+`/var/lib/try-omarchy/boot-fixes/backup-*.json`. This is recovery for the listed
+file changes, not a full-disk snapshot or rollback of arbitrary commands.
+If recovery itself cannot finish, the result explicitly reports that recovery
+needs attention; it never claims the original files were restored.
+
+The Mac app shows the verified result after an approved run and retains each
+fix's result in Settings. No report or no response establishes success.
+Results are scoped to that VM disk and fix bundle; another disk or reset does
+not inherit completion. A missing or unconfirmed result leaves Update offered
+next time.
+
+This flow does not install packages, build kernel modules, alter PAM policy,
+enroll Touch ID, replace the kernel or boot kit, or update the graphics stack.
+Touch ID and battery installation retain the explicit guest review below.
+
+The reviewed file update repairs two compatible bugs in previously shipped native
 scripts: large clipboard selections and screensaver text in small windows. It
 replaces only the exact supported stock scripts (or repairs the current version's
 file mode). Missing clipboard support, unknown versions, customized scripts,

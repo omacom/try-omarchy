@@ -79,6 +79,7 @@ printf '{}\n' >"$resources/integrations/manifest.json"
 cp "$macos_dir/guest-settings.service" "$resources/guest-settings/guest-settings.service"
 cp "$macos_dir/../guest/native-overlay/usr/local/bin/omarchy-native-mac-share" "$resources/guest-settings/omarchy-native-mac-share"
 cp "$macos_dir/../guest/scripts/install-settings-integration.py" "$resources/guest-settings/install.py"
+printf '{"identity":"%s"}\n' "$(printf '%064d' 0)" >"$resources/guest-settings/fixes.json"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
@@ -621,6 +622,15 @@ assert_contains "$(<"$test_root/timezone-injection/stderr")" 'invalid Mac time z
 run_scenario timezone-traversal 1 '' FAKE_HOST_TIMEZONE=../UTC
 assert_contains "$(<"$test_root/timezone-traversal/stderr")" 'invalid Mac time zone'
 assert_contains "$disabled_qemu" 'systemd.wants=try-omarchy-settings.service'
+assert_not_contains "$disabled_qemu" 'tryomarchy.fixes='
+fixes_identity=$(printf '%064d' 0)
+fixes_inode=$(stat -f %i "$persistent_root/rootfs.ext4")
+run_scenario boot-fixes-approved 0 '' "OMARCHY_QEMU_GPU_GUEST_FIXES_CONSENT=$fixes_identity:$fixes_inode"
+assert_contains "$(<"$test_root/boot-fixes-approved/qemu.log")" "tryomarchy.fixes=$fixes_identity"
+run_scenario boot-fixes-wrong-disk 1 '' "OMARCHY_QEMU_GPU_GUEST_FIXES_CONSENT=$fixes_identity:0"
+assert_contains "$(<"$test_root/boot-fixes-wrong-disk/stderr")" 'the reviewed VM or fixes changed'
+run_scenario boot-fixes-invalid 1 '' 'OMARCHY_QEMU_GPU_GUEST_FIXES_CONSENT=not-a-consent'
+assert_contains "$(<"$test_root/boot-fixes-invalid/stderr")" 'invalid guest fixes consent'
 assert_contains "$disabled_qemu" "systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$(base64 < "$macos_dir/guest-settings.service" | tr -d '\r\n')"
 assert_line_pair "$test_root/disabled/qemu.log" -fsdev \
   "local,id=omarchy-settings,path=$resources/guest-settings,security_model=none,readonly=on"

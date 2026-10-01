@@ -1619,6 +1619,21 @@ settings_payload="$resources_dir/guest-settings"
   fail "the bundled settings integration is missing"
 settings_unit=$(base64 < "$settings_payload/guest-settings.service" | tr -d '\r\n')
 settings_kernel_argument=" systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$settings_unit systemd.wants=try-omarchy-settings.service"
+# Keep the older factory's independent wrapper-retirement unit from bypassing
+# Skip or racing this runner's interrupted-file recovery.
+settings_kernel_argument+=" systemd.mask=try-omarchy-migrate-alacritty.service"
+# Consent is valid only for the exact payload and locked disk reviewed in the
+# app. Direct/older launchers get inspection and interrupted-work recovery only.
+fixes_consent=${OMARCHY_QEMU_GPU_GUEST_FIXES_CONSENT:-}
+if [[ -n $fixes_consent ]]; then
+  fixes_identity=${fixes_consent%:*}
+  fixes_inode=${fixes_consent##*:}
+  [[ $fixes_identity =~ ^[0-9a-f]{64}$ && $fixes_inode =~ ^[0-9]+$ ]] || fail 'invalid guest fixes consent'
+  [[ -f $settings_payload/fixes.json ]] || fail 'guest fixes manifest is missing'
+  bundled_fixes_identity=$(plutil -extract identity raw -o - "$settings_payload/fixes.json") || fail 'invalid guest fixes manifest'
+  [[ $fixes_identity == "$bundled_fixes_identity" && $fixes_inode == "$(stat -f %i "$working_disk")" ]] || fail 'the reviewed VM or fixes changed; review the update again'
+  settings_kernel_argument+=" tryomarchy.fixes=$fixes_identity"
+fi
 # Read the current Mac zone at launch, never from a build-time setting or a
 # saved launcher preference. Reject separators before forming a kernel token.
 host_timezone=$("$native_bridge" --host-timezone) || fail "cannot read the Mac time zone"

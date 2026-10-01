@@ -179,6 +179,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setStartAutomatically: (Bool) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
     private let integrationCacheURL: () -> URL?
+    private let bootFixCacheURL: () -> URL?
     private let launch: () -> Void
     private let appVersionLabel: String
     private let appReleaseActionTitle: () -> String
@@ -260,6 +261,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
         integrationCacheURL: @escaping () -> URL? = { nil },
+        bootFixCacheURL: @escaping () -> URL? = { nil },
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -298,6 +300,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setStartAutomatically = setStartAutomatically
         self.confirmAutomaticStartup = confirmAutomaticStartup
         self.integrationCacheURL = integrationCacheURL
+        self.bootFixCacheURL = bootFixCacheURL
         self.launch = launch
         self.appVersionLabel = appVersionLabel
         self.appReleaseActionTitle = appReleaseActionTitle
@@ -391,6 +394,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     func refreshAppReleaseStatus() {
         appReleaseButton?.title = appReleaseActionTitle()
+    }
+
+    func refreshBootFixStatus() { render() }
+
+    func confirmBootFixes() -> GuestBootFixChoice {
+        show()
+        return GuestBootFixLaunchGate.decide(review: {
+            switch GuestBootFixPrompt.review().runModal() {
+            case .alertFirstButtonReturn: return .update
+            case .alertSecondButtonReturn: return .skip
+            default: return .cancel
+            }
+        }, confirmSkip: {
+            GuestBootFixPrompt.skip().runModal() == .alertSecondButtonReturn
+        })
     }
 
     @objc private func showAppUpdates() { checkForAppUpdates() }
@@ -869,7 +887,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         manage.isEnabled = !controlsBusy
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
-        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? "Launching Omarchy…" : "Launch Omarchy")
+        let fixesPending = GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity)
+        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? "Launching Omarchy…" : (fixesPending ? "Update" : "Launch Omarchy"))
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
             style: .primary,
@@ -951,6 +970,22 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         runningActions.spacing = 16
         runningActions.identifier = NSUserInterfaceItemIdentifier("running-settings-actions")
         var settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
+        var bootFixNotice: NSView?
+        if let cache = GuestBootFixCache.read(bootFixCacheURL()) {
+            let summary = cache.report.summary(expectedIdentity: GuestBootFixCache.bundledIdentity)
+            let result = NSTextField(wrappingLabelWithString: "Last VM fix check: \(summary)\n\(cache.report.detail)")
+            result.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+            result.textColor = OmarchyStartMenuTheme.foreground
+            result.identifier = NSUserInterfaceItemIdentifier("boot-fixes-result")
+            bootFixNotice = result
+            settingsSections.insert(result, at: 0)
+        } else if fixesPending {
+            let notice = NSTextField(wrappingLabelWithString: "VM fixes available. Update reviews and applies compatible file fixes before login.")
+            notice.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            notice.textColor = OmarchyStartMenuTheme.foreground
+            bootFixNotice = notice
+            settingsSections.insert(notice, at: 0)
+        }
         var integrationNotice: NSView?
         if let status = GuestIntegrationCache.read(integrationCacheURL()),
            status.needsReview(expectedIdentity: GuestIntegrationCache.bundledIdentity) {
@@ -1017,6 +1052,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         ])
 
         integrationNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        bootFixNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         if virtualMachineRunning {
             runningActions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true

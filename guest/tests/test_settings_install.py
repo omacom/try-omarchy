@@ -10,6 +10,9 @@ GUEST = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("settings_install", GUEST / "scripts/install-settings-integration.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
+fix_spec = importlib.util.spec_from_file_location("boot_fixes", GUEST / "scripts/migrate-boot-fixes.py")
+fixes = importlib.util.module_from_spec(fix_spec)
+fix_spec.loader.exec_module(fixes)
 
 
 class SettingsInstallTests(unittest.TestCase):
@@ -18,10 +21,14 @@ class SettingsInstallTests(unittest.TestCase):
         payload.mkdir()
         for name, (relative, _) in installer.FILES.items():
             (payload / name).write_bytes((GUEST / "native-overlay" / relative).read_bytes())
-        for name, relative in installer.NATIVE_FIX_FILES.items():
+        for name, relative in fixes.FILES.items():
             (payload / name).write_bytes((GUEST / "native-overlay" / relative).read_bytes())
         (payload / "omarchy-menu.jsonc").write_bytes(
             (GUEST / "native-overlay/etc/skel" / installer.MENU).read_bytes())
+        (payload / "migrate.py").write_bytes((GUEST / "scripts/migrate-boot-fixes.py").read_bytes())
+        (payload / "try-omarchy-migrate-alacritty").write_bytes(
+            (GUEST / "native-overlay/usr/local/sbin/try-omarchy-migrate-alacritty").read_bytes())
+        fixes.bundle_manifest(payload, create=True)
         return payload
 
     def seed_legacy_native_files(self, root):
@@ -31,8 +38,8 @@ class SettingsInstallTests(unittest.TestCase):
         }
         for name, fixture in fixtures.items():
             contents = (GUEST / "tests/fixtures" / fixture).read_bytes()
-            self.assertEqual(installer.PREVIOUS_NATIVE_HASHES[name], hashlib.sha256(contents).hexdigest())
-            path = root / installer.NATIVE_FIX_FILES[name]
+            self.assertEqual(fixes.PREVIOUS[name], hashlib.sha256(contents).hexdigest())
+            path = root / fixes.FILES[name]
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(contents)
             path.chmod(0o755)
@@ -42,32 +49,32 @@ class SettingsInstallTests(unittest.TestCase):
             root = Path(directory) / "root"
             payload = self.make_payload(directory)
             self.seed_legacy_native_files(root)
-            installer.install_system(payload, root)
+            fixes.migrate(payload, root, True, "")
             inodes = {}
-            for name, relative in installer.NATIVE_FIX_FILES.items():
+            for name, relative in fixes.FILES.items():
                 path = root / relative
                 self.assertEqual((payload / name).read_bytes(), path.read_bytes())
                 self.assertEqual(0o755, path.stat().st_mode & 0o777)
                 inodes[name] = path.stat().st_ino
-            installer.install_system(payload, root)
-            for name, relative in installer.NATIVE_FIX_FILES.items():
+            fixes.migrate(payload, root, True, "")
+            for name, relative in fixes.FILES.items():
                 self.assertEqual(inodes[name], (root / relative).stat().st_ino)
 
     def test_custom_scripts_and_absent_integrations_are_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "root"
             payload = self.make_payload(directory)
-            installer.install_system(payload, root)
-            for relative in installer.NATIVE_FIX_FILES.values():
+            fixes.migrate(payload, root, True, "")
+            for relative in fixes.FILES.values():
                 self.assertFalse((root / relative).exists())
             self.seed_legacy_native_files(root)
-            for name in installer.PREVIOUS_NATIVE_HASHES:
-                path = root / installer.NATIVE_FIX_FILES[name]
+            for name in fixes.PREVIOUS:
+                path = root / fixes.FILES[name]
                 path.write_text("#!/bin/sh\necho my custom behavior\n")
-            installer.install_system(payload, root)
-            for name in installer.PREVIOUS_NATIVE_HASHES:
-                self.assertIn("my custom behavior", (root / installer.NATIVE_FIX_FILES[name]).read_text())
-            self.assertFalse((root / installer.NATIVE_FIX_FILES["omarchy-native-screensaver-text"]).exists())
+            fixes.migrate(payload, root, True, "")
+            for name in fixes.PREVIOUS:
+                self.assertIn("my custom behavior", (root / fixes.FILES[name]).read_text())
+            self.assertFalse((root / fixes.FILES["omarchy-native-screensaver-text"]).exists())
 
     def test_custom_or_symlinked_dependency_prevents_partial_screensaver_update(self):
         for use_symlink in (False, True):
@@ -75,9 +82,9 @@ class SettingsInstallTests(unittest.TestCase):
                 root = Path(directory) / "root"
                 payload = self.make_payload(directory)
                 self.seed_legacy_native_files(root)
-                screensaver = root / installer.NATIVE_FIX_FILES["omarchy-screensaver"]
+                screensaver = root / fixes.FILES["omarchy-screensaver"]
                 previous = screensaver.read_bytes()
-                helper = root / installer.NATIVE_FIX_FILES["omarchy-native-cursor-restore"]
+                helper = root / fixes.FILES["omarchy-native-cursor-restore"]
                 helper.parent.mkdir(parents=True, exist_ok=True)
                 if use_symlink:
                     target = root / "keep"
@@ -85,11 +92,11 @@ class SettingsInstallTests(unittest.TestCase):
                     helper.symlink_to(target)
                 else:
                     helper.write_text("my custom cursor behavior")
-                installer.install_system(payload, root)
+                fixes.migrate(payload, root, True, "")
                 self.assertEqual(previous, screensaver.read_bytes())
-                self.assertFalse((root / installer.NATIVE_FIX_FILES["omarchy-native-screensaver-text"]).exists())
+                self.assertFalse((root / fixes.FILES["omarchy-native-screensaver-text"]).exists())
                 self.assertEqual(use_symlink, helper.is_symlink())
-                clipboard = root / installer.NATIVE_FIX_FILES["omarchy-native-clipboard-bridge"]
+                clipboard = root / fixes.FILES["omarchy-native-clipboard-bridge"]
                 self.assertEqual((payload / clipboard.name).read_bytes(), clipboard.read_bytes())
 
     def test_one_branded_search_entry_for_default_and_custom_menus(self):
