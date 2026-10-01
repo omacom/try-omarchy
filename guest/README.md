@@ -124,7 +124,9 @@ backport, with a fixture from the pinned upstream command for regression tests.
 The factory runs upstream `omarchy-apply-lock` to configure the password PAM
 service required by the Quickshell lock screen. Without it, the shell refuses
 to lock, and the menu, shortcut, and `omarchy system lock` appear to do nothing.
-Existing guests can install the same policy from a guest terminal:
+The Mac launcher's **Update and Launch** seeds the same password policy only
+when it is missing, preserving existing authentication policies. Existing guests
+can also install it explicitly from a guest terminal:
 
 ```sh
 sudo omarchy-apply-lock
@@ -133,7 +135,8 @@ sudo omarchy-apply-lock
 This uses Omarchy's upstream authentication policy and the existing guest
 password; it does not reset the password. Quickshell notices the new policy
 without a reboot. Test `omarchy system lock`, then unlock with the guest
-password. Updating the Mac app alone does not repair an existing guest disk.
+password. The automatic migration does not install or replace the fingerprint
+policy.
 
 The factory includes the pinned upstream `omarchy-dns` and
 `omarchy-theme-browser` sudoers drop-ins, owned by `try-omarchy-runtime` with
@@ -184,7 +187,8 @@ those files, reloads the udev rule, and unmounts the share. This uses systemd's
 extra-unit credentials (available since version 256, included in the supported
 factory guest) and leaves the guest's default boot target unchanged. Failure is
 logged under `try-omarchy-settings.service` and does not prevent normal boot.
-The service has a 20-second timeout and retries on the next launch.
+The service has a five-minute timeout to allow a bounded battery-module build
+and retries on the next launch.
 
 Installation is idempotent. It does not reset the disk, upgrade Linux packages,
 or require network access or a user `sudo` command. Custom menu content is

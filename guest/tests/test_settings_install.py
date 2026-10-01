@@ -28,6 +28,10 @@ class SettingsInstallTests(unittest.TestCase):
         (payload / "migrate.py").write_bytes((GUEST / "scripts/migrate-boot-fixes.py").read_bytes())
         (payload / "try-omarchy-migrate-alacritty").write_bytes(
             (GUEST / "native-overlay/usr/local/sbin/try-omarchy-migrate-alacritty").read_bytes())
+        spec = importlib.util.spec_from_file_location('extra_fixtures', GUEST / 'scripts/boot-fix-components.py')
+        extras = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(extras)
+        extras.package(GUEST, payload)
         fixes.bundle_manifest(payload, create=True)
         return payload
 

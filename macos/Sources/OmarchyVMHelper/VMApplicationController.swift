@@ -677,9 +677,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         }
         if activeBootFixConsent != nil, let identity = GuestBootFixCache.bundledIdentity {
             let checking = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "checking",
-                components: ["clipboard": "pending", "screensaver": "pending", "alacritty": "pending"])
+                components: GuestBootFixReport.pendingComponents)
             retainBootFixReport(checking)
-            bootFixResultTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: false) { [weak self] _ in
+            bootFixResultTimer = Timer.scheduledTimer(withTimeInterval: 360, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.receivedBootFixReport(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity,
                         state: "unconfirmed", components: checking.components))
@@ -1130,7 +1130,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         bootFixResultTimer = nil
         if activeBootFixConsent != nil, !bootFixResultPresented, let identity = GuestBootFixCache.bundledIdentity {
             retainBootFixReport(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "unconfirmed",
-                components: ["clipboard": "pending", "screensaver": "pending", "alacritty": "pending"]))
+                components: GuestBootFixReport.pendingComponents))
         }
         activeBootFixConsent = nil
         activeBootFixCacheURL = nil

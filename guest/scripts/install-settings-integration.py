@@ -133,7 +133,7 @@ def main():
     spec.loader.exec_module(fixes)
     fixes.boot(payload)
     install_system(payload, Path("/"))
-    subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-power-profile.py"], check=True)
+    # Power/menu plugin changes now participate in the reviewed file journal.
     subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-timezone-menus.py"], check=True)
     # Run before owner provisioning, including in older unprovisioned factories.
     # The live service starts after provisioning so a different setup selection

@@ -2,6 +2,9 @@ import AppKit
 import Foundation
 
 struct GuestBootFixReport: Codable, Equatable {
+    static let componentNames = ["clipboard", "screensaver", "alacritty", "power", "clock", "holds",
+                                 "lock", "touch-id", "onepassword", "battery", "integrations", "desktop"]
+    static var pendingComponents: [String: String] { Dictionary(uniqueKeysWithValues: componentNames.map { ($0, "pending") }) }
     let schema: Int
     let type: String
     let identity: String
@@ -15,9 +18,9 @@ struct GuestBootFixReport: Codable, Equatable {
               value.identity.count == 64,
               value.identity.allSatisfy({ "0123456789abcdef".contains($0) }),
               ["checking", "running", "complete", "skipped", "failed", "recovery-required", "unconfirmed"].contains(value.state),
-              Set(value.components.keys) == ["clipboard", "screensaver", "alacritty"],
-              value.components.values.allSatisfy({ ["current", "applied", "preserved", "unavailable", "pending"].contains($0) }),
-              value.state != "complete" || !value.components.values.contains("pending")
+              [Set(componentNames), Set(["clipboard", "screensaver", "alacritty"])].contains(Set(value.components.keys)),
+              value.components.values.allSatisfy({ ["current", "applied", "preserved", "unavailable", "pending", "failed"].contains($0) }),
+              value.state != "complete" || !value.components.values.contains(where: { ["pending", "failed"].contains($0) })
         else { throw HelperError.io("invalid boot fixes report") }
         return value
     }
@@ -32,18 +35,23 @@ struct GuestBootFixReport: Codable, Equatable {
             }
             return components.values.contains("applied") ? "VM fixes applied and verified" : "VM fixes are current"
         case "skipped": return "VM fixes skipped · update available"
-        case "failed": return "VM fixes failed · previous files restored"
+        case "failed": return "Some VM fixes failed · affected changes restored"
         case "unconfirmed": return "VM fixes could not be confirmed · retry available"
         default: return "VM fix recovery needs attention"
         }
     }
 
     var detail: String {
-        let names = ["clipboard": "Clipboard", "screensaver": "Screensaver", "alacritty": "Alacritty workaround"]
+        let names = ["clipboard": "Clipboard", "screensaver": "Screensaver", "alacritty": "Alacritty workaround",
+                     "power": "Power/menu plugins", "clock": "Clock recovery", "holds": "Update compatibility holds",
+                     "lock": "Lock-screen password policy", "touch-id": "Touch ID support",
+                     "onepassword": "Existing 1Password integration", "battery": "Mac battery",
+                     "integrations": "Integration setup and status", "desktop": "Pinch input and Apps/menu entries"]
         let labels = ["current": "already current or not needed", "applied": "applied and verified",
                       "preserved": "customized or unsupported files preserved",
-                      "unavailable": "required runtime unavailable", "pending": "pending"]
-        return ["clipboard", "screensaver", "alacritty"].map {
+                      "unavailable": "skipped · required tools or runtime unavailable", "pending": "pending",
+                      "failed": "failed · previous installation kept"]
+        return Self.componentNames.filter { components[$0] != nil }.map {
             "\(names[$0]!): \(labels[components[$0] ?? "pending"]!)"
         }.joined(separator: "\n")
     }
@@ -120,10 +128,14 @@ enum GuestBootFixPrompt {
             • Clipboard fixes for large selections.
             • Screensaver layout and cursor helper fixes.
             • Remove the old Alacritty software-rendering workaround when supported.
+            • Power/menu plugin fixes, clock recovery, and update compatibility holds.
+            • Missing lock-screen password policy, pinch input, and stale Apps entries.
+            • Integration setup and Touch ID support, without enabling biometrics.
+            • Existing 1Password support and the Mac battery integration. Battery builds use your current kernel and require matching headers and existing build tools.
 
             Only recognized stock files are changed. Customized files are preserved. Original files are backed up, changes are verified, and a failed file update is restored. Interrupted updates are recovered on the next boot.
 
-            Your applications and personal files are kept. This does not update packages, the kernel, or Touch ID authentication. Existing boot settings and shared-folder safety still apply if you skip.
+            Your applications and personal files are kept. No packages or kernel are upgraded. Unsupported steps are skipped and reported. Touch ID pairing and enabling 1Password remain your choice. Existing boot settings and shared-folder safety still apply if you skip.
             """
         alert.addButton(withTitle: "Update and Launch")
         alert.addButton(withTitle: "Skip")
@@ -135,7 +147,7 @@ enum GuestBootFixPrompt {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Launch without these VM fixes?"
-        alert.informativeText = "The optional clipboard, screensaver, and Alacritty fixes will not be applied to this disk. Existing issues may remain. You can update on a later launch. Interrupted updates still recover their original files."
+        alert.informativeText = "The listed VM fixes and integration updates will not be applied to this disk. Existing issues may remain. You can update on a later launch. Interrupted updates still recover their original files."
         alert.addButton(withTitle: "Go Back")
         alert.addButton(withTitle: "Skip and Launch")
         return alert

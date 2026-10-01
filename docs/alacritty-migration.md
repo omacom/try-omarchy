@@ -9,7 +9,8 @@ package removal is needed.
 The Mac launcher's **Update** review can now perform this stock-wrapper
 retirement on an approved boot, with verified file recovery. See
 [updates at launch](integration-updates.md#updates-at-launch). The manual path
-below remains available, including the separate desktop-user Apps cleanup.
+below remains available. Update also performs the eligible stale Apps cleanup
+as the desktop user before login.
 
 When Alacritty is installed, the migration helper only runs when the current
 boot advertises
@@ -50,7 +51,8 @@ SSH access and sharing are not enabled automatically by this migration.
 
 ## Remove a stale Apps entry for an uninstalled Alacritty
 
-After retiring the unused wrapper, run the same copied helper **without sudo**:
+Update handles the recognized stale entry automatically. For manual cleanup
+after retiring the unused wrapper, run the copied helper **without sudo**:
 
 ```sh
 /usr/bin/python3 -I /mnt/mac/try-omarchy-migrate-alacritty --launcher

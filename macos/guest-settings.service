@@ -8,7 +8,7 @@ Before=display-manager.service omarchy-provision-owner.service
 Type=oneshot
 StandardOutput=journal+console
 StandardError=journal+console
-TimeoutStartSec=20
+TimeoutStartSec=300
 ExecStartPre=/usr/bin/mkdir -p /run/try-omarchy-settings
 ExecStartPre=/usr/bin/modprobe 9pnet_virtio
 ExecStartPre=/usr/bin/mount -t 9p -o ro,trans=virtio,version=9p2000.L try-omarchy-settings /run/try-omarchy-settings

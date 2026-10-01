@@ -4,15 +4,18 @@ Status: standalone integration delivery on current upstream; the payload is sudo
 
 The Mac launcher also has a separate consent-gated boot-file migration path.
 It reuses the existing settings boot payload and settings status port for exact
-stock clipboard/screensaver helpers and Alacritty wrapper retirement. It does
-not invoke this bundle's sudo or battery installers. The review, Skip
+stock repairs, integration bootstrap/support, and eligible battery migration.
+It plans the reviewed destinations directly; it does not invoke arbitrary shell
+installers. Battery kbuild staging precedes the file journal and publishes the
+verified module with DKMS receipts. Authentication enrollment remains separate. The review, Skip
 confirmation, disk/bundle-bound consent, durable file journal, interrupted
 recovery, and per-fix results are documented in
 [integration updates](../docs/integration-updates.md#updates-at-launch).
 
 The app bundles a reviewed integration payload independently of the factory disk.
 A dedicated read-only 9p share (tryomarchy-updates) exposes it to old guests.
-Users approve the first mount/install inside the guest with their Linux password.
+Normal supported bootstrap is handled by **Update and Launch**. The manual
+fallback still lets users approve mount/install with their Linux password.
 No SSH, personal folder sharing, disk mutation from macOS, or typed-command
 injection is required. The launcher offers the exact bootstrap command to copy.
 

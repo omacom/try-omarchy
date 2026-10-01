@@ -1,0 +1,84 @@
+{
+  "etc/UPower/UPower.conf.d/90-try-omarchy.conf": [
+    "7dc61a9a024c871a395b92537ab4b99611236ed1e1e549489d5326cd44d7524b"
+  ],
+  "etc/modules-load.d/95-try-omarchy-battery.conf": [
+    "64bcf7bda7dd2bd4df44da7547f26ff5390719ec0237cdaf2c6da6ea75e35040"
+  ],
+  "etc/udev/rules.d/93-omarchy-native-authentication.rules": [
+    "7033cd312f9da3ab389643b76f190fde4346744bdd284bf5b319349f7f10d5e8"
+  ],
+  "etc/udev/rules.d/95-omarchy-native-battery.rules": [
+    "7e37bff1ffb71b3bc3ac8160f7b599f37a9605eb340aee3692c54a741e2e065b"
+  ],
+  "usr/lib/systemd/system/omarchy-native-battery-bridge.service": [
+    "0595d4a817744e0ceb2f0c696880fedbd19b3b8ec814b8634f3686915d4bc4f9"
+  ],
+  "usr/lib/systemd/system/try-omarchy-clock-recovery.service": [
+    "7a139884eef577e93824812863bb81c0cc8bf5eb1186fdbf2f270841418cf597"
+  ],
+  "usr/lib/systemd/system/try-omarchy-clock-recovery.timer": [
+    "5b10cd9dce5db8bd52fb463330e8eba86f8b68b38aadd0c7a8c79105abd79169"
+  ],
+  "usr/lib/systemd/system/try-omarchy-integrations.service": [
+    "ada2d9d7a7af7cae0c6bcf42415336552f85f3d5cd42763325c73db691be691f"
+  ],
+  "usr/lib/systemd/system/try-omarchy-onepassword-touch-id@.service": [
+    "6aa7f49942a1ce8c2ea81901738137ad59b0b33f2c3ded2f53308d32bc0ab419"
+  ],
+  "usr/local/bin/omarchy-native-battery-bridge": [
+    "29afcee3a828efc22909064465d30739929db437993a4705ddeece2b7fc6f3a2",
+    "7ad0ac11639b4753f6eb439bbd2faa822a1406e0317ea0c1217d1f0b98ff52de",
+    "48d10e10f5393c4066386aed38ca930d4fc2585d3257bf2e459874fb3662ff0a"
+  ],
+  "usr/local/bin/try-omarchy-integrations": [
+    "18ed733f6ea95b6e7fbf2e271801faa8a31a29542bfe3f7098298d0480334f23"
+  ],
+  "usr/local/bin/try-omarchy-touch-id": [
+    "594b2103ffbd31975e999164d15b32b8bf8f60256e1b915874209fcf54439331",
+    "c129f96534cc393dd26e1d45d4947101d75e7f6387f49997b670985a3df159f6",
+    "c4cfaac6ce78d8ac4250825147be554f2444cc45c9740aecccb2af654a97b3ba"
+  ],
+  "usr/local/bin/try-omarchy-touch-id-test": [
+    "6c89dd3bee5613745919eb19aa995d2abbc00cb463070096b372b6e83638dcbd",
+    "0641220b3530126a2bb5aeda717d88f73ccc715bffcf2b8b8494c45f5e3a1774",
+    "5c9edc995e4ef9ebd16a0d303be0b58068882fb7e9dafbe8c720c5a5154f3355"
+  ],
+  "usr/local/lib/try-omarchy/guest-clock-recover": [
+    "0a6007e86d1a768612e0f8ccfe8ab0e9f1c29927c01e596a7f63799566392981"
+  ],
+  "usr/local/lib/try-omarchy/native-authentication-broker": [
+    "9a8c711d22ea2957bf2a4224d738238898c8bba2b3ad67b7c6831ec55c5d0f1d",
+    "ef8cda4c35be3cccaba7362f72a0a6c050175938a2691037153bf4dfe6650587",
+    "181001eae1cda61aff51368b9e0e533990a1d5632dad47e49036ad03c21ef501",
+    "1c4853f618202255a2e4c7f876917394bd85e6c15ba9c3c536dc9b65ffcd3cb0",
+    "a62a89f74c837ee044d1afda6f3e50e6c347c026975596168c41557c129079af"
+  ],
+  "usr/local/lib/try-omarchy/onepassword-password-dialog": [
+    "18b4cee4f5c9db46148dec688a8095dab2a300f56fc0eea2248648e28480886f"
+  ],
+  "usr/local/lib/try-omarchy/onepassword-touch-id-agent": [
+    "01c1f4f1b68cb73ed8d8a407566a76c86b9b0c1ad3673d4eb57e824f53d76dba"
+  ],
+  "usr/local/sbin/try-omarchy-touch-id-control": [
+    "951b151876e89183ce2eb9f1de36d0ecf17b1b66dd78af6545c9e0e8f8486b56",
+    "c158332b852c4e2efe2d6158309036ed11f43605b2ed61d88a988fe4d3b57f86"
+  ],
+  "usr/local/sbin/try-omarchy-touch-id-enroll": [
+    "7d56e8721f70ad02aecb116cb281b27c7a928b6a450792a47e0a38a6ef7a2c18",
+    "325884e2cedccde7a317319926c9dd9394d819375848d7cc253193a62af983a6"
+  ],
+  "usr/src/try-omarchy-battery-1.2.0/Makefile": [
+    "710a6269ca6dcad2b83608660a1f948347e34bd39ddac4ca614a2bd115ee43ae"
+  ],
+  "usr/src/try-omarchy-battery-1.2.0/dkms.conf": [
+    "a4934a86c32ec09ab6117363e19e420069d6ba6bfa16f35d1842be9cc10fdfde",
+    "f72a4b6d547aea7a4aa7f8a8768526a737f01abfb6177af8f3c2f3abe0814020",
+    "fd2ad6c97a993533de42c619b98af90ab22adbc257ca3942a500a319c3d8e859"
+  ],
+  "usr/src/try-omarchy-battery-1.2.0/try-omarchy-battery.c": [
+    "c90167bc5d97be257ca44e83f8b7d5bf45a067d0765ace3f84bbee71a122f36b",
+    "437f8d8382a0b7e198f7d6bba9d4e510e49036bc6d7bf8695c2d55cbe9bbb1f1",
+    "73dc17b4c7c965233a0c1889c8e5c80cb335ae06b6baa1a0f71cd215fcc7ed05"
+  ]
+}

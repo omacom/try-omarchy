@@ -268,6 +268,7 @@ for relative in \
   etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
   install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
 done
+python3 "$repo_dir/guest/scripts/boot-fix-components.py" --payload "$repo_dir/guest" "$settings_payload"
 python3 "$repo_dir/guest/scripts/migrate-boot-fixes.py" --manifest "$settings_payload"
 install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
 python3 "$repo_dir/integrations/build-bundle.py" "$contents/Resources/integrations"

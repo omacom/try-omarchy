@@ -187,7 +187,12 @@ launch. No factory reset is needed: images from v0.3.0 onward carry `dkms`,
 `gcc`, `make`, `kmod`, and headers matching the pinned kernel, so the guest can
 build the module itself.
 
-Install it with the app's [VM integrations](integration-updates.md): open
+Choose **Update and Launch** to build and install the battery integration
+automatically against the VM's current kernel. Missing build tools or matching
+headers are skipped, without downloading packages. Verified file and module/service
+recovery are described in [VM integrations](integration-updates.md#updates-at-launch).
+
+For the existing manual fallback, open
 **VM integrations > Review…** in the launcher, or **Setup > Try Omarchy
 Integrations** inside Omarchy, and choose **Install/update integration
 support**. The integration runs

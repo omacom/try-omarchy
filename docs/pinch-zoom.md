@@ -16,8 +16,10 @@ New factory users load `/usr/share/try-omarchy/pinch-input.lua` from their
 the gesture device. Its synthetic contacts must not become tap clicks or be
 suppressed after keyboard input.
 
-App updates retain existing persistent guest disks. Before testing a rebuilt
-runtime with an existing guest, add this to `~/.config/hypr/input.lua`:
+App updates retain existing persistent guest disks. **Update and Launch** adds
+this scoped rule to an existing input file when it has no pinch override, running
+as the desktop user and retaining a recoverable backup. Existing device overrides
+are kept. The manual equivalent in `~/.config/hypr/input.lua` is:
 
 ```lua
 hl.device({

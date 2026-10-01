@@ -516,6 +516,7 @@ no login or screen-unlock PAM policy is changed.
 If Touch ID falls back, sudo displays the reason before asking for the guest
 password. Signed approvals require synchronized Mac and guest clocks; factory
 images enable `systemd-timesyncd` at boot. On an existing guest with clock drift,
+choose **Update and Launch** to install clock recovery and enable time sync, or
 run `sudo systemctl enable --now systemd-timesyncd.service`, then check
 `timedatectl` for `System clock synchronized: yes` before retrying.
 
@@ -664,34 +665,32 @@ deliberate, destructive way to start again from the newest bundled factory.
 
 ### Updating integrations in an existing VM
 
-When a check finds updates, repairs, or no response, the Mac launcher shows a
-compact attention notice above its settings, with the reason and a **Review…**
-button. The notice is absent otherwise. It explains how to add
-new Try Omarchy features to an existing VM. It offers a one-time setup command
-for guests that do not yet have the integration manager. Run that command in an
-Omarchy terminal; it mounts the app’s dedicated read-only bundle and opens a
-review before requesting the Linux administrator password. SSH and personal
-folder sharing are not required.
+When the selected disk needs migration, the launcher's bottom button becomes
+**Update**. Review the fixes and choose **Update and Launch**; the app runs the
+supported repairs before login and shows their results. **Skip** requires a
+second confirmation. No terminal commands, SSH, or personal folder sharing are
+needed for normal migration.
 
-After setup, use **Omarchy Menu → Setup → Try Omarchy Integrations** or run
-`try-omarchy-integrations`. The guide installs or updates the sudo Touch ID support and the
-[Mac battery mirror](docs/host-battery.md#retrofitting-an-existing-guest) already bundled
-with Try Omarchy. Biometric pairing remains a separate explicit choice. It does
-not install pending integrations or upgrade the guest OS.
+This covers the supported clipboard/screensaver fixes, Alacritty cleanup,
+power/menu plugins, clock recovery, compatibility holds, missing lock-screen
+password policy, pinch input, integration setup, and eligible Mac battery
+installation/update. Battery builds use the existing kernel and installed tools;
+missing prerequisites are skipped. No packages or kernel are upgraded.
 
-The app checks integration status after every VM launch. The launcher labels
-cached results **Last check**. A guest that does not respond may need setup or
-repair; a timeout is not proof that its components are absent. See
-[integration updates](docs/integration-updates.md) for scope and recovery details.
+Touch ID pairing and first-time 1Password enablement remain explicit choices.
+Existing custom files and enrolled older authentication protocols are preserved.
+The guest guide remains under **Setup → Try Omarchy Integrations** for opt-in
+setup or manual review. See [integration updates](docs/integration-updates.md)
+for the command inventory, results, and recovery boundaries.
 
 ### Repairing update holds in an older guest
 
 Older guests may fail Omarchy Update with conflicting `libaquamarine.so` or
 `libhyprtoolkit.so` dependencies. New factory images hold the compatible
 Hyprland, aquamarine, Hyprtoolkit, and `hyprland-guiutils` packages together,
-along with the direct-boot kernel and headers. Updating the Mac app does not
-add these holds to an existing guest; run the repair below explicitly, even
-if an earlier version of the repair was already applied.
+along with the direct-boot kernel and headers. Choose **Update and Launch** to repair missing holds automatically without
+changing package versions. The manual repair below remains available for
+diagnostics and custom maintenance.
 
 Copy `guest/scripts/repair-update-holds.py` from this source checkout into the
 guest, then run it **inside Omarchy**, with the updater closed:

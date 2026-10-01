@@ -48,8 +48,20 @@ struct GuestBootFixTests {
         #expect(try GuestBootFixReport.decode(JSONEncoder().encode(report())) == report())
         for raw in [Data("{}".utf8), Data(repeating: 120, count: 4097),
                     try JSONEncoder().encode(report(outcome: "pending")),
+                    try JSONEncoder().encode(report(outcome: "failed")),
                     try JSONEncoder().encode(report(state: "unknown"))] {
             #expect(throws: (any Error).self) { try GuestBootFixReport.decode(raw) }
+        }
+        let expanded = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "running",
+                                          components: GuestBootFixReport.pendingComponents)
+        #expect(try GuestBootFixReport.decode(JSONEncoder().encode(expanded)) == expanded)
+        #expect(expanded.detail.contains("Mac battery"))
+        #expect(expanded.detail.contains("Clock recovery"))
+        var unknown = expanded.components
+        unknown["arbitrary-command"] = "current"
+        #expect(throws: (any Error).self) {
+            try GuestBootFixReport.decode(JSONEncoder().encode(GuestBootFixReport(schema: 1, type: "boot-fixes",
+                identity: identity, state: "running", components: unknown)))
         }
     }
 

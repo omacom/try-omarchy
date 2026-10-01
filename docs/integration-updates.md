@@ -10,31 +10,38 @@ requiring installation of integration support.
 
 ## Updates at launch
 
-Compatible file fixes have a separate **Update** action at the bottom of the
+Compatible repairs have an **Update** action at the bottom of the
 Mac launcher when the selected VM has not been checked against the current fix
 bundle, or its last check still has pending work. Automatic startup pauses at
 the launcher when that review is needed. A new VM keeps **Launch Omarchy**.
 
-**Update** opens a review listing clipboard and screensaver helper fixes and
-retirement of the exact stock Alacritty software-rendering wrapper. Choose
+**Update** opens a review of the supported existing-VM repairs listed below. Choose
 **Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
 **Skip and Launch** confirmation and leaves the fixes available for a later
 launch. The existing settings, timezone integration, and shared-folder safety
-payload still run; Skip applies only to these optional file fixes.
+payload still run; Skip applies only to the reviewed repairs.
 
 Approval is limited to the reviewed bundle and selected disk's file identity,
 rechecked under the workspace lock. The existing temporary boot service runs
-the file fixes before graphical login, without command pasting or a Linux
+the repairs before graphical login, without command pasting or a Linux
 password prompt. It does not require an integration agent in the old VM.
 
-Only exact supported stock versions are replaced. Customized files, unsafe
-paths, and unsupported workarounds are preserved and reported as skipped.
+Stock integrations are replaced only when their current or reviewed historical
+contents match. Customized files, unsafe paths, unsupported dependencies, and
+explicit service overrides are preserved and reported as skipped. Hold-list
+repair adds only missing compatibility names while preserving existing entries
+and comments; pinch setup appends its scoped device rule without replacing the
+user's other input settings. Existing lock-screen PAM policies are preserved.
 The runner saves a root-private journal before changing any file, verifies the
 entire change set, and restores original bytes, ownership, and permissions if
-a file update fails. An interrupted transaction is restored on the next boot,
+an update or service activation fails. Service activity and the loaded battery
+module are restored along with their original files. An interrupted transaction is restored on the next boot,
 even if that launch skips updates. Successful backups remain under
 `/var/lib/try-omarchy/boot-fixes/backup-*.json`. This is recovery for the listed
-file changes, not a full-disk snapshot or rollback of arbitrary commands.
+file changes and listed service/module activation, not a full-disk snapshot or
+rollback of arbitrary commands. User files have a separate journal under
+`~/.local/state/try-omarchy/boot-fixes`; these steps run as their desktop user.
+Earlier successful components can remain applied when a later user step fails.
 If recovery itself cannot finish, the result explicitly reports that recovery
 needs attention; it never claims the original files were restored.
 
@@ -44,23 +51,41 @@ Results are scoped to that VM disk and fix bundle; another disk or reset does
 not inherit completion. A missing or unconfirmed result leaves Update offered
 next time.
 
-This flow does not install packages, build kernel modules, alter PAM policy,
-enroll Touch ID, replace the kernel or boot kit, or update the graphics stack.
-Touch ID and battery installation retain the explicit guest review below.
+### Manual upgrade commands covered by Update
 
-The reviewed file update repairs two compatible bugs in previously shipped native
-scripts: large clipboard selections and screensaver text in small windows. It
-replaces only the exact supported stock scripts (or repairs the current version's
-file mode). Missing clipboard support, unknown versions, customized scripts,
-and symlinked scripts are left alone. The screensaver's native helpers must be
-absent or match the bundled versions before any screensaver file is updated;
-custom branding text is never replaced. Unsupported files are logged in
-`journalctl -u try-omarchy-settings.service -b`. These small fixes do not change
-enrollment, the guest kernel, packages, or the integration manager's status.
+| Previous manual step | Automatic migration |
+| --- | --- |
+| Clipboard/screensaver fixes and Alacritty wrapper retirement | Recognized stock scripts, verified and backed up. |
+| Power panel/menu plugin fixes | Exact reviewed QML and command patches, now included in the journal and result. |
+| `systemctl enable --now systemd-timesyncd` and clock-recovery installer | Install the recovery helper/units and enable time synchronization and the recovery timer. An explicitly disabled existing recovery timer is preserved. |
+| `repair-update-holds.py --apply` | Add compatibility holds to both pacman configurations under the pacman transaction lock; no package operation. |
+| `omarchy-apply-lock` | Seed only the missing pinned password policy; preserve existing PAM and fingerprint policies. |
+| Integration bootstrap/setup command | Install the verified support bundle, menu entry, setup command, and status service automatically. |
+| Battery retrofit/update installer | Build privately against the running kernel with existing tools and headers; journal sources, module, DKMS receipts, service enablement, and bridge files before activation. |
+| Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
+| Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
 
-## First setup
+Battery builds are bounded to three minutes with two compiler jobs. The boot
+service allows five minutes; an approved host check waits up to six minutes
+before reporting an unconfirmed result. Missing DKMS, build tools, matching
+headers, or an unsupported module location produce a skipped battery result;
+no dependency is downloaded or installed. The kernel and paired boot kit stay
+unchanged. The battery source, build receipt, and active DKMS link are published
+with the verified module, so normal DKMS status and future explicit maintenance
+continue to recognize it.
 
-When an integration check finds updates, repairs, or no response from the VM,
+This flow does not install or upgrade packages, replace the kernel, update the
+graphics stack, enable biometrics, or reproduce every factory change. Installing
+new optional applications and first-time 1Password enablement remain explicit
+setup choices. An enrolled older Touch ID protocol requiring enrollment/PAM
+migration is preserved for the guest review below; its password fallback is not
+changed by Update. Customized or unsupported steps are reported, not forced.
+
+## Optional guest review and manual fallback
+
+The normal supported setup is **Update and Launch**, without pasting a command.
+The guest review remains available for opt-in pairing and unsupported/custom
+repairs. When an integration check finds updates, repairs, or no response from the VM,
 the Mac launcher shows an attention notice above its settings, with the reason
 and a highlighted **Review…** button.
 Launch Omarchy and paste the supplied command into an Omarchy terminal. It mounts
@@ -81,9 +106,7 @@ Integrations**, or with `try-omarchy-integrations` in the guest terminal.
 - Mac battery: installs the [host battery](host-battery.md) module and bridge, so
   the Mac's charge appears in the Omarchy bar. The guest builds the module with
   DKMS. VMs with the current integration are left as they are; older installed
-  versions are upgraded by **Install/update integration support**. Rebuilding
-  the Mac app or factory image does not update an existing VM's installed module
-  and bridge.
+  versions are upgraded by **Install/update integration support**. The launcher's **Update** flow also updates eligible existing VMs on their next approved boot.
 
 The bundle contains upstream sudo Touch ID support and the Mac battery mirror.
 Additional integrations can be added after their own upstream review. The manager does not

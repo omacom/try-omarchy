@@ -28,8 +28,12 @@ approval verification and expiry windows are unchanged.
 
 ## Existing guests
 
-App updates do not install new services inside an existing VM. Copy this checkout
-into the guest and run:
+Choose **Update and Launch** in the updated Mac app to install recovery and
+enable time synchronization automatically. Existing explicit recovery overrides
+and disabled timers are preserved. Results and verified backups are described in
+[integration updates](integration-updates.md#updates-at-launch).
+
+For manual setup, copy this checkout into the guest and run:
 
 ```sh
 sudo guest/scripts/install-clock-recovery.sh
