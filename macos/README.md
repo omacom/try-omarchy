@@ -33,6 +33,8 @@ without shipping an unoptimized graphics command path.
 To leave capacity for other host applications during a runtime rebuild, use
 `OMARCHY_RUNTIME_BUILD_JOBS=2 make runtime`. The override bounds Ninja compilation
 for VirGL, libslirp, and QEMU; otherwise Ninja selects its usual parallelism.
+See [performance profiling](../docs/performance.md) for CPU/memory accounting,
+reproducible measurements, and the current native-comparison limitations.
 
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. The app builder is also directly usable
@@ -127,8 +129,9 @@ the system-tool fallback. App signature and runtime validation remain unchanged.
 The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
 existing `memoryPreferences` choice without rewriting it. CPU choices range
-from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB default and
-6/8/12/16 GiB choices with 8 GiB of host headroom. Saved values that no longer
+from 4 through all host cores. Memory reuses `MemoryPolicy`'s 4 GiB floor,
+recommends 8 GiB on hosts with at least 16 GiB, and offers 6/8/12/16 GiB choices
+with 8 GiB of host headroom. Saved values that no longer
 fit resolve independently to their defaults without rewriting storage.
 
 The app exports `OMARCHY_QEMU_GPU_CPUS` and the established
