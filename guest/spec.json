@@ -384,6 +384,20 @@
         ]
       },
       {
+        "id": "first-run-update-notification",
+        "description": "Suppress only the unconditional first-login system-update invitation in the pinned Try Omarchy guest.",
+        "reference": "https://github.com/basecamp/omarchy/blob/c668141e9c42b13c80c9ca4ea108e11708c5e8a5/install/user/first-run/wifi.sh",
+        "patch": "patches/omarchy/first-run-update-notification.patch",
+        "patchSha256": "812a212d22d66491076bc894fc3160b2a09bfd9cbb2b30ed51838277d6205791",
+        "targets": [
+          {
+            "path": "install/user/first-run/wifi.sh",
+            "beforeSha256": "4cc2621157be1efe6d449d1daa7b28d588e4a8e46127de493da03749af1ae5a7",
+            "afterSha256": "75d4a5338581c651d0aca3f53a32ee2506b8be44ec45dbcb841ebb09d4ede6f4"
+          }
+        ]
+      },
+      {
         "id": "pkg-add-aarch64-unavailable",
         "description": "Refuse known aarch64-unavailable packages from omarchy-pkg-add with the shared message.",
         "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/bin/omarchy-pkg-add",

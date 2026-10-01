@@ -186,6 +186,7 @@ def main() -> None:
             "notification-screen-privacy",
             "update-free-space-message",
             "update-restart-arm-kernel",
+            "first-run-update-notification",
             "pkg-add-aarch64-unavailable",
             "pkg-aur-add-aarch64-unavailable",
             "dropbox-aarch64-unavailable",

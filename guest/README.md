@@ -112,6 +112,14 @@ direct-boot kernel and matching headers are held, while the packaged
 repository. A separate migration channel is required before those
 Try-Omarchy-specific revisions can advance on an existing disk without reset.
 
+New guests suppress the upstream first-login **Update System** invitation.
+Upstream sends it unconditionally once networking is ready, without checking
+for available updates. It launches the complete Omarchy updater, which cannot
+advance Try Omarchy's pinned runtime and boot files. The reviewed
+`first-run-update-notification` patch skips only that invitation when the
+Try Omarchy build spec is present. Wi-Fi setup, welcome and other notifications,
+the update indicator, and user-initiated update commands remain available.
+
 The kernel reboot check recognizes package-owned `modules.builtin` metadata as
 well as `vmlinuz` under `/usr/lib/modules/<release>/`. Arch Linux ARM does not
 place `vmlinuz` there, so requiring that file alone produces a false kernel-update
