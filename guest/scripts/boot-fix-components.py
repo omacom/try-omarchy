@@ -1,5 +1,6 @@
 """Reviewed existing-guest repairs, planned as one recoverable file transaction."""
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -11,6 +12,13 @@ import tempfile
 import sys
 
 GROUPS = {
+    'ghostty': {
+        'install-ghostty-arm64': ('usr/local/lib/try-omarchy/install-ghostty-arm64', 0o755),
+        'ghostty-PKGBUILD': ('usr/local/share/try-omarchy/ghostty/PKGBUILD', 0o644),
+        'ghostty-wrapper': ('usr/local/share/try-omarchy/ghostty/ghostty-wrapper', 0o755),
+        'ghostty-build-spec.json': ('usr/local/share/try-omarchy/ghostty/build-spec.json', 0o644),
+        'omarchy-install-terminal': ('usr/bin/omarchy-install-terminal', 0o755),
+    },
     'clock': {
         'guest-clock-recover': ('usr/local/lib/try-omarchy/guest-clock-recover', 0o755),
         'try-omarchy-clock-recovery.service': ('usr/lib/systemd/system/try-omarchy-clock-recovery.service', 0o644),
@@ -359,11 +367,23 @@ def activate(runtime, restoring=False):
 
 def package(guest, payload):
     """One inventory builder shared by app packaging and migration fixtures."""
+    spec = json.loads((guest / 'spec.json').read_text())
+    pins = spec['supplyChain']['ghostty']
+    hook = next(b for b in spec['authenticity']['backports'] if b['id'] == 'ghostty-arm64-terminal')
+    terminal = guest / 'migrations/omarchy-install-terminal'
+    if hashlib.sha256(terminal.read_bytes()).hexdigest() != hook['targets'][0]['afterSha256']:
+        raise RuntimeError('Ghostty terminal hook does not match the reviewed backport')
+    for name, field in (('PKGBUILD', 'recipeSha256'), ('ghostty-wrapper', 'wrapperSha256')):
+        asset = guest / 'native-overlay/usr/local/share/try-omarchy/ghostty' / name
+        if hashlib.sha256(asset.read_bytes()).hexdigest() != pins[field]:
+            raise RuntimeError('Ghostty update asset digest mismatch: ' + name)
+    (payload / 'ghostty-build-spec.json').write_text(json.dumps({'supplyChain': {'ghostty': pins}}, sort_keys=True) + '\n')
     for group in GROUPS.values():
         for name, (relative, mode) in group.items():
-            source = (guest / 'native-module/try-omarchy-battery' / name
-                      if relative.startswith('usr/src/') else guest / 'native-overlay' / relative)
-            shutil.copy2(source, payload / name)
+            if name != 'ghostty-build-spec.json':
+                source = (guest / 'native-module/try-omarchy-battery' / name if relative.startswith('usr/src/')
+                          else terminal if name == 'omarchy-install-terminal' else guest / 'native-overlay' / relative)
+                shutil.copy2(source, payload / name)
             (payload / name).chmod(mode)
     for name, source in {
         'components.py': guest / 'scripts/boot-fix-components.py',

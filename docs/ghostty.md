@@ -23,12 +23,21 @@ requires an updated Try Omarchy installer and another installation.
 The package leaves `/usr/share/terminfo/g/ghostty` owned by `ncurses` and
 includes Ghostty's `xterm-ghostty` entry. Revision `1.3.1-2` fixes the file
 conflict that prevented `1.3.1-1` from installing. If you encountered that
-failure, run the updated installer from a checkout as described below.
+failure, apply the VM update described below, then retry the terminal menu.
 
 ## Existing VMs
 
-Existing VM disks do not automatically receive a rebuilt factory image. From a
-checkout containing this change, run inside the guest:
+In a Try Omarchy app build containing this fix, choose **Update**, then
+**Update and Launch**. This installs the corrected Ghostty installer, recipe,
+verification pins, and terminal-menu hook on recognized stock VMs. After launch,
+choose **Install → Terminal → Ghostty** normally. The VM update does not download,
+build, or install Ghostty itself; that remains your explicit menu action.
+
+Customized or unsupported installer files are preserved and reported as skipped.
+Existing Ghostty installations, configuration, and your terminal preference are
+kept. A skipped or failed VM update leaves the previous installer in place.
+
+For a manual fallback, run inside the guest from a checkout containing this fix:
 
 ```sh
 ./guest/native-overlay/usr/local/lib/try-omarchy/install-ghostty-arm64 --from-checkout "$PWD"

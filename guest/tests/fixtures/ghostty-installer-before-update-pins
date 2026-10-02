@@ -8,13 +8,8 @@ usage() {
   echo '--build-only retains the package in DIR without registering or installing it.'
 }
 
+spec=/usr/share/try-omarchy/build-spec.json
 assets=/usr/local/share/try-omarchy/ghostty
-# Approved VM updates carry current installer pins independently of the
-# original factory's build spec. New factories can use their bundled spec.
-spec=$assets/build-spec.json
-if [[ ! -e $spec && ! -L $spec ]]; then
-  spec=/usr/share/try-omarchy/build-spec.json
-fi
 output=''
 while (($#)); do
   case "$1" in
@@ -82,7 +77,7 @@ echo 'The first build takes several minutes and uses temporary disk space.'
 # Installing dependencies and publishing the completed package require sudo;
 # download, signature verification, compilation and makepkg run unprivileged.
 omarchy-pkg-add gtk4 libadwaita gtk4-layer-shell libx11 libxkbcommon mesa \
-  glibc gcc-libs ncurses pkgconf gettext minisign fakeroot binutils || fail 'could not install build dependencies'
+  glibc gcc-libs pkgconf gettext minisign fakeroot binutils || fail 'could not install build dependencies'
 for tool in makepkg python3 curl tar zstd minisign pkg-config fakeroot bsdtar repo-add pacman; do
   command -v "$tool" >/dev/null || fail "$tool is required"
 done

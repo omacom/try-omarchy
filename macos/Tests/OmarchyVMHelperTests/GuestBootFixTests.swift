@@ -57,6 +57,16 @@ struct GuestBootFixTests {
         #expect(try GuestBootFixReport.decode(JSONEncoder().encode(expanded)) == expanded)
         #expect(expanded.detail.contains("Mac battery"))
         #expect(expanded.detail.contains("Clock recovery"))
+        #expect(expanded.detail.contains("Ghostty terminal installer"))
+        let previous = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete",
+            components: Dictionary(uniqueKeysWithValues: GuestBootFixReport.componentNames
+                .filter { $0 != "ghostty" }.map { ($0, "current") }))
+        #expect(try GuestBootFixReport.decode(JSONEncoder().encode(previous)) == previous)
+        var current = previous.components
+        current["ghostty"] = "applied"
+        let migrated = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete", components: current)
+        #expect(try GuestBootFixReport.decode(JSONEncoder().encode(migrated)) == migrated)
+        #expect(migrated.detail.contains("Ghostty terminal installer: applied and verified"))
         var unknown = expanded.components
         unknown["arbitrary-command"] = "current"
         #expect(throws: (any Error).self) {

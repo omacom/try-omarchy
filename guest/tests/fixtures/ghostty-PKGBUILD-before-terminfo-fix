@@ -1,0 +1,45 @@
+# User-initiated build, not part of the factory package transaction.
+pkgname=ghostty
+pkgver=1.3.1
+pkgrel=1
+pkgdesc='Ghostty terminal with a Try Omarchy VirGL rendering fallback'
+arch=('aarch64')
+url='https://ghostty.org'
+license=('MIT')
+depends=('gtk4' 'libadwaita' 'gtk4-layer-shell' 'libx11' 'libxkbcommon' 'mesa' 'glibc' 'gcc-libs')
+makedepends=('pkgconf' 'gettext' 'minisign')
+options=('!debug' '!strip' '!lto')
+source=(
+  "https://release.files.ghostty.org/$pkgver/ghostty-$pkgver.tar.gz"
+  "https://release.files.ghostty.org/$pkgver/ghostty-$pkgver.tar.gz.minisig"
+  'https://ziglang.org/download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz'
+  'ghostty-wrapper'
+)
+sha256sums=(
+  '3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb'
+  '5591816f6a52f03d1ea5be0129fcc396aeece7238419cdd36e511546ee242798'
+  '958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f'
+  'c41b20e46f257da7a06ee8c67b1056d099f61d7935ac2014525b1b2b1f74f827'
+)
+
+prepare() {
+  minisign -Vm "$srcdir/ghostty-$pkgver.tar.gz" \
+    -x "$srcdir/ghostty-$pkgver.tar.gz.minisig" \
+    -P RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV
+}
+
+build() {
+  cd "$srcdir/ghostty-$pkgver"
+  export ZIG_GLOBAL_CACHE_DIR="$srcdir/zig-cache"
+  DESTDIR="$srcdir/staged" "$srcdir/zig-aarch64-linux-0.15.2/zig" build \
+    -j2 -Doptimize=ReleaseFast -Dcpu=baseline -Demit-docs=false \
+    -Dversion-string="$pkgver" --prefix /usr
+}
+
+package() {
+  cp -a "$srcdir/staged/usr" "$pkgdir/"
+  install -dm755 "$pkgdir/usr/lib/ghostty"
+  mv "$pkgdir/usr/bin/ghostty" "$pkgdir/usr/lib/ghostty/ghostty"
+  install -m755 "$srcdir/ghostty-wrapper" "$pkgdir/usr/bin/ghostty"
+  install -Dm644 "$srcdir/ghostty-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/ghostty/LICENSE"
+}

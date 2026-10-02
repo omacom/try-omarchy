@@ -11,6 +11,9 @@
   "etc/udev/rules.d/95-omarchy-native-battery.rules": [
     "7e37bff1ffb71b3bc3ac8160f7b599f37a9605eb340aee3692c54a741e2e065b"
   ],
+  "usr/bin/omarchy-install-terminal": [
+    "41d1f9bb3d503e895795115236c2fe7146b5fe9184aec06de349137ad4f4069b"
+  ],
   "usr/lib/systemd/system/omarchy-native-battery-bridge.service": [
     "0595d4a817744e0ceb2f0c696880fedbd19b3b8ec814b8634f3686915d4bc4f9"
   ],
@@ -47,6 +50,10 @@
   "usr/local/lib/try-omarchy/guest-clock-recover": [
     "0a6007e86d1a768612e0f8ccfe8ab0e9f1c29927c01e596a7f63799566392981"
   ],
+  "usr/local/lib/try-omarchy/install-ghostty-arm64": [
+    "e96ebfcde6ebeb62d33077227cf4d6e7316b92b98db26c69c0e66f3cb44b6b63",
+    "549fda8b66e468fe516bff495924aa7cfa269b5a42a06786a8dff61d1c49814c"
+  ],
   "usr/local/lib/try-omarchy/native-authentication-broker": [
     "9a8c711d22ea2957bf2a4224d738238898c8bba2b3ad67b7c6831ec55c5d0f1d",
     "ef8cda4c35be3cccaba7362f72a0a6c050175938a2691037153bf4dfe6650587",
@@ -67,6 +74,10 @@
   "usr/local/sbin/try-omarchy-touch-id-enroll": [
     "7d56e8721f70ad02aecb116cb281b27c7a928b6a450792a47e0a38a6ef7a2c18",
     "325884e2cedccde7a317319926c9dd9394d819375848d7cc253193a62af983a6"
+  ],
+  "usr/local/share/try-omarchy/ghostty/PKGBUILD": [
+    "fe333bdccba74a4817d2b8e7180f4f37f8455bbb9019cb7db81481c3f64bbf9c",
+    "039101852ca314042c7a28892554418ca7f067a174c4dea3bdc453182bbde28c"
   ],
   "usr/src/try-omarchy-battery-1.2.0/Makefile": [
     "710a6269ca6dcad2b83608660a1f948347e34bd39ddac4ca614a2bd115ee43ae"

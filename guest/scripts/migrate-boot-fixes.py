@@ -30,7 +30,7 @@ WRAPPER = "usr/local/bin/alacritty"
 BACKUP = "usr/local/bin/.alacritty.try-omarchy-software-backup"
 TARGETS = {*FILES.values(), WRAPPER, BACKUP}
 COMPONENTS = ("clipboard", "screensaver", "alacritty", "power", "clock", "holds",
-              "lock", "touch-id", "onepassword", "battery", "integrations", "desktop")
+              "lock", "touch-id", "onepassword", "battery", "integrations", "desktop", "ghostty")
 LINKS = {}
 allowed_link = lambda relative, value: value == LINKS.get(relative)
 MAX_FILE = 8388608

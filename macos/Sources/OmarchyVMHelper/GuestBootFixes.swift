@@ -3,7 +3,7 @@ import Foundation
 
 struct GuestBootFixReport: Codable, Equatable {
     static let componentNames = ["clipboard", "screensaver", "alacritty", "power", "clock", "holds",
-                                 "lock", "touch-id", "onepassword", "battery", "integrations", "desktop"]
+                                 "lock", "touch-id", "onepassword", "battery", "integrations", "desktop", "ghostty"]
     static var pendingComponents: [String: String] { Dictionary(uniqueKeysWithValues: componentNames.map { ($0, "pending") }) }
     let schema: Int
     let type: String
@@ -18,7 +18,8 @@ struct GuestBootFixReport: Codable, Equatable {
               value.identity.count == 64,
               value.identity.allSatisfy({ "0123456789abcdef".contains($0) }),
               ["checking", "running", "complete", "skipped", "failed", "recovery-required", "unconfirmed"].contains(value.state),
-              [Set(componentNames), Set(["clipboard", "screensaver", "alacritty"])].contains(Set(value.components.keys)),
+              [Set(componentNames), Set(componentNames.filter { $0 != "ghostty" }),
+               Set(["clipboard", "screensaver", "alacritty"])].contains(Set(value.components.keys)),
               value.components.values.allSatisfy({ ["current", "applied", "preserved", "unavailable", "pending", "failed"].contains($0) }),
               value.state != "complete" || !value.components.values.contains(where: { ["pending", "failed"].contains($0) })
         else { throw HelperError.io("invalid boot fixes report") }
@@ -46,7 +47,8 @@ struct GuestBootFixReport: Codable, Equatable {
                      "power": "Power/menu plugins", "clock": "Clock recovery", "holds": "Update compatibility holds",
                      "lock": "Lock-screen password policy", "touch-id": "Touch ID support",
                      "onepassword": "Existing 1Password integration", "battery": "Mac battery",
-                     "integrations": "Integration setup and status", "desktop": "Pinch input and Apps/menu entries"]
+                     "integrations": "Integration setup and status", "desktop": "Pinch input and Apps/menu entries",
+                     "ghostty": "Ghostty terminal installer"]
         let labels = ["current": "already current or not needed", "applied": "applied and verified",
                       "preserved": "customized or unsupported files preserved",
                       "unavailable": "skipped · required tools or runtime unavailable", "pending": "pending",
@@ -130,6 +132,7 @@ enum GuestBootFixPrompt {
             • Remove the old Alacritty software-rendering workaround when supported.
             • Power/menu plugin fixes, clock recovery, and update compatibility holds.
             • Missing lock-screen password policy, pinch input, and stale Apps entries.
+            • Fix the Ghostty installer so you can install it from the terminal menu.
             • Integration setup and Touch ID support, without enabling biometrics.
             • Existing 1Password support and the Mac battery integration. Battery builds use your current kernel and require matching headers and existing build tools.
 

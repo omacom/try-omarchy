@@ -61,6 +61,7 @@ next time.
 | `repair-update-holds.py --apply` | Add compatibility holds to both pacman configurations under the pacman transaction lock; no package operation. |
 | `omarchy-apply-lock` | Seed only the missing pinned password policy; preserve existing PAM and fingerprint policies. |
 | Integration bootstrap/setup command | Install the verified support bundle, menu entry, setup command, and status service automatically. |
+| Ghostty installer from an updated checkout | Update recognized stock Ghostty installer files, verification pins, and the terminal-menu hook; Ghostty is installed later through **Install → Terminal → Ghostty**. |
 | Battery retrofit/update installer | Build privately against the running kernel with existing tools and headers; journal sources, module, DKMS receipts, service enablement, and bridge files before activation. |
 | Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
 | Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
