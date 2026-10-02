@@ -57,6 +57,48 @@ class GhosttyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 42)
         self.assertNotIn('continued', result.stdout)
 
+    def test_package_preserves_terminfo_without_claiming_ncurses_alias(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            src = root / 'src'
+            pkg = root / 'pkg'
+            pkg.mkdir()
+            staged = src / 'staged/usr'
+            files = {
+                'bin/ghostty': b'compiled executable',
+                'share/terminfo/x/xterm-ghostty': b'compiled terminfo',
+                'share/ghostty/terminfo/ghostty.terminfo': b'terminfo source',
+                'share/applications/com.mitchellh.ghostty.desktop': b'desktop entry',
+            }
+            for name, contents in files.items():
+                path = staged / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(contents)
+            alias = staged / 'share/terminfo/g/ghostty'
+            alias.parent.mkdir(parents=True)
+            os.link(staged / 'share/terminfo/x/xterm-ghostty', alias)
+            version = SPEC['supplyChain']['ghostty']['version']
+            license = src / f'ghostty-{version}/LICENSE'
+            license.parent.mkdir()
+            license.write_text('MIT')
+            shutil.copyfile(ASSETS / 'ghostty-wrapper', src / 'ghostty-wrapper')
+            # GNU install -D creates this parent in the Linux guest; precreate
+            # it so the package function can also run with macOS BSD install.
+            (pkg / 'usr/share/licenses/ghostty').mkdir(parents=True)
+            result = subprocess.run(
+                ['bash', '-c', 'set -e; source "$1"; srcdir=$2; pkgdir=$3; package; printf "%s\\n" "${depends[@]}"',
+                 'bash', str(ASSETS / 'PKGBUILD'), str(src), str(pkg)],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('ncurses', result.stdout.splitlines())
+            self.assertFalse((pkg / 'usr/share/terminfo/g/ghostty').exists())
+            self.assertEqual(alias.read_bytes(), b'compiled terminfo')
+            for name, contents in files.items():
+                target = 'lib/ghostty/ghostty' if name == 'bin/ghostty' else name
+                self.assertEqual((pkg / 'usr' / target).read_bytes(), contents)
+            self.assertEqual((pkg / 'usr/bin/ghostty').read_bytes(), (ASSETS / 'ghostty-wrapper').read_bytes())
+            self.assertEqual((pkg / 'usr/share/licenses/ghostty/LICENSE').read_text(), 'MIT')
+
     def test_wrapper_scopes_rendering_and_preserves_arguments(self):
         for cmdline, expected in (('quiet omarchy.qemu_virgl=1 root=/dev/vda', '1'),
                                   ('omarchy.qemu_virgl=10', '0'), ('xomarchy.qemu_virgl=1', '0'), ('', '0')):

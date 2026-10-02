@@ -1,12 +1,12 @@
 # User-initiated build, not part of the factory package transaction.
 pkgname=ghostty
 pkgver=1.3.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Ghostty terminal with a Try Omarchy VirGL rendering fallback'
 arch=('aarch64')
 url='https://ghostty.org'
 license=('MIT')
-depends=('gtk4' 'libadwaita' 'gtk4-layer-shell' 'libx11' 'libxkbcommon' 'mesa' 'glibc' 'gcc-libs')
+depends=('gtk4' 'libadwaita' 'gtk4-layer-shell' 'libx11' 'libxkbcommon' 'mesa' 'glibc' 'gcc-libs' 'ncurses')
 makedepends=('pkgconf' 'gettext' 'minisign')
 options=('!debug' '!strip' '!lto')
 source=(
@@ -38,6 +38,8 @@ build() {
 
 package() {
   cp -a "$srcdir/staged/usr" "$pkgdir/"
+  # ncurses owns this alias. Keep Ghostty's xterm-ghostty entry for TERM.
+  rm -f "$pkgdir/usr/share/terminfo/g/ghostty"
   install -dm755 "$pkgdir/usr/lib/ghostty"
   mv "$pkgdir/usr/bin/ghostty" "$pkgdir/usr/lib/ghostty/ghostty"
   install -m755 "$srcdir/ghostty-wrapper" "$pkgdir/usr/bin/ghostty"

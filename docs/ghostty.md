@@ -20,6 +20,11 @@ does not try to replace it. Remove it with `omarchy-pkg-remove ghostty` after se
 There is no automatic upstream Ghostty release check: a newer pinned release
 requires an updated Try Omarchy installer and another installation.
 
+The package leaves `/usr/share/terminfo/g/ghostty` owned by `ncurses` and
+includes Ghostty's `xterm-ghostty` entry. Revision `1.3.1-2` fixes the file
+conflict that prevented `1.3.1-1` from installing. If you encountered that
+failure, run the updated installer from a checkout as described below.
+
 ## Existing VMs
 
 Existing VM disks do not automatically receive a rebuilt factory image. From a
