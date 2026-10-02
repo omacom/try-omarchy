@@ -131,6 +131,18 @@ variable still wins, so the development and test override keeps working
 unchanged. Reset composes its environment exactly as a launch does, so it
 always erases the workspace the user is actually running.
 
+**Skip launcher** is stored in the versioned `launcher-settings.json` file at
+that workspace's root (normally `~/Library/Application Support/Try Omarchy/VM/v1`).
+It defaults to off when the file is missing, unreadable, or invalid. The old
+`startAutomatically` UserDefaults value is ignored; existing users must enable
+Skip launcher again. Release and development apps using the same workspace
+share this choice. Selecting another workspace uses that workspace's setting.
+A choice made before the first VM starts is held in memory and saved after the
+storage backend initializes the workspace. Missing persistent disks and
+`--ephemeral` sessions always show the launcher. Factory Reset preserves the
+workspace setting, but the missing disk forces the next launch through the
+launcher; deleting the whole workspace removes the setting too.
+
 Reset deletes the VM without creating a replacement or requiring creation
 headroom. On the next launch, a missing VM decompresses the bundled factory
 directly into the staged writable disk; no expanded factory-image cache is

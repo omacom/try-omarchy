@@ -15,7 +15,7 @@ struct StartMenuStartupTests {
         let menu = makeMenu(
             storageState: { .defaultLocation },
             startAutomatically: { automaticStart },
-            setStartAutomatically: { automaticStart = $0 },
+            setStartAutomatically: { automaticStart = $0; return nil },
             confirmAutomaticStartup: { alert in
                 confirmationCount += 1
                 #expect(!automaticStart)
@@ -52,6 +52,38 @@ struct StartMenuStartupTests {
         #expect(!launchingToggle.isEnabled)
     }
 
+    @Test("A failed startup preference write restores the toggle and explains the error",
+          arguments: [false, true])
+    func failedStartupSave(wasEnabled: Bool) throws {
+        _ = NSApplication.shared
+        var attempts = 0
+        var errorsPresented = 0
+        let menu = makeMenu(
+            storageState: { .defaultLocation },
+            startAutomatically: { wasEnabled },
+            setStartAutomatically: { enabled in
+                attempts += 1
+                #expect(enabled == !wasEnabled)
+                return "The workspace is read-only."
+            },
+            presentStartupSaveError: { alert, _ in
+                errorsPresented += 1
+                #expect(alert.messageText == "Skip launcher couldn’t be saved")
+                #expect(alert.informativeText == "The workspace is read-only.")
+            }
+        )
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        let content = try #require(menu.window.contentView)
+        let toggle = try #require(descendant(
+            withIdentifier: "automatic-start-toggle", in: content
+        ) as? NSButton)
+        toggle.performClick(nil)
+        #expect(attempts == 1)
+        #expect(toggle.state == (wasEnabled ? .on : .off))
+        #expect(errorsPresented == 1)
+    }
+
     @Test("Running settings can change startup and close without launching or quitting the VM")
     func runningSettings() throws {
         _ = NSApplication.shared
@@ -61,7 +93,7 @@ struct StartMenuStartupTests {
         let menu = makeMenu(
             storageState: { .defaultLocation },
             startAutomatically: { automaticStart },
-            setStartAutomatically: { automaticStart = $0 },
+            setStartAutomatically: { automaticStart = $0; return nil },
             confirmAutomaticStartup: { _ in
                 Issue.record("Disabling automatic startup must not ask for confirmation")
                 return .alertSecondButtonReturn
@@ -147,7 +179,8 @@ struct StartMenuStartupTests {
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
         startAutomatically: @escaping () -> Bool = { false },
-        setStartAutomatically: @escaping (Bool) -> Void = { _ in },
+        setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
+        presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
         bootFixCacheURL: @escaping () -> URL? = { nil },
         bootFixIdentity: @escaping () -> String? = { nil },
@@ -180,6 +213,7 @@ struct StartMenuStartupTests {
             setImmersiveMode: { _ in },
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
+            presentStartupSaveError: presentStartupSaveError,
             confirmAutomaticStartup: confirmAutomaticStartup,
             bootFixCacheURL: bootFixCacheURL,
             bootFixIdentity: bootFixIdentity,

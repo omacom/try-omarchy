@@ -151,8 +151,14 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         }
         observeVolumeUnmounts()
         observeHostPowerEvents()
+        let startupRoot = startupPreferenceRoot()
         let startAutomatically = StartupPolicy.shouldStartAutomatically(
-            isEnabled: startupPreferenceStore.load(),
+            isEnabled: startupPreferenceStore.load(storageRoot: startupRoot),
+            hasExistingVM: startupRoot.map {
+                QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(
+                    stateRoot: $0.path, bundleIdentity: bundledMetrics?.identity
+                )
+            } ?? false,
             optionKeyHeld: NSEvent.modifierFlags.contains(.option),
             initialArguments: initialArguments
         )
@@ -323,10 +329,19 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 )
             },
             startAutomatically: { [weak self] in
-                self?.startupPreferenceStore.load() ?? false
+                guard let self else { return false }
+                return self.startupPreferenceStore.load(storageRoot: self.startupPreferenceRoot())
             },
             setStartAutomatically: { [weak self] enabled in
-                self?.startupPreferenceStore.save(enabled)
+                guard let self else { return "The VM controller is unavailable." }
+                do {
+                    if self.isDisposable { _ = try self.disposableWorkspace.prepare() }
+                    guard let root = self.startupPreferenceRoot() else {
+                        return "The VM data folder is unavailable."
+                    }
+                    try self.startupPreferenceStore.save(enabled, storageRoot: root)
+                    return nil
+                } catch { return error.localizedDescription }
             },
             appVersionLabel: appReleaseChecker.installed.label,
             appReleaseActionTitle: { [weak self] in
@@ -353,6 +368,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 startMenu.promptForReset()
             }
         }
+    }
+
+    private func startupPreferenceRoot() -> URL? {
+        if isDisposable { return disposableWorkspace.directory }
+        return QEMUGPUStorageSpaceEstimate.storageRootURL(
+            environment: baseEnvironment, preference: storageLocationStore.load()
+        )
     }
 
     private func bootFixCacheURL() -> URL? {
@@ -717,6 +739,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         } catch {
             failHostSleepControlSetup(detail: error.localizedDescription)
             return
+        }
+        if let root = startupPreferenceRoot() {
+            do { try startupPreferenceStore.persistPendingChoice(storageRoot: root) }
+            catch { fputs("[startup] Could not retain Skip launcher: \(error.localizedDescription)\n", stderr) }
         }
         virtualMachineReachedStart = true
         if !isDisposable {

@@ -176,7 +176,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
     private let startAutomatically: () -> Bool
-    private let setStartAutomatically: (Bool) -> Void
+    private let setStartAutomatically: (Bool) -> String?
+    private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
     private let bootFixCacheURL: () -> URL?
     private let bootFixIdentity: () -> String?
@@ -271,7 +272,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
-        setStartAutomatically: @escaping (Bool) -> Void = { _ in },
+        setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
+        presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() },
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
@@ -315,6 +317,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setImmersiveMode = setImmersiveMode
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
+        self.presentStartupSaveError = presentStartupSaveError
         self.confirmAutomaticStartup = confirmAutomaticStartup
         self.bootFixCacheURL = bootFixCacheURL
         self.bootFixIdentity = bootFixIdentity
@@ -1850,12 +1853,23 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             let confirmed = confirmAutomaticStartup(alert) == .alertFirstButtonReturn
             automaticStartupConfirmationInProgress = false
             guard confirmed, !controlsBusy, !resetInProgress else { return }
-            setStartAutomatically(true)
-            sender.state = .on
+            saveAutomaticStartup(true, sender: sender)
         } else {
-            setStartAutomatically(false)
+            saveAutomaticStartup(false, sender: sender)
         }
         (sender as? OmarchyToggleButton)?.refreshAppearance()
+    }
+
+    private func saveAutomaticStartup(_ enabled: Bool, sender: NSButton) {
+        if let error = setStartAutomatically(enabled) {
+            sender.state = startAutomatically() ? .on : .off
+            let alert = NSAlert()
+            alert.messageText = "Skip launcher couldn’t be saved"
+            alert.informativeText = error
+            presentStartupSaveError(alert, window)
+        } else {
+            sender.state = enabled ? .on : .off
+        }
     }
 
     @objc func launchOmarchy() {

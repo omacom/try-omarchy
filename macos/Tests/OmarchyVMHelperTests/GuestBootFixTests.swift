@@ -51,7 +51,7 @@ struct GuestBootFixTests {
 
     @Test("Skip Launcher stays enabled while unknown and completed disks launch without update review")
     func automaticStartup() throws {
-        #expect(StartupPolicy.shouldStartAutomatically(isEnabled: true, optionKeyHeld: false, initialArguments: []))
+        #expect(StartupPolicy.shouldStartAutomatically(isEnabled: true, hasExistingVM: true, optionKeyHeld: false, initialArguments: []))
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: nil, expectedIdentity: identity))
         for outcome in ["current", "applied", "preserved", "unavailable"] {
             #expect(!report(outcome: outcome).needsUpdate)
