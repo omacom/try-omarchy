@@ -590,9 +590,13 @@ the native application menu offers the same command. The update window checks
 the project's latest stable GitHub release and links to its release notes and
 download. Review the release's macOS requirements before installing.
 
-**Automatically check for updates** is off by default. When enabled, opening
-the app checks at most once every 24 hours; a newer release changes the start
-menu link to **Update Available…**. Manual checks remain available at any time.
+**Automatically check for updates** is on by default; an existing choice to
+disable it is preserved. Opening the app checks at most once every 24 hours.
+A newer release changes the start menu link to **Update Available…** and shows
+a **Download / Skip** dialog when the launcher or settings are ready. It waits
+while you use the guest or another dialog. **Download** opens the GitHub release
+page; **Skip** hides reminders for that version. Each release is announced only
+once, and the update link and manual checks remain available at any time.
 Checks contact GitHub without a GitHub account, and failures do not block VM
 startup. This feature does not download or install app updates automatically.
 

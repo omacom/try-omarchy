@@ -79,12 +79,11 @@ struct AppReleaseTests {
         #expect(AppReleaseCheckState.result(installed: InstalledAppRelease(info: [:]), latest: latest) == .unknownInstalledVersion(latest))
     }
 
-    @Test("automatic checks are opt-in and rate limited, including after failures")
+    @Test("automatic checks default on, preserve opt-out, and rate limit all attempts")
     func checkSchedule() async throws {
         await withPreferences { preferences in
             let now = Date(timeIntervalSince1970: 1_000_000)
-            #expect(!preferences.shouldCheckAutomatically(now: now))
-            preferences.automaticChecks = true
+            #expect(preferences.automaticChecks)
             #expect(preferences.shouldCheckAutomatically(now: now))
             preferences.recordAttempt(at: now)
             #expect(!preferences.shouldCheckAutomatically(now: now.addingTimeInterval(86399)))
@@ -95,10 +94,71 @@ struct AppReleaseTests {
         }
     }
 
+    @Test("an explicit automatic-check preference survives reopening")
+    func savedAutomaticPreference() {
+        let suite = "AppReleaseTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = AppReleasePreferences(defaults: defaults)
+        #expect(preferences.automaticChecks)
+        preferences.automaticChecks = false
+        #expect(!AppReleasePreferences(defaults: defaults).automaticChecks)
+        preferences.automaticChecks = true
+        #expect(AppReleasePreferences(defaults: defaults).automaticChecks)
+    }
+
+    @Test("update prompts wait for the launcher and remind only once per newer release")
+    func automaticPromptLifecycle() async throws {
+        let latest = try release()
+        let next = try release("0.6.0")
+        await withPreferences { preferences in
+            preferences.latestRelease = latest
+            let checker = AppReleaseChecker(installed: installed("0.4.1"), preferences: preferences)
+            // Background guest use, launching, and other dialogs defer the prompt.
+            #expect(checker.automaticPromptRelease(presentationReady: false) == nil)
+            #expect(checker.automaticPromptRelease(presentationReady: true) == latest)
+            checker.acknowledgeRelease(latest)
+            #expect(checker.automaticPromptRelease(presentationReady: true) == nil)
+            #expect(checker.menuTitle == "Update Available…")
+            let reopened = AppReleaseChecker(installed: installed("0.4.1"), preferences: preferences)
+            #expect(reopened.automaticPromptRelease(presentationReady: true) == nil)
+            preferences.latestRelease = next
+            #expect(reopened.automaticPromptRelease(presentationReady: true) == next)
+            reopened.acknowledgeRelease(next)
+            // A stale response must not resurrect a reminder for an older release.
+            preferences.latestRelease = latest
+            reopened.acknowledgeRelease(latest)
+            #expect(reopened.automaticPromptRelease(presentationReady: true) == nil)
+        }
+    }
+
+    @Test("opted-out, current, development, and failed checks do not produce new prompts")
+    func automaticPromptEligibility() async throws {
+        let latest = try release()
+        await withPreferences { preferences in
+            let checker = AppReleaseChecker(installed: installed("0.4.1"), preferences: preferences, fetch: {
+                throw URLError(.notConnectedToInternet)
+            })
+            await checker.check().value
+            #expect(checker.automaticPromptRelease(presentationReady: true) == nil)
+            preferences.latestRelease = latest
+            // A previously found update remains available after an offline launch.
+            #expect(checker.automaticPromptRelease(presentationReady: true) == latest)
+            preferences.automaticChecks = false
+            #expect(checker.automaticPromptRelease(presentationReady: true) == nil)
+            preferences.automaticChecks = true
+            for identity in [installed("0.5.0"), installed("0.6.0"), InstalledAppRelease(info: [:])] {
+                let other = AppReleaseChecker(installed: identity, preferences: preferences)
+                #expect(other.automaticPromptRelease(presentationReady: true) == nil)
+            }
+        }
+    }
+
     @Test("manual checks work with automatic checks off and duplicate requests share the result")
     func manualCheck() async throws {
         let latest = try release()
         await withPreferences { preferences in
+            preferences.automaticChecks = false
             var requests = 0
             let checker = AppReleaseChecker(installed: installed("0.4.1"), preferences: preferences, fetch: {
                 requests += 1

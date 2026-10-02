@@ -8,12 +8,20 @@ not migrate that VM to the newest factory image.
 ## Release checks
 
 The first stage of issue #232 provides version display, manual release checks,
-and opt-in checks on app startup, limited to one attempt per 24 hours. Both
+and default-on checks on app startup, limited to one attempt per 24 hours. An
+explicit opt-out is preserved. Both
 successful and failed attempts count toward the limit; manual checks bypass
 it. A cached release keeps the update indicator available across launches.
 Checks run asynchronously with bounded network timeouts and never invoke VM
-shutdown, app replacement, or an installer. Automatic results only change the
-launcher link; they do not interrupt a running guest or open a dialog.
+shutdown, app replacement, or an installer. A newer known release changes the
+launcher link and presents a Download / Skip sheet once per release, when the
+launcher or settings are active and idle. Checks finishing during guest use,
+launch/reset/shutdown, permission requests, or other dialogs defer presentation.
+Both choices suppress further automatic reminders for that version; Skip leaves
+the cached update link and manual download available. Network failures remain
+quiet. Unknown installed releases and development builds never receive an
+automatic update prompt. Reading an available-update result in the manual
+Updates window also counts as its notification.
 
 The checker uses GitHub's public `/repos/omacom/try-omarchy/releases/latest`
 endpoint without credentials. It accepts published, non-prerelease `vX.Y.Z`
@@ -35,7 +43,7 @@ guest package version is used as a substitute.
 Use [Sparkle 2](https://sparkle-project.org/documentation/) for signed downloads,
 verification, replacement, and relaunch. The release checker is an interim
 notification feature, not a second installation mechanism. When Sparkle ships,
-replace its GitHub transport and migrate the user's opt-in preference; do not
+replace its GitHub transport and preserve the user's automatic-check preference; do not
 run two automatic checkers.
 
 Before enabling installation, maintainers need to:

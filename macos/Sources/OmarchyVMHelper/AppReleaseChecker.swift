@@ -19,6 +19,22 @@ final class AppReleaseChecker {
         return AppReleaseCheckState.result(installed: installed, latest: latest).menuTitle
     }
 
+    /// Cached updates may wait for a quiet moment in the launcher or settings.
+    /// A manual check remains available even after this version was skipped.
+    func automaticPromptRelease(presentationReady: Bool) -> AppRelease? {
+        guard presentationReady, preferences.automaticChecks,
+              let latest = preferences.latestRelease,
+              case .available = AppReleaseCheckState.result(installed: installed, latest: latest),
+              preferences.lastPromptedVersion.map({ latest.version > $0 }) ?? true else { return nil }
+        return latest
+    }
+
+    func acknowledgeRelease(_ release: AppRelease) {
+        if preferences.lastPromptedVersion.map({ release.version > $0 }) ?? true {
+            preferences.lastPromptedVersion = release.version
+        }
+    }
+
     init(
         installed: InstalledAppRelease = .current,
         preferences: AppReleasePreferences = AppReleasePreferences(),

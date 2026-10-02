@@ -208,6 +208,17 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var controlsBusy: Bool {
         launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress
     }
+    var onAppReleasePromptOpportunity: (() -> Void)?
+    var canPresentAppReleasePrompt: Bool {
+        window.isKeyWindow && !controlsBusy && !resetInProgress
+            && !microphoneRequestInFlight && !cameraRequestInFlight
+            && window.attachedSheet == nil && networkEditor == nil
+            && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        onAppReleasePromptOpportunity?()
+    }
     private var prelaunchControlsLocked: Bool { controlsBusy || virtualMachineRunning }
     private var pendingResetSpaceEstimate: String?
     private var resetConfirmationPrompt: ResetConfirmationPrompt?
@@ -487,6 +498,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 button.isEnabled = wasEnabled
             }
             permissionDisabledButtons.removeAll()
+            onAppReleasePromptOpportunity?()
         }
     }
 
@@ -629,6 +641,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func render() {
+        defer { onAppReleasePromptOpportunity?() }
         for (button, wasEnabled) in permissionDisabledButtons {
             button.isEnabled = wasEnabled
         }

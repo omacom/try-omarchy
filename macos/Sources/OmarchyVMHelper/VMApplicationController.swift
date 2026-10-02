@@ -70,8 +70,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let disposableWorkspace = DisposableVMWorkspace()
     private var isDisposable: Bool { initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue }
     private var settingsReturnApplication: NSRunningApplication?
-    private let appReleaseChecker = AppReleaseChecker()
+    private let appReleaseChecker: AppReleaseChecker
     private var appReleaseWindow: AppReleaseWindow?
+    private var appReleasePromptScheduled = false
     private var volumeObserver: NSObjectProtocol?
     private var hostPowerObserver: HostPowerNotificationObserver?
     private let hostSleepCoordinator = VMHostSleepCoordinator()
@@ -117,7 +118,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         volumeProbe: VolumeProbing = URLVolumeProbe(),
         volumeRootDetector: VolumeRootDetecting = FileManagerVolumeRootDetector(),
         deviceProvider: HostAudioDeviceProviding = CoreAudioHostAudioDeviceProvider(),
-        bundledMetrics: BundledGuestMetrics? = QEMUGPUStorageSpaceEstimate.bundledMetrics()
+        bundledMetrics: BundledGuestMetrics? = QEMUGPUStorageSpaceEstimate.bundledMetrics(),
+        appReleaseChecker: AppReleaseChecker? = nil
     ) {
         self.launcherURL = launcherURL
         self.initialArguments = initialArguments
@@ -137,12 +139,14 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.volumeRootDetector = volumeRootDetector
         self.deviceProvider = deviceProvider
         self.bundledMetrics = bundledMetrics
+        self.appReleaseChecker = appReleaseChecker ?? AppReleaseChecker()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         appReleaseChecker.onChange = { [weak self] in
             self?.startMenuWindow?.refreshAppReleaseStatus()
             self?.appReleaseWindow?.refresh()
+            self?.scheduleAppReleasePrompt()
         }
         observeVolumeUnmounts()
         observeHostPowerEvents()
@@ -153,6 +157,33 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         prepareStartMenu(startAutomatically: startAutomatically)
         appReleaseChecker.checkAutomaticallyIfDue()
+        scheduleAppReleasePrompt()
+    }
+
+    private func scheduleAppReleasePrompt() {
+        guard !appReleasePromptScheduled else { return }
+        appReleasePromptScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.appReleasePromptScheduled = false
+            self.presentAppReleasePromptIfReady()
+        }
+    }
+
+    private func presentAppReleasePromptIfReady() {
+        let ready = NSApp.isActive && !isPresentingBlockingAlert
+            && NSApp.modalWindow == nil && !lifecycle.isStopping && !lifecycle.isTerminating
+            && appReleaseWindow?.isVisible != true
+            && startMenuWindow?.canPresentAppReleasePrompt == true
+        guard let release = appReleaseChecker.automaticPromptRelease(presentationReady: ready),
+              let window = startMenuWindow?.window else { return }
+        // Remember presentation before attaching the sheet to avoid duplicate prompts.
+        appReleaseChecker.acknowledgeRelease(release)
+        AppReleasePrompt.alert(for: release).beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(release.url)
+            }
+        }
     }
 
     @objc func checkForAppUpdates(_ sender: Any?) {
@@ -177,6 +208,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         startMenuWindow?.applicationDidBecomeActive()
+        scheduleAppReleasePrompt()
     }
 
     private func prepareStartMenu(startAutomatically: Bool, honorInitialReset: Bool = true) {
@@ -304,6 +336,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             }
         )
         startMenuWindow = startMenu
+        startMenu.onAppReleasePromptOpportunity = { [weak self] in self?.scheduleAppReleasePrompt() }
         if startAutomatically && !GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity) {
             startMenu.launchOmarchy()
         } else {

@@ -1,12 +1,27 @@
 import AppKit
 
 @MainActor
+enum AppReleasePrompt {
+    static func alert(for release: AppRelease) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Try Omarchy \(release.version) is available"
+        alert.informativeText = "Download opens the release page on GitHub. Shut down Omarchy before replacing the app; your VM and settings are kept.\n\nSkip hides reminders for this version."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Skip").keyEquivalent = "\u{1b}"
+        return alert
+    }
+}
+
+@MainActor
 final class AppReleaseWindow: NSObject {
     private let checker: AppReleaseChecker
     private let window: NSWindow
     private let status = NSTextField(wrappingLabelWithString: "")
     private let checkButton = NSButton(title: "Check Now", target: nil, action: nil)
     private let automatic = NSButton(checkboxWithTitle: "Automatically check for updates", target: nil, action: nil)
+
+    var isVisible: Bool { window.isVisible }
 
     init(checker: AppReleaseChecker) {
         self.checker = checker
@@ -66,6 +81,10 @@ final class AppReleaseWindow: NSObject {
         status.stringValue = checker.state.message
         checkButton.isEnabled = checker.state != .checking
         automatic.state = checker.preferences.automaticChecks ? .on : .off
+        // Reading the result here already serves as the update notification.
+        if window.isVisible, case .available(let release) = checker.state {
+            checker.acknowledgeRelease(release)
+        }
     }
 
     @objc private func checkNow() { checker.check() }

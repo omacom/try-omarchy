@@ -141,11 +141,12 @@ struct AppReleasePreferences {
     private static let enabledKey = "appReleaseAutomaticChecks"
     private static let lastAttemptKey = "appReleaseLastCheckAttempt"
     private static let latestVersionKey = "appReleaseLatestVersion"
+    private static let lastPromptedVersionKey = "appReleaseLastPromptedVersion"
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
     var automaticChecks: Bool {
-        get { defaults.bool(forKey: Self.enabledKey) }
+        get { defaults.object(forKey: Self.enabledKey) == nil || defaults.bool(forKey: Self.enabledKey) }
         nonmutating set { defaults.set(newValue, forKey: Self.enabledKey) }
     }
 
@@ -157,6 +158,11 @@ struct AppReleasePreferences {
     }
 
     func recordAttempt(at date: Date) { defaults.set(date, forKey: Self.lastAttemptKey) }
+
+    var lastPromptedVersion: AppReleaseVersion? {
+        get { defaults.string(forKey: Self.lastPromptedVersionKey).flatMap(AppReleaseVersion.init) }
+        nonmutating set { defaults.set(newValue?.description, forKey: Self.lastPromptedVersionKey) }
+    }
 
     var latestRelease: AppRelease? {
         get {
