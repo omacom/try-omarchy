@@ -121,9 +121,9 @@ enum GuestBootFixLaunchGate {
 enum GuestBootFixPrompt {
     static func review() -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = "Update this VM before launching?"
+        alert.messageText = "Update VM?"
         alert.informativeText = """
-            On this boot, Try Omarchy will check and apply these compatible fixes:
+            Try Omarchy will verify and try to apply these compatible fixes:
 
             • Clipboard fixes for large selections.
             • Screensaver layout and cursor helper fixes.
@@ -133,9 +133,7 @@ enum GuestBootFixPrompt {
             • Integration setup and Touch ID support, without enabling biometrics.
             • Existing 1Password support and the Mac battery integration. Battery builds use your current kernel and require matching headers and existing build tools.
 
-            Only recognized stock files are changed. Customized files are preserved. Original files are backed up, changes are verified, and a failed file update is restored. Interrupted updates are recovered on the next boot.
-
-            Your applications and personal files are kept. No packages or kernel are upgraded. Unsupported steps are skipped and reported. Touch ID pairing and enabling 1Password remain your choice. Existing boot settings and shared-folder safety still apply if you skip.
+            The kernel and customized files are preserved. Your settings and personal files are kept, and updates will rollback or be skipped in case of failure.
             """
         alert.addButton(withTitle: "Update and Launch")
         alert.addButton(withTitle: "Skip")
