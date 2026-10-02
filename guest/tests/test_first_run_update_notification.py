@@ -55,18 +55,25 @@ omarchy-notification-send() { printf '%s\n' "$*"; }
             )
             return result.stdout
 
-    def test_online_guest_has_no_update_invitation(self):
-        self.assertEqual(self.run_first_run(), "")
+    def test_online_guest_invites_package_updates_and_optional_setup(self):
+        self.assertEqual(
+            self.run_first_run(),
+            "-u normal -g  Update packages and finish setup "
+            "Update supported Linux packages and discover optional features such as dictation. "
+            "--exec omarchy-launch-floating-terminal-with-presentation omarchy-update\n",
+        )
 
     def test_wifi_invitation_survives_reconnection(self):
         output = self.run_first_run(online=False)
         self.assertIn("Setup Wi-Fi", output)
         self.assertIn("omarchy-shell shell toggle omarchy.network", output)
+        self.assertIn("Update packages and finish setup", output)
         self.assertNotIn("Update System", output)
 
     def test_offline_guest_still_invites_wifi_setup(self):
         output = self.run_first_run(online=False, reconnect=False)
         self.assertIn("Setup Wi-Fi", output)
+        self.assertNotIn("Update packages and finish setup", output)
         self.assertNotIn("Update System", output)
 
     def test_non_try_omarchy_keeps_upstream_invitation(self):
