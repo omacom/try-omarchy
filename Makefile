@@ -84,6 +84,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-profile-process.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-development-sign-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-lifecycle.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
 	@$(ROOT)/macos/Tests/macos-compatibility.test.sh
 	@$(ROOT)/macos/Tests/runtime-relocation.test.sh
