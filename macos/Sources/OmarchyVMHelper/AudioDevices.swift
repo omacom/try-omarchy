@@ -46,6 +46,20 @@ struct HostAudioDeviceCatalog: Equatable {
         devices(for: direction).first { $0.uid == uid }
     }
 
+    func effectiveDevice(
+        direction: HostAudioDirection,
+        selectedSDLName: String?,
+        systemDefaultUID: String?
+    ) -> HostAudioDevice? {
+        if let selectedSDLName,
+           let selected = devices(for: direction).first(where: { $0.sdlName == selectedSDLName }) {
+            return selected
+        }
+        // Match SDL's fallback when a saved device has disappeared.
+        guard let systemDefaultUID else { return nil }
+        return device(uid: systemDefaultUID, direction: direction)
+    }
+
     private static func makeDevices(
         from descriptors: [HostAudioHardwareDescriptor],
         direction: HostAudioDirection
@@ -100,6 +114,49 @@ protocol HostAudioDeviceProviding {
 }
 
 struct CoreAudioHostAudioDeviceProvider: HostAudioDeviceProviding {
+    func nominalSampleRate(direction: HostAudioDirection, selectedSDLName: String?) -> Int? {
+        var defaultAddress = AudioObjectPropertyAddress(
+            mSelector: direction == .output
+                ? kAudioHardwarePropertyDefaultOutputDevice
+                : kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var defaultID = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let defaultStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &defaultAddress, 0, nil, &size, &defaultID
+        )
+        let defaultUID = defaultStatus == noErr ? stringProperty(
+            deviceID: defaultID,
+            selector: kAudioDevicePropertyDeviceUID,
+            scope: kAudioObjectPropertyScopeGlobal
+        ) : nil
+        guard let device = catalog().effectiveDevice(
+            direction: direction,
+            selectedSDLName: selectedSDLName,
+            systemDefaultUID: defaultUID
+        ), let deviceID = audioDeviceIdentifiers().first(where: {
+            stringProperty(
+                deviceID: $0,
+                selector: kAudioDevicePropertyDeviceUID,
+                scope: kAudioObjectPropertyScopeGlobal
+            ) == device.uid
+        }) else { return nil }
+
+        var rateAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var rate: Float64 = 0
+        size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(
+            deviceID, &rateAddress, 0, nil, &size, &rate
+        ) == noErr else { return nil }
+        return HostAudioSampleRate.validated(rate)
+    }
+
     func catalog() -> HostAudioDeviceCatalog {
         let descriptors: [HostAudioHardwareDescriptor] = audioDeviceIdentifiers().compactMap { deviceID in
             guard let uid = stringProperty(
@@ -241,6 +298,14 @@ struct CoreAudioHostAudioDeviceProvider: HostAudioDeviceProviding {
         }
         guard status == noErr, let value else { return nil }
         return value as String
+    }
+}
+
+enum HostAudioSampleRate {
+    static func validated(_ rate: Double) -> Int? {
+        guard rate.isFinite, rate >= 1_000, rate < 1_000_000,
+              rate.rounded() == rate else { return nil }
+        return Int(rate)
     }
 }
 
