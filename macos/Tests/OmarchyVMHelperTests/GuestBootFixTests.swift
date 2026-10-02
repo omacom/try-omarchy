@@ -25,7 +25,7 @@ struct GuestBootFixTests {
         #expect(GuestBootFixLaunchGate.decide(review: { .skip }, confirmSkip: { false }) == .cancel)
     }
 
-    @Test("Only a complete matching result suppresses the next update offer")
+    @Test("Only a matching check with unfinished work offers an update")
     func updatePolicy() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -33,14 +33,40 @@ struct GuestBootFixTests {
         let url = directory.appendingPathComponent("boot-fixes-123.json")
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: nil, expectedIdentity: identity))
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: nil))
-        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
         for state in ["checking", "running", "skipped", "failed", "recovery-required", "unconfirmed", "complete"] {
             let value = GuestBootFixCache(checkedAt: Date(), report: report(state: state))
             try JSONEncoder().encode(value).write(to: url)
-            #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity) == (state != "complete"))
+            #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity)
+                == !["complete", "skipped"].contains(state))
         }
-        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: String(repeating: "b", count: 64)))
+        let pending = GuestBootFixCache(checkedAt: Date(), report: report(state: "skipped", outcome: "pending"))
+        try JSONEncoder().encode(pending).write(to: url)
+        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: String(repeating: "b", count: 64)))
+        try Data("{}".utf8).write(to: url)
+        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
         #expect(GuestBootFixCache.consent(cacheURL: url, identity: identity) == "\(identity):123")
+    }
+
+    @Test("Skip Launcher stays enabled while unknown and completed disks launch without update review")
+    func automaticStartup() throws {
+        #expect(StartupPolicy.shouldStartAutomatically(isEnabled: true, optionKeyHeld: false, initialArguments: []))
+        #expect(!GuestBootFixCache.needsUpdate(cacheURL: nil, expectedIdentity: identity))
+        for outcome in ["current", "applied", "preserved", "unavailable"] {
+            #expect(!report(outcome: outcome).needsUpdate)
+            #expect(!report(outcome: outcome).needsAttention)
+        }
+    }
+
+    @Test("Successful updates finish silently; failures still need attention")
+    func resultAttention() {
+        for state in ["checking", "running", "complete", "skipped"] {
+            #expect(!report(state: state).needsAttention)
+        }
+        for state in ["failed", "recovery-required", "unconfirmed"] {
+            #expect(report(state: state).needsAttention)
+        }
     }
 
     @Test("Malformed, oversized, and incomplete success reports cannot establish completion")

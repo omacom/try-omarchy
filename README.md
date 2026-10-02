@@ -667,9 +667,12 @@ then startup progress.
 
 ### Updating integrations in an existing VM
 
-When the selected disk needs migration, the launcher's bottom button becomes
-**Update**. Review the fixes and choose **Update and Launch**; the app runs the
-supported repairs before login and shows their results. **Skip** requires a
+When a boot-time check finds the selected disk needs migration, the launcher's
+bottom button becomes **Update**. Review the fixes and choose **Update and Launch**; the app runs the
+supported repairs before login and retains their results in Settings. Successful
+checks and updates finish without another dialog. Disks without a check for the
+current fix bundle boot normally and offer any needed repairs on the next launch,
+including with Skip Launcher enabled. **Skip** requires a
 second confirmation. No terminal commands, SSH, or personal folder sharing are
 needed for normal migration.
 

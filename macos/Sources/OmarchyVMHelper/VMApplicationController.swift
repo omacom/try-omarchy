@@ -89,7 +89,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private var activeLaunchAllowedBootRecovery = false
     private var activeBootFixConsent: String?
     private var activeBootFixCacheURL: URL?
-    private var bootFixResultPresented = false
+    private var bootFixResultReceived = false
     private var bootFixResultTimer: Timer?
     private var pendingHostSleepControlFailure: String?
 
@@ -671,7 +671,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         if let bootFixConsent { environment[QEMUGPURuntimeEnvironment.guestFixesConsentKey] = bootFixConsent }
         activeBootFixConsent = bootFixConsent
         activeBootFixCacheURL = bootFixCacheURL()
-        bootFixResultPresented = false
+        bootFixResultReceived = false
 
         activeLaunchAllowedBootRecovery = allowBootRecovery
         do {
@@ -760,14 +760,17 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard report.identity == GuestBootFixCache.bundledIdentity else { return }
         // Reports are advisory results, never installation authorization.
         retainBootFixReport(report)
-        guard activeBootFixConsent != nil, !["checking", "running"].contains(report.state), !bootFixResultPresented else { return }
+        guard activeBootFixConsent != nil, !["checking", "running"].contains(report.state), !bootFixResultReceived else { return }
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
-        bootFixResultPresented = true
+        bootFixResultReceived = true
+        // Successful checks and migrations are retained in Settings without
+        // interrupting startup with a second dialog.
+        guard report.needsAttention else { return }
         activationController.reconcile()
         defer { activationController.reconcile() }
         let alert = NSAlert()
-        alert.alertStyle = report.state == "complete" ? .informational : .warning
+        alert.alertStyle = .warning
         alert.messageText = report.summary
         alert.informativeText = report.detail + (report.state == "recovery-required"
             ? "\n\nOriginal files could not all be restored. Shut down and retry recovery before using these integrations. Backups remain inside the VM."
@@ -1176,7 +1179,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let bootFixConsent = activeBootFixConsent
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
-        if activeBootFixConsent != nil, !bootFixResultPresented, let identity = GuestBootFixCache.bundledIdentity {
+        if activeBootFixConsent != nil, !bootFixResultReceived, let identity = GuestBootFixCache.bundledIdentity {
             retainBootFixReport(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "unconfirmed",
                 components: GuestBootFixReport.pendingComponents))
         }

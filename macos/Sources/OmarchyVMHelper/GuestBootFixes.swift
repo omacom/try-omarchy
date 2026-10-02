@@ -11,6 +11,18 @@ struct GuestBootFixReport: Codable, Equatable {
     let state: String
     let components: [String: String]
 
+    var needsUpdate: Bool {
+        switch state {
+        case "complete": return false
+        case "skipped": return components.values.contains("pending")
+        default: return true
+        }
+    }
+
+    var needsAttention: Bool {
+        ["failed", "recovery-required", "unconfirmed"].contains(state)
+    }
+
     static func decode(_ data: Data) throws -> Self {
         guard data.count <= 4096 else { throw HelperError.io("boot fixes report exceeds limit") }
         let value = try JSONDecoder().decode(Self.self, from: data)
@@ -93,9 +105,11 @@ struct GuestBootFixCache: Codable {
     }
 
     static func needsUpdate(cacheURL: URL?, expectedIdentity: String?) -> Bool {
-        guard cacheURL != nil, let expectedIdentity else { return false }
-        guard let cache = read(cacheURL) else { return true }
-        return cache.report.identity != expectedIdentity || cache.report.state != "complete"
+        // Unknown disks and changed bundles get a check during normal
+        // boot. Only that bundle's actual result can establish work to review.
+        guard let expectedIdentity, let cache = read(cacheURL),
+              cache.report.identity == expectedIdentity else { return false }
+        return cache.report.needsUpdate
     }
 
     /// The shell rechecks this inode under the VM lock before granting consent.
