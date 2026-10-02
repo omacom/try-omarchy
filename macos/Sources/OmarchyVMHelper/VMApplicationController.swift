@@ -82,6 +82,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private var activeStateRoot: String?
 
     private var lifecycle = VMRunLifecycle()
+    private let activationController = ApplicationActivationController()
     private var childRunning = false
     private var applicationTerminationPending = false
     private var virtualMachineReachedStart = false
@@ -187,6 +188,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     @objc func checkForAppUpdates(_ sender: Any?) {
+        activationController.reconcile()
         if appReleaseWindow == nil {
             appReleaseWindow = AppReleaseWindow(checker: appReleaseChecker)
         }
@@ -207,12 +209,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        activationController.reconcile()
         startMenuWindow?.applicationDidBecomeActive()
         scheduleAppReleasePrompt()
     }
 
     private func prepareStartMenu(startAutomatically: Bool, honorInitialReset: Bool = true) {
-        NSApp.setActivationPolicy(ApplicationPresentation.prelaunchActivationPolicy)
+        activationController.setDesiredPolicy(ApplicationPresentation.prelaunchActivationPolicy)
         let resetOptions = [
             QEMUGPUStorageOption.resetStorage.rawValue,
             QEMUGPUStorageOption.resetStorageOnly.rawValue,
@@ -722,8 +725,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        NSApp.setActivationPolicy(ApplicationPresentation.runningActivationPolicy)
         startMenuWindow?.dismiss()
+        activationController.setDesiredPolicy(ApplicationPresentation.runningActivationPolicy)
         controlSocketPath = qmpSocketPath
         startMenuWindow?.virtualMachineDidStart(
             requestSettingsAction: { [weak self] action in self?.shutDownForSettings(action) },
@@ -759,6 +762,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
         bootFixResultPresented = true
+        activationController.reconcile()
+        defer { activationController.reconcile() }
         let alert = NSAlert()
         alert.alertStyle = report.state == "complete" ? .informational : .warning
         alert.messageText = report.summary
@@ -777,6 +782,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard childRunning, virtualMachineReachedStart,
               (!lifecycle.isStopping || lifecycle.settingsAction != nil),
               !isPresentingBlockingAlert, let startMenuWindow else { return false }
+        activationController.reconcile()
         if startMenuWindow.window.isVisible || startMenuWindow.window.isMiniaturized {
             startMenuWindow.bringToFront()
             return true
@@ -1083,6 +1089,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
               hostSleepCoordinator.pausedForHostSleep
         else { return }
 
+        activationController.reconcile()
+        defer { activationController.reconcile() }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.alertStyle = .critical
@@ -1107,6 +1115,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let prefix = mountPoint.hasSuffix("/") ? mountPoint : mountPoint + "/"
         guard root == mountPoint || root.hasPrefix(prefix) else { return }
 
+        activationController.reconcile()
+        defer { activationController.reconcile() }
         fputs(
             "omarchy-vm-helper: the volume holding the Omarchy VM was unmounted; stopping\n",
             stderr

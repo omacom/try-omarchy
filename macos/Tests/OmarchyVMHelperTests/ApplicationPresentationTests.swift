@@ -11,6 +11,87 @@ struct ApplicationPresentationTests {
         #expect(ApplicationPresentation.runningActivationPolicy == .accessory)
     }
 
+    @Test("a rejected Dock handoff is retried after the UI operation")
+    func rejectedHandoff() throws {
+        var policy = NSApplication.ActivationPolicy.regular
+        var attempts = 0
+        var pending: [@MainActor () -> Void] = []
+        let controller = ApplicationActivationController(
+            currentPolicy: { policy },
+            setPolicy: {
+                attempts += 1
+                guard attempts > 1 else { return false }
+                policy = $0
+                return true
+            },
+            schedule: { pending.append($0) }
+        )
+
+        controller.setDesiredPolicy(.accessory)
+        #expect(policy == .regular)
+        let reconcile = try #require(pending.first)
+        reconcile()
+        #expect(policy == .accessory)
+        #expect(attempts == 2)
+    }
+
+    @Test("activation during a running alert cannot leave a second Dock app")
+    func runningPresentation() throws {
+        var policy = NSApplication.ActivationPolicy.regular
+        var pending: [@MainActor () -> Void] = []
+        let controller = ApplicationActivationController(
+            currentPolicy: { policy },
+            setPolicy: { policy = $0; return true },
+            schedule: { pending.append($0) }
+        )
+
+        controller.setDesiredPolicy(.accessory)
+        // Model a foreground UI operation completing after the handoff.
+        policy = .regular
+        let reconcile = try #require(pending.first)
+        reconcile()
+        #expect(policy == .accessory)
+
+        policy = .regular
+        controller.reconcile()
+        #expect(policy == .accessory)
+    }
+
+    @Test("a pending handoff never hides the launcher after the VM stops")
+    func returnedToLauncher() throws {
+        var policy = NSApplication.ActivationPolicy.regular
+        var pending: [@MainActor () -> Void] = []
+        let controller = ApplicationActivationController(
+            currentPolicy: { policy },
+            setPolicy: { policy = $0; return true },
+            schedule: { pending.append($0) }
+        )
+
+        controller.setDesiredPolicy(.accessory)
+        controller.setDesiredPolicy(.regular)
+        #expect(pending.count == 1)
+        let reconcile = try #require(pending.first)
+        reconcile()
+        #expect(policy == .regular)
+    }
+
+    @Test("a persistently rejected handoff does not spin the event loop")
+    func boundedReconciliation() throws {
+        var attempts = 0
+        var pending: [@MainActor () -> Void] = []
+        let controller = ApplicationActivationController(
+            currentPolicy: { .regular },
+            setPolicy: { _ in attempts += 1; return false },
+            schedule: { pending.append($0) }
+        )
+
+        controller.setDesiredPolicy(.accessory)
+        let reconcile = try #require(pending.first)
+        reconcile()
+        #expect(attempts == 2)
+        #expect(pending.count == 1)
+    }
+
     @Test("the application menu exposes standard application, text editing, and window shortcuts")
     func standardApplicationMenu() throws {
         let application = NSApplication.shared

@@ -1,5 +1,63 @@
 import AppKit
 
+/// AppKit activation and modal presentation can overlap the handoff to QEMU.
+/// Keep the intended policy and check it again after the current UI operation.
+@MainActor
+final class ApplicationActivationController {
+    private var desiredPolicy = ApplicationPresentation.prelaunchActivationPolicy
+    private var reconciliationScheduled = false
+    private let currentPolicy: @MainActor () -> NSApplication.ActivationPolicy
+    private let setPolicy: @MainActor (NSApplication.ActivationPolicy) -> Bool
+    private let schedule: (@escaping @MainActor () -> Void) -> Void
+
+    convenience init() {
+        self.init(
+            currentPolicy: { NSApp.activationPolicy() },
+            setPolicy: { NSApp.setActivationPolicy($0) },
+            schedule: { action in
+                RunLoop.main.perform(inModes: [.common, .modalPanel]) {
+                    MainActor.assumeIsolated { action() }
+                }
+            }
+        )
+    }
+
+    init(
+        currentPolicy: @escaping @MainActor () -> NSApplication.ActivationPolicy,
+        setPolicy: @escaping @MainActor (NSApplication.ActivationPolicy) -> Bool,
+        schedule: @escaping (@escaping @MainActor () -> Void) -> Void
+    ) {
+        self.currentPolicy = currentPolicy
+        self.setPolicy = setPolicy
+        self.schedule = schedule
+    }
+
+    func setDesiredPolicy(_ policy: NSApplication.ActivationPolicy) {
+        desiredPolicy = policy
+        reconcile()
+    }
+
+    func reconcile() {
+        applyPolicy()
+        guard !reconciliationScheduled else { return }
+        reconciliationScheduled = true
+        schedule { [weak self] in
+            guard let self else { return }
+            self.reconciliationScheduled = false
+            // Read the current intent: QEMU may have exited and returned to
+            // the start menu while this check was waiting to run.
+            self.applyPolicy()
+        }
+    }
+
+    private func applyPolicy() {
+        guard currentPolicy() != desiredPolicy else { return }
+        if !setPolicy(desiredPolicy) {
+            fputs("omarchy-vm-helper: AppKit rejected activation policy \(desiredPolicy.rawValue)\n", stderr)
+        }
+    }
+}
+
 enum ApplicationHelpLink: Int, CaseIterable {
     case usage
     case troubleshooting
