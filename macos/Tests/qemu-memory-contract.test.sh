@@ -84,6 +84,19 @@ if [[ ${1:-} == --host-keyboard-geometry ]]; then
   printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
   exit 0
 fi
+if [[ ${1:-} == --host-audio-frequency ]]; then
+  [[ $# == 3 ]] || exit 2
+  [[ ${FAKE_HOST_AUDIO_FAIL:-} != "$2" ]] || exit 1
+  case "$2:$3" in
+    'output:External Speaker') printf '48000\n' ;;
+    'output:Display Audio (2)') printf '88200\n' ;;
+    'input:USB Microphone') printf '16000\n' ;;
+    output:*) printf '%s\n' "${FAKE_HOST_OUTPUT_RATE:-44100}" ;;
+    input:*) printf '%s\n' "${FAKE_HOST_INPUT_RATE:-48000}" ;;
+    *) exit 2 ;;
+  esac
+  exit 0
+fi
 if [[ ${1:-} == --host-timezone ]]; then
   printf '%s\n' Asia/Tokyo
   exit 0
@@ -398,10 +411,22 @@ done
 # A 16 GiB Mac defaults to 8 GiB; smaller Macs keep the 4 GiB baseline.
 run_scenario default 0
 assert_line_pair "$test_root/default/qemu.log" -m 8192M
-assert_line_pair "$test_root/default/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8
+assert_line_pair "$test_root/default/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=44100,in.frequency=48000
 assert_line_pair "$test_root/default/qemu.log" -device virtio-balloon-pci,free-page-reporting=on
 assert_contains "$(<"$test_root/default/stderr")" '8 GiB RAM'
 assert_keyboard_lockstep "$test_root/default/qemu.log" iso
+
+# Saved routes and direction-specific rates reach the native query and QEMU.
+run_scenario selected-audio 0 \
+  OMARCHY_SDL_OUTPUT_DEVICE_NAME='External Speaker' \
+  OMARCHY_SDL_INPUT_DEVICE_NAME='USB Microphone'
+assert_line_pair "$test_root/selected-audio/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=48000,in.frequency=16000
+run_scenario duplicate-audio 0 OMARCHY_SDL_OUTPUT_DEVICE_NAME='Display Audio (2)'
+assert_line_pair "$test_root/duplicate-audio/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=88200,in.frequency=48000
+run_scenario audio-query-failure 0 FAKE_HOST_AUDIO_FAIL=output FAKE_HOST_INPUT_RATE=32000
+assert_line_pair "$test_root/audio-query-failure/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=48000,in.frequency=32000
+run_scenario audio-invalid-rate 0 FAKE_HOST_INPUT_RATE='48000,out.frequency=99999'
+assert_line_pair "$test_root/audio-invalid-rate/qemu.log" -audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=44100,in.frequency=48000
 
 run_scenario below-default-threshold 0 FAKE_HOST_MEMSIZE=17178820608
 assert_line_pair "$test_root/below-default-threshold/qemu.log" -m 4096M

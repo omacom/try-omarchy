@@ -143,6 +143,55 @@ struct AudioDevicesTests {
         #expect(fixture.store.load() == preferences)
     }
 
+    @Test("sample-rate lookup follows the selected SDL route rather than the Mac default")
+    func sampleRateDeviceSelection() {
+        let catalog = HostAudioDeviceCatalog.make(from: [
+            .init(uid: "built-in", outputName: "Speakers", inputName: "Microphone"),
+            .init(uid: "usb-a", outputName: "USB Audio", inputName: nil),
+            .init(uid: "usb-b", outputName: "USB Audio ", inputName: "USB Mic"),
+        ])
+
+        #expect(catalog.effectiveDevice(
+            direction: .output, selectedSDLName: "USB Audio (2)", systemDefaultUID: "built-in"
+        )?.uid == "usb-b")
+        #expect(catalog.effectiveDevice(
+            direction: .input, selectedSDLName: "USB Mic", systemDefaultUID: "built-in"
+        )?.uid == "usb-b")
+        #expect(catalog.effectiveDevice(
+            direction: .output, selectedSDLName: "USB Audio", systemDefaultUID: nil
+        )?.uid == "usb-a")
+    }
+
+    @Test("default and disconnected routes resolve independently for each direction")
+    func sampleRateDefaultSelection() {
+        let catalog = HostAudioDeviceCatalog.make(from: [
+            .init(uid: "speaker", outputName: "Speakers", inputName: nil),
+            .init(uid: "mic", outputName: nil, inputName: "Microphone"),
+        ])
+        #expect(catalog.effectiveDevice(
+            direction: .output, selectedSDLName: nil, systemDefaultUID: "speaker"
+        )?.uid == "speaker")
+        #expect(catalog.effectiveDevice(
+            direction: .input, selectedSDLName: "Disconnected", systemDefaultUID: "mic"
+        )?.uid == "mic")
+        #expect(catalog.effectiveDevice(
+            direction: .output, selectedSDLName: "Microphone", systemDefaultUID: "speaker"
+        )?.uid == "speaker")
+        #expect(catalog.effectiveDevice(
+            direction: .input, selectedSDLName: nil, systemDefaultUID: nil
+        ) == nil)
+    }
+
+    @Test("CoreAudio rates must be finite integral frequencies before passing them to QEMU")
+    func sampleRateValidation() {
+        for rate in [8_000.0, 16_000, 44_100, 48_000, 88_200, 96_000, 192_000] {
+            #expect(HostAudioSampleRate.validated(rate) == Int(rate))
+        }
+        for rate in [0.0, -48_000, 999, 1_000_000, 44_100.5, .infinity, .nan] {
+            #expect(HostAudioSampleRate.validated(rate) == nil)
+        }
+    }
+
     @Test("launch environment selects input and output independently and removes SDL override")
     func createsSanitizedEnvironment() {
         let catalog = HostAudioDeviceCatalog.make(from: [

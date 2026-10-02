@@ -135,6 +135,21 @@ qemu_netdevs=$("$qemu_bin" -machine virt -netdev help 2>&1) || {
 grep -qx 'user' <<<"$qemu_netdevs" || {
   fail "staged QEMU does not provide no-root SLIRP networking; run make runtime"
 }
+# Match each mixer to its effective SDL route at launch. The native helper uses
+# the same direction-aware SDL names as the audio picker, including duplicate
+# suffixes, and falls back to that direction's default if a device disappeared.
+# Rates remain fixed for this VM session; changing routes may require a restart.
+host_audio_frequency() {
+  local audio_rate
+  audio_rate=$("$native_bridge" --host-audio-frequency "$1" "$2" 2>/dev/null) || return 1
+  [[ $audio_rate =~ ^[1-9][0-9]{3,5}$ ]] || return 1
+  printf '%s\n' "$audio_rate"
+}
+
+# Keep optional hardware-query failures non-fatal, independently by direction.
+audio_output_frequency=$(host_audio_frequency output "${OMARCHY_SDL_OUTPUT_DEVICE_NAME:-}") || audio_output_frequency=48000
+audio_input_frequency=$(host_audio_frequency input "${OMARCHY_SDL_INPUT_DEVICE_NAME:-}") || audio_input_frequency=48000
+
 qemu_audiodevs=$("$qemu_bin" -machine virt -audiodev help 2>&1) || {
   fail "cannot inspect staged QEMU audio backends"
 }
@@ -1728,7 +1743,7 @@ qemu_args=(
   -action 'reboot=reset,shutdown=poweroff'
   -netdev "$qemu_netdev"
   -device "virtio-net-pci,id=omarchy-nic,netdev=omarchy-net,mac=$network_mac,romfile="
-  -audiodev 'sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8'
+  -audiodev "sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=$audio_output_frequency,in.frequency=$audio_input_frequency"
   -device 'intel-hda,id=omarchy-hda,romfile='
   -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
   -serial none

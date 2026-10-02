@@ -190,6 +190,15 @@ supported platform, runtime boundaries, and distribution checklist.
 
 ## Audio continuity
 
+At launch, the native helper queries CoreAudio for the nominal sample rate of
+each effective SDL route. Saved speaker and microphone selections take
+precedence over the Mac's separate defaults; a disconnected selection falls
+back to its direction's default. Duplicate SDL device names retain their
+numbered suffixes. Output and input mixer rates are set independently, with a
+48 kHz fallback if a rate cannot be read. This mitigates the reported playback
+speed issue at 44.1 and 48 kHz; rates stay fixed until the VM is restarted, and
+other rates and live route changes still need playback validation.
+
 The SDL backend uses a 1 ms audio timer and eight output buffers. With an
 obtained 512-frame SDL callback at 44.1 kHz, that gives 4096 frames (about 93 ms)
 of host queue capacity; other devices may negotiate different values. Capacity
