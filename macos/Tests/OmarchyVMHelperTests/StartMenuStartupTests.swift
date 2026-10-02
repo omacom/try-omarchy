@@ -103,11 +103,55 @@ struct StartMenuStartupTests {
         #expect(launchCount == 1)
     }
 
+    @Test("Failed fixes leave ordinary launch available and require a separate manual retry")
+    func failedFixesStayManual() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        let identity = String(repeating: "a", count: 64)
+        try GuestBootFixCache.retain(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity,
+            state: "failed", components: GuestBootFixReport.pendingComponents), cacheURL: url)
+        var launchCount = 0
+        var retryCount = 0
+        let menu = makeMenu(storageState: { .defaultLocation }, startAutomatically: { true },
+                            bootFixCacheURL: { url }, bootFixIdentity: { identity },
+                            retryBootFixes: { retryCount += 1 }, launch: { launchCount += 1 })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        let content = try #require(menu.window.contentView)
+        let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+        #expect(launch.accessibilityLabel() == "Launch Omarchy")
+        launch.performClick(nil)
+        #expect(launchCount == 1)
+        #expect(retryCount == 0)
+        let retryMenu = makeMenu(storageState: { .defaultLocation }, startAutomatically: { true },
+                                bootFixCacheURL: { url }, bootFixIdentity: { identity },
+                                retryBootFixes: { retryCount += 1 }, launch: { launchCount += 1 })
+        defer { retryMenu.dismiss() }
+        retryMenu.prepareForPresentation(visibleFrame: nil)
+        let retryContent = try #require(retryMenu.window.contentView)
+        let retry = try #require(descendant(withIdentifier: "review-boot-fixes-button", in: retryContent) as? NSButton)
+        #expect(retry.isEnabled)
+        retry.performClick(nil)
+        #expect(retryCount == 1)
+        #expect(launchCount == 1)
+        retryMenu.virtualMachineDidStart {}
+        retryMenu.prepareForPresentation(visibleFrame: nil)
+        let runningRetry = try #require(descendant(withIdentifier: "review-boot-fixes-button", in: retryContent) as? NSButton)
+        #expect(!runningRetry.isEnabled)
+        #expect(runningRetry.toolTip?.contains("Shut down") == true)
+    }
+
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> Void = { _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
+        bootFixCacheURL: @escaping () -> URL? = { nil },
+        bootFixIdentity: @escaping () -> String? = { nil },
+        retryBootFixes: @escaping () -> Void = {},
         launch: @escaping () -> Void = {}
     ) -> StartMenuWindow {
         StartMenuWindow(
@@ -137,6 +181,9 @@ struct StartMenuStartupTests {
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             confirmAutomaticStartup: confirmAutomaticStartup,
+            bootFixCacheURL: bootFixCacheURL,
+            bootFixIdentity: bootFixIdentity,
+            retryBootFixes: retryBootFixes,
             launch: launch
         )
     }

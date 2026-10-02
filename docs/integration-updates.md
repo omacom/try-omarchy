@@ -19,8 +19,13 @@ finds work to review. A new or current VM keeps **Launch Omarchy**.
 
 **Update** opens a review of the supported existing-VM repairs listed below. Choose
 **Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
-**Skip and Launch** confirmation and leaves the fixes available for a later
-launch. The existing settings, timezone integration, and shared-folder safety
+**Skip and Launch** confirmation and leaves the fixes available for manual retry.
+The review appears automatically only once per disk and fix bundle, including
+after a skip, cancellation, failure, or interrupted update. Later launches keep
+**Launch Omarchy**, and Skip Launcher continues to start normally. Use
+**Review VM fixes…** in Settings while the VM is shut down to explicitly retry;
+that action still requires approval before applying changes. Older failed or
+unconfirmed attempts also stay manual. The existing settings, timezone integration, and shared-folder safety
 payload still run; Skip applies only to the reviewed repairs.
 
 Approval is limited to the reviewed bundle and selected disk's file identity,
@@ -52,7 +57,7 @@ retains each fix's result in Settings. Failed or unconfirmed approved updates
 still show a warning. No report or no response establishes success.
 Results are scoped to that VM disk and fix bundle; another disk or reset does
 not inherit completion. A missing result triggers a normal boot-time check;
-an unconfirmed approved update leaves Update offered next time.
+an unconfirmed approved update leaves a manual retry available in Settings.
 
 ### Manual upgrade commands covered by Update
 

@@ -23,6 +23,10 @@ struct GuestBootFixReport: Codable, Equatable {
         ["failed", "recovery-required", "unconfirmed"].contains(state)
     }
 
+    var updateWasAttempted: Bool {
+        ["checking", "running"].contains(state) || needsAttention
+    }
+
     static func decode(_ data: Data) throws -> Self {
         guard data.count <= 4096 else { throw HelperError.io("boot fixes report exceeds limit") }
         let value = try JSONDecoder().decode(Self.self, from: data)
@@ -110,6 +114,38 @@ struct GuestBootFixCache: Codable {
         guard let expectedIdentity, let cache = read(cacheURL),
               cache.report.identity == expectedIdentity else { return false }
         return cache.report.needsUpdate
+    }
+
+    static func needsReview(cacheURL: URL?, expectedIdentity: String?, manuallyRequested: Bool = false) -> Bool {
+        guard let cacheURL, let expectedIdentity, let cache = read(cacheURL),
+              cache.report.identity == expectedIdentity, cache.report.needsUpdate else { return false }
+        // Older failed/interrupted attempts also stay manual. Their marker is
+        // retained before a later boot replaces the result with pending work.
+        if manuallyRequested { return true }
+        if cache.report.updateWasAttempted { return false }
+        let attributes = try? FileManager.default.attributesOfItem(
+            atPath: reviewURL(cacheURL: cacheURL, identity: expectedIdentity).path)
+        return attributes?[.type] as? FileAttributeType != .typeRegular
+            || (attributes?[.size] as? NSNumber)?.intValue != 0
+    }
+
+    static func recordReview(cacheURL: URL?, identity: String?) throws {
+        guard let cacheURL, let identity, let cache = read(cacheURL), cache.report.identity == identity else { return }
+        // This is only a reminder acknowledgement, never installation consent.
+        try Data().write(to: reviewURL(cacheURL: cacheURL, identity: identity), options: .atomic)
+    }
+
+    static func retain(_ report: GuestBootFixReport, cacheURL: URL?) throws {
+        guard let cacheURL else { return }
+        if let previous = read(cacheURL), previous.report.updateWasAttempted {
+            try recordReview(cacheURL: cacheURL, identity: previous.report.identity)
+        }
+        let value = Self(checkedAt: Date(), report: report)
+        try JSONEncoder().encode(value).write(to: cacheURL, options: .atomic)
+    }
+
+    private static func reviewURL(cacheURL: URL, identity: String) -> URL {
+        cacheURL.deletingPathExtension().appendingPathExtension("\(identity).reviewed")
     }
 
     /// The shell rechecks this inode under the VM lock before granting consent.

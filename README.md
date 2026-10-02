@@ -673,7 +673,10 @@ supported repairs before login and retains their results in Settings. Successful
 checks and updates finish without another dialog. Disks without a check for the
 current fix bundle boot normally and offer any needed repairs on the next launch,
 including with Skip Launcher enabled. **Skip** requires a
-second confirmation. No terminal commands, SSH, or personal folder sharing are
+second confirmation. Each disk and fix bundle shows the automatic review once;
+skipped or failed fixes remain available through **Review VM fixes…** in Settings
+after shutting down the VM. They do not interrupt subsequent launches.
+No terminal commands, SSH, or personal folder sharing are
 needed for normal migration.
 
 This covers the supported clipboard/screensaver fixes, Alacritty cleanup,

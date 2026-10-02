@@ -334,6 +334,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             },
             checkForAppUpdates: { [weak self] in self?.checkForAppUpdates(nil) },
             bootFixCacheURL: { [weak self] in self?.bootFixCacheURL() },
+            retryBootFixes: { [weak self] in
+                self?.startVirtualMachine(reviewBootFixes: true)
+            },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }
@@ -358,7 +361,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             environment: baseEnvironment, preference: storageLocationStore.load()))
     }
 
-    private func startVirtualMachine(allowBootRecovery: Bool = false) {
+    private func startVirtualMachine(allowBootRecovery: Bool = false, reviewBootFixes: Bool = false) {
         cancelHostWakeRetry()
         virtualMachineReachedStart = false
         pendingHostSleepControlFailure = nil
@@ -388,7 +391,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             }
             let fixesURL = bootFixCacheURL()
             var fixesConsent: String?
-            if GuestBootFixCache.needsUpdate(cacheURL: fixesURL, expectedIdentity: GuestBootFixCache.bundledIdentity) {
+            if GuestBootFixCache.needsReview(cacheURL: fixesURL, expectedIdentity: GuestBootFixCache.bundledIdentity,
+                                             manuallyRequested: reviewBootFixes) {
+                do { try GuestBootFixCache.recordReview(cacheURL: fixesURL, identity: GuestBootFixCache.bundledIdentity) }
+                catch { fputs("[boot-fixes] Could not retain review: \(error.localizedDescription)\n", stderr) }
                 switch startMenuWindow?.confirmBootFixes() ?? .cancel {
                 case .cancel:
                     startMenuWindow?.launchDidAbort()
@@ -749,10 +755,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func retainBootFixReport(_ report: GuestBootFixReport) {
-        if let url = activeBootFixCacheURL {
-            do { try JSONEncoder().encode(GuestBootFixCache(checkedAt: Date(), report: report)).write(to: url, options: .atomic) }
-            catch { fputs("[boot-fixes] Could not retain result: \(error.localizedDescription)\n", stderr) }
-        }
+        do { try GuestBootFixCache.retain(report, cacheURL: activeBootFixCacheURL) }
+        catch { fputs("[boot-fixes] Could not retain result: \(error.localizedDescription)\n", stderr) }
         if startMenuWindow?.window.isVisible == true { startMenuWindow?.refreshBootFixStatus() }
     }
 
@@ -774,7 +778,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         alert.messageText = report.summary
         alert.informativeText = report.detail + (report.state == "recovery-required"
             ? "\n\nOriginal files could not all be restored. Shut down and retry recovery before using these integrations. Backups remain inside the VM."
-            : (report.state == "unconfirmed" ? "\n\nThe VM did not report a result. Completion has not been recorded; review and retry on the next launch."
+            : (report.state == "unconfirmed" ? "\n\nThe VM did not report a result. Completion has not been recorded. Shut down and use Review VM fixes in Settings to retry."
                : "\n\nYou can review this result in Try Omarchy Settings."))
         alert.addButton(withTitle: "OK")
         isPresentingBlockingAlert = true

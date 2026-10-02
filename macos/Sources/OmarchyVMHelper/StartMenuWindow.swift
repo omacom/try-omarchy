@@ -179,6 +179,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setStartAutomatically: (Bool) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
     private let bootFixCacheURL: () -> URL?
+    private let bootFixIdentity: () -> String?
+    private let retryBootFixes: () -> Void
     private let launch: () -> Void
     private let appVersionLabel: String
     private let appReleaseActionTitle: () -> String
@@ -275,6 +277,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
         bootFixCacheURL: @escaping () -> URL? = { nil },
+        bootFixIdentity: @escaping () -> String? = { GuestBootFixCache.bundledIdentity },
+        retryBootFixes: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -313,6 +317,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setStartAutomatically = setStartAutomatically
         self.confirmAutomaticStartup = confirmAutomaticStartup
         self.bootFixCacheURL = bootFixCacheURL
+        self.bootFixIdentity = bootFixIdentity
+        self.retryBootFixes = retryBootFixes
         self.launch = launch
         self.appVersionLabel = appVersionLabel
         self.appReleaseActionTitle = appReleaseActionTitle
@@ -930,7 +936,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         manage.isEnabled = !controlsBusy
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
-        let fixesPending = GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity)
+        let fixesPending = GuestBootFixCache.needsReview(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity())
         let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : (fixesPending ? "Update" : "Launch Omarchy"))
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
@@ -1016,13 +1022,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         var settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
         var bootFixNotice: NSView?
         if let cache = GuestBootFixCache.read(bootFixCacheURL()) {
-            let summary = cache.report.summary(expectedIdentity: GuestBootFixCache.bundledIdentity)
+            let summary = cache.report.summary(expectedIdentity: bootFixIdentity())
             let result = NSTextField(wrappingLabelWithString: "Last VM fix check: \(summary)\n\(cache.report.detail)")
             result.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
             result.textColor = OmarchyStartMenuTheme.foreground
             result.identifier = NSUserInterfaceItemIdentifier("boot-fixes-result")
             bootFixNotice = result
             settingsSections.insert(result, at: 0)
+            if GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity()) {
+                let retry = OmarchyActionButton(title: "Review VM fixes…", style: .secondary,
+                                               target: self, action: #selector(reviewVMFixes))
+                retry.identifier = NSUserInterfaceItemIdentifier("review-boot-fixes-button")
+                retry.isEnabled = !virtualMachineRunning && !controlsBusy
+                retry.toolTip = virtualMachineRunning
+                    ? "Shut down Omarchy to review and retry these fixes"
+                    : "Review the available fixes and choose whether to retry them"
+                retry.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                settingsSections.insert(retry, at: 1)
+            }
         }
         let stack = NSStackView(views: virtualMachineRunning
             ? [headingStack, runningActions] + settingsSections + [resetHeading, resetCard]
@@ -1842,6 +1859,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     @objc func launchOmarchy() {
+        beginLaunch(action: launch)
+    }
+
+    @objc private func reviewVMFixes() {
+        beginLaunch(action: retryBootFixes)
+    }
+
+    private func beginLaunch(action: () -> Void) {
         guard !prelaunchControlsLocked,
               !resetInProgress,
               !microphoneRequestInFlight,
@@ -1849,7 +1874,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         launchPhase = .checking
         launchInProgress = true
         render()
-        launch()
+        action()
     }
 }
 

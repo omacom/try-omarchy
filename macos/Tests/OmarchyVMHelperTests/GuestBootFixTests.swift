@@ -69,6 +69,55 @@ struct GuestBootFixTests {
         }
     }
 
+    @Test("A reviewed bundle never nags again after failure, skipping, or interrupted startup")
+    func reviewSurvivesResults() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        try GuestBootFixCache.retain(report(state: "skipped", outcome: "pending"), cacheURL: url)
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+        try GuestBootFixCache.recordReview(cacheURL: url, identity: identity)
+        for state in ["checking", "running", "failed", "recovery-required", "unconfirmed", "skipped"] {
+            try GuestBootFixCache.retain(report(state: state, outcome: "pending"), cacheURL: url)
+            #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+            #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+            #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
+        }
+        try GuestBootFixCache.retain(report(), cacheURL: url)
+        #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
+
+        let nextIdentity = String(repeating: "b", count: 64)
+        let next = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: nextIdentity, state: "skipped",
+                                     components: report(outcome: "pending").components)
+        try GuestBootFixCache.retain(next, cacheURL: url)
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: nextIdentity))
+        #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
+        let anotherDisk = directory.appendingPathComponent("boot-fixes-456.json")
+        try GuestBootFixCache.retain(report(state: "skipped", outcome: "pending"), cacheURL: anotherDisk)
+        #expect(GuestBootFixCache.needsReview(cacheURL: anotherDisk, expectedIdentity: identity))
+    }
+
+    @Test("Legacy failed updates stay manual even when later boots report pending work")
+    func legacyFailedReview() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        for state in ["checking", "running", "failed", "recovery-required", "unconfirmed"] {
+            let legacy = GuestBootFixCache(checkedAt: Date(), report: report(state: state, outcome: "pending"))
+            // Existing report files have no separate review acknowledgement.
+            for marker in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                where marker.pathExtension == "reviewed" {
+                try FileManager.default.removeItem(at: marker)
+            }
+            try JSONEncoder().encode(legacy).write(to: url)
+            #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+            try GuestBootFixCache.retain(report(state: "skipped", outcome: "pending"), cacheURL: url)
+            #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+        }
+    }
+
     @Test("Malformed, oversized, and incomplete success reports cannot establish completion")
     func decoding() throws {
         #expect(try GuestBootFixReport.decode(JSONEncoder().encode(report())) == report())
