@@ -340,7 +340,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         startMenuWindow = startMenu
         startMenu.onAppReleasePromptOpportunity = { [weak self] in self?.scheduleAppReleasePrompt() }
-        if startAutomatically && !GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity) {
+        // Automatic startup uses the same launch path as the button, including
+        // any required VM fix or boot recovery consent before QEMU starts.
+        if startAutomatically {
             startMenu.launchOmarchy()
         } else {
             startMenu.show()
