@@ -136,7 +136,7 @@ enum GuestBootFixPrompt {
             The kernel and customized files are preserved. Your settings and personal files are kept, and updates will rollback or be skipped in case of failure.
             """
         alert.addButton(withTitle: "Update and Launch")
-        alert.addButton(withTitle: "Skip")
+        alert.addButton(withTitle: "Skip and Launch")
         alert.addButton(withTitle: "Cancel")
         return alert
     }
