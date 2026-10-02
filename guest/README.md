@@ -215,3 +215,30 @@ It never forces a shutdown on a timer. **Shut Down** returns to the
 native settings window without automatic startup so location and reset remain
 accessible. A normal Linux reboot keeps the current QEMU process and therefore
 does not apply these launch settings.
+
+### ARM Install-menu package availability
+
+Bitwarden uses `bitwarden-bin` from AUR on ARM64 and `bitwarden-cli` from
+Arch Linux ARM. Its installer also supplies `desktop-file-utils`, used by the
+AUR packaging step, and launches the desktop only after both installs succeed.
+As with other AUR menu installs, this downloads the current community package
+when requested; the desktop is not included in the factory image.
+
+Hermes Desktop and Ollama currently use the shared ARM unavailable message.
+The AUR package named `hermes-desktop` is an unrelated speech-to-text app,
+not the Hermes agent desktop expected by Omarchy. T3 Code's generic package
+route also refuses cleanly; a dedicated ARM installer can bypass that route.
+
+Existing VM disks need an explicit repair from a checkout containing this change:
+
+```sh
+python3 guest/scripts/migrate-arm-install-menu.py
+sudo python3 guest/scripts/migrate-arm-install-menu.py --apply
+```
+
+The first command previews changes. The second checks the known menu and
+integration files, retains replaced files under
+`/var/lib/try-omarchy/arm-install-menu-backup.*`, and applies the repair.
+It refuses modified menu files rather than overwriting customizations. Close
+and reopen the Omarchy menu afterward. Updating the macOS application alone
+does not modify an existing guest disk.

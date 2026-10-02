@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# omarchy:summary=Install and launch Bitwarden using the package for this architecture
+# omarchy:requires-sudo=true
+
+set -e
+
+if (( EUID == 0 )); then
+  echo "Run this command as your desktop user, without sudo." >&2
+  exit 1
+fi
+
+echo "Installing Bitwarden..."
+if [[ $(uname -m) == aarch64 ]]; then
+  # The AUR package invokes desktop-file-edit while packaging the ARM archive.
+  omarchy-pkg-add bitwarden-cli desktop-file-utils
+  omarchy-pkg-aur-add bitwarden-bin
+else
+  omarchy-pkg-add bitwarden bitwarden-cli
+fi
+
+setsid uwsm-app -- gtk-launch bitwarden >/dev/null 2>&1 &

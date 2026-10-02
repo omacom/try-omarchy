@@ -15,3 +15,10 @@ lmstudio-bin	LM Studio
 steam	Steam
 minecraft-launcher	Minecraft
 heroic-games-launcher-bin	Heroic
+# The AUR hermes-desktop name belongs to an unrelated speech-to-text app.
+hermes-desktop	Hermes Desktop
+ollama	Ollama
+ollama-cuda	Ollama
+ollama-rocm	Ollama
+# The dedicated ARM64 T3 installer bypasses this generic package route.
+t3code-bin	T3 Code
