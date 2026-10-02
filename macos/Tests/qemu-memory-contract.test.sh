@@ -64,6 +64,7 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 
 mkdir -p "$resources/guest-settings"
 cp "$macos_dir/guest-settings.service" "$resources/guest-settings/guest-settings.service"
+cp "$macos_dir/../guest/native-overlay/usr/local/bin/omarchy-native-mac-share" "$resources/guest-settings/omarchy-native-mac-share"
 cp "$macos_dir/../guest/scripts/install-settings-integration.py" "$resources/guest-settings/install.py"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
@@ -96,10 +97,15 @@ if [[ ${1:-} == --host-audio-frequency ]]; then
   esac
   exit 0
 fi
+if [[ ${1:-} == --host-timezone ]]; then
+  printf '%s\n' Asia/Tokyo
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
-   || ${1:-} == --bridge-native-camera ]]; then
+   || ${1:-} == --bridge-native-camera \
+   || ${1:-} == --bridge-native-timezone ]]; then
   while kill -0 "$2" 2>/dev/null; do
     sleep 0.02
   done

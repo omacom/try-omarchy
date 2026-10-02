@@ -1,0 +1,157 @@
+#!/usr/bin/python3 -I
+"""Follow the Mac's zone until a guest user changes /etc/localtime."""
+
+import json
+import fcntl
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+PORT = Path("/dev/virtio-ports/dev.tryomarchy.timezone")
+STATE = Path("/var/lib/try-omarchy/timezone.json")
+LOCALTIME = Path("/etc/localtime")
+ZONEINFO = Path("/usr/share/zoneinfo")
+HOST_ZONE = Path("/run/try-omarchy/host-timezone")
+
+
+def zone_path(zone, zoneinfo=ZONEINFO):
+    if (not isinstance(zone, str) or not 0 < len(zone) <= 128
+            or not re.fullmatch(r"[A-Za-z0-9_+/-]+", zone)
+            or any(part in ("", ".", "..") for part in zone.split("/"))):
+        raise ValueError("invalid host time zone")
+    path = zoneinfo / zone
+    if not path.is_file() or not path.resolve().is_relative_to(zoneinfo.resolve()):
+        raise ValueError("host time zone is unavailable in the guest")
+    return path
+
+
+def fingerprint(localtime=LOCALTIME):
+    info = localtime.lstat()
+    # Include the target and inode so a manual replacement with the same zone
+    # also opts out. A tzdata package update doesn't replace this symlink.
+    return [info.st_ino, info.st_mtime_ns,
+            os.readlink(localtime) if localtime.is_symlink() else "file"]
+
+
+def save_state(state, path=STATE):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".timezone-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            json.dump(state, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None, force=False):
+    target = zone_path(zone, zoneinfo)
+    try:
+        state = json.loads(state_path.read_text())
+    except FileNotFoundError:
+        state = None
+    current = fingerprint(localtime)
+    if force:
+        state = None
+    if state is not None:
+        if state["mode"] == "manual":
+            return False
+        if current != state["fingerprint"]:
+            save_state({"mode": "manual"}, state_path)
+            print("Guest time zone changed manually; keeping the guest selection.", flush=True)
+            return False
+    if localtime.is_symlink() and localtime.resolve() == target.resolve():
+        if state is None or state["zone"] != zone:
+            save_state({"mode": "auto", "zone": zone, "fingerprint": current}, state_path)
+        return False
+    # Use timedated so its D-Bus clients see the change too. Leave the RTC and
+    # NTP clock discipline alone: they both continue to use UTC.
+    if apply is None:
+        subprocess.run(["timedatectl", "set-timezone", zone], check=True, timeout=5)
+    else:
+        apply(target)
+    save_state({"mode": "auto", "zone": zone, "fingerprint": fingerprint(localtime)}, state_path)
+    print(f"Following Mac time zone: {zone}", flush=True)
+    return True
+
+
+def follow(zone=None, force=False):
+    # Serialize the daemon, boot initializer, and user action. Otherwise a
+    # simultaneous snapshot could mistake our own update for a manual change.
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    with (STATE.parent / "timezone.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if zone is None:
+            zone = HOST_ZONE.read_text().strip()
+        zone_path(zone)
+        HOST_ZONE.parent.mkdir(parents=True, exist_ok=True)
+        if not HOST_ZONE.exists() or HOST_ZONE.read_text().strip() != zone:
+            HOST_ZONE.write_text(zone + "\n")
+        return synchronize(zone, force=force)
+
+
+def refresh_desktops():
+    # The current Quickshell clock caches its zone; ask each logged-in user
+    # session to refresh using the same action as Omarchy's timezone picker.
+    import pwd
+    for user in pwd.getpwall():
+        runtime = Path(f"/run/user/{user.pw_uid}")
+        if 1000 <= user.pw_uid < 65534 and runtime.is_dir():
+            omarchy = Path(user.pw_dir) / ".local/share/omarchy"
+            if not omarchy.is_dir():
+                omarchy = Path("/usr/share/omarchy")
+            try:
+                subprocess.run(["runuser", "-u", user.pw_name, "--", "env",
+                                f"XDG_RUNTIME_DIR={runtime}",
+                                f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus",
+                                f"OMARCHY_PATH={omarchy}",
+                                "omarchy-shell", "-q", "omarchy.clock", "refresh"],
+                               check=False, timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Could not refresh {user.pw_name}'s clock: {error}", file=sys.stderr, flush=True)
+
+
+def main():
+    if os.geteuid() != 0:
+        raise PermissionError("time zone synchronization requires root")
+    if sys.argv[1:] == ["--initialize"]:
+        tokens = Path("/proc/cmdline").read_text().split()
+        zones = [token.split("=", 1)[1] for token in tokens if token.startswith("tryomarchy.timezone=")]
+        if len(zones) != 1:
+            raise ValueError("missing or ambiguous Mac time zone boot hint")
+        follow(zones[0])
+        return
+    if sys.argv[1:] == ["--follow-mac"]:
+        if follow(force=True):
+            refresh_desktops()
+        print("Time zone will now follow the Mac.", flush=True)
+        return
+    if sys.argv[1:]:
+        raise ValueError("unexpected arguments")
+    with PORT.open("r+b", buffering=0) as port:
+        # Opening the virtio port isn't visible to the host bridge. Its periodic
+        # snapshots guarantee delivery even when its first send was lost.
+        while True:
+            line = port.readline(4097)
+            if not line:
+                raise OSError("Mac time zone channel disconnected")
+            if len(line) > 4096 or not line.endswith(b"\n"):
+                raise ValueError("oversized time zone message")
+            try:
+                message = json.loads(line)
+                if not isinstance(message, dict) or set(message) != {"type", "zone"} or message["type"] != "timezone":
+                    raise ValueError("unexpected time zone message")
+                if follow(message["zone"]):
+                    refresh_desktops()
+            except (ValueError, KeyError) as error:
+                print(f"Rejected time zone message: {error}", file=sys.stderr, flush=True)
+
+
+if __name__ == "__main__":
+    main()

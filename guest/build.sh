@@ -105,7 +105,6 @@ fi
 root=$(mktemp -d "$work/rootfs.XXXXXX")
 resolution_db=$(mktemp -d "$work/pacman-db.XXXXXX")
 pinned_repo=""
-abi_pin_repo=""
 chmod 0755 "$resolution_db"
 cleanup() {
   if (( keep_rootfs )); then
@@ -116,9 +115,6 @@ cleanup() {
   rm -rf "$resolution_db"
   if [[ -n $pinned_repo ]]; then
     rm -rf "$pinned_repo"
-  fi
-  if [[ -n $abi_pin_repo ]]; then
-    rm -rf "$abi_pin_repo"
   fi
 }
 trap cleanup EXIT
@@ -180,30 +176,17 @@ if ((${#pinned_records[@]})); then
     "$pinned_repo/"*.pkg.tar.zst >/dev/null
 fi
 
-# Guest pacman.conf is installed unchanged by configure-rootfs. The builder copy
-# may add reviewed ABI pins (packages mirrors no longer publish) and must drop
-# those names from IgnorePkg so the empty-root transaction can install them once.
-abi_pin_count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("inputs", {}).get("abiPackagePins", [])))' "$spec")
+# Guest update holds are omitted from the builder's empty-root transaction,
+# which must match the reviewed package lock before installation.
 builder_conf_args=(
   python3 "$guest_dir/scripts/write-builder-pacman-conf.py"
   --spec "$spec"
-  --guest-dir "$guest_dir"
   --guest-config "$upstream_pacman_config"
-  --package-lock "$package_lock_file"
   --output "$pacman_config"
   --package-cache "$package_cache"
 )
 if [[ ${OMARCHY_PACMAN_DISABLE_SANDBOX:-0} == "1" ]]; then
   builder_conf_args+=(--disable-sandbox)
-fi
-if (( abi_pin_count > 0 )); then
-  abi_pin_repo=$(mktemp -d "$work/abi-pin-repo.XXXXXX")
-  "$guest_dir/scripts/build-pinned-abi-packages.sh" \
-    --spec "$spec" \
-    --guest-dir "$guest_dir" \
-    --output-repo "$abi_pin_repo" \
-    --work "$work" || fail "could not rebuild the reviewed ABI pins"
-  builder_conf_args+=(--abi-repo "$abi_pin_repo")
 fi
 if [[ -n $pinned_repo ]]; then
   builder_conf_args+=(--pinned-cache-repo "$pinned_repo")

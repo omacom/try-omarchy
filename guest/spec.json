@@ -6,7 +6,7 @@
     "filesystemLabel": "omarchy-factory",
     "filesystemUuid": "89054943-1f4e-4f14-b934-d6db3fba4254",
     "sizeMiB": 6144,
-    "sourceDateEpoch": 1788886195
+    "sourceDateEpoch": 1789450452
   },
   "guest": {
     "profile": "factory",
@@ -23,10 +23,10 @@
   },
   "upstream": {
     "repository": "https://github.com/basecamp/omarchy",
-    "commit": "0534987009061cbe2dacdde4ad564092ab698d12",
-    "tree": "139193701d7ddc948c12dfa2d15de070546ee520",
-    "treeSha256": "21d4d4edec113126aaa65d04adb7d5a422f4b18d685c1e2e08fa5c51b621fa60",
-    "release": "4.0.3",
+    "commit": "c668141e9c42b13c80c9ca4ea108e11708c5e8a5",
+    "tree": "1d48adc1ba8636fd9362f7b9bf8819f3ac3258a4",
+    "treeSha256": "c7ae35645b64a205a3ac7af094b17ea0f406a710eb00185470a76f3ae8367952",
+    "release": "4.0.4",
     "version": "4.0.0.alpha",
     "channel": "quattro",
     "license": "MIT"
@@ -52,7 +52,7 @@
       "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
       "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
       "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-      "binarySha256": "34499692a552c4f36bce98b0efda02ebca00d2297c830b109b24ad6a64669645",
+      "binarySha256": "32bd58fd20883240eb7f1d85da0e7f64b1582c8ea3c18c947d98bc219964019d",
       "license": "BSD-3-Clause",
       "issue": "https://github.com/omacom/try-omarchy/issues/5",
       "buildPackages": {
@@ -63,26 +63,14 @@
         "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
         "glibc": "2.43+r22+g8362e8ce10b2-2",
         "hyprland": "0.56.2-3",
-        "hyprland-protocols": "0.7.0-1",
+        "hyprland-protocols": "0.7.1-1",
+        "hyprwayland-scanner": "0.4.6-1",
         "make": "4.4.1-3",
-        "meson": "1.12.0-1",
+        "meson": "1.12.1-1",
         "ninja": "1.13.2-3",
         "pkgconf": "3.0.7-1",
         "xorgproto": "2025.1-1"
       }
-    },
-    "aquamarine": {
-      "version": "0.15.1",
-      "pkgrel": "1",
-      "repository": "https://github.com/hyprwm/aquamarine",
-      "url": "https://github.com/hyprwm/aquamarine/archive/v0.15.1/aquamarine-0.15.1.tar.gz",
-      "sha256": "2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2",
-      "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
-      "pkgbuildSha256": "90c998ea89b5c806919c102df78ef3f0d7816a9a08c26eac26b4adf44ba59a2a",
-      "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
-      "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
-      "license": "BSD-3-Clause",
-      "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d"
     },
     "mise": {
       "version": "2026.8.11",
@@ -192,19 +180,6 @@
         }
       }
     },
-    "hyprtoolkit": {
-      "version": "0.5.4",
-      "pkgrel": "6.2",
-      "repository": "https://github.com/hyprwm/hyprtoolkit",
-      "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-      "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-      "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-      "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-      "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-      "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-      "license": "BSD-3-Clause",
-      "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-    },
     "ghostty": {
       "version": "1.3.1",
       "pkgrel": "1",
@@ -236,16 +211,6 @@
     "packageRepositoryMirrors": [
       "https://ca.us.mirror.archlinuxarm.org/aarch64",
       "https://de3.mirror.archlinuxarm.org/aarch64"
-    ],
-    "abiPackagePins": [
-      {
-        "name": "aquamarine",
-        "version": "0.15.1-1"
-      },
-      {
-        "name": "hyprtoolkit",
-        "version": "0.5.4-6.2"
-      }
     ]
   },
   "authenticity": {

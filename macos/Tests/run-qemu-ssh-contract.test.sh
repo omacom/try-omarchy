@@ -77,6 +77,7 @@ chmod 644 "$resources/scripts/qemu-port-forwarding.sh"
 mkdir -p "$resources/guest-settings" "$resources/integrations"
 printf '{}\n' >"$resources/integrations/manifest.json"
 cp "$macos_dir/guest-settings.service" "$resources/guest-settings/guest-settings.service"
+cp "$macos_dir/../guest/native-overlay/usr/local/bin/omarchy-native-mac-share" "$resources/guest-settings/omarchy-native-mac-share"
 cp "$macos_dir/../guest/scripts/install-settings-integration.py" "$resources/guest-settings/install.py"
 
 cat >"$contents/MacOS/omarchy-vm-helper" <<'SH'
@@ -100,6 +101,10 @@ if [[ ${1:-} == --host-keyboard-geometry ]]; then
   printf '%s\n' "${FAKE_HOST_KEYBOARD:-iso}"
   exit 0
 fi
+if [[ ${1:-} == --host-timezone ]]; then
+  printf '%s\n' "${FAKE_HOST_TIMEZONE:-Asia/Tokyo}"
+  exit 0
+fi
 if [[ ${1:-} == --bridge-native-audio && ${FAKE_SHUTDOWN_RACE:-0} == 1 ]]; then
   printf '%s\n' "$$" >"$FAKE_QEMU_LOG.audio.pid"
 fi
@@ -114,7 +119,8 @@ if [[ ${1:-} == --bridge-native-audio \
    || ${1:-} == --bridge-native-authentication \
    || ${1:-} == --bridge-native-clipboard \
    || ${1:-} == --bridge-native-camera \
-   || ${1:-} == --bridge-native-battery ]]; then
+   || ${1:-} == --bridge-native-battery \
+   || ${1:-} == --bridge-native-timezone ]]; then
   if [[ $1 == --bridge-native-audio && ${FAKE_AUDIO_EXIT_EARLY:-0} == 1 ]]; then
     exit 0
   fi
@@ -606,6 +612,14 @@ run_scenario() {
 
 run_scenario disabled 0 ''
 disabled_qemu=$(<"$test_root/disabled/qemu.log")
+assert_contains "$disabled_qemu" 'tryomarchy.timezone=Asia/Tokyo'
+assert_contains "$disabled_qemu" 'name=dev.tryomarchy.timezone'
+run_scenario timezone-travel 0 '' FAKE_HOST_TIMEZONE=America/New_York
+assert_contains "$(<"$test_root/timezone-travel/qemu.log")" 'tryomarchy.timezone=America/New_York'
+run_scenario timezone-injection 1 '' 'FAKE_HOST_TIMEZONE=UTC systemd.unit=rescue.target'
+assert_contains "$(<"$test_root/timezone-injection/stderr")" 'invalid Mac time zone'
+run_scenario timezone-traversal 1 '' FAKE_HOST_TIMEZONE=../UTC
+assert_contains "$(<"$test_root/timezone-traversal/stderr")" 'invalid Mac time zone'
 assert_contains "$disabled_qemu" 'systemd.wants=try-omarchy-settings.service'
 assert_contains "$disabled_qemu" "systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$(base64 < "$macos_dir/guest-settings.service" | tr -d '\r\n')"
 assert_line_pair "$test_root/disabled/qemu.log" -fsdev \
@@ -650,7 +664,7 @@ for argument in pathlib.Path(sys.argv[1]).read_text().splitlines():
     port = (fields["bus"], fields["nr"])
     assert port not in ports, f"Duplicate virtual serial port: {port}"
     ports.add(port)
-assert len(ports) == 8, f"Expected all eight guest channels, got {ports}"
+assert len(ports) == 9, f"Expected all nine guest channels, got {ports}"
 PYPORTS
 assert_contains "$(<"$test_root/disabled/storage.log")" select-existing
 assert_contains "$(<"$test_root/disabled/storage.log")" create
@@ -985,6 +999,34 @@ assert_contains "$(<"$test_root/recovery-relaunch/qemu.log")" loglevel=3
 assert_keyboard_lockstep "$test_root/recovery-relaunch/qemu.log" iso
 assert_not_contains "$(<"$recovery_root/boot/command-line")" tryomarchy.keyboard=
 assert_contains "$(<"$recovery_root/rootfs.ext4")" legacy-user-disk
+
+# Old persistent guests must receive the safe mount unit with their own boot kit.
+assert_not_contains "$disabled_qemu" 'systemd.mask=omarchy-native-mac-share.service'
+mkdir -p "$test_root/Shared fixture"
+for mode in persistent ephemeral; do
+  argument=''
+  [[ $mode != ephemeral ]] || argument=--ephemeral
+  run_scenario "shared-$mode" 0 "$argument" OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+  shared_qemu=$(<"$test_root/shared-$mode/qemu.log")
+  assert_contains "$shared_qemu" 'systemd.mask=omarchy-native-mac-share.service'
+  assert_contains "$shared_qemu" "systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$(base64 < "$macos_dir/guest-settings.service" | tr -d '\r\n')"
+  assert_contains "$shared_qemu" 'omarchy.shared_folder_name='
+  if [[ $mode == persistent ]]; then
+    assert_line_pair "$test_root/shared-$mode/qemu.log" -kernel "$persistent_root/boot/kernel"
+    assert_line_pair "$test_root/shared-$mode/qemu.log" -initrd "$persistent_root/boot/initramfs"
+  fi
+done
+mv "$resources/guest-settings/omarchy-native-mac-share" "$resources/guest-settings/helper.saved"
+run_scenario missing-share-helper 1 '' OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+[[ ! -e $test_root/missing-share-helper/qemu.log ]] || fail 'unsafe QEMU launch without safety helper'
+mv "$resources/guest-settings/helper.saved" "$resources/guest-settings/omarchy-native-mac-share"
+
+# Never let ARM64 truncate the safety credential or old-service mask.
+share_saved_command_line=$(<"$persistent_root/boot/command-line")
+printf '%s fixture.padding=%02048d\n' "$share_saved_command_line" 0 >"$persistent_root/boot/command-line"
+run_scenario oversized-share-boot 1 '' OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/Shared fixture"
+[[ ! -e $test_root/oversized-share-boot/qemu.log ]] || fail 'unsafe launch with truncated safety arguments'
+printf '%s\n' "$share_saved_command_line" >"$persistent_root/boot/command-line"
 
 run_scenario preset 0 '' OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2222:22
 assert_line_pair "$test_root/preset/qemu.log" -netdev \

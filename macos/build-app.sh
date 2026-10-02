@@ -199,15 +199,21 @@ install -m 0644 "$macos_dir/qemu-persistent-storage.sh" \
 install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
 install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
-# Ship the same narrow settings payload to existing VMs at boot.
+# Ship settings and the shared-folder safety helper to existing VMs at boot.
 settings_payload="$contents/Resources/guest-settings"
 mkdir -p "$settings_payload"
 install -m 0644 "$macos_dir/guest-settings.service" "$settings_payload/guest-settings.service"
 install -m 0644 "$repo_dir/guest/scripts/install-settings-integration.py" "$settings_payload/install.py"
 for relative in \
+  usr/local/bin/omarchy-native-mac-share \
   usr/local/bin/omarchy-native-settings \
+  usr/local/bin/try-omarchy-timezone \
+  usr/local/bin/tzupdate \
+  usr/lib/systemd/system/try-omarchy-timezone.service \
+  etc/udev/rules.d/96-try-omarchy-timezone.rules \
   etc/udev/rules.d/92-omarchy-native-settings.rules \
   usr/share/applications/try-omarchy-settings.desktop \
+  usr/share/applications/try-omarchy-follow-timezone.desktop \
   etc/skel/.config/omarchy/extensions/omarchy-menu.jsonc; do
   install -m 0644 "$repo_dir/guest/native-overlay/$relative" "$settings_payload/${relative##*/}"
 done

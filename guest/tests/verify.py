@@ -131,11 +131,11 @@ def main() -> None:
     )
     check(spec["runtime"]["storage"]["expandedSizeMiB"] == 24576, "working disk expands to 24 GiB")
     check(
-        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "abiPackagePins", "packageRepositoryMirrors"},
+        set(spec["inputs"]) == {"packages", "packageLock", "pacmanConfig", "packageRepositoryMirrors"},
         "spec has a minimal input set",
     )
     for key, value in spec["inputs"].items():
-        if key in {"abiPackagePins", "packageRepositoryMirrors"}:
+        if key == "packageRepositoryMirrors":
             continue
         check((GUEST / value).is_file(), f"spec input exists: {value}")
     for name, digest in {
@@ -147,72 +147,6 @@ def main() -> None:
             hashlib.sha256((GUEST / "keys" / name).read_bytes()).hexdigest() == digest,
             f"{name} matches the pinned upstream Omarchy packaging keyring",
         )
-    abi_pins = spec["inputs"]["abiPackagePins"]
-    check(
-        abi_pins == [{"name": "aquamarine", "version": "0.15.1-1"}, {"name": "hyprtoolkit", "version": "0.5.4-6.2"}],
-        "factory abi pins keep aquamarine on libaquamarine.so=14 for the locked Hyprland",
-    )
-    aquamarine = spec.get("supplyChain", {}).get("aquamarine", {})
-    pkgbuild = GUEST / aquamarine.get("pkgbuild", "")
-    pkgbuild_text = pkgbuild.read_text() if pkgbuild.is_file() else ""
-    check(
-        aquamarine
-        == {
-            "version": "0.15.1",
-            "pkgrel": "1",
-            "repository": "https://github.com/hyprwm/aquamarine",
-            "url": "https://github.com/hyprwm/aquamarine/archive/v0.15.1/aquamarine-0.15.1.tar.gz",
-            "sha256": "2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2",
-            "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
-            "pkgbuildSha256": "90c998ea89b5c806919c102df78ef3f0d7816a9a08c26eac26b4adf44ba59a2a",
-            "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
-            "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
-            "license": "BSD-3-Clause",
-            "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d",
-        }
-        and pkgbuild.is_file()
-        and hashlib.sha256(pkgbuild.read_bytes()).hexdigest() == aquamarine["pkgbuildSha256"]
-        and f"sha256sums=('{aquamarine['sha256']}')" in pkgbuild_text
-        and "pkgver=0.15.1" in pkgbuild_text
-        and "pkgrel=1" in pkgbuild_text,
-        "factory rebuilds aquamarine 0.15.1 from the reviewed Arch PKGBUILD and upstream tarball",
-    )
-    hyprtoolkit = spec.get("supplyChain", {}).get("hyprtoolkit", {})
-    toolkit_recipe = GUEST / hyprtoolkit.get("pkgbuild", "")
-    check(
-        hyprtoolkit == {
-    "version": "0.5.4",
-    "pkgrel": "6.2",
-    "repository": "https://github.com/hyprwm/hyprtoolkit",
-    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-    "license": "BSD-3-Clause",
-    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-}
-        and toolkit_recipe.is_file()
-        and hashlib.sha256(toolkit_recipe.read_bytes()).hexdigest() == hyprtoolkit["pkgbuildSha256"],
-        "factory rebuilds Hyprtoolkit against the compatible aquamarine ABI",
-    )
-    builder_conf_writer = read(GUEST / "scripts/write-builder-pacman-conf.py")
-    build_aquamarine = read(GUEST / "scripts/build-pinned-abi-packages.sh")
-    check(
-        "try-omarchy-abi-pins" in builder_conf_writer
-        and "drop_ignore" in builder_conf_writer
-        and "reproducible rebuild" in builder_conf_writer
-        and "write-builder-pacman-conf.py" in read(GUEST / "build.sh")
-        and "write-builder-pacman-conf.py" in read(GUEST / "scripts/refresh-package-lock.sh")
-        and "build-pinned-abi-packages.sh" in read(GUEST / "build.sh")
-        and "build-pinned-abi-packages.sh" in read(GUEST / "scripts/refresh-package-lock.sh")
-        and "download digest mismatch" in build_aquamarine
-        and "reproducible library digest mismatch" in build_aquamarine
-        and "ABI source archive has an unsafe member set" in build_aquamarine,
-        "factory builder pacman derivation rebuilds abi pins from source and strips them from IgnorePkg",
-    )
-
     wallpaper = DEFAULT_WALLPAPER.read_bytes()
     check(
         hashlib.sha256(wallpaper).hexdigest()
@@ -449,10 +383,14 @@ def main() -> None:
     )
     packages = package_lock.get("packages")
     check(isinstance(packages, dict) and len(packages) > 100, "package transaction is fully locked")
-    for pin in spec["inputs"]["abiPackagePins"]:
+    for name, version in {
+        "aquamarine": "0.15.1-1",
+        "hyprtoolkit": "0.6.0-1",
+        "hyprland-guiutils": "0.2.2-4",
+    }.items():
         check(
-            packages.get(pin["name"]) == pin["version"],
-            f"abi pin version matches the transaction lock: {pin['name']}",
+            packages.get(name) == version,
+            f"factory locks the compatible official ARM package: {name}",
         )
     requested_packages = {
         line.strip()
@@ -634,7 +572,7 @@ def main() -> None:
             "glazeUrl": "https://github.com/stephenberry/glaze/archive/refs/tags/v7.2.0.tar.gz",
             "glazeSha256": "17dba19ae63ae48f94994f00d49d5cb3c8f1306db1046c534c4828662490b7d4",
             "glazeLicenseSha256": "5d49e66411a0807a7c8d6b911b9a26b59e940c71aebe561a3ad8b0b80ac4b7b6",
-            "binarySha256": "34499692a552c4f36bce98b0efda02ebca00d2297c830b109b24ad6a64669645",
+            "binarySha256": "32bd58fd20883240eb7f1d85da0e7f64b1582c8ea3c18c947d98bc219964019d",
             "license": "BSD-3-Clause",
             "issue": "https://github.com/omacom/try-omarchy/issues/5",
             "buildPackages": {
@@ -645,9 +583,10 @@ def main() -> None:
                 "gcc-libs": "16.1.1+r12+g301eb08fa2c5-1",
                 "glibc": "2.43+r22+g8362e8ce10b2-2",
                 "hyprland": "0.56.2-3",
-                "hyprland-protocols": "0.7.0-1",
+                "hyprland-protocols": "0.7.1-1",
+                "hyprwayland-scanner": "0.4.6-1",
                 "make": "4.4.1-3",
-                "meson": "1.12.0-1",
+                "meson": "1.12.1-1",
                 "ninja": "1.13.2-3",
                 "pkgconf": "3.0.7-1",
                 "xorgproto": "2025.1-1",
@@ -690,11 +629,7 @@ def main() -> None:
         'supply_chain.get("hyprland")' in launcher
         and '"build spec hyprland component"' in launcher
         and '"build spec hyprland build packages"' in launcher
-        and hyprland_identity in launcher
-        and 'supply_chain.get("aquamarine")' in launcher
-        and '"build spec aquamarine component"' in launcher
-        and aquamarine["pkgbuildSha256"] in launcher
-        and aquamarine["binarySha256"] in launcher,
+        and hyprland_identity in launcher,
         "native launcher accepts and pins the patched Hyprland component",
     )
     check(
@@ -1184,7 +1119,7 @@ def main() -> None:
         and "pacman -Qkk" in register_hyprland
         and "Glaze license digest mismatch" in register_hyprland
         and "LICENSE.glaze" in register_hyprland
-        and "build_package_records[@]} == 13" in register_hyprland
+        and "build_package_records[@]} == 14" in register_hyprland
         and "builder_pacman_config" in register_hyprland
         and "could not derive the Hyprland builder pacman configuration" in register_hyprland
         and 'pacman -Syy --noconfirm --config "$builder_pacman_config"' in register_hyprland
@@ -1250,11 +1185,9 @@ def main() -> None:
         "third-party notices cover the patched Hyprland redistribution",
     )
     check(
-        "**aquamarine**" in third_party_notices
-        and "hyprwm/aquamarine" in third_party_notices
-        and "PKGBUILD" in third_party_notices
-        and "IgnorePkg" in third_party_notices,
-        "third-party notices cover the rebuilt aquamarine ABI pin",
+        "Aquamarine, Hyprtoolkit, and hyprland-guiutils" in third_party_notices
+        and "BSD-3-Clause" in third_party_notices,
+        "third-party notices cover the graphics dependency packages",
     )
     check(
         "**Glaze**" in third_party_notices and "MIT" in third_party_notices,
@@ -2180,7 +2113,7 @@ HOTPLUG=1
             ):
                 check(
                     (staged_root / installed_path).read_bytes() == (source / upstream_path).read_bytes(),
-                    f"materialized 4.0.3 system integration matches upstream: {installed_path}",
+                    f"materialized system integration matches upstream: {installed_path}",
                 )
             icon_names = {path.name for path in staged_icons.iterdir() if path.is_file()}
             expected_normalized_icons = {

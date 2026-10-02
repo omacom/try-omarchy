@@ -79,10 +79,11 @@ mount_share() {
     log "$mount_point is already mounted"
     return 0
   fi
-  # cache=mmap keeps reads and directory listings coherent with changes made
-  # on the Mac while still allowing mmap-based readers. msize raises the 9p
-  # transfer unit for large copies.
-  mount -t 9p -o "trans=virtio,version=9p2000.L,msize=1048576,cache=mmap" \
+  # readahead avoids CACHE_WRITEBACK and the 9p/netfs corruption path (#281),
+  # including on older persistent guests whose kernel is held across app updates.
+  # Writable MAP_SHARED is unavailable; keep databases on the guest disk.
+  # msize raises the 9p transfer unit for large copies.
+  mount -t 9p -o "trans=virtio,version=9p2000.L,msize=1048576,cache=readahead" \
     "$mount_tag" "$mount_point"
   log "mounted the shared Mac folder at $mount_point"
 }

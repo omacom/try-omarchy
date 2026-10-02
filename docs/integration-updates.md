@@ -3,6 +3,11 @@
 App upgrades retain existing guest disks. The integration manager delivers
 reviewed guest features independently of the bundled factory image.
 
+The [shared-folder safety mitigation](shared-folder-safety.md) is supplied
+automatically by the app at boot, separately from this review workflow. It
+changes the mount policy for that boot without replacing the guest kernel or
+requiring installation of integration support.
+
 ## First setup
 
 Open **VM integrations > Review…** in the Mac launcher. Launch Omarchy and paste

@@ -66,6 +66,12 @@ given to Cocoa. New and reset factory users also load an overlay that sets
 homes keep their current Hyprland input. See
 [Mac keyboard](mac-keyboard.md).
 
+The guest follows the Mac's current time zone by default. A launch hint seeds
+the zone before owner provisioning; a separate root-only virtio port publishes
+live zone changes. A manual selection inside Omarchy opts out across later Mac
+changes and VM reboots. Internet clock synchronization remains independent.
+See [Mac time zone and guest clock](host-timezone.md).
+
 The macOS helper opens an authenticated connection to QEMU's private,
 single-client machine protocol socket before host sleep and retains that control
 session through wake. Before macOS sleeps it synchronously pauses the guest
@@ -147,6 +153,14 @@ guest mounts the tag at `/mnt/mac` before the display manager starts, and a
 user unit links `~/<folder name>` to it at login; the name travels on the
 kernel command line as `omarchy.shared_folder_name=<base64url>`.
 
+The personal share uses `cache=readahead`, which omits 9p writeback caching.
+When sharing is enabled, the launcher masks the older guest's
+`omarchy-native-mac-share.service` for that boot. The existing settings boot
+credential unit runs the current mount helper from the app's dedicated read-only
+payload before installing settings and before login, then unmounts that payload. This applies the same policy
+to older persistent guests without replacing their on-disk helper or paired
+kernel. See [shared-folder safety](shared-folder-safety.md).
+
 Optional port mappings are stored as a versioned launcher preference, validated
 again at every Swift-to-shell boundary, and translated into QEMU user-network
 `hostfwd` rules. The host side is always bound explicitly to `127.0.0.1`; the
@@ -201,16 +215,12 @@ creates the account on first boot.
 - The guest normally consumes upstream Arch Linux ARM packages. Hyprland is the
   documented exception: an upstream package is reproducibly rebuilt with a
   guarded rounded-border coverage patch for the VM graphics path, then held in
-  the guest's immutable local repository. The factory rebuilds
-  `aquamarine 0.15.1-1` from a reviewed Arch-derived PKGBUILD and upstream
-  tarball, then rebuilds Hyprtoolkit against its `libaquamarine.so=14` ABI,
-  matching Hyprland 0.56.2. Both packages are provided by the disposable
-  builder repository and held alongside Hyprland on guest `IgnorePkg`.
-  `hyprland-guiutils` is held with them so a rolling update cannot introduce
-  a dependency on a newer `libhyprtoolkit.so` ABI.
-  Source and library hashes are verified, and build paths are remapped for
-  repeatable output. The factory uses an official HTTPS ARM mirror and checks
-  the complete transaction against its reviewed package lock before installing.
+  the guest's immutable local repository. Aquamarine, Hyprtoolkit, and
+  `hyprland-guiutils` use signed upstream ARM packages from the reviewed
+  transaction lock, held alongside Hyprland on guest `IgnorePkg` so updates
+  cannot split the validated graphics stack. The factory uses official HTTPS
+  ARM mirrors and checks the complete transaction against its package lock
+  before installing.
 - The final Arch Linux ARM pacman files live under `/usr/share/try-omarchy/`.
   An Omarchy-supported `pre-refresh-pacman` hook restores them after a channel
   refresh writes its x86_64 templates to `/etc`; the upstream templates remain

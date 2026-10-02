@@ -1,0 +1,13 @@
+[Unit]
+Description=Follow the Mac time zone until manually changed in Omarchy
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.timezone
+After=try-omarchy-settings.service omarchy-provision-owner.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/try-omarchy-timezone
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -579,8 +579,6 @@ if (
 
 supply_chain_keys = {
     "ghostty",
-    "aquamarine",
-    "hyprtoolkit",
     "archLinuxArmPackagesCommit",
     "archLinuxArmPackagesRepository",
     "hyprland",
@@ -637,6 +635,7 @@ exact_keys(
         "glibc",
         "hyprland",
         "hyprland-protocols",
+        "hyprwayland-scanner",
         "make",
         "meson",
         "ninja",
@@ -648,58 +647,8 @@ exact_keys(
 hyprland_identity = hashlib.sha256(
     json.dumps(hyprland, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
 ).hexdigest()
-if hyprland_identity != "f41042613023280c808d5bf6258f2f71c1b20d0755f894b53e77defe97db42a7":
+if hyprland_identity != "b89f798d6d872313918628dd4c26b37a8fe8d12d8950bd7b25150e29f96800b3":
     fail("factory Hyprland component is not the reviewed rounded-border build")
-aquamarine = exact_keys(
-    supply_chain.get("aquamarine"),
-    {
-        "binarySha256",
-        "license",
-        "packagingCommit",
-        "packagingRepository",
-        "pkgbuild",
-        "pkgbuildSha256",
-        "pkgrel",
-        "repository",
-        "sha256",
-        "url",
-        "version",
-    },
-    "build spec aquamarine component",
-)
-if aquamarine != {
-    "version": "0.15.1",
-    "pkgrel": "1",
-    "repository": "https://github.com/hyprwm/aquamarine",
-    "url": "https://github.com/hyprwm/aquamarine/archive/v0.15.1/aquamarine-0.15.1.tar.gz",
-    "sha256": "2f9de98c0bd1b7b1b09c576e390a2fef436449762fb334163c414f0c300296f2",
-    "pkgbuild": "pinned-packages/aquamarine/PKGBUILD",
-    "pkgbuildSha256": "90c998ea89b5c806919c102df78ef3f0d7816a9a08c26eac26b4adf44ba59a2a",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/aquamarine.git",
-    "packagingCommit": "8489a8358817a964a923f05ba324996378d81a5d",
-    "license": "BSD-3-Clause",
-    "binarySha256": "1fb6a90079a1f5620f9441d3e8a92426d21c6bbbab2f1ac070651425dae4129d",
-}:
-    fail("factory aquamarine component is not the reviewed libaquamarine.so=14 rebuild")
-hyprtoolkit = exact_keys(
-    supply_chain.get("hyprtoolkit"),
-    set(aquamarine),
-    "build spec hyprtoolkit component",
-)
-if hyprtoolkit != {
-    "version": "0.5.4",
-    "pkgrel": "6.2",
-    "repository": "https://github.com/hyprwm/hyprtoolkit",
-    "url": "https://github.com/hyprwm/hyprtoolkit/archive/v0.5.4/hyprtoolkit-0.5.4.tar.gz",
-    "sha256": "2fb59789f231c1c4e9154ceffc1e7524c0cae154807c0d57e6166806255b570f",
-    "pkgbuild": "pinned-packages/hyprtoolkit/PKGBUILD",
-    "pkgbuildSha256": "28c3dabce8c9553cfe283d23f568551d48efa7d51d14658cc8522d5473dd73a6",
-    "packagingRepository": "https://gitlab.archlinux.org/archlinux/packaging/packages/hyprtoolkit.git",
-    "packagingCommit": "1ed230388a2ccb2c857af980235cf25a4f86e39e",
-    "license": "BSD-3-Clause",
-    "binarySha256": "d901177e32b02d6769f5bcf118e43b22061a5a21a3aa77ee72469d4a2db85895"
-}:
-    fail("factory hyprtoolkit component is not the reviewed libaquamarine.so=14 rebuild")
 mise = exact_keys(
     supply_chain.get("mise"),
     {"binarySha256", "license", "reportedVersion", "sha256", "url", "version"},
@@ -1216,6 +1165,7 @@ audio_bridge_pid=""
 authentication_bridge_pid=""
 camera_bridge_pid=""
 battery_bridge_pid=""
+timezone_bridge_pid=""
 clipboard_bridge_pid=""
 network_link_bridge_pid=""
 integration_bridge_pid=""
@@ -1266,6 +1216,9 @@ cleanup() {
   fi
   if [[ $battery_bridge_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$battery_bridge_pid" 20
+  fi
+  if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+    terminate_child "$timezone_bridge_pid" 20
   fi
   if [[ $clipboard_bridge_pid =~ ^[0-9]+$ ]]; then
     terminate_child "$clipboard_bridge_pid" 20
@@ -1545,6 +1498,7 @@ audio_bridge_socket="/tmp/${work_dir##*/}/audio.sock"
 authentication_bridge_socket="/tmp/${work_dir##*/}/authentication.sock"
 camera_bridge_socket="/tmp/${work_dir##*/}/camera.sock"
 battery_bridge_socket="/tmp/${work_dir##*/}/battery.sock"
+timezone_bridge_socket="/tmp/${work_dir##*/}/timezone.sock"
 clipboard_bridge_socket="/tmp/${work_dir##*/}/clipboard.sock"
 settings_bridge_socket="/tmp/${work_dir##*/}/settings.sock"
 integration_bridge_socket="/tmp/${work_dir##*/}/integrations.sock"
@@ -1679,6 +1633,23 @@ settings_payload="$resources_dir/guest-settings"
   fail "the bundled settings integration is missing"
 settings_unit=$(base64 < "$settings_payload/guest-settings.service" | tr -d '\r\n')
 settings_kernel_argument=" systemd.set_credential_binary=systemd.extra-unit.try-omarchy-settings.service:$settings_unit systemd.wants=try-omarchy-settings.service"
+# Read the current Mac zone at launch, never from a build-time setting or a
+# saved launcher preference. Reject separators before forming a kernel token.
+host_timezone=$("$native_bridge" --host-timezone) || fail "cannot read the Mac time zone"
+[[ -n $host_timezone && ${#host_timezone} -le 128 ]] || fail "invalid Mac time zone"
+case "$host_timezone" in
+  *[!A-Za-z0-9_+/-]*|/*|*/|*//*|.|..|./*|../*|*/./*|*/../*) fail "invalid Mac time zone" ;;
+esac
+timezone_kernel_argument=" tryomarchy.timezone=$host_timezone"
+# Mask the old disk's mount unit for this boot. The payload service mounts the
+# personal share with the bundled safe helper before installing settings.
+# A payload failure must leave sharing unavailable, never fall back to writeback.
+mac_share_kernel_argument=""
+if [[ -n $shared_folder ]]; then
+  [[ -f $settings_payload/omarchy-native-mac-share ]] || \
+    fail "the bundled shared-folder safety integration is missing"
+  mac_share_kernel_argument=" systemd.mask=omarchy-native-mac-share.service"
+fi
 # QEMU escapes commas in key-value option values by doubling them.
 settings_payload_escaped=${settings_payload//,/,,}
 
@@ -1734,6 +1705,12 @@ if [[ $QEMU_NETWORK_MODE == bridged ]]; then
   fi
 fi
 
+launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$locale_kernel_argument$timezone_kernel_argument"
+# ARM64 truncates boot arguments at 2048 bytes. Losing the mask or credential
+# could restore the older guest's writeback mount, so refuse that launch.
+launch_append_bytes=$(printf '%s' "$launch_append" | wc -c | tr -d ' ')
+(( launch_append_bytes < 2048 )) || fail "shared-folder safety boot arguments exceed the ARM64 limit"
+
 qemu_args=(
   -name 'Try Omarchy'
   "${qemu_virtualization_args[@]}"
@@ -1755,7 +1732,7 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -kernel "$launch_kernel"
   -initrd "$launch_initramfs"
-  -append "$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$keyboard_kernel_argument$locale_kernel_argument"
+  -append "$launch_append"
   -drive "if=none,id=omarchy-root,file=$working_disk,format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root'
   -device "$gpu_device"
@@ -1789,6 +1766,8 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera'
   -chardev "socket,id=omarchy-battery-bridge,path=$battery_bridge_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery'
+  -chardev "socket,id=omarchy-timezone-bridge,path=$timezone_bridge_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
 )
 
 if [[ -f $resources_dir/integrations/manifest.json ]]; then
@@ -1888,7 +1867,7 @@ printf '%s\n' "$qemu_pid" >"$work_dir/.qemu.pid"
 chmod 600 "$work_dir/.qemu.pid"
 
 for ((attempt = 0; attempt < 100; attempt++)); do
-  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $battery_bridge_socket && -S $clipboard_bridge_socket && -S $settings_bridge_socket ]]; then
+  if [[ -S $qmp_socket && -S $audio_bridge_socket && -S $authentication_bridge_socket && -S $camera_bridge_socket && -S $battery_bridge_socket && -S $timezone_bridge_socket && -S $clipboard_bridge_socket && -S $settings_bridge_socket ]]; then
     break
   fi
   kill -0 "$qemu_pid" 2>/dev/null || fail "QEMU exited before creating its private QMP socket"
@@ -1899,6 +1878,7 @@ done
 [[ -S $authentication_bridge_socket ]] || fail "QEMU did not create its private authentication bridge socket"
 [[ -S $camera_bridge_socket ]] || fail "QEMU did not create its private camera bridge socket"
 [[ -S $battery_bridge_socket ]] || fail "QEMU did not create its private battery bridge socket"
+[[ -S $timezone_bridge_socket ]] || fail "QEMU did not create its private time zone bridge socket"
 [[ -S $clipboard_bridge_socket ]] || fail "QEMU did not create its private clipboard bridge socket"
 [[ -S $settings_bridge_socket ]] || fail "QEMU did not create its private settings bridge socket"
 # The socket file appears before QEMU's main loop accepts connections, and the
@@ -1957,6 +1937,14 @@ start_battery_bridge() {
 }
 start_battery_bridge
 battery_bridge_restarts=0
+
+start_timezone_bridge() {
+  "$native_bridge" --bridge-native-timezone \
+    "$qemu_pid" "$timezone_bridge_socket" 9>&- &
+  timezone_bridge_pid=$!
+}
+start_timezone_bridge
+timezone_bridge_restarts=0
 
 if [[ -f $resources_dir/integrations/manifest.json ]]; then
   integration_cache="$work_dir/integration-status.json"
@@ -2092,6 +2080,21 @@ while true; do
       fi
     fi
   fi
+  if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+    timezone_bridge_state=$(ps -p "$timezone_bridge_pid" -o state= 2>/dev/null || true)
+    if [[ -z $timezone_bridge_state || $timezone_bridge_state == *Z* ]]; then
+      if wait "$timezone_bridge_pid"; then timezone_bridge_status=0; else timezone_bridge_status=$?; fi
+      timezone_bridge_pid=""
+      if (( timezone_bridge_restarts < 5 )); then
+        timezone_bridge_restarts=$((timezone_bridge_restarts + 1))
+        echo "[qemu-gpu] time zone bridge exited (status $timezone_bridge_status); restarting ($timezone_bridge_restarts/5)" >&2
+        sleep 1
+        start_timezone_bridge
+      else
+        echo "[qemu-gpu] time zone synchronization is unavailable for the rest of this session" >&2
+      fi
+    fi
+  fi
   sleep 0.1
 done
 
@@ -2130,4 +2133,8 @@ if [[ $battery_bridge_pid =~ ^[0-9]+$ ]]; then
   terminate_child "$battery_bridge_pid" 20
 fi
 battery_bridge_pid=""
+if [[ $timezone_bridge_pid =~ ^[0-9]+$ ]]; then
+  terminate_child "$timezone_bridge_pid" 20
+fi
+timezone_bridge_pid=""
 exit "$qemu_status"

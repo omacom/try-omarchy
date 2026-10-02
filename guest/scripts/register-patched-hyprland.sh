@@ -366,6 +366,7 @@ expected = {
     "glibc",
     "hyprland",
     "hyprland-protocols",
+    "hyprwayland-scanner",
     "make",
     "meson",
     "ninja",
@@ -378,7 +379,7 @@ for name in sorted(packages):
     print(f"{name}|{packages[name]}")
 PY
 )
-(( ${#build_package_records[@]} == 13 )) || fail "unexpected Hyprland buildPackages set"
+(( ${#build_package_records[@]} == 14 )) || fail "unexpected Hyprland buildPackages set"
 build_package_specs=()
 for record in "${build_package_records[@]}"; do
   IFS='|' read -r package package_version extra <<<"$record"
@@ -398,7 +399,7 @@ import sys
 
 source = pathlib.Path(sys.argv[1]).read_text().splitlines()
 sections = [line[1:-1] for line in source if re.fullmatch(r"\[[A-Za-z0-9@._+-]+\]", line)]
-allowed = {"options", "core", "extra", "alarm", "aur", "omarchy", "try-omarchy-abi-pins", "try-omarchy-pinned-cache"}
+allowed = {"options", "core", "extra", "alarm", "aur", "omarchy", "try-omarchy-pinned-cache"}
 if not sections or sections[0] != "options" or "omarchy" not in sections or any(s not in allowed for s in sections):
     raise SystemExit(1)
 
@@ -407,7 +408,6 @@ section = None
 for line in source:
     if re.fullmatch(r"\[[A-Za-z0-9@._+-]+\]", line):
         section = line[1:-1]
-    # Keep the reviewed ABI pair for both the compiler and the staged guest.
     if section in {"omarchy", "try-omarchy-pinned-cache"} or line.startswith("IgnorePkg"):
         continue
     output.append(line)
