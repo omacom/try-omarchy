@@ -810,7 +810,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         alert.messageText = report.summary
         alert.informativeText = report.detail + (report.state == "recovery-required"
             ? "\n\nOriginal files could not all be restored. Shut down and retry recovery before using these integrations. Backups remain inside the VM."
-            : (report.state == "unconfirmed" ? "\n\nThe VM did not report a result. Completion has not been recorded. Shut down and use Review VM fixes in Settings to retry."
+            : (report.state == "unconfirmed" ? "\n\nThe VM did not report a result. Completion has not been recorded. Shut down and use Update in the launcher to retry."
                : "\n\nYou can review this result in Try Omarchy Settings."))
         alert.addButton(withTitle: "OK")
         isPresentingBlockingAlert = true

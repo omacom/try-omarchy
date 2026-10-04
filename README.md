@@ -674,8 +674,8 @@ supported repairs before login and retains their results in Settings. Successful
 checks and updates finish without another dialog. No preliminary boot is needed;
 Skip Launcher shows the launcher for that first review. **Skip** requires a
 second confirmation. Each disk and fix bundle shows the automatic review once;
-skipped or failed fixes remain available through **Review VM fixes…** in Settings
-after shutting down the VM. They do not interrupt subsequent launches.
+skipped or failed fixes remain available through the launcher's **Update** action
+after shutting down the VM. They do not interrupt subsequent automatic launches.
 No terminal commands, SSH, or personal folder sharing are
 needed for normal migration.
 

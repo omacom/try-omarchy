@@ -21,11 +21,12 @@ struct StartMenuStartupTests {
         let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
         #expect(launch.accessibilityLabel() == "Update")
         #expect(launch.isEnabled)
+        #expect(descendant(withIdentifier: "review-boot-fixes-button", in: content) == nil)
         try GuestBootFixCache.recordReview(cacheURL: url, identity: identity)
         menu.refreshBootFixStatus()
         let reviewedContent = try #require(menu.window.contentView)
-        #expect(try #require(descendant(withIdentifier: "launch-button", in: reviewedContent) as? NSButton).accessibilityLabel() == "Launch Omarchy")
-        #expect(try #require(descendant(withIdentifier: "review-boot-fixes-button", in: reviewedContent) as? NSButton).isEnabled)
+        #expect(try #require(descendant(withIdentifier: "launch-button", in: reviewedContent) as? NSButton).accessibilityLabel() == "Update")
+        #expect(descendant(withIdentifier: "review-boot-fixes-button", in: reviewedContent) == nil)
     }
 
     @Test("Enabling automatic startup requires confirmation before saving",
@@ -158,8 +159,8 @@ struct StartMenuStartupTests {
         #expect(launchCount == 1)
     }
 
-    @Test("Failed fixes leave ordinary launch available and require a separate manual retry")
-    func failedFixesStayManual() throws {
+    @Test("Failed fixes use the main Update action for a manual retry")
+    func failedFixesUseUpdate() throws {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -177,26 +178,28 @@ struct StartMenuStartupTests {
         menu.prepareForPresentation(visibleFrame: nil)
         let content = try #require(menu.window.contentView)
         let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
-        #expect(launch.accessibilityLabel() == "Launch Omarchy")
+        #expect(launch.accessibilityLabel() == "Update")
+        #expect(descendant(withIdentifier: "review-boot-fixes-button", in: content) == nil)
         launch.performClick(nil)
-        #expect(launchCount == 1)
-        #expect(retryCount == 0)
+        #expect(launchCount == 0)
+        #expect(retryCount == 1)
         let retryMenu = makeMenu(storageState: { .defaultLocation }, startAutomatically: { true },
                                 bootFixCacheURL: { url }, bootFixIdentity: { identity },
                                 retryBootFixes: { retryCount += 1 }, launch: { launchCount += 1 })
         defer { retryMenu.dismiss() }
         retryMenu.prepareForPresentation(visibleFrame: nil)
         let retryContent = try #require(retryMenu.window.contentView)
-        let retry = try #require(descendant(withIdentifier: "review-boot-fixes-button", in: retryContent) as? NSButton)
+        let retry = try #require(descendant(withIdentifier: "launch-button", in: retryContent) as? NSButton)
         #expect(retry.isEnabled)
         retry.performClick(nil)
-        #expect(retryCount == 1)
-        #expect(launchCount == 1)
+        #expect(retryCount == 2)
+        #expect(launchCount == 0)
         retryMenu.virtualMachineDidStart {}
         retryMenu.prepareForPresentation(visibleFrame: nil)
-        let runningRetry = try #require(descendant(withIdentifier: "review-boot-fixes-button", in: retryContent) as? NSButton)
-        #expect(!runningRetry.isEnabled)
-        #expect(runningRetry.toolTip?.contains("Shut down") == true)
+        let runningContent = try #require(retryMenu.window.contentView)
+        let done = try #require(descendant(withIdentifier: "launch-button", in: runningContent) as? NSButton)
+        #expect(done.accessibilityLabel() == "Done")
+        #expect(descendant(withIdentifier: "review-boot-fixes-button", in: runningContent) == nil)
     }
 
     private func makeMenu(

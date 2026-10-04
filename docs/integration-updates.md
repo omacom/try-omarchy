@@ -21,10 +21,10 @@ later opens. A missing disk or a VM with a current result keeps **Launch Omarchy
 **Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
 **Skip and Launch** confirmation and leaves the fixes available for manual retry.
 The review appears automatically only once per disk and fix bundle, including
-after a skip, cancellation, failure, or interrupted update. Later launches keep
-**Launch Omarchy**, and Skip Launcher continues to start normally. Use
-**Review VM fixes…** in Settings while the VM is shut down to explicitly retry;
-that action still requires approval before applying changes. Older failed or
+after a skip, cancellation, failure, or interrupted update. Skip Launcher then
+continues to start normally. The launcher's **Update** action remains available
+while fixes are pending; click it while the VM is shut down to explicitly retry.
+That action still requires approval before applying changes. Older failed or
 unconfirmed attempts also stay manual. The existing settings, timezone integration, and shared-folder safety
 payload still run; Skip applies only to the reviewed repairs.
 
@@ -57,7 +57,7 @@ retains each fix's result in Settings. Failed or unconfirmed approved updates
 still show a warning. No report or no response establishes success.
 Results are scoped to that VM disk and fix bundle; another disk or reset does
 not inherit completion. A missing result offers review before boot;
-an unconfirmed approved update leaves a manual retry available in Settings.
+an unconfirmed approved update leaves a manual retry available through **Update**.
 
 ### Manual upgrade commands covered by Update
 
