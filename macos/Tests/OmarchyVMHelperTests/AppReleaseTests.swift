@@ -64,10 +64,21 @@ struct AppReleaseTests {
             try payload(draft: true), try payload(prerelease: true),
             try payload(tag: "v0.5.0-beta"), try payload(tag: "0.5.0"),
             try payload(assetName: "source.zip"), try payload(assetState: "starter"),
+            try payload(assetName: "TryOmarchy-v0.4.0.dmg"),
+            try payload(assetName: "TryOmarchy-v0.5.0.dmg", assetState: "starter"),
         ] {
             #expect(throws: AppReleaseError.self) { try AppRelease.decode(data) }
         }
         #expect(throws: DecodingError.self) { try AppRelease.decode(Data("{}".utf8)) }
+    }
+
+    @Test("release downloads accept matching versioned names and legacy names", arguments: [
+        "TryOmarchy-v0.5.0.dmg", "TryOmarchy.dmg",
+    ])
+    func releaseDownloadNames(assetName: String) throws {
+        let latest = try AppRelease.decode(payload(assetName: assetName))
+        #expect(latest.version == AppReleaseVersion("0.5.0"))
+        #expect(latest.url.absoluteString == "https://github.com/omacom/try-omarchy/releases/tag/v0.5.0")
     }
 
     @Test("current and newer installed builds are not offered a downgrade")

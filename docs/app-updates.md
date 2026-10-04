@@ -25,7 +25,8 @@ Updates window also counts as its notification.
 
 The checker uses GitHub's public `/repos/omacom/try-omarchy/releases/latest`
 endpoint without credentials. It accepts published, non-prerelease `vX.Y.Z`
-tags with an uploaded `TryOmarchy.dmg`. Versions compare numerically. The
+tags with an uploaded `TryOmarchy-vX.Y.Z.dmg` whose version matches the tag,
+or the legacy `TryOmarchy.dmg`. Versions compare numerically. The
 download action opens the project's release page so the user can read notes
 and OS requirements. GitHub release metadata does not declare a structured
 minimum macOS version; this stage does not claim compatibility or select an

@@ -902,11 +902,11 @@ All generated output has one predictable home:
 ```text
 dist/
 ├── app.noindex/
-│   └── Try Omarchy.app    # development identity
+│   └── Try Omarchy.app     # development identity
 ├── release.noindex/
-│   └── Try Omarchy.app    # production identity
-├── TryOmarchy.dmg        # after make package or make release
-└── guest/                # verified guest build artifacts
+│   └── Try Omarchy.app     # production identity
+├── TryOmarchy-vX.Y.Z.dmg   # after make package or make release
+└── guest/                 # verified guest build artifacts
 ```
 
 Both DMG targets create distributable artifacts:

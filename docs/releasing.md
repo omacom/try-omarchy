@@ -21,7 +21,12 @@ not make the checkout dirty.
 
 After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
 the GitHub release manually using that existing tag and attach
-`dist/TryOmarchy.dmg`. Packaging does not create tags or publish GitHub releases.
+`dist/TryOmarchy-vX.Y.Z.dmg`. The filename uses the version stamped into the
+app from the release tag (for example, `v0.4.0` produces
+`TryOmarchy-v0.4.0.dmg`). Packaging does not create tags or publish GitHub releases.
+
+Older app release checkers recognize only `TryOmarchy.dmg`. To keep a release
+discoverable by those clients, also upload a copy under that legacy asset name.
 
 When the release updates Omarchy itself, first run:
 
@@ -35,7 +40,7 @@ before continuing with the normal build and verification sequence.
 Outputs are written to:
 
 - `dist/release.noindex/Try Omarchy.app` (production)
-- `dist/TryOmarchy.dmg`
+- `dist/TryOmarchy-vX.Y.Z.dmg`
 - `dist/guest/`
 
 `make package` and `make release` both create distributable builds: they sign

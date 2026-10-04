@@ -59,7 +59,10 @@ struct AppRelease: Equatable {
         let payload = try JSONDecoder().decode(Payload.self, from: data)
         guard !payload.draft, !payload.prerelease, payload.tagName.hasPrefix("v"),
               let version = AppReleaseVersion(String(payload.tagName.dropFirst())),
-              payload.assets.contains(where: { $0.name == "TryOmarchy.dmg" && $0.state == "uploaded" }) else {
+              payload.assets.contains(where: {
+                  ($0.name == "TryOmarchy-v\(version).dmg" || $0.name == "TryOmarchy.dmg")
+                      && $0.state == "uploaded"
+              }) else {
             throw AppReleaseError.invalidRelease
         }
         // Construct the project URL instead of opening an arbitrary URL from JSON.
