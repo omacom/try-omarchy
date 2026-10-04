@@ -1,5 +1,7 @@
+import Darwin
 import Foundation
 import Testing
+import notify
 
 @testable import OmarchyVMHelper
 
@@ -131,6 +133,47 @@ import Testing
         #expect(policy.shouldSend(HostBatterySnapshot(descriptions: [description()], chargeLimit: 95,
             details: HostBatteryDetails(properties: ["CycleCount": 214])), forced: false))
     }
+
+    @Test func currentIsNegotiatedSeparatelyFromOlderPhysicalDetails() throws {
+        let snapshot = HostBatterySnapshot(descriptions: [description()],
+            details: HostBatteryDetails(properties: ["Amperage": -1500]))
+        let oldGuest = try JSONSerialization.jsonObject(with: snapshot.encode(includeBatteryDetails: true)) as! [String: Any]
+        #expect(oldGuest["currentMicroA"] == nil)
+        let current = try JSONSerialization.jsonObject(with: snapshot.encode(includeBatteryCurrent: true)) as! [String: Any]
+        #expect(current["currentMicroA"] as? Int == 1_500_000)
+        #expect(current["chargeNowMicroAh"] == nil)
+        let absent = HostBatterySnapshot(descriptions: [], details: snapshot.details)
+        let cleared = try JSONSerialization.jsonObject(with: absent.encode(includeBatteryCurrent: true)) as! [String: Any]
+        #expect(cleared["currentMicroA"] is NSNull)
+    }
+
+    @Test func chargerTransitionsSendEvenAtTheSamePercentageAndUnknownTime() {
+        let transitions = [
+            description(toEmptyMinutes: -1),
+            description(state: "AC Power", toEmptyMinutes: -1),
+            description(state: "AC Power", charging: true, toEmptyMinutes: -1),
+            description(state: "AC Power", charged: true, toEmptyMinutes: -1),
+            description(toEmptyMinutes: -1),
+        ]
+        var policy = BatterySendPolicy()
+        for (description, state) in zip(transitions, ["discharging", "not-charging", "charging", "full", "discharging"]) {
+            let snapshot = HostBatterySnapshot(descriptions: [description])
+            #expect(snapshot.percentage == 57)
+            #expect(snapshot.state == state)
+            #expect(snapshot.timeToEmptySeconds == nil && snapshot.timeToFullSeconds == nil)
+            #expect(policy.shouldSend(snapshot, forced: false))
+            policy.markSent(snapshot)
+            #expect(!policy.shouldSend(snapshot, forced: false))
+        }
+    }
+
+    @Test func currentOnlyChangesSendWithoutChangingPercentageOrState() {
+        var policy = BatterySendPolicy()
+        policy.markSent(HostBatterySnapshot(descriptions: [description()],
+            details: HostBatteryDetails(properties: ["Amperage": -1500])))
+        #expect(policy.shouldSend(HostBatterySnapshot(descriptions: [description()],
+            details: HostBatteryDetails(properties: ["Amperage": -1800])), forced: false))
+    }
 }
 
 @Suite struct HostBatteryDetailsTests {
@@ -168,6 +211,38 @@ import Testing
             #expect(details.voltageMicroV == nil)
         }
         #expect(HostBatteryDetails(properties: ["CycleCount": true]).cycleCount == nil)
+    }
+
+    @Test func signedCurrentBecomesAMicroampMagnitudeIncludingZero() {
+        for value in [-3150, 0, 3150] {
+            #expect(HostBatteryDetails(properties: ["Amperage": value]).currentMicroA == abs(value) * 1000)
+        }
+        let unsigned = NSNumber(value: UInt64(bitPattern: Int64(-3150)))
+        #expect(HostBatteryDetails(properties: ["Amperage": unsigned]).currentMicroA == 3_150_000)
+        #expect(HostBatteryDetails(properties: ["BatteryData": ["Amperage": -2500]]).currentMicroA == 2_500_000)
+        #expect(HostBatteryDetails(properties: ["InstantAmperage": 1200]).currentMicroA == 1_200_000)
+        for value in [true, Int.max, Int.min, 2_147_484, -2_147_484, 1.5, "3150"] as [Any] {
+            #expect(HostBatteryDetails(properties: ["Amperage": value]).currentMicroA == nil)
+        }
+        #expect(HostBatteryDetails().currentMicroA == nil)
+    }
+}
+
+@Suite struct BatteryPowerObservationTests {
+    @Test func powerChangesArriveWithoutPumpingTheMainRunLoop() throws {
+        let name = "dev.tryomarchy.tests.battery.\(UUID().uuidString)"
+        let queue = DispatchQueue(label: name)
+        let delivered = DispatchSemaphore(value: 0)
+        let observation = try #require(BatteryPowerObservation(queue: queue, name: name) {
+            dispatchPrecondition(condition: .onQueue(queue))
+            delivered.signal()
+        })
+        withExtendedLifetime(observation) {
+            for _ in 0..<3 {
+                #expect(notify_post(name) == NOTIFY_STATUS_OK)
+                #expect(delivered.wait(timeout: .now() + 3) == .success)
+            }
+        }
     }
 }
 

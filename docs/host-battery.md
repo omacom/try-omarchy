@@ -25,7 +25,8 @@ half-informed:
 {"type":"state","present":true,"percentage":57,"state":"discharging",
  "acConnected":false,"timeToEmptySeconds":8100,"timeToFullSeconds":null,
  "chargeLimit":95,"chargeNowMicroAh":2832900,"chargeFullMicroAh":4970000,
- "chargeFullDesignMicroAh":6075000,"voltageMicroV":12537000,"cycleCount":213}
+ "chargeFullDesignMicroAh":6075000,"voltageMicroV":12537000,"cycleCount":213,
+ "currentMicroA":1500000}
 ```
 
 `state` is one of `charging`, `discharging`, `full`, `not-charging`,
@@ -36,12 +37,18 @@ estimate. A Mac with no internal battery sends `"present":false` with
 
 `macos/Sources/OmarchyVMHelper/NativeBatteryBridge.swift` builds these
 snapshots from `IOPSCopyPowerSourcesInfo` and `IOPSGetPowerSourceDescription`,
-and sends one on every coalesced IOKit change and every 30 seconds regardless,
-as a safety net against a missed notification. A guest opening the virtio port
-is not observable on the host's socket chardev, so
+and observes `kIOPSNotifyAnyPowerSource` on its state dispatch queue. This
+includes charging-only changes while percentage and time estimates stay the
+same, such as charging starting after the adapter connects. The IOPS run-loop
+convenience notification covers percentage, time, and source changes only.
+Unchanged snapshots are coalesced; a complete snapshot is also sent every
+30 seconds as a safety net against a missed notification. A guest opening the
+virtio port is not observable on the host's socket chardev, so
 `omarchy-native-battery-bridge`, the guest agent, sends one request line on
-start, `{"type":"refresh","chargeLimit":true,"batteryDetails":true}`, and the host answers with a fresh snapshot. The
-host ignores any other guest input.
+start, `{"type":"refresh","chargeLimit":true,"batteryDetails":true,"batteryCurrent":true}`,
+and the host answers with a fresh snapshot. The host ignores any other guest
+input. Updates follow the readings macOS publishes; plugging into AC does not
+mean charging when macOS holds the battery at a limit or pauses charging.
 
 ## Sysfs contract
 
@@ -51,7 +58,7 @@ exposes one writable attribute,
 guest agent writes it as one whole snapshot per write:
 
 ```text
-present=1 status=discharging capacity=57 ac=0 time_to_empty=8100 time_to_full=-1 charge_limit=95 charge_now=2832900 charge_full=4970000 charge_full_design=6075000 voltage_now=12537000 cycle_count=213
+present=1 status=discharging capacity=57 ac=0 time_to_empty=8100 time_to_full=-1 charge_limit=95 charge_now=2832900 charge_full=4970000 charge_full_design=6075000 voltage_now=12537000 cycle_count=213 current_now=1500000
 present=0 ac=1
 ```
 
@@ -93,7 +100,7 @@ This change does not alter the upstream bar layout or make that conditional
 row visible while charging or discharging. On disconnect, the guest clears
 the limit along with the time estimates.
 
-Existing guests can use **Update and Launch** to build and load the 1.2.0
+Existing guests can use **Update and Launch** to build and load the 1.3.0
 module and restart the agent. The update reloads an older loaded
 module; integration status checks the loaded version as well as the DKMS build.
 
@@ -101,11 +108,11 @@ module; integration status checks the loaded version as well as the DKMS build.
 
 The module publishes the host's estimates as `time_to_empty_avg` and
 `time_to_full_avg` under `/sys/class/power_supply/BAT0/`. The pinned
-`upower 1.91.4` does not read those two properties. It can estimate time from
-changes in the mirrored charge readings after collecting enough history; this
-is a guest estimate, not the Mac's time estimate. Percentage, charge state and
-AC presence remain independent. Tools that read sysfs directly, such as `acpi`
-and fastfetch, show the host estimates.
+`upower 1.91.4` does not read those two properties. It estimates time from the
+mirrored current and charge readings when available, or from charge history
+otherwise; this is a guest estimate, not the Mac's time estimate. Percentage,
+charge state and AC presence remain independent. Tools that read sysfs directly,
+such as `acpi` and fastfetch, show the host estimates.
 
 ## Battery size and cycles
 
@@ -134,6 +141,49 @@ send extra fields only after opt-in, so original and charge-limit-only guest
 agents keep their existing wire schemas. Existing guests need the updated
 integration installed and the updated Mac bridge running to receive these
 readings.
+
+## Live charging and discharge power
+
+Module 1.3.0 also publishes `current_now`. The guest requests `currentMicroA`
+with the separate `batteryCurrent` opt-in, so older agents that reject extra
+keys still receive their original schema. The host converts the Mac's signed
+`Amperage` reading from mA to a non-negative µA magnitude; charging direction
+comes from the IOPS state. `InstantAmperage` is a fallback when the averaged
+reading is unavailable. A valid zero remains zero; unavailable readings are
+`null` on the wire and `-1` in the module state. Older host snapshots and bridge
+disconnects clear the reading.
+
+UPower uses `current_now` with `voltage_now` to calculate the power shown by the
+panel. This reports power entering or leaving the battery, not the charger's
+rated wattage or the Mac's total power consumption. It updates when macOS
+publishes a changed reading, including when percentage and charging state have
+not changed. UPower deliberately suppresses the power estimate for ten seconds
+after an AC transition, then restores it on its next refresh; charging status
+updates independently of that settling interval. Existing guests need both the
+updated Mac helper and the 1.3.0 integration; choose **Update and Launch** once
+to install it.
+
+## Verification
+
+`make test` covers notification delivery without a main run loop, changes to
+charging state and current at a fixed percentage, optional-field negotiation,
+signed current conversion, guest stream processing, and the module parser.
+For the actual Linux module, udev, and UPower path, run:
+
+```sh
+python3 macos/Tests/battery-upower-smoke.py \
+  --qemu macos/.build/qemu-gpu-runtime/bin/qemu-system-aarch64 \
+  --guest-dir dist/guest
+```
+
+This opt-in Apple Silicon test builds the current module against the factory's
+kernel headers in a disposable disk snapshot. It checks the battery and UPower
+display device through adapter connection, charging starting at an unchanged
+percentage, changing percentage and wattage, unplugging, charging held, full,
+and battery removal/reappearance. It leaves the factory and user's VM untouched.
+It checks data propagation, not the rendered desktop or a physical charger;
+verify those separately by plugging and unplugging the Mac while the bar and
+power panel are visible.
 
 ## Power profile
 
@@ -197,8 +247,8 @@ For the existing manual fallback, open
 **Manually install/repair integration support (fallback)**. The integration runs
 `guest/scripts/install-battery-into-existing-guest.sh` from the app's read-only
 integration bundle. It installs eight files (the three DKMS sources under
-`/usr/src/try-omarchy-battery-1.2.0/`, the bridge and its unit, and the udev,
-module-load, and UPower drop-ins), runs `dkms install try-omarchy-battery/1.2.0`,
+`/usr/src/try-omarchy-battery-1.3.0/`, the bridge and its unit, and the udev,
+module-load, and UPower drop-ins), runs `dkms install try-omarchy-battery/1.3.0`,
 loads the module, reloads udev, and enables
 `omarchy-native-battery-bridge.service`. Because the module is installed
 through DKMS, the pacman DKMS hook rebuilds it whenever a later `pacman -Syu`

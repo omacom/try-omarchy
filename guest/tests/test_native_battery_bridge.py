@@ -8,6 +8,7 @@ from importlib.machinery import SourceFileLoader
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock, patch
 
 
 BRIDGE_PATH = (
@@ -97,6 +98,21 @@ class DecodeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bridge.decode_message(state(**{key: 0}))
 
+    def test_current_magnitude_is_independent_optional_and_allows_zero(self) -> None:
+        for current in (None, 0, 1200000, 2147483647):
+            with self.subTest(current=current):
+                decoded = bridge.decode_message(state(currentMicroA=current))
+                self.assertEqual(decoded["currentMicroA"], current)
+                self.assertIsNone(decoded["chargeFullMicroAh"])
+        self.assertIsNone(bridge.decode_message(state())["currentMicroA"])
+
+    def test_current_rejects_signed_invalid_and_absent_readings(self) -> None:
+        for current in (-1, -1200000, True, "1200000", 1.5, 2147483648):
+            with self.subTest(current=current), self.assertRaises(ValueError):
+                bridge.decode_message(state(currentMicroA=current))
+        with self.assertRaises(ValueError):
+            bridge.decode_message(state(present=False, percentage=None, currentMicroA=0))
+
 
 class StateLineTests(unittest.TestCase):
     def test_full_snapshot_line(self) -> None:
@@ -105,7 +121,7 @@ class StateLineTests(unittest.TestCase):
             bridge.format_state_line(decoded),
             b"present=1 status=discharging capacity=57 ac=0 "
             b"time_to_empty=8100 time_to_full=-1 charge_limit=-1 "
-            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1 current_now=-1\n",
         )
 
     def test_charge_limit_is_independent_of_percentage_and_ac(self) -> None:
@@ -123,7 +139,7 @@ class StateLineTests(unittest.TestCase):
             bridge.format_state_line(decoded),
             b"present=1 status=charging capacity=57 ac=1 "
             b"time_to_empty=-1 time_to_full=2700 charge_limit=-1 "
-            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1 current_now=-1\n",
         )
 
     def test_desktop_mac_omits_battery_keys(self) -> None:
@@ -139,7 +155,7 @@ class StateLineTests(unittest.TestCase):
             bridge.unknown_state_line(decoded),
             b"present=1 status=unknown capacity=57 ac=0 "
             b"time_to_empty=-1 time_to_full=-1 charge_limit=-1 "
-            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1\n",
+            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1 current_now=-1\n",
         )
 
     def test_unknown_line_without_history_reports_absent(self) -> None:
@@ -148,7 +164,46 @@ class StateLineTests(unittest.TestCase):
 
 class RefreshTests(unittest.TestCase):
     def test_refresh_request_shape(self) -> None:
-        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh","chargeLimit":true,"batteryDetails":true}\n')
+        self.assertEqual(bridge.REFRESH_LINE, b'{"type":"refresh","chargeLimit":true,"batteryDetails":true,"batteryCurrent":true}\n')
+
+
+class LiveStreamTests(unittest.TestCase):
+    def test_charger_transitions_update_without_percentage_change_or_reconnect(self) -> None:
+        snapshots = [
+            state(currentMicroA=1200000),
+            state(state="not-charging", acConnected=True, currentMicroA=0,
+                  timeToEmptySeconds=None),
+            state(state="charging", acConnected=True, currentMicroA=2500000,
+                  timeToEmptySeconds=None, timeToFullSeconds=2700),
+            state(currentMicroA=900000),
+        ]
+        wire = b"\n".join(snapshots) + b"\n"
+        port = MagicMock()
+        port.__enter__.return_value = port
+        # Fragment a line and coalesce several snapshots like virtio reads do.
+        port.read.side_effect = [wire[:19], wire[19:411], wire[411:], b""]
+        endpoint = MagicMock()
+        endpoint.open.return_value = port
+        state_file = MagicMock()
+        state_file.exists.return_value = True
+        with patch.object(bridge, "PORT", endpoint), \
+                patch.object(bridge, "STATE_FILE", state_file), \
+                patch.object(bridge, "log"):
+            self.assertEqual(bridge.run(), 1)
+
+        port.write.assert_called_once_with(bridge.REFRESH_LINE)
+        endpoint.open.assert_called_once_with("r+b", buffering=0)
+        writes = [call.args[0] for call in state_file.write_bytes.call_args_list]
+        self.assertEqual(len(writes), 5)
+        for line, status, current, ac in zip(writes[:4],
+                ("discharging", "not-charging", "charging", "discharging"),
+                (1200000, 0, 2500000, 900000), (0, 1, 1, 0)):
+            self.assertIn(f"status={status} ".encode(), line)
+            self.assertIn(b"capacity=57 ", line)
+            self.assertIn(f"ac={ac} ".encode(), line)
+            self.assertIn(f"current_now={current}\n".encode(), line)
+        self.assertIn(b"status=unknown ", writes[-1])
+        self.assertIn(b"current_now=-1\n", writes[-1])
 
 
 if __name__ == "__main__":

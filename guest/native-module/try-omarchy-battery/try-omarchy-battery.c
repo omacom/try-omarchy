@@ -39,6 +39,7 @@ struct tob_state {
 	int charge_full_design;
 	int voltage_now;
 	int cycle_count;
+	int current_now;
 };
 
 static struct platform_device *tob_pdev;
@@ -59,6 +60,7 @@ static struct tob_state tob_state = {
 	.charge_full_design = -1,
 	.voltage_now = -1,
 	.cycle_count = -1,
+	.current_now = -1,
 };
 
 static const struct {
@@ -94,6 +96,7 @@ static enum power_supply_property tob_bat_properties[] = {
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CYCLE_COUNT,
+	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_TECHNOLOGY,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_MODEL_NAME,
@@ -166,6 +169,12 @@ static int tob_bat_get_property(struct power_supply *psy,
 		if (val->intval < 0)
 			error = -ENODATA;
 		break;
+	case POWER_SUPPLY_PROP_CURRENT_NOW:
+		/* Magnitude in uA; STATUS carries the host's charge direction. */
+		val->intval = tob_state.current_now;
+		if (val->intval < 0)
+			error = -ENODATA;
+		break;
 	case POWER_SUPPLY_PROP_MANUFACTURER:
 		val->strval = "Apple";
 		break;
@@ -227,6 +236,7 @@ static int tob_parse(const char *buf, size_t count, struct tob_state *next)
 	next->charge_full_design = -1;
 	next->voltage_now = -1;
 	next->cycle_count = -1;
+	next->current_now = -1;
 
 	copy = kstrndup(buf, count, GFP_KERNEL);
 	if (!copy)
@@ -273,6 +283,7 @@ static int tob_parse(const char *buf, size_t count, struct tob_state *next)
 			   !strcmp(token, "charge_full") ||
 			   !strcmp(token, "charge_full_design") ||
 			   !strcmp(token, "voltage_now") ||
+			   !strcmp(token, "current_now") ||
 			   !strcmp(token, "cycle_count")) {
 			int *target;
 			bool allow_zero = false;
@@ -286,6 +297,9 @@ static int tob_parse(const char *buf, size_t count, struct tob_state *next)
 				target = &next->charge_full_design;
 			} else if (!strcmp(token, "voltage_now")) {
 				target = &next->voltage_now;
+			} else if (!strcmp(token, "current_now")) {
+				target = &next->current_now;
+				allow_zero = true;
 			} else {
 				target = &next->cycle_count;
 				allow_zero = true;
@@ -327,13 +341,13 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 		return sysfs_emit(buf, "present=0 ac=%d\n",
 				  snapshot.ac_online ? 1 : 0);
 	return sysfs_emit(buf,
-			  "present=1 status=%s capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d charge_now=%d charge_full=%d charge_full_design=%d voltage_now=%d cycle_count=%d\n",
+			  "present=1 status=%s capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d charge_now=%d charge_full=%d charge_full_design=%d voltage_now=%d cycle_count=%d current_now=%d\n",
 			  tob_status_token(snapshot.status), snapshot.capacity,
 			  snapshot.ac_online ? 1 : 0, snapshot.time_to_empty,
 			  snapshot.time_to_full, snapshot.charge_limit,
 			  snapshot.charge_now, snapshot.charge_full,
 			  snapshot.charge_full_design, snapshot.voltage_now,
-			  snapshot.cycle_count);
+			  snapshot.cycle_count, snapshot.current_now);
 }
 
 static ssize_t state_store(struct device *dev, struct device_attribute *attr,
@@ -360,7 +374,8 @@ static ssize_t state_store(struct device *dev, struct device_attribute *attr,
 		      next.charge_full != tob_state.charge_full ||
 		      next.charge_full_design != tob_state.charge_full_design ||
 		      next.voltage_now != tob_state.voltage_now ||
-		      next.cycle_count != tob_state.cycle_count;
+		      next.cycle_count != tob_state.cycle_count ||
+		      next.current_now != tob_state.current_now;
 	tob_state = next;
 	mutex_unlock(&tob_state_lock);
 
@@ -448,4 +463,4 @@ module_exit(tob_exit);
 MODULE_AUTHOR("Try Omarchy");
 MODULE_DESCRIPTION("Mirror the host Mac's battery as guest BAT0/ADP0");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.2.0");
+MODULE_VERSION("1.3.0");

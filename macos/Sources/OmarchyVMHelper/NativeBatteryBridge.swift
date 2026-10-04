@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import IOKit.ps
+import notify
 
 /// One complete host power snapshot, the only message the guest receives.
 /// Built from IOPSGetPowerSourceDescription dictionaries so the IOKit-free
@@ -56,7 +57,8 @@ struct HostBatterySnapshot: Equatable {
         timeToFullSeconds = state == "charging" ? seconds(kIOPSTimeToFullChargeKey) : nil
     }
 
-    func encode(includeChargeLimit: Bool = false, includeBatteryDetails: Bool = false) -> Data {
+    func encode(includeChargeLimit: Bool = false, includeBatteryDetails: Bool = false,
+                includeBatteryCurrent: Bool = false) -> Data {
         var object: [String: Any] = [
             "type": "state",
             "present": present,
@@ -75,6 +77,7 @@ struct HostBatterySnapshot: Equatable {
             object["voltageMicroV"] = details.voltageMicroV as Any? ?? NSNull()
             object["cycleCount"] = details.cycleCount as Any? ?? NSNull()
         }
+        if includeBatteryCurrent { object["currentMicroA"] = details.currentMicroA as Any? ?? NSNull() }
         var data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         data.append(0x0A)
         return data
@@ -143,6 +146,25 @@ struct GuestLineReader {
     }
 }
 
+/// Observe every published power-source attribute, including charging-only
+/// changes while percentage and time estimates stay unchanged. The IOPS run
+/// loop convenience API observes only time/percentage/source notifications.
+/// Dispatch delivery also works while the bridge's main thread reads its port.
+final class BatteryPowerObservation {
+    private let token: Int32
+
+    init?(queue: DispatchQueue, name: String = kIOPSNotifyAnyPowerSource,
+          onChange: @escaping @Sendable () -> Void) {
+        var token: Int32 = 0
+        guard notify_register_dispatch(name, &token, queue, { _ in onChange() }) == NOTIFY_STATUS_OK else {
+            return nil
+        }
+        self.token = token
+    }
+
+    deinit { notify_cancel(token) }
+}
+
 final class NativeBatteryBridge: @unchecked Sendable {
     static let heartbeatSeconds = 30.0
 
@@ -152,9 +174,9 @@ final class NativeBatteryBridge: @unchecked Sendable {
     private var policy = BatterySendPolicy()
     private var supportsChargeLimit = false
     private var supportsBatteryDetails = false
+    private var supportsBatteryCurrent = false
     private var heartbeat: DispatchSourceTimer?
-    private var powerSource: CFRunLoopSource?
-    private var notificationRunLoop: CFRunLoop?
+    private var powerObservation: BatteryPowerObservation?
     private var stopped = false
 
     init(targetPID: pid_t, socketPath: String) throws {
@@ -195,7 +217,8 @@ final class NativeBatteryBridge: @unchecked Sendable {
                     if Self.isRefreshRequest(line) {
                         let request = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
                         sendSync(forced: true, includeChargeLimit: request?["chargeLimit"] as? Bool == true,
-                                 includeBatteryDetails: request?["batteryDetails"] as? Bool == true)
+                                 includeBatteryDetails: request?["batteryDetails"] as? Bool == true,
+                                 includeBatteryCurrent: request?["batteryCurrent"] as? Bool == true)
                     }
                 }
             } else if count == 0 {
@@ -213,16 +236,11 @@ final class NativeBatteryBridge: @unchecked Sendable {
             return
         }
         stopped = true
-        let source = powerSource
-        let loop = notificationRunLoop
-        powerSource = nil
-        notificationRunLoop = nil
-        stopLock.unlock()
-        heartbeat?.cancel()
+        powerObservation = nil
+        let timer = heartbeat
         heartbeat = nil
-        if let source, let loop {
-            CFRunLoopRemoveSource(loop, source, .defaultMode)
-        }
+        stopLock.unlock()
+        timer?.cancel()
         Darwin.shutdown(descriptor, SHUT_RDWR)
         Darwin.close(descriptor)
     }
@@ -233,47 +251,22 @@ final class NativeBatteryBridge: @unchecked Sendable {
         return stopped
     }
 
-    /// Records the run loop source under `stopLock` so `stop()` can tear it
-    /// down without racing the detached notification thread that installs
-    /// it. Returns false if `stop()` already ran, so the caller can drop the
-    /// source it just created instead of leaking it into a torn-down bridge.
-    private func registerPowerSource(_ source: CFRunLoopSource, on loop: CFRunLoop) -> Bool {
+    private func startPowerNotifications() {
         stopLock.lock()
         defer { stopLock.unlock() }
-        guard !stopped else { return false }
-        powerSource = source
-        notificationRunLoop = loop
-        return true
-    }
-
-    /// Services IOKit power notifications on a dedicated detached thread's
-    /// own run loop, rather than the main run loop. `run()` blocks the
-    /// current thread reading the virtio socket, and under `--run-qemu`'s
-    /// child-process invocation there is no guarantee anything is pumping
-    /// `CFRunLoopGetMain()`; a private run loop on the servicing thread
-    /// always exists and is always drained by that same thread's loop.
-    private func startPowerNotifications() {
-        Thread.detachNewThread { [weak self] in
-            guard let self else { return }
-            let context = Unmanaged.passUnretained(self).toOpaque()
-            guard let source = IOPSNotificationCreateRunLoopSource({ context in
-                guard let context else { return }
-                let bridge = Unmanaged<NativeBatteryBridge>.fromOpaque(context).takeUnretainedValue()
-                bridge.send(forced: false)
-            }, context)?.takeRetainedValue() else {
-                fputs("[battery-bridge] IOKit power notifications are unavailable; relying on the heartbeat\n", stderr)
-                return
-            }
-            let loop = CFRunLoopGetCurrent()!
-            guard self.registerPowerSource(source, on: loop) else { return }
-            CFRunLoopAddSource(loop, source, .defaultMode)
-            while !self.hasStopped() {
-                CFRunLoopRunInMode(.defaultMode, 1.0, false)
-            }
+        guard !stopped else { return }
+        powerObservation = BatteryPowerObservation(queue: stateQueue) { [weak self] in
+            self?.sendOnQueue(forced: false)
+        }
+        if powerObservation == nil {
+            fputs("[battery-bridge] IOKit power notifications are unavailable; relying on the heartbeat\n", stderr)
         }
     }
 
     private func startHeartbeat() {
+        stopLock.lock()
+        defer { stopLock.unlock() }
+        guard !stopped else { return }
         let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(
             deadline: .now() + Self.heartbeatSeconds,
@@ -290,9 +283,7 @@ final class NativeBatteryBridge: @unchecked Sendable {
         heartbeat = timer
     }
 
-    /// Queues a snapshot send without blocking the caller. Used by the
-    /// notification callback and the initial send in `run()`, neither of
-    /// which need — or should wait on — completion.
+    /// Queues the initial snapshot without blocking the port reader.
     private func send(forced: Bool) {
         stateQueue.async { [weak self] in
             self?.sendOnQueue(forced: forced)
@@ -305,11 +296,13 @@ final class NativeBatteryBridge: @unchecked Sendable {
     /// write instead of piling up unbounded closures on `stateQueue`. Must
     /// never be called from `stateQueue` itself (the heartbeat timer calls
     /// `sendOnQueue` directly for exactly that reason) or this deadlocks.
-    private func sendSync(forced: Bool, includeChargeLimit: Bool, includeBatteryDetails: Bool) {
+    private func sendSync(forced: Bool, includeChargeLimit: Bool, includeBatteryDetails: Bool,
+                          includeBatteryCurrent: Bool) {
         stateQueue.sync {
             // Each refresh also resets negotiation when an older agent reconnects.
             supportsChargeLimit = includeChargeLimit
             supportsBatteryDetails = includeBatteryDetails
+            supportsBatteryCurrent = includeBatteryCurrent
             sendOnQueue(forced: forced)
         }
     }
@@ -320,7 +313,10 @@ final class NativeBatteryBridge: @unchecked Sendable {
         let snapshot = HostBatterySnapshot.capture()
         guard policy.shouldSend(snapshot, forced: forced) else { return }
         do {
-            try NativeBridgeSocket.writeAll(snapshot.encode(includeChargeLimit: supportsChargeLimit, includeBatteryDetails: supportsBatteryDetails), to: descriptor, label: "battery")
+            try NativeBridgeSocket.writeAll(snapshot.encode(includeChargeLimit: supportsChargeLimit,
+                                                           includeBatteryDetails: supportsBatteryDetails,
+                                                           includeBatteryCurrent: supportsBatteryCurrent),
+                                            to: descriptor, label: "battery")
             policy.markSent(snapshot)
         } catch {
             fputs("[battery-bridge] \(error.localizedDescription)\n", stderr)

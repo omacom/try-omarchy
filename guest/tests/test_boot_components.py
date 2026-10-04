@@ -128,6 +128,12 @@ class BootComponentTests(unittest.TestCase):
             self.assertEqual('preserved', result['components']['battery'])
             self.assertFalse((root / 'etc/systemd/system/multi-user.target.wants/omarchy-native-battery-bridge.service').is_symlink())
 
+    def test_current_upgrade_accepts_previous_battery_dkms_registration(self):
+        relative = f'var/lib/dkms/try-omarchy-battery/kernel-{extras.kernel()}-aarch64'
+        for version in ('1.0.0', '1.1.0', '1.2.0', extras.VERSION):
+            self.assertTrue(extras.allowed_link(relative, f'{version}/{extras.kernel()}/aarch64'))
+        self.assertFalse(extras.allowed_link(relative, f'custom/{extras.kernel()}/aarch64'))
+
     def test_user_pinch_and_menu_migration_preserves_existing_settings_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = support.SettingsInstallTests().make_payload(directory)
@@ -184,7 +190,7 @@ class BootComponentTests(unittest.TestCase):
             self.assertEqual('failed', result['components']['battery'])
             for relative, _ in extras.GROUPS['battery'].values():
                 self.assertFalse((root / relative).exists())
-            self.assertFalse((root / 'var/lib/dkms/try-omarchy-battery/1.2.0/source').is_symlink())
+            self.assertFalse((root / 'var/lib/dkms/try-omarchy-battery/1.3.0/source').is_symlink())
 
     def test_interrupted_enablement_is_recovered_on_skipped_boot(self):
         class Interrupted(BaseException):
@@ -231,9 +237,9 @@ class BootComponentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             payload, root = self.prepare(directory)
             fixes.migrate(payload, root, False, '')
-            source = 'usr/src/try-omarchy-battery-1.2.0/try-omarchy-battery.c'
-            receipt = f'var/lib/dkms/try-omarchy-battery/1.2.0/{extras.kernel()}/aarch64/module/try_omarchy_battery.ko'
-            link = 'var/lib/dkms/try-omarchy-battery/1.2.0/source'
+            source = 'usr/src/try-omarchy-battery-1.3.0/try-omarchy-battery.c'
+            receipt = f'var/lib/dkms/try-omarchy-battery/1.3.0/{extras.kernel()}/aarch64/module/try_omarchy_battery.ko'
+            link = 'var/lib/dkms/try-omarchy-battery/1.3.0/source'
             changes = [
                 {'path': source, 'before': None, 'after': fixes.replacement(b'source', os.getuid(), os.getgid())},
                 {'path': receipt, 'before': None, 'after': fixes.replacement(b'module', os.getuid(), os.getgid())},
@@ -242,4 +248,4 @@ class BootComponentTests(unittest.TestCase):
             self.assertEqual('complete', fixes.apply_transaction(changes, root, os.getuid()))
             fixes.recover(root, os.getuid(), fallback={'changes': changes, 'runtime': {}})
             self.assertFalse((root / 'var/lib/dkms/try-omarchy-battery').exists())
-            self.assertFalse((root / 'usr/src/try-omarchy-battery-1.2.0').exists())
+            self.assertFalse((root / 'usr/src/try-omarchy-battery-1.3.0').exists())

@@ -1540,7 +1540,7 @@ def main() -> None:
     )
     dkms_conf = read(GUEST / "native-module/try-omarchy-battery/dkms.conf")
     check(
-        'PACKAGE_VERSION="1.2.0"' in dkms_conf,
+        'PACKAGE_VERSION="1.3.0"' in dkms_conf,
         "battery module DKMS version matches the spec pin",
     )
     # DKMS always passes KERNELRELEASE on its make command line, which selects
@@ -1565,15 +1565,15 @@ def main() -> None:
     )
     retrofit = read(GUEST / "scripts/install-battery-into-existing-guest.sh")
     check(
-        "dkms install try-omarchy-battery/1.2.0" in retrofit
+        "dkms install try-omarchy-battery/1.3.0" in retrofit
         and "systemctl enable --now omarchy-native-battery-bridge.service" in retrofit
         and "curl" not in retrofit,
         "existing guests retrofit the battery from staged files, never the network",
     )
     retrofit_destinations = [
-        "/usr/src/try-omarchy-battery-1.2.0/try-omarchy-battery.c",
-        "/usr/src/try-omarchy-battery-1.2.0/Makefile",
-        "/usr/src/try-omarchy-battery-1.2.0/dkms.conf",
+        "/usr/src/try-omarchy-battery-1.3.0/try-omarchy-battery.c",
+        "/usr/src/try-omarchy-battery-1.3.0/Makefile",
+        "/usr/src/try-omarchy-battery-1.3.0/dkms.conf",
         "/usr/local/bin/omarchy-native-battery-bridge",
         "/usr/lib/systemd/system/omarchy-native-battery-bridge.service",
         "/etc/udev/rules.d/95-omarchy-native-battery.rules",
@@ -1585,7 +1585,7 @@ def main() -> None:
         "retrofit script installs all eight battery files to their real system paths",
     )
     check(
-        retrofit.index("dkms install try-omarchy-battery/1.2.0")
+        retrofit.index("dkms install try-omarchy-battery/1.3.0")
         < retrofit.index("systemctl enable --now omarchy-native-battery-bridge.service"),
         "retrofit script builds the DKMS module before enabling the service that depends on it",
     )

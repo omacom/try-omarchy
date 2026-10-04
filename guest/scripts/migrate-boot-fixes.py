@@ -219,7 +219,7 @@ def recover(root, uid, fallback=None):
     for change in changes:
         if change['before'] is not None:
             continue
-        bases = ('var/lib/dkms/try-omarchy-battery', 'usr/src/try-omarchy-battery-1.2.0')
+        bases = ('var/lib/dkms/try-omarchy-battery', 'usr/src/try-omarchy-battery-1.3.0')
         base = next((root / b for b in bases if change['path'].startswith(b + '/')), None)
         if base is None:
             continue
@@ -362,7 +362,7 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             battery_targets = {p for p, _ in extras.GROUPS['battery'].values()} | {
                 'etc/systemd/system/multi-user.target.wants/omarchy-native-battery-bridge.service',
-                'var/lib/dkms/try-omarchy-battery/1.2.0/source'}
+                'var/lib/dkms/try-omarchy-battery/1.3.0/source'}
             changes = [c for c in changes if c['path'] not in battery_targets]
             if isinstance(error, extras.BatteryUnavailable):
                 outcomes['battery'] = 'unavailable'

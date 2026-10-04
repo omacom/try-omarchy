@@ -130,11 +130,11 @@ int main(void)
 		printf("ERR %d\n", -error);
 		return 0;
 	}
-	printf("OK present=%d status=%d capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d charge_now=%d charge_full=%d charge_full_design=%d voltage_now=%d cycle_count=%d\n",
+	printf("OK present=%d status=%d capacity=%d ac=%d time_to_empty=%d time_to_full=%d charge_limit=%d charge_now=%d charge_full=%d charge_full_design=%d voltage_now=%d cycle_count=%d current_now=%d\n",
 	       parsed.present ? 1 : 0, parsed.status, parsed.capacity,
 	       parsed.ac_online ? 1 : 0, parsed.time_to_empty,
 	       parsed.time_to_full, parsed.charge_limit, parsed.charge_now,
 	       parsed.charge_full, parsed.charge_full_design, parsed.voltage_now,
-	       parsed.cycle_count);
+	       parsed.cycle_count, parsed.current_now);
 	return 0;
 }

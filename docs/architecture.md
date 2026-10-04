@@ -113,8 +113,8 @@ restarting Omarchy.
 A further virtio-serial port (`dev.tryomarchy.battery`) mirrors the Mac's
 battery into the guest. A Swift bridge watches IOKit power sources and sends
 complete JSON snapshots — percentage, charge state, AC presence, time
-estimates, charge limit, physical capacities, voltage, and cycle count — on
-every change and every 30 seconds. A root guest agent writes
+estimates, charge limit, physical capacities, voltage, current, and cycle count —
+on every change and every 30 seconds. A root guest agent writes
 each snapshot as one line into a small DKMS `power_supply` module, which
 presents `BAT0` and `ADP0` under `/sys/class/power_supply`, so UPower and the
 Omarchy bar treat the VM as the laptop it runs on. The guest can only request

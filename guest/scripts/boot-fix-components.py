@@ -38,9 +38,9 @@ GROUPS = {
         'try-omarchy-onepassword-touch-id@.service': ('usr/lib/systemd/system/try-omarchy-onepassword-touch-id@.service', 0o644),
     },
     'battery': {
-        'try-omarchy-battery.c': ('usr/src/try-omarchy-battery-1.2.0/try-omarchy-battery.c', 0o644),
-        'Makefile': ('usr/src/try-omarchy-battery-1.2.0/Makefile', 0o644),
-        'dkms.conf': ('usr/src/try-omarchy-battery-1.2.0/dkms.conf', 0o644),
+        'try-omarchy-battery.c': ('usr/src/try-omarchy-battery-1.3.0/try-omarchy-battery.c', 0o644),
+        'Makefile': ('usr/src/try-omarchy-battery-1.3.0/Makefile', 0o644),
+        'dkms.conf': ('usr/src/try-omarchy-battery-1.3.0/dkms.conf', 0o644),
         'omarchy-native-battery-bridge': ('usr/local/bin/omarchy-native-battery-bridge', 0o755),
         'omarchy-native-battery-bridge.service': ('usr/lib/systemd/system/omarchy-native-battery-bridge.service', 0o644),
         '95-omarchy-native-battery.rules': ('etc/udev/rules.d/95-omarchy-native-battery.rules', 0o644),
@@ -53,7 +53,7 @@ LINKS = {
     'etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service': '/usr/lib/systemd/system/systemd-timesyncd.service',
     'etc/systemd/system/multi-user.target.wants/omarchy-native-battery-bridge.service': '/usr/lib/systemd/system/omarchy-native-battery-bridge.service',
     'etc/systemd/system/multi-user.target.wants/try-omarchy-integrations.service': '/usr/lib/systemd/system/try-omarchy-integrations.service',
-    'var/lib/dkms/try-omarchy-battery/1.2.0/source': '/usr/src/try-omarchy-battery-1.2.0',
+    'var/lib/dkms/try-omarchy-battery/1.3.0/source': '/usr/src/try-omarchy-battery-1.3.0',
 }
 EXTRA_FILES = {'omarchy-lock-password', 'repair-update-holds.py', 'components.py',
                'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json'}
@@ -65,7 +65,7 @@ FIXED_TARGETS = {p for group in GROUPS.values() for p, _ in group.values()} | se
     'usr/local/bin/try-omarchy-integrations', 'usr/lib/systemd/system/try-omarchy-integrations.service',
 }
 MODULE = 'try_omarchy_battery'
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 
 
 class BatteryUnavailable(RuntimeError):
@@ -98,7 +98,7 @@ def allowed_link(relative, value):
     if value == LINKS.get(relative):
         return True
     if relative == f'var/lib/dkms/try-omarchy-battery/kernel-{kernel()}-aarch64':
-        return value in {f'{v}/{kernel()}/aarch64' for v in ('1.0.0', '1.1.0', VERSION)}
+        return value in {f'{v}/{kernel()}/aarch64' for v in ('1.0.0', '1.1.0', '1.2.0', VERSION)}
     return False
 
 
@@ -177,7 +177,7 @@ def plan(fixes, payload, root, uid):
                 link(group, 'etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service')
             if name == 'battery':
                 link(group, 'etc/systemd/system/multi-user.target.wants/omarchy-native-battery-bridge.service')
-                link(group, 'var/lib/dkms/try-omarchy-battery/1.2.0/source')
+                link(group, 'var/lib/dkms/try-omarchy-battery/1.3.0/source')
                 # A current source alone does not prove the module is current.
                 loaded = root / f'sys/module/{MODULE}/version'
                 if root == Path('/') and (run(['modinfo', '-F', 'version', MODULE], check=False).stdout.strip() != VERSION
@@ -291,7 +291,7 @@ def build_battery(fixes, payload, root, uid, changes):
             relative = str(Path(existing.stdout.strip()).resolve()).lstrip('/')
             if relative not in targets(payload):
                 raise BatteryPreserved('Unsupported battery module location')
-            if run(['modinfo', '-F', 'version', MODULE]).stdout.strip() not in ('1.0.0', '1.1.0', VERSION):
+            if run(['modinfo', '-F', 'version', MODULE]).stdout.strip() not in ('1.0.0', '1.1.0', '1.2.0', VERSION):
                 raise BatteryPreserved('Unrecognized battery module version')
         data = built.read_bytes()
         if relative.endswith('.xz'):

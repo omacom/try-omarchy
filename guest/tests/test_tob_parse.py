@@ -176,6 +176,36 @@ class TobParseTests(unittest.TestCase):
         self.assertEqual(parsed["charge_now"], 0)
         self.assertEqual(parsed["cycle_count"], 0)
 
+    def test_current_and_status_round_trip_independently_at_unchanged_capacity(self) -> None:
+        import json
+        for status, ac, current in (("discharging", False, 1200000),
+                                    ("not-charging", True, 0),
+                                    ("charging", True, 2500000),
+                                    ("discharging", False, 900000)):
+            with self.subTest(status=status):
+                message = bridge.decode_message(json.dumps({
+                    "type": "state", "present": True, "state": status, "percentage": 57,
+                    "acConnected": ac, "timeToEmptySeconds": None,
+                    "timeToFullSeconds": None, "currentMicroA": current,
+                }).encode())
+                parsed = self.fields(bridge.format_state_line(message))
+                expected_status = self.fields(f"present=1 status={status} capacity=57 ac=0\n".encode())["status"]
+                self.assertEqual(parsed["status"], expected_status)
+                self.assertEqual(parsed["capacity"], 57)
+                self.assertEqual(parsed["ac"], ac)
+                self.assertEqual(parsed["current_now"], current)
+                self.assertEqual(self.fields(bridge.unknown_state_line(message))["current_now"], -1)
+
+    def test_unknown_legacy_or_absent_battery_clears_current(self) -> None:
+        for line in (b"present=1 status=full capacity=100 ac=1\n",
+                     b"present=1 status=unknown capacity=57 ac=0 current_now=-1\n",
+                     b"present=0 ac=1\n"):
+            self.assertEqual(self.fields(line)["current_now"], -1)
+
+    def test_invalid_current_rejects_the_whole_snapshot(self) -> None:
+        for value in (-2, -1200000, 2147483648, "invalid", "1.5"):
+            self.assertRejected(f"present=1 status=charging capacity=57 ac=1 current_now={value}\n".encode())
+
     def test_accepts_the_agents_absent_line(self) -> None:
         message = bridge.decode_message(
             b'{"type":"state","present":false,"percentage":null,"state":"unknown",'

@@ -64,14 +64,14 @@ for file in \
   [[ -f $file ]] || fail "staged file is missing: $file"
 done
 
-version=1.2.0
-module_dest=/usr/src/try-omarchy-battery-1.2.0
+version=1.3.0
+module_dest=/usr/src/try-omarchy-battery-1.3.0
 [[ $module_dest == "/usr/src/try-omarchy-battery-$version" ]] ||
   fail "module destination does not match version $version"
 install -d -m 0755 "$module_dest"
-install -m 0644 "$module_source/try-omarchy-battery.c" /usr/src/try-omarchy-battery-1.2.0/try-omarchy-battery.c
-install -m 0644 "$module_source/Makefile" /usr/src/try-omarchy-battery-1.2.0/Makefile
-install -m 0644 "$module_source/dkms.conf" /usr/src/try-omarchy-battery-1.2.0/dkms.conf
+install -m 0644 "$module_source/try-omarchy-battery.c" /usr/src/try-omarchy-battery-1.3.0/try-omarchy-battery.c
+install -m 0644 "$module_source/Makefile" /usr/src/try-omarchy-battery-1.3.0/Makefile
+install -m 0644 "$module_source/dkms.conf" /usr/src/try-omarchy-battery-1.3.0/dkms.conf
 install -m 0755 "$overlay/usr/local/bin/omarchy-native-battery-bridge" \
   /usr/local/bin/omarchy-native-battery-bridge
 install -m 0644 "$overlay/usr/lib/systemd/system/omarchy-native-battery-bridge.service" \
@@ -85,8 +85,8 @@ install -m 0644 "$overlay/etc/UPower/UPower.conf.d/90-try-omarchy.conf" \
   /etc/UPower/UPower.conf.d/90-try-omarchy.conf
 
 if ! dkms status -k "$(uname -r)" "try-omarchy-battery/$version" 2>/dev/null | grep -q installed; then
-  [[ $version == 1.2.0 ]] || fail "unexpected module version: $version"
-  dkms install try-omarchy-battery/1.2.0
+  [[ $version == 1.3.0 ]] || fail "unexpected module version: $version"
+  dkms install try-omarchy-battery/1.3.0
 fi
 # The previous version may still be loaded even after DKMS replaces the file.
 # Stop the writer before unregistering BAT0, then load the new contract.
