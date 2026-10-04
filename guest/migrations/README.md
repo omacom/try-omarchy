@@ -27,6 +27,16 @@ command or modify another path. Battery binary eligibility additionally checks
 the known module versions and the supported DKMS location. Enrolled older
 authentication protocols remain subject to explicit guest review.
 
+`omarchy-install-service-1password` is the reviewed ARM64 installer postimage
+from `spec.json`; packaging checks its digest against the factory backport.
+The `onepassword-installer` migration replaces the old stock installer from
+before commit `658fd42`, including the exact temporary workaround that changed
+only `/usr/share/applications/1password.desktop` to
+`/usr/share/applications/com.onepassword.OnePassword.desktop`. Missing,
+customized, or unsafe installers are skipped. It does not install 1Password or
+enable its optional Touch ID integration. After an interrupted installation,
+rerun **Install → Service → 1Password** to complete application setup.
+
 The app's fix manifest covers these inputs, the runner, component planners,
 user planner, and exact integration bundle. Add future repairs only with their
 reviewed preimages, destination allowlist, dependencies, journal recovery, and

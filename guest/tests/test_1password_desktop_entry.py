@@ -14,10 +14,12 @@ LEGACY = "1password.desktop"
 
 
 class OnePasswordDesktopEntryTests(unittest.TestCase):
-    def run_installer_tail(self, directory: Path, *, sed_fails: bool = False):
-        # Execute the actual post-install rewrite and CLI install from the patch.
+    def run_installer_tail(self, directory: Path, *, sed_fails: bool = False,
+                           installer_text: str | None = None):
+        # Execute the actual post-install rewrite and CLI install from the patch
+        # or from the command installed by an existing-guest migration.
         # Only redirect desktop files into the fixture and stub privilege/CLI calls.
-        additions = "\n".join(
+        additions = installer_text if installer_text is not None else "\n".join(
             line[1:] for line in PATCH.read_text().splitlines()
             if line.startswith("+") and not line.startswith("+++")
         )

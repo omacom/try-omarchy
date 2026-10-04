@@ -26,6 +26,13 @@
       "note": "Touch ID stays optional."
     },
     {
+      "id": "onepassword-installer",
+      "revision": 1,
+      "title": "1Password installer",
+      "icon": "arrow.down.app",
+      "note": "Repairs the installer; run Install → Service → 1Password afterward to finish an interrupted installation."
+    },
+    {
       "id": "onepassword",
       "revision": 1,
       "title": "Existing 1Password support",

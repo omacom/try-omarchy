@@ -12,6 +12,9 @@ import tempfile
 import sys
 
 GROUPS = {
+    'onepassword-installer': {
+        'omarchy-install-service-1password': ('usr/bin/omarchy-install-service-1password', 0o755),
+    },
     'ghostty': {
         'install-ghostty-arm64': ('usr/local/lib/try-omarchy/install-ghostty-arm64', 0o755),
         'ghostty-PKGBUILD': ('usr/local/share/try-omarchy/ghostty/PKGBUILD', 0o644),
@@ -198,6 +201,10 @@ def plan(fixes, payload, root, uid):
     for name, files in GROUPS.items():
         group = []
         try:
+            if name == 'onepassword-installer' and fixes.snapshot(
+                    root / 'usr/bin/omarchy-install-service-1password', root, uid) is None:
+                outcomes[name] = 'unavailable'
+                continue
             if name == 'onepassword' and not (root / 'usr/local/lib/try-omarchy/onepassword-touch-id-agent').exists():
                 outcomes[name] = 'current'  # Opt-in; do not enable a new feature.
                 continue
@@ -428,6 +435,11 @@ def package(guest, payload):
     """One inventory builder shared by app packaging and migration fixtures."""
     read_catalog(guest / 'migrations/catalog.json')
     spec = json.loads((guest / 'spec.json').read_text())
+    onepassword = guest / 'migrations/omarchy-install-service-1password'
+    onepassword_hook = next(b for b in spec['authenticity']['backports'] if b['id'] == '1password-arm64-installer')
+    onepassword_target = next(t for t in onepassword_hook['targets'] if t['path'] == 'bin/omarchy-install-service-1password')
+    if hashlib.sha256(onepassword.read_bytes()).hexdigest() != onepassword_target['afterSha256']:
+        raise RuntimeError('1Password installer does not match the reviewed backport')
     pins = spec['supplyChain']['ghostty']
     hook = next(b for b in spec['authenticity']['backports'] if b['id'] == 'ghostty-arm64-terminal')
     terminal = guest / 'migrations/omarchy-install-terminal'
@@ -442,6 +454,7 @@ def package(guest, payload):
         for name, (relative, mode) in group.items():
             if name != 'ghostty-build-spec.json':
                 source = (guest / 'native-module/try-omarchy-battery' / name if relative.startswith('usr/src/')
+                          else onepassword if name == 'omarchy-install-service-1password'
                           else terminal if name == 'omarchy-install-terminal' else guest / 'native-overlay' / relative)
                 shutil.copy2(source, payload / name)
             (payload / name).chmod(mode)

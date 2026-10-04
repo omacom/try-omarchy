@@ -81,6 +81,7 @@ an unconfirmed approved update leaves a manual retry available through **Update 
 | Ghostty installer from an updated checkout | Update recognized stock Ghostty installer files, verification pins, and the terminal-menu hook; Ghostty is installed later through **Install → Terminal → Ghostty**. |
 | Battery retrofit/update installer | Build privately against the running kernel with existing tools and headers; journal sources, module, DKMS receipts, service enablement, and bridge files before activation. |
 | Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
+| 1Password installer desktop-entry fix | Update the recognized stock installer to support current and legacy desktop filenames, independently of Touch ID setup. After an interrupted installation, rerun **Install → Service → 1Password**. |
 | Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
 
 Battery builds are bounded to three minutes with two compiler jobs. The boot
