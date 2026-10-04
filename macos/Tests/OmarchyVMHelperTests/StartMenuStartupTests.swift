@@ -5,6 +5,29 @@ import Testing
 @Suite("Start menu automatic startup", .serialized)
 @MainActor
 struct StartMenuStartupTests {
+    @Test("The first launcher offers Update before the guest has reported anything")
+    func firstLaunchOffersUpdate() throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        let identity = String(repeating: "a", count: 64)
+        let menu = makeMenu(storageState: { .defaultLocation }, startAutomatically: { true },
+                            bootFixCacheURL: { url }, bootFixIdentity: { identity })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        let content = try #require(menu.window.contentView)
+        let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+        #expect(launch.accessibilityLabel() == "Update")
+        #expect(launch.isEnabled)
+        try GuestBootFixCache.recordReview(cacheURL: url, identity: identity)
+        menu.refreshBootFixStatus()
+        let reviewedContent = try #require(menu.window.contentView)
+        #expect(try #require(descendant(withIdentifier: "launch-button", in: reviewedContent) as? NSButton).accessibilityLabel() == "Launch Omarchy")
+        #expect(try #require(descendant(withIdentifier: "review-boot-fixes-button", in: reviewedContent) as? NSButton).isEnabled)
+    }
+
     @Test("Enabling automatic startup requires confirmation before saving",
           arguments: [true, false])
     func confirmsAutomaticStartup(confirmed: Bool) throws {

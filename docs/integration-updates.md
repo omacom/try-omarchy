@@ -11,11 +11,11 @@ requiring installation of integration support.
 ## Updates at launch
 
 Compatible repairs have an **Update** action at the bottom of the
-Mac launcher when a check of the selected VM against the current fix bundle
-found unfinished work. A disk with no matching check boots normally and checks
-the fixes without applying them; any needed repairs are offered on the next
-launch. Automatic startup (Skip Launcher) continues normally until a check
-finds work to review. A new or current VM keeps **Launch Omarchy**.
+Mac launcher on the first app open with an existing disk that has no check for
+the current fix bundle, or when a matching check found unfinished work.
+No preliminary VM boot is needed. Automatic startup (Skip Launcher) shows the
+launcher when that bundle needs its first review, then resumes normally on
+later opens. A missing disk or a VM with a current result keeps **Launch Omarchy**.
 
 **Update** opens a review of the supported existing-VM repairs listed below. Choose
 **Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
@@ -56,7 +56,7 @@ Successful checks and updates finish without a second dialog; the Mac app
 retains each fix's result in Settings. Failed or unconfirmed approved updates
 still show a warning. No report or no response establishes success.
 Results are scoped to that VM disk and fix bundle; another disk or reset does
-not inherit completion. A missing result triggers a normal boot-time check;
+not inherit completion. A missing result offers review before boot;
 an unconfirmed approved update leaves a manual retry available in Settings.
 
 ### Manual upgrade commands covered by Update

@@ -160,7 +160,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 )
             } ?? false,
             optionKeyHeld: NSEvent.modifierFlags.contains(.option),
-            initialArguments: initialArguments
+            initialArguments: initialArguments,
+            requiresVMFixReview: GuestBootFixCache.needsReview(
+                cacheURL: bootFixCacheURL(), expectedIdentity: GuestBootFixCache.bundledIdentity
+            )
         )
         prepareStartMenu(startAutomatically: startAutomatically)
         appReleaseChecker.checkAutomaticallyIfDue()
@@ -379,8 +382,11 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     private func bootFixCacheURL() -> URL? {
         guard !isDisposable else { return nil }
-        return GuestBootFixCache.url(storageRoot: QEMUGPUStorageSpaceEstimate.storageRootURL(
-            environment: baseEnvironment, preference: storageLocationStore.load()))
+        guard let root = QEMUGPUStorageSpaceEstimate.storageRootURL(
+            environment: baseEnvironment, preference: storageLocationStore.load()),
+              let disk = QEMUGPUStorageSpaceEstimate.recordedPersistentDiskURL(
+                stateRoot: root.path, bundleIdentity: bundledMetrics?.identity) else { return nil }
+        return GuestBootFixCache.url(storageRoot: root, diskURL: disk)
     }
 
     private func startVirtualMachine(allowBootRecovery: Bool = false, reviewBootFixes: Bool = false) {

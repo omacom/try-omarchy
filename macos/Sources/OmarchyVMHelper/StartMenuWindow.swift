@@ -1032,17 +1032,17 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             result.identifier = NSUserInterfaceItemIdentifier("boot-fixes-result")
             bootFixNotice = result
             settingsSections.insert(result, at: 0)
-            if GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity()) {
-                let retry = OmarchyActionButton(title: "Review VM fixes…", style: .secondary,
-                                               target: self, action: #selector(reviewVMFixes))
-                retry.identifier = NSUserInterfaceItemIdentifier("review-boot-fixes-button")
-                retry.isEnabled = !virtualMachineRunning && !controlsBusy
-                retry.toolTip = virtualMachineRunning
-                    ? "Shut down Omarchy to review and retry these fixes"
-                    : "Review the available fixes and choose whether to retry them"
-                retry.heightAnchor.constraint(equalToConstant: 36).isActive = true
-                settingsSections.insert(retry, at: 1)
-            }
+        }
+        if GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity()) {
+            let retry = OmarchyActionButton(title: "Review VM fixes…", style: .secondary,
+                                           target: self, action: #selector(reviewVMFixes))
+            retry.identifier = NSUserInterfaceItemIdentifier("review-boot-fixes-button")
+            retry.isEnabled = !virtualMachineRunning && !controlsBusy
+            retry.toolTip = virtualMachineRunning
+                ? "Shut down Omarchy to review and retry these fixes"
+                : "Review the available fixes and choose whether to retry them"
+            retry.heightAnchor.constraint(equalToConstant: 36).isActive = true
+            settingsSections.insert(retry, at: bootFixNotice == nil ? 0 : 1)
         }
         let stack = NSStackView(views: virtualMachineRunning
             ? [headingStack, runningActions] + settingsSections + [resetHeading, resetCard]

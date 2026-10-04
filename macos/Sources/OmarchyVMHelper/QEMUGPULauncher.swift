@@ -195,6 +195,16 @@ enum QEMUGPUStorageSpaceEstimate {
         bundleIdentity: String? = nil,
         fileManager: FileManager = .default
     ) -> Bool {
+        recordedPersistentDiskURL(stateRoot: stateRoot, bundleIdentity: bundleIdentity, fileManager: fileManager) != nil
+    }
+
+    /// Selects the disk before legacy-directory migration so first-launch
+    /// consent follows the same inode after the launcher renames its directory.
+    static func recordedPersistentDiskURL(
+        stateRoot: String,
+        bundleIdentity: String? = nil,
+        fileManager: FileManager = .default
+    ) -> URL? {
         let disks = URL(fileURLWithPath: stateRoot, isDirectory: true)
             .appendingPathComponent("disks", isDirectory: true)
         guard hasAttributes(
@@ -208,13 +218,14 @@ enum QEMUGPUStorageSpaceEstimate {
                 includingPropertiesForKeys: nil,
                 options: []
               )
-        else { return false }
+        else { return nil }
 
-        return selectedSinglePersistentDisk(
+        guard let selected = selectedSinglePersistentDisk(
             from: contents,
             bundleIdentity: bundleIdentity,
             fileManager: fileManager
-        )?.schemaVersion == 2
+        ), selected.schemaVersion == 2 else { return nil }
+        return selected.disk
     }
 
     /// Capability follows the selected disk's saved boot kit, not the current

@@ -667,12 +667,12 @@ then startup progress.
 
 ### Updating integrations in an existing VM
 
-When a boot-time check finds the selected disk needs migration, the launcher's
-bottom button becomes **Update**. Review the fixes and choose **Update and Launch**; the app runs the
+On the first app open with an existing disk that has no result for the current
+fix bundle, the launcher's bottom button is **Update**. A matching check that
+found unfinished repairs also offers **Update**. Review the fixes and choose **Update and Launch**; the app runs the
 supported repairs before login and retains their results in Settings. Successful
-checks and updates finish without another dialog. Disks without a check for the
-current fix bundle boot normally and offer any needed repairs on the next launch,
-including with Skip Launcher enabled. **Skip** requires a
+checks and updates finish without another dialog. No preliminary boot is needed;
+Skip Launcher shows the launcher for that first review. **Skip** requires a
 second confirmation. Each disk and fix bundle shows the automatic review once;
 skipped or failed fixes remain available through **Review VM fixes…** in Settings
 after shutting down the VM. They do not interrupt subsequent launches.

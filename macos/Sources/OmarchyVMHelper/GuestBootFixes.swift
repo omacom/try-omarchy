@@ -93,10 +93,13 @@ struct GuestBootFixCache: Codable {
         return identity
     }
 
-    static func url(storageRoot: URL?) -> URL? {
-        guard let integrationURL = GuestIntegrationCache.url(storageRoot: storageRoot) else { return nil }
-        return integrationURL.deletingLastPathComponent().appendingPathComponent(
-            integrationURL.lastPathComponent.replacingOccurrences(of: "integration-status-", with: "boot-fixes-"))
+    static func url(storageRoot: URL?, diskURL: URL? = nil) -> URL? {
+        guard let storageRoot,
+              let attributes = try? FileManager.default.attributesOfItem(
+                atPath: (diskURL ?? storageRoot.appendingPathComponent("disks/current/rootfs.ext4")).path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let inode = attributes[.systemFileNumber] as? NSNumber else { return nil }
+        return storageRoot.appendingPathComponent("boot-fixes-\(inode.uint64Value).json")
     }
 
     static func read(_ url: URL?) -> Self? {
@@ -109,20 +112,21 @@ struct GuestBootFixCache: Codable {
     }
 
     static func needsUpdate(cacheURL: URL?, expectedIdentity: String?) -> Bool {
-        // Unknown disks and changed bundles get a check during normal
-        // boot. Only that bundle's actual result can establish work to review.
-        guard let expectedIdentity, let cache = read(cacheURL),
-              cache.report.identity == expectedIdentity else { return false }
+        // Existing disks review a new bundle before their first boot with it.
+        // A matching result can establish that its fixes are already current.
+        guard cacheURL != nil, let expectedIdentity else { return false }
+        guard let cache = read(cacheURL), cache.report.identity == expectedIdentity else { return true }
         return cache.report.needsUpdate
     }
 
     static func needsReview(cacheURL: URL?, expectedIdentity: String?, manuallyRequested: Bool = false) -> Bool {
-        guard let cacheURL, let expectedIdentity, let cache = read(cacheURL),
-              cache.report.identity == expectedIdentity, cache.report.needsUpdate else { return false }
+        guard let cacheURL, let expectedIdentity,
+              needsUpdate(cacheURL: cacheURL, expectedIdentity: expectedIdentity) else { return false }
         // Older failed/interrupted attempts also stay manual. Their marker is
         // retained before a later boot replaces the result with pending work.
         if manuallyRequested { return true }
-        if cache.report.updateWasAttempted { return false }
+        if let cache = read(cacheURL), cache.report.identity == expectedIdentity,
+           cache.report.updateWasAttempted { return false }
         let attributes = try? FileManager.default.attributesOfItem(
             atPath: reviewURL(cacheURL: cacheURL, identity: expectedIdentity).path)
         return attributes?[.type] as? FileAttributeType != .typeRegular
@@ -130,7 +134,8 @@ struct GuestBootFixCache: Codable {
     }
 
     static func recordReview(cacheURL: URL?, identity: String?) throws {
-        guard let cacheURL, let identity, let cache = read(cacheURL), cache.report.identity == identity else { return }
+        guard let cacheURL, let identity, identity.count == 64,
+              identity.allSatisfy({ "0123456789abcdef".contains($0) }) else { return }
         // This is only a reminder acknowledgement, never installation consent.
         try Data().write(to: reviewURL(cacheURL: cacheURL, identity: identity), options: .atomic)
     }

@@ -79,11 +79,13 @@ enum StartupPolicy {
         isEnabled: Bool,
         hasExistingVM: Bool,
         optionKeyHeld: Bool,
-        initialArguments: [String]
+        initialArguments: [String],
+        requiresVMFixReview: Bool = false
     ) -> Bool {
         let resetRequested = initialArguments.first == QEMUGPUStorageOption.resetStorage.rawValue
             || initialArguments.first == QEMUGPUStorageOption.resetStorageOnly.rawValue
         return isEnabled && hasExistingVM && !optionKeyHeld && !resetRequested
             && initialArguments.first != QEMUGPUStorageOption.ephemeral.rawValue
+            && !requiresVMFixReview
     }
 }

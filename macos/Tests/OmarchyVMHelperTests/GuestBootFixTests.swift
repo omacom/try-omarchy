@@ -25,7 +25,7 @@ struct GuestBootFixTests {
         #expect(GuestBootFixLaunchGate.decide(review: { .skip }, confirmSkip: { false }) == .cancel)
     }
 
-    @Test("Only a matching check with unfinished work offers an update")
+    @Test("Existing disks offer updates before their first check of a new bundle")
     func updatePolicy() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -33,7 +33,8 @@ struct GuestBootFixTests {
         let url = directory.appendingPathComponent("boot-fixes-123.json")
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: nil, expectedIdentity: identity))
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: nil))
-        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
         for state in ["checking", "running", "skipped", "failed", "recovery-required", "unconfirmed", "complete"] {
             let value = GuestBootFixCache(checkedAt: Date(), report: report(state: state))
             try JSONEncoder().encode(value).write(to: url)
@@ -43,16 +44,18 @@ struct GuestBootFixTests {
         let pending = GuestBootFixCache(checkedAt: Date(), report: report(state: "skipped", outcome: "pending"))
         try JSONEncoder().encode(pending).write(to: url)
         #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
-        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: String(repeating: "b", count: 64)))
+        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: String(repeating: "b", count: 64)))
         try Data("{}".utf8).write(to: url)
-        #expect(!GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
+        #expect(GuestBootFixCache.needsUpdate(cacheURL: url, expectedIdentity: identity))
         #expect(GuestBootFixCache.consent(cacheURL: url, identity: identity) == "\(identity):123")
     }
 
-    @Test("Skip Launcher stays enabled while unknown and completed disks launch without update review")
+    @Test("Skip Launcher shows the launcher for first-time review and resumes afterwards")
     func automaticStartup() throws {
         #expect(StartupPolicy.shouldStartAutomatically(isEnabled: true, hasExistingVM: true, optionKeyHeld: false, initialArguments: []))
         #expect(!GuestBootFixCache.needsUpdate(cacheURL: nil, expectedIdentity: identity))
+        #expect(!StartupPolicy.shouldStartAutomatically(isEnabled: true, hasExistingVM: true,
+            optionKeyHeld: false, initialArguments: [], requiresVMFixReview: true))
         for outcome in ["current", "applied", "preserved", "unavailable"] {
             #expect(!report(outcome: outcome).needsUpdate)
             #expect(!report(outcome: outcome).needsAttention)
@@ -92,10 +95,27 @@ struct GuestBootFixTests {
                                      components: report(outcome: "pending").components)
         try GuestBootFixCache.retain(next, cacheURL: url)
         #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: nextIdentity))
-        #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
         let anotherDisk = directory.appendingPathComponent("boot-fixes-456.json")
         try GuestBootFixCache.retain(report(state: "skipped", outcome: "pending"), cacheURL: anotherDisk)
         #expect(GuestBootFixCache.needsReview(cacheURL: anotherDisk, expectedIdentity: identity))
+    }
+
+    @Test("First-launch skip or cancellation is remembered before any guest report exists")
+    func reviewBeforeFirstBoot() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+        try GuestBootFixCache.recordReview(cacheURL: url, identity: identity)
+        #expect(GuestBootFixCache.read(url) == nil)
+        #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity, manuallyRequested: true))
+        #expect(GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: String(repeating: "b", count: 64)))
+        #expect(GuestBootFixCache.needsReview(cacheURL: directory.appendingPathComponent("boot-fixes-456.json"), expectedIdentity: identity))
+        try GuestBootFixCache.retain(report(state: "skipped", outcome: "pending"), cacheURL: url)
+        #expect(!GuestBootFixCache.needsReview(cacheURL: url, expectedIdentity: identity))
     }
 
     @Test("Legacy failed updates stay manual even when later boots report pending work")
