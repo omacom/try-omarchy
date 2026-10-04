@@ -673,7 +673,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
         return ChildLaunchContext(
             environment: VMNetworkPolicy.environment(base: storage.environment, preferences: resolvedNetworkPreferences()),
-            stateRoot: storage.stateRoot,
+            stateRoot: storage.resolvedStateRoot?.path,
             portForwardMappings: forwarding.mappings,
             storageUnavailableReason: storage.unavailableReason
         )

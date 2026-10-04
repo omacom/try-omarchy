@@ -361,6 +361,13 @@ struct StorageLocationLaunchConfiguration: Equatable {
     let stateRoot: String?
     let environment: [String: String]
 
+    /// The workspace used by the running VM, including the implicit default.
+    /// Host result caches need a concrete path even when no override is sent.
+    var resolvedStateRoot: URL? {
+        guard unavailableReason == nil else { return nil }
+        return QEMUGPUStorageSpaceEstimate.storageRootURL(environment: environment)
+    }
+
     /// Why the stored choice could not be honored, when there was one.
     ///
     /// A chosen folder that fails validation must never quietly become the

@@ -730,6 +730,7 @@ struct StorageLocationLaunchConfigurationTests {
             probe: FakeVolumeProbe(result: volume())
         )
         #expect(configuration.stateRoot == "/tmp/override-root")
+        #expect(configuration.resolvedStateRoot?.path == "/tmp/override-root")
         #expect(configuration.environment[StorageLocationPolicy.environmentKey] == "/tmp/override-root")
     }
 
@@ -745,6 +746,7 @@ struct StorageLocationLaunchConfigurationTests {
             probe: FakeVolumeProbe(result: volume())
         )
         #expect(configuration.stateRoot == container.path)
+        #expect(configuration.resolvedStateRoot?.path == container.path)
         #expect(configuration.environment[StorageLocationPolicy.environmentKey] == container.path)
     }
 
@@ -758,6 +760,34 @@ struct StorageLocationLaunchConfigurationTests {
         )
         #expect(configuration.stateRoot == nil)
         #expect(configuration.environment[StorageLocationPolicy.environmentKey] == nil)
+    }
+
+    @Test("default launches resolve a workspace for retaining VM fix results")
+    func defaultWorkspaceRetainsResults() throws {
+        let configuration = StorageLocationLaunchConfiguration.make(
+            baseEnvironment: [:], preference: .default, metrics: metrics
+        )
+        let root = try #require(configuration.resolvedStateRoot)
+        let support = try #require(FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first)
+        #expect(root == support.appendingPathComponent("Try Omarchy/VM/v1", isDirectory: true).standardizedFileURL)
+        // Keep the regression independent of a real user disk or result cache.
+        let workspace = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("disks/current"), withIntermediateDirectories: true)
+        try Data().write(to: workspace.appendingPathComponent("disks/current/rootfs.ext4"))
+        let selected = StorageLocationLaunchConfiguration.make(
+            baseEnvironment: [StorageLocationPolicy.environmentKey: workspace.path],
+            preference: .default, metrics: metrics
+        )
+        let cacheURL = try #require(GuestBootFixCache.url(storageRoot: selected.resolvedStateRoot))
+        let identity = String(repeating: "a", count: 64)
+        try GuestBootFixCache.retain(GuestBootFixReport(
+            schema: 1, type: "boot-fixes", identity: identity, state: "skipped",
+            components: GuestBootFixReport.pendingComponents
+        ), cacheURL: cacheURL)
+        #expect(GuestBootFixCache.needsReview(cacheURL: cacheURL, expectedIdentity: identity))
     }
 
     @Test("a rejected preference does not reach the launcher")
@@ -778,6 +808,7 @@ struct StorageLocationLaunchConfigurationTests {
         // callers refuse to start it at all. Reset depends on this: falling
         // back would erase the default VM instead of the chosen one.
         #expect(configuration.unavailableReason != nil)
+        #expect(configuration.resolvedStateRoot == nil)
     }
 
     @Test("an unreachable chosen folder reports why rather than falling back silently")
