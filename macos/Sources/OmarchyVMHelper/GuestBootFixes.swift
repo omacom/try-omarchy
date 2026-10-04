@@ -104,7 +104,7 @@ struct GuestBootFixResult {
                 isWarning = false
             } else if report.needsUpdate {
                 title = "VM update wasn’t completed"
-                message = "Some fixes are still pending. You can try again from Update after shutting down Omarchy."
+                message = "Some fixes are still pending. You can try again from Update and Launch after shutting down Omarchy."
                 isWarning = true
             } else {
                 title = "Some items couldn’t be updated"
@@ -113,7 +113,7 @@ struct GuestBootFixResult {
             }
         case "failed":
             title = "VM update couldn’t finish"
-            message = "Affected changes were restored. Shut down Omarchy and use Update to try again."
+            message = "Affected changes were restored. Shut down Omarchy and use Update and Launch to try again."
             isWarning = true
         case "recovery-required":
             title = "VM update needs recovery"
@@ -121,11 +121,11 @@ struct GuestBootFixResult {
             isWarning = true
         case "unconfirmed":
             title = "VM update couldn’t be confirmed"
-            message = "No completion result was received. Shut down Omarchy and use Update to try again."
+            message = "No completion result was received. Shut down Omarchy and use Update and Launch to try again."
             isWarning = true
         default:
             title = "VM update wasn’t completed"
-            message = "Some fixes are still pending. You can try again from Update after shutting down Omarchy."
+            message = "Some fixes are still pending. You can try again from Update and Launch after shutting down Omarchy."
             isWarning = true
         }
     }

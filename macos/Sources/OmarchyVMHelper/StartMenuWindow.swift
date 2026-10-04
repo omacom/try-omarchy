@@ -940,7 +940,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
         let fixesPending = GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity())
-        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : (fixesPending ? "Update" : "Launch Omarchy"))
+        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : (fixesPending ? "Update and Launch" : "Launch Omarchy"))
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
             style: .primary,
