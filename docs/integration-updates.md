@@ -52,9 +52,10 @@ Earlier successful components can remain applied when a later user step fails.
 If recovery itself cannot finish, the result explicitly reports that recovery
 needs attention; it never claims the original files were restored.
 
-Successful checks and updates finish without a second dialog; the Mac app
-retains each fix's result in Settings. Failed or unconfirmed approved updates
-still show a warning. No report or no response establishes success.
+After an approved update, the Mac app shows one brief result message: the update
+finished, or it could not be completed or confirmed. Results do not add a
+persistent report or notice to the launcher. No report or no response establishes
+success.
 Results are scoped to that VM disk and fix bundle; another disk or reset does
 not inherit completion. A missing result offers review before boot;
 an unconfirmed approved update leaves a manual retry available through **Update**.

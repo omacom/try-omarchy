@@ -202,6 +202,36 @@ struct StartMenuStartupTests {
         #expect(descendant(withIdentifier: "review-boot-fixes-button", in: runningContent) == nil)
     }
 
+    @Test("Fix results never add a persistent report to the launcher",
+          arguments: ["checking", "running", "complete", "skipped", "failed", "recovery-required", "unconfirmed"])
+    func fixResultsStayOutOfLauncher(state: String) throws {
+        _ = NSApplication.shared
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("boot-fixes-123.json")
+        let identity = String(repeating: "a", count: 64)
+        let components = Dictionary(uniqueKeysWithValues: GuestBootFixReport.componentNames.map {
+            ($0, state == "complete" ? "current" : "pending")
+        })
+        let report = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity,
+                                       state: state, components: components)
+        try GuestBootFixCache.retain(report, cacheURL: url)
+        let menu = makeMenu(storageState: { .defaultLocation }, bootFixCacheURL: { url },
+                            bootFixIdentity: { identity })
+        defer { menu.dismiss() }
+        for running in [false, true] {
+            if running { menu.virtualMachineDidStart {} }
+            menu.prepareForPresentation(visibleFrame: nil)
+            let content = try #require(menu.window.contentView)
+            let launch = try #require(descendant(withIdentifier: "launch-button", in: content) as? NSButton)
+            #expect(launch.accessibilityLabel() == (running ? "Done" : state == "complete" ? "Launch Omarchy" : "Update"))
+            #expect(descendant(withIdentifier: "boot-fixes-result", in: content) == nil)
+            #expect(!textFields(in: content).contains { $0.stringValue.contains(report.summary) })
+            #expect(!textFields(in: content).contains { $0.stringValue.contains(report.detail) })
+        }
+    }
+
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
         startAutomatically: @escaping () -> Bool = { false },
@@ -254,5 +284,10 @@ struct StartMenuStartupTests {
             if let found = descendant(withIdentifier: identifier, in: child) { return found }
         }
         return nil
+    }
+
+    private func textFields(in view: NSView) -> [NSTextField] {
+        let fields = (view as? NSTextField).map { [$0] } ?? []
+        return fields + view.subviews.flatMap { textFields(in: $0) }
     }
 }

@@ -62,7 +62,7 @@ struct GuestBootFixTests {
         }
     }
 
-    @Test("Successful updates finish silently; failures still need attention")
+    @Test("Only unsuccessful reports need recovery or retry attention")
     func resultAttention() {
         for state in ["checking", "running", "complete", "skipped"] {
             #expect(!report(state: state).needsAttention)
@@ -70,6 +70,42 @@ struct GuestBootFixTests {
         for state in ["failed", "recovery-required", "unconfirmed"] {
             #expect(report(state: state).needsAttention)
         }
+    }
+
+    @Test("Approved updates report a result only after completion")
+    func updateResult() throws {
+        for state in ["checking", "running"] {
+            #expect(GuestBootFixResult(report: report(state: state)) == nil)
+        }
+        for outcome in ["current", "applied"] {
+            let result = try #require(GuestBootFixResult(report: report(outcome: outcome)))
+            #expect(!result.isWarning)
+        }
+        let skippedCurrent = try #require(GuestBootFixResult(report: report(state: "skipped")))
+        #expect(!skippedCurrent.isWarning)
+        let skippedPending = try #require(GuestBootFixResult(report: report(state: "skipped", outcome: "pending")))
+        #expect(skippedPending.isWarning)
+        for state in ["failed", "recovery-required", "unconfirmed"] {
+            let result = try #require(GuestBootFixResult(report: report(state: state)))
+            #expect(result.isWarning)
+        }
+    }
+
+    @Test("Partial updates name only the items that could not be updated")
+    func partialUpdateResult() throws {
+        for outcome in ["preserved", "unavailable"] {
+            let partial = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete",
+                components: ["clipboard": "applied", "battery": outcome, "touch-id": "current"])
+            let result = try #require(GuestBootFixResult(report: partial))
+            #expect(result.isWarning)
+            #expect(result.message.contains("Battery widget"))
+            #expect(!result.message.contains("Clipboard"))
+            #expect(!result.message.contains("Touch ID"))
+        }
+        let recovery = try #require(GuestBootFixResult(report: report(state: "recovery-required")))
+        #expect(!recovery.message.contains("changes were restored"))
+        let unconfirmed = try #require(GuestBootFixResult(report: report(state: "unconfirmed")))
+        #expect(!unconfirmed.message.contains("up to date"))
     }
 
     @Test("A reviewed bundle never nags again after failure, skipping, or interrupted startup")

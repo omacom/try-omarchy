@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 struct GuestBootFixReport: Codable, Equatable {
@@ -77,6 +76,58 @@ struct GuestBootFixReport: Codable, Equatable {
     func summary(expectedIdentity: String?) -> String {
         guard let expectedIdentity else { return "VM fix bundle unavailable" }
         return identity == expectedIdentity ? summary : "VM fixes available · last check used an older bundle"
+    }
+}
+
+/// A one-time outcome for an approved update, without the diagnostic report.
+struct GuestBootFixResult {
+    let title: String
+    let message: String
+    let isWarning: Bool
+
+    init?(report: GuestBootFixReport) {
+        let names = ["clipboard": "Clipboard", "screensaver": "Screensaver", "alacritty": "Alacritty",
+                     "power": "Power menus", "clock": "Clock", "holds": "Update compatibility",
+                     "lock": "Lock screen", "touch-id": "Touch ID", "onepassword": "1Password",
+                     "battery": "Battery widget", "integrations": "Integration setup",
+                     "desktop": "Pinch zoom & app menus", "ghostty": "Ghostty installer"]
+        let skipped = GuestBootFixReport.componentNames.filter {
+            ["preserved", "unavailable", "pending", "failed"].contains(report.components[$0] ?? "")
+        }.compactMap { names[$0] }.joined(separator: ", ")
+
+        switch report.state {
+        case "checking", "running": return nil
+        case "complete", "skipped":
+            if skipped.isEmpty {
+                title = "VM update complete"
+                message = "Your VM is ready to use."
+                isWarning = false
+            } else if report.needsUpdate {
+                title = "VM update wasn’t completed"
+                message = "Some fixes are still pending. You can try again from Update after shutting down Omarchy."
+                isWarning = true
+            } else {
+                title = "Some items couldn’t be updated"
+                message = "Skipped: \(skipped).\n\nCustomized or unsupported items were left unchanged."
+                isWarning = true
+            }
+        case "failed":
+            title = "VM update couldn’t finish"
+            message = "Affected changes were restored. Shut down Omarchy and use Update to try again."
+            isWarning = true
+        case "recovery-required":
+            title = "VM update needs recovery"
+            message = "Some original files couldn’t be restored. Shut down Omarchy and retry the update before using these integrations. Backups remain in the VM."
+            isWarning = true
+        case "unconfirmed":
+            title = "VM update couldn’t be confirmed"
+            message = "No completion result was received. Shut down Omarchy and use Update to try again."
+            isWarning = true
+        default:
+            title = "VM update wasn’t completed"
+            message = "Some fixes are still pending. You can try again from Update after shutting down Omarchy."
+            isWarning = true
+        }
     }
 }
 
@@ -171,41 +222,5 @@ enum GuestBootFixLaunchGate {
         case .cancel: return .cancel
         case .skip: return confirmSkip() ? .skip : .cancel
         }
-    }
-}
-
-@MainActor
-enum GuestBootFixPrompt {
-    static func review() -> NSAlert {
-        let alert = NSAlert()
-        alert.messageText = "Update VM?"
-        alert.informativeText = """
-            Try Omarchy will verify and try to apply these compatible fixes:
-
-            • Clipboard fixes for large selections.
-            • Screensaver layout and cursor helper fixes.
-            • Remove the old Alacritty software-rendering workaround when supported.
-            • Power/menu plugin fixes, clock recovery, and update compatibility holds.
-            • Missing lock-screen password policy, pinch input, and stale Apps entries.
-            • Fix the Ghostty installer so you can install it from the terminal menu.
-            • Integration setup and Touch ID support, without enabling biometrics.
-            • Existing 1Password support and the Mac battery integration. Battery builds use your current kernel and require matching headers and existing build tools.
-
-            The kernel and customized files are preserved. Your settings and personal files are kept, and updates will rollback or be skipped in case of failure.
-            """
-        alert.addButton(withTitle: "Update and Launch")
-        alert.addButton(withTitle: "Skip and Launch")
-        alert.addButton(withTitle: "Cancel")
-        return alert
-    }
-
-    static func skip() -> NSAlert {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Launch without these VM fixes?"
-        alert.informativeText = "The listed VM fixes and integration updates will not be applied to this disk. Existing issues may remain. You can update on a later launch. Interrupted updates still recover their original files."
-        alert.addButton(withTitle: "Go Back")
-        alert.addButton(withTitle: "Skip and Launch")
-        return alert
     }
 }

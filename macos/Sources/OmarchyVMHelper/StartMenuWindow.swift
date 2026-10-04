@@ -1022,17 +1022,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         runningActions.alignment = .centerY
         runningActions.spacing = 16
         runningActions.identifier = NSUserInterfaceItemIdentifier("running-settings-actions")
-        var settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
-        var bootFixNotice: NSView?
-        if let cache = GuestBootFixCache.read(bootFixCacheURL()) {
-            let summary = cache.report.summary(expectedIdentity: bootFixIdentity())
-            let result = NSTextField(wrappingLabelWithString: "Last VM fix check: \(summary)\n\(cache.report.detail)")
-            result.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-            result.textColor = OmarchyStartMenuTheme.foreground
-            result.identifier = NSUserInterfaceItemIdentifier("boot-fixes-result")
-            bootFixNotice = result
-            settingsSections.insert(result, at: 0)
-        }
+        let settingsSections: [NSView] = [permissionHeading, permissionCard, integrationHeading, integrationCard]
         let stack = NSStackView(views: virtualMachineRunning
             ? [headingStack, runningActions] + settingsSections + [resetHeading, resetCard]
             : [headingStack] + settingsSections + [resetHeading, resetCard])
@@ -1090,8 +1080,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             resetCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             launchButton.widthAnchor.constraint(equalTo: actions.widthAnchor),
         ])
-
-        bootFixNotice?.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         if virtualMachineRunning {
             runningActions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true

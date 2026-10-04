@@ -796,23 +796,14 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard report.identity == GuestBootFixCache.bundledIdentity else { return }
         // Reports are advisory results, never installation authorization.
         retainBootFixReport(report)
-        guard activeBootFixConsent != nil, !["checking", "running"].contains(report.state), !bootFixResultReceived else { return }
+        guard activeBootFixConsent != nil, !bootFixResultReceived,
+              let result = GuestBootFixResult(report: report) else { return }
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
         bootFixResultReceived = true
-        // Successful checks and migrations are retained in Settings without
-        // interrupting startup with a second dialog.
-        guard report.needsAttention else { return }
         activationController.reconcile()
         defer { activationController.reconcile() }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = report.summary
-        alert.informativeText = report.detail + (report.state == "recovery-required"
-            ? "\n\nOriginal files could not all be restored. Shut down and retry recovery before using these integrations. Backups remain inside the VM."
-            : (report.state == "unconfirmed" ? "\n\nThe VM did not report a result. Completion has not been recorded. Shut down and use Update in the launcher to retry."
-               : "\n\nYou can review this result in Try Omarchy Settings."))
-        alert.addButton(withTitle: "OK")
+        let alert = GuestBootFixPrompt.result(result)
         isPresentingBlockingAlert = true
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
@@ -1216,8 +1207,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
         if activeBootFixConsent != nil, !bootFixResultReceived, let identity = GuestBootFixCache.bundledIdentity {
-            retainBootFixReport(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "unconfirmed",
-                components: GuestBootFixReport.pendingComponents))
+            let report = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "unconfirmed",
+                components: GuestBootFixReport.pendingComponents)
+            if virtualMachineReachedStart, !applicationTerminationPending {
+                receivedBootFixReport(report)
+            } else {
+                retainBootFixReport(report)
+            }
         }
         activeBootFixConsent = nil
         activeBootFixCacheURL = nil
