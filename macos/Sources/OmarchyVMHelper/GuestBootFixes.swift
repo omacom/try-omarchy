@@ -1,8 +1,11 @@
 import Foundation
 
 struct GuestBootFixReport: Codable, Equatable {
-    static let componentNames = ["clipboard", "screensaver", "alacritty", "power", "clock", "holds",
-                                 "lock", "touch-id", "onepassword", "battery", "integrations", "desktop", "ghostty"]
+    // Frozen compatibility with reports written before the shared catalog.
+    // New components belong only in the catalog and their guest planners.
+    private static let legacyComponentNames = ["clipboard", "screensaver", "alacritty", "power", "clock", "holds",
+                                              "lock", "touch-id", "onepassword", "battery", "integrations", "desktop", "ghostty"]
+    static var componentNames: [String] { GuestBootFixCatalog.bundled?.componentIDs ?? legacyComponentNames }
     static var pendingComponents: [String: String] { Dictionary(uniqueKeysWithValues: componentNames.map { ($0, "pending") }) }
     let schema: Int
     let type: String
@@ -26,19 +29,24 @@ struct GuestBootFixReport: Codable, Equatable {
         ["checking", "running"].contains(state) || needsAttention
     }
 
-    static func decode(_ data: Data) throws -> Self {
+    static func decode(_ data: Data, catalog: GuestBootFixCatalog? = .bundled) throws -> Self {
         guard data.count <= 4096 else { throw HelperError.io("boot fixes report exceeds limit") }
         let value = try JSONDecoder().decode(Self.self, from: data)
         guard value.schema == 1, value.type == "boot-fixes",
+              !value.components.isEmpty,
               value.identity.count == 64,
               value.identity.allSatisfy({ "0123456789abcdef".contains($0) }),
               ["checking", "running", "complete", "skipped", "failed", "recovery-required", "unconfirmed"].contains(value.state),
-              [Set(componentNames), Set(componentNames.filter { $0 != "ghostty" }),
+              [Set(catalog?.componentIDs ?? []), Set(legacyComponentNames), Set(legacyComponentNames.filter { $0 != "ghostty" }),
                Set(["clipboard", "screensaver", "alacritty"])].contains(Set(value.components.keys)),
               value.components.values.allSatisfy({ ["current", "applied", "preserved", "unavailable", "pending", "failed"].contains($0) }),
               value.state != "complete" || !value.components.values.contains(where: { ["pending", "failed"].contains($0) })
         else { throw HelperError.io("invalid boot fixes report") }
         return value
+    }
+
+    func matchesComponents(in catalog: GuestBootFixCatalog) -> Bool {
+        Set(components.keys) == Set(catalog.componentIDs)
     }
 
     var summary: String {
@@ -57,19 +65,16 @@ struct GuestBootFixReport: Codable, Equatable {
         }
     }
 
-    var detail: String {
-        let names = ["clipboard": "Clipboard", "screensaver": "Screensaver", "alacritty": "Alacritty workaround",
-                     "power": "Power/menu plugins", "clock": "Clock recovery", "holds": "Update compatibility holds",
-                     "lock": "Lock-screen password policy", "touch-id": "Touch ID support",
-                     "onepassword": "Existing 1Password integration", "battery": "Mac battery",
-                     "integrations": "Integration setup and status", "desktop": "Pinch input and Apps/menu entries",
-                     "ghostty": "Ghostty terminal installer"]
+    var detail: String { detail(catalog: .bundled) }
+
+    func detail(catalog: GuestBootFixCatalog?) -> String {
+        let names = Dictionary(uniqueKeysWithValues: (catalog?.migrations ?? []).map { ($0.id, $0.title) })
         let labels = ["current": "already current or not needed", "applied": "applied and verified",
                       "preserved": "customized or unsupported files preserved",
                       "unavailable": "skipped · required tools or runtime unavailable", "pending": "pending",
                       "failed": "failed · previous installation kept"]
-        return Self.componentNames.filter { components[$0] != nil }.map {
-            "\(names[$0]!): \(labels[components[$0] ?? "pending"]!)"
+        return components.keys.sorted().map {
+            "\(names[$0] ?? $0): \(labels[components[$0] ?? "pending"]!)"
         }.joined(separator: "\n")
     }
 
@@ -85,15 +90,11 @@ struct GuestBootFixResult {
     let message: String
     let isWarning: Bool
 
-    init?(report: GuestBootFixReport) {
-        let names = ["clipboard": "Clipboard", "screensaver": "Screensaver", "alacritty": "Alacritty",
-                     "power": "Power menus", "clock": "Clock", "holds": "Update compatibility",
-                     "lock": "Lock screen", "touch-id": "Touch ID", "onepassword": "1Password",
-                     "battery": "Battery widget", "integrations": "Integration setup",
-                     "desktop": "Pinch zoom & app menus", "ghostty": "Ghostty installer"]
-        let skipped = GuestBootFixReport.componentNames.filter {
+    init?(report: GuestBootFixReport, catalog: GuestBootFixCatalog? = .bundled) {
+        let names = Dictionary(uniqueKeysWithValues: (catalog?.migrations ?? []).map { ($0.id, $0.title) })
+        let skipped = report.components.keys.sorted().filter {
             ["preserved", "unavailable", "pending", "failed"].contains(report.components[$0] ?? "")
-        }.compactMap { names[$0] }.joined(separator: ", ")
+        }.map { names[$0] ?? $0 }.joined(separator: ", ")
 
         switch report.state {
         case "checking", "running": return nil
@@ -167,6 +168,7 @@ struct GuestBootFixCache: Codable {
         // A matching result can establish that its fixes are already current.
         guard cacheURL != nil, let expectedIdentity else { return false }
         guard let cache = read(cacheURL), cache.report.identity == expectedIdentity else { return true }
+        if let catalog = GuestBootFixCatalog.bundled, !cache.report.matchesComponents(in: catalog) { return true }
         return cache.report.needsUpdate
     }
 

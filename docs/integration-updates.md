@@ -28,6 +28,12 @@ That action still requires approval before applying changes. Older failed or
 unconfirmed attempts also stay manual. The existing settings, timezone integration, and shared-folder safety
 payload still run; Skip applies only to the reviewed repairs.
 
+The review list comes from the shared [migration catalog](../guest/migrations/catalog.json).
+It lists the full set of supported repairs, rather than a pre-boot inspection of
+the selected disk. The guest determines which files are current, need updating,
+or must be preserved when it boots. Catalog revisions describe components;
+approval and review reminders remain tied to the complete bundle's content hash.
+
 Approval is limited to the reviewed bundle and selected disk's file identity,
 rechecked under the workspace lock. The existing temporary boot service runs
 the repairs before graphical login, without command pasting or a Linux

@@ -56,7 +56,9 @@ LINKS = {
     'var/lib/dkms/try-omarchy-battery/1.2.0/source': '/usr/src/try-omarchy-battery-1.2.0',
 }
 EXTRA_FILES = {'omarchy-lock-password', 'repair-update-holds.py', 'components.py',
-               'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json'}
+               'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json', 'catalog.json'}
+HANDLED_COMPONENTS = frozenset(GROUPS) | {'clipboard', 'screensaver', 'alacritty',
+                                        'power', 'holds', 'lock', 'integrations', 'desktop'}
 POWER_TARGETS = {'usr/bin/omarchy-powerprofiles-list', 'usr/bin/omarchy-powerprofiles-set',
                  'usr/share/omarchy/shell/plugins/panels/power/Panel.qml',
                  'usr/share/omarchy/shell/plugins/menu/Menu.qml'}
@@ -66,6 +68,63 @@ FIXED_TARGETS = {p for group in GROUPS.values() for p, _ in group.values()} | se
 }
 MODULE = 'try_omarchy_battery'
 VERSION = '1.2.0'
+
+
+def read_catalog(path):
+    """Read presentation metadata; IDs name existing planners, never commands."""
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimeError('Duplicate boot fix catalog key')
+            result[key] = value
+        return result
+
+    def identifier(value):
+        return isinstance(value, str) and re.fullmatch(r'[a-z][a-z0-9-]{0,47}', value) is not None
+
+    def text(value, maximum):
+        return (isinstance(value, str) and 0 < len(value) <= maximum
+                and value == value.strip() and value.isprintable())
+
+    def presentation(value):
+        return (text(value.get('title'), 80) and isinstance(value.get('icon'), str)
+                and 0 < len(value['icon']) <= 64
+                and re.fullmatch(r'[a-z0-9]+(?:[.-][a-z0-9]+)*', value['icon']) is not None)
+
+    with path.open('rb') as stream:
+        data = stream.read(32769)
+    if not 0 < len(data) <= 32768:
+        raise RuntimeError('Boot fix catalog exceeds limit')
+    value = json.loads(data, object_pairs_hook=unique_object)
+    if (not isinstance(value, dict) or set(value) != {'schema', 'groups', 'migrations'}
+            or type(value['schema']) is not int or value['schema'] != 1
+            or not isinstance(value['groups'], dict) or len(value['groups']) > 32
+            or not isinstance(value['migrations'], list) or not 1 <= len(value['migrations']) <= 32):
+        raise RuntimeError('Invalid boot fix catalog')
+    groups = value['groups']
+    for group_id, group in groups.items():
+        if (not identifier(group_id) or not isinstance(group, dict)
+                or set(group) != {'title', 'icon'} or not presentation(group)):
+            raise RuntimeError('Invalid boot fix catalog group')
+    ids, used_groups = set(), set()
+    for migration in value['migrations']:
+        if (not isinstance(migration, dict)
+                or not {'id', 'revision', 'title', 'icon'} <= set(migration)
+                or set(migration) - {'id', 'revision', 'title', 'icon', 'group', 'note'}
+                or not identifier(migration['id']) or migration['id'] in ids
+                or type(migration['revision']) is not int or not 1 <= migration['revision'] <= 65535
+                or not presentation(migration)
+                or 'note' in migration and not text(migration['note'], 240)):
+            raise RuntimeError('Invalid boot fix catalog migration')
+        if 'group' in migration:
+            if not identifier(migration['group']) or migration['group'] not in groups:
+                raise RuntimeError('Unknown boot fix catalog group')
+            used_groups.add(migration['group'])
+        ids.add(migration['id'])
+    if ids != HANDLED_COMPONENTS or used_groups != set(groups) or ids & set(groups):
+        raise RuntimeError('Boot fix catalog does not match implemented components')
+    return value
 
 
 class BatteryUnavailable(RuntimeError):
@@ -367,6 +426,7 @@ def activate(runtime, restoring=False):
 
 def package(guest, payload):
     """One inventory builder shared by app packaging and migration fixtures."""
+    read_catalog(guest / 'migrations/catalog.json')
     spec = json.loads((guest / 'spec.json').read_text())
     pins = spec['supplyChain']['ghostty']
     hook = next(b for b in spec['authenticity']['backports'] if b['id'] == 'ghostty-arm64-terminal')
@@ -390,6 +450,7 @@ def package(guest, payload):
         'repair-update-holds.py': guest / 'scripts/repair-update-holds.py',
         'user-fixes.py': guest / 'scripts/migrate-user-fixes.py',
         'preimages.json': guest / 'migrations/preimages.json',
+        'catalog.json': guest / 'migrations/catalog.json',
         'omarchy-lock-password': guest / 'migrations/omarchy-lock-password',
         'pinch-input.lua': guest / 'native-overlay/usr/share/try-omarchy/pinch-input.lua',
     }.items():

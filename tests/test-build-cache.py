@@ -84,6 +84,27 @@ FAKE_GUEST_BUILDER = textwrap.dedent(
 
 
 class BuildCacheTests(unittest.TestCase):
+    def test_app_fingerprint_tracks_migration_catalog_and_reviewed_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            migrations = root / "guest/migrations"
+            migrations.mkdir(parents=True)
+            for name in ("catalog.json", "preimages.json"):
+                (migrations / name).write_text("initial\n")
+            for path in build_cache.component_files(root, "app"):
+                if not path.exists():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("fixture\n")
+            with patch.object(build_cache, "context", return_value={}), \
+                    patch.object(build_cache, "build_version", return_value={}), \
+                    patch.object(build_cache, "app_external_files", return_value=[]):
+                previous = build_cache.fingerprint(root, "app", ["build-app"])
+                for name in ("catalog.json", "preimages.json"):
+                    (migrations / name).write_text("updated\n")
+                    current = build_cache.fingerprint(root, "app", ["build-app"])
+                    self.assertNotEqual(previous, current, name)
+                    previous = current
+
     def test_app_fingerprint_tracks_bundled_battery_module_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

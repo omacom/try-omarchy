@@ -134,6 +134,7 @@ def component_files(root: Path, component: str) -> list[Path]:
         paths.extend(regular_files(root / "guest/scripts"))
         paths.extend(regular_files(root / "guest/native-overlay"))
         paths.extend(regular_files(root / "guest/native-module"))
+        paths.extend(path for path in regular_files(root / "guest/migrations") if path.suffix != ".md")
         paths.extend(
             [
                 root / "LICENSE",

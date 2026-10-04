@@ -96,7 +96,7 @@ struct GuestBootFixTests {
         for outcome in ["preserved", "unavailable"] {
             let partial = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete",
                 components: ["clipboard": "applied", "battery": outcome, "touch-id": "current"])
-            let result = try #require(GuestBootFixResult(report: partial))
+            let result = try #require(GuestBootFixResult(report: partial, catalog: try migrationCatalogFixture()))
             #expect(result.isWarning)
             #expect(result.message.contains("Battery widget"))
             #expect(!result.message.contains("Clipboard"))
@@ -184,11 +184,11 @@ struct GuestBootFixTests {
             #expect(throws: (any Error).self) { try GuestBootFixReport.decode(raw) }
         }
         let expanded = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "running",
-                                          components: GuestBootFixReport.pendingComponents)
-        #expect(try GuestBootFixReport.decode(JSONEncoder().encode(expanded)) == expanded)
-        #expect(expanded.detail.contains("Mac battery"))
-        #expect(expanded.detail.contains("Clock recovery"))
-        #expect(expanded.detail.contains("Ghostty terminal installer"))
+                                          components: Dictionary(uniqueKeysWithValues: try migrationCatalogFixture().componentIDs.map { ($0, "pending") }))
+        #expect(try GuestBootFixReport.decode(JSONEncoder().encode(expanded), catalog: try migrationCatalogFixture()) == expanded)
+        #expect(expanded.detail(catalog: try migrationCatalogFixture()).contains("Battery widget"))
+        #expect(expanded.detail(catalog: try migrationCatalogFixture()).contains("Clock"))
+        #expect(expanded.detail(catalog: try migrationCatalogFixture()).contains("Ghostty installer"))
         let previous = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete",
             components: Dictionary(uniqueKeysWithValues: GuestBootFixReport.componentNames
                 .filter { $0 != "ghostty" }.map { ($0, "current") }))
@@ -197,7 +197,7 @@ struct GuestBootFixTests {
         current["ghostty"] = "applied"
         let migrated = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "complete", components: current)
         #expect(try GuestBootFixReport.decode(JSONEncoder().encode(migrated)) == migrated)
-        #expect(migrated.detail.contains("Ghostty terminal installer: applied and verified"))
+        #expect(migrated.detail(catalog: try migrationCatalogFixture()).contains("Ghostty installer: applied and verified"))
         var unknown = expanded.components
         unknown["arbitrary-command"] = "current"
         #expect(throws: (any Error).self) {

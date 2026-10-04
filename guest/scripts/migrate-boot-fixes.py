@@ -29,8 +29,6 @@ STATE = "var/lib/try-omarchy/boot-fixes"
 WRAPPER = "usr/local/bin/alacritty"
 BACKUP = "usr/local/bin/.alacritty.try-omarchy-software-backup"
 TARGETS = {*FILES.values(), WRAPPER, BACKUP}
-COMPONENTS = ("clipboard", "screensaver", "alacritty", "power", "clock", "holds",
-              "lock", "touch-id", "onepassword", "battery", "integrations", "desktop", "ghostty")
 LINKS = {}
 allowed_link = lambda relative, value: value == LINKS.get(relative)
 MAX_FILE = 8388608
@@ -50,6 +48,7 @@ def digest(data):
 
 def bundle_manifest(payload, create=False):
     extras = components(payload)
+    extras.read_catalog(payload / 'catalog.json')
     inventory = INVENTORY | extras.EXTRA_FILES | {n for g in extras.GROUPS.values() for n in g}
     inventory |= {str(p.relative_to(payload)) for p in (payload / "integrations").rglob('*') if p.is_file()}
     files = {name: digest((payload / name).read_bytes()) for name in sorted(inventory)}
@@ -312,6 +311,7 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
     uid = os.getuid() if uid is None else uid
     identity = bundle_manifest(payload)["identity"]
     extras = components(payload)
+    component_ids = tuple(entry['id'] for entry in extras.read_catalog(payload / 'catalog.json')['migrations'])
     TARGETS = {*FILES.values(), WRAPPER, BACKUP} | extras.targets(payload)
     LINKS = extras.LINKS
     allowed_link = extras.allowed_link
@@ -341,20 +341,22 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
                         state = 'unconfirmed'
                     outcomes['desktop'] = 'pending'
         value = {"schema": 1, "type": "boot-fixes", "identity": identity,
-                 "state": state, "components": outcomes}
+                 "state": state, "components": {name: outcomes[name] for name in component_ids}}
         emit(value)
         return value
     try:
         recover(root, uid)
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
-        return report("recovery-required", dict.fromkeys(COMPONENTS, "pending"))
+        return report("recovery-required", dict.fromkeys(component_ids, "pending"))
     if approved:
-        report("running", dict.fromkeys(COMPONENTS, "pending"))
+        report("running", dict.fromkeys(component_ids, "pending"))
     changes, outcomes = plan(payload, root, uid, cmdline)
     extra_changes, extra_outcomes = extras.plan(sys.modules[__name__] if __name__ in sys.modules else _self(), payload, root, uid)
     changes.extend(extra_changes)
     outcomes.update(extra_outcomes)
     outcomes['desktop'] = 'current'
+    if set(outcomes) != set(component_ids):
+        raise RuntimeError('Boot fix plan does not match catalog')
     preparation_failed = False
     if approved and outcomes.get('battery') == 'pending':
         try:
@@ -462,6 +464,8 @@ def boot(payload):
             pass  # A missing host listener never grants consent or changes success.
     try:
         cmdline = Path("/proc/cmdline").read_text()
+        catalog = components(payload).read_catalog(payload / 'catalog.json')
+        component_ids = tuple(entry['id'] for entry in catalog['migrations'])
         identity = bundle_manifest(payload)["identity"]
         approved = f"tryomarchy.fixes={identity}" in cmdline.split()
         return migrate(payload, Path("/"), approved, cmdline, emit, uid=0, users=True)
@@ -469,7 +473,7 @@ def boot(payload):
         print("Try Omarchy boot fix checking or recovery did not finish; completion was not recorded", flush=True)
         if identity is not None:
             emit({"schema": 1, "type": "boot-fixes", "identity": identity,
-                  "state": "unconfirmed", "components": dict.fromkeys(COMPONENTS, "pending")})
+                  "state": "unconfirmed", "components": dict.fromkeys(component_ids, "pending")})
 
 
 if __name__ == "__main__":

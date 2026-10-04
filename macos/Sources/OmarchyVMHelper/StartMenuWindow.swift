@@ -421,8 +421,16 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     func confirmBootFixes() -> GuestBootFixChoice {
         show()
+        guard let catalog = GuestBootFixCatalog.bundled else {
+            let alert = NSAlert()
+            alert.messageText = "VM update details are unavailable"
+            alert.informativeText = "The update catalog is missing or damaged. Reinstall Try Omarchy before updating this VM."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return .cancel
+        }
         return GuestBootFixLaunchGate.decide(review: {
-            switch GuestBootFixPrompt.review().runModal() {
+            switch GuestBootFixPrompt.review(catalog: catalog).runModal() {
             case .alertFirstButtonReturn: return .update
             case .alertSecondButtonReturn: return .skip
             default: return .cancel

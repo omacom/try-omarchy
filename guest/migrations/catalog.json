@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "groups": {
+    "clipboard-screensaver": {
+      "title": "Clipboard & screensaver",
+      "icon": "doc.on.clipboard"
+    },
+    "system": {
+      "title": "Power, clock & update fixes",
+      "icon": "gearshape"
+    }
+  },
+  "migrations": [
+    {
+      "id": "battery",
+      "revision": 1,
+      "title": "Battery widget",
+      "icon": "battery.100",
+      "note": "Battery support requires matching headers and build tools already in the VM."
+    },
+    {
+      "id": "touch-id",
+      "revision": 1,
+      "title": "Touch ID support",
+      "icon": "touchid",
+      "note": "Touch ID stays optional."
+    },
+    {
+      "id": "onepassword",
+      "revision": 1,
+      "title": "Existing 1Password support",
+      "icon": "key"
+    },
+    {
+      "id": "integrations",
+      "revision": 1,
+      "title": "Integration setup",
+      "icon": "slider.horizontal.3"
+    },
+    {
+      "id": "lock",
+      "revision": 1,
+      "title": "Lock-screen support",
+      "icon": "lock"
+    },
+    {
+      "id": "clipboard",
+      "revision": 1,
+      "title": "Clipboard",
+      "icon": "doc.on.clipboard",
+      "group": "clipboard-screensaver"
+    },
+    {
+      "id": "screensaver",
+      "revision": 1,
+      "title": "Screensaver",
+      "icon": "display",
+      "group": "clipboard-screensaver"
+    },
+    {
+      "id": "desktop",
+      "revision": 1,
+      "title": "Pinch zoom & app menus",
+      "icon": "hand.draw"
+    },
+    {
+      "id": "alacritty",
+      "revision": 1,
+      "title": "Alacritty rendering",
+      "icon": "terminal"
+    },
+    {
+      "id": "ghostty",
+      "revision": 1,
+      "title": "Ghostty installer",
+      "icon": "arrow.down.app"
+    },
+    {
+      "id": "power",
+      "revision": 1,
+      "title": "Power menus",
+      "icon": "power",
+      "group": "system"
+    },
+    {
+      "id": "clock",
+      "revision": 1,
+      "title": "Clock",
+      "icon": "clock",
+      "group": "system"
+    },
+    {
+      "id": "holds",
+      "revision": 1,
+      "title": "Update compatibility",
+      "icon": "gearshape",
+      "group": "system"
+    }
+  ]
+}

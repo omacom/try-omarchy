@@ -2,37 +2,32 @@ import AppKit
 
 @MainActor
 enum GuestBootFixPrompt {
-    static func review() -> NSAlert {
+    static func review(catalog: GuestBootFixCatalog) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "Update your VM"
         alert.informativeText = "Add Mac integrations and apply compatible fixes before Omarchy starts."
-        alert.accessoryView = updateSummary()
+        alert.accessoryView = updateSummary(catalog)
         alert.addButton(withTitle: "Update and Launch")
         alert.addButton(withTitle: "Skip and Launch")
         alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
         return alert
     }
 
-    private static func updateSummary() -> NSView {
-        let features = [
-            [("battery.100", "Battery widget"), ("touchid", "Touch ID support"),
-             ("key", "Existing 1Password support"), ("slider.horizontal.3", "Integration setup"),
-             ("lock", "Lock-screen support")],
-            [("doc.on.clipboard", "Clipboard & screensaver"), ("hand.draw", "Pinch zoom & app menus"),
-             ("terminal", "Alacritty rendering"), ("arrow.down.app", "Ghostty installer"),
-             ("gearshape", "Power, clock & update fixes")],
-        ]
-        let columns = features.map { entries in
-            let rows = entries.map { symbol, title in
+    private static func updateSummary(_ catalog: GuestBootFixCatalog) -> NSView {
+        let features = catalog.features
+        let midpoint = (features.count + 1) / 2
+        let columns = [features.prefix(midpoint), features.dropFirst(midpoint)].filter { !$0.isEmpty }.map { entries in
+            let rows = entries.map { feature in
                 let icon = NSImageView()
-                icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                icon.image = NSImage(systemSymbolName: feature.icon, accessibilityDescription: nil)
                 icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
                 icon.contentTintColor = .secondaryLabelColor
                 icon.translatesAutoresizingMaskIntoConstraints = false
                 icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
                 icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-                let label = NSTextField(labelWithString: title)
+                let label = NSTextField(wrappingLabelWithString: feature.title)
                 label.font = .systemFont(ofSize: 12)
+                label.widthAnchor.constraint(equalToConstant: 184).isActive = true
                 let row = NSStackView(views: [icon, label])
                 row.alignment = .centerY
                 row.spacing = 8
@@ -54,18 +49,18 @@ enum GuestBootFixPrompt {
         let preservation = NSTextField(wrappingLabelWithString:
             "Your files, settings, customizations, and kernel are kept. Unsupported fixes are skipped; failed changes are restored.")
         preservation.font = .systemFont(ofSize: 12)
-        let requirements = NSTextField(wrappingLabelWithString:
-            "Touch ID stays optional. Battery support requires matching headers and build tools already in the VM.")
+        let requirements = NSTextField(wrappingLabelWithString: catalog.notes)
         requirements.font = .systemFont(ofSize: 11)
         requirements.textColor = .secondaryLabelColor
 
-        let stack = NSStackView(views: [list, divider, preservation, requirements])
+        let views: [NSView] = [list, divider, preservation] + (catalog.notes.isEmpty ? [] : [requirements])
+        let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.widthAnchor.constraint(equalToConstant: 440).isActive = true
-        for view in [list, divider, preservation, requirements] {
+        for view in views {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         stack.layoutSubtreeIfNeeded()

@@ -793,11 +793,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func receivedBootFixReport(_ report: GuestBootFixReport) {
-        guard report.identity == GuestBootFixCache.bundledIdentity else { return }
+        guard report.identity == GuestBootFixCache.bundledIdentity,
+              let catalog = GuestBootFixCatalog.bundled, report.matchesComponents(in: catalog) else { return }
         // Reports are advisory results, never installation authorization.
         retainBootFixReport(report)
         guard activeBootFixConsent != nil, !bootFixResultReceived,
-              let result = GuestBootFixResult(report: report) else { return }
+              let result = GuestBootFixResult(report: report, catalog: catalog) else { return }
         bootFixResultTimer?.invalidate()
         bootFixResultTimer = nil
         bootFixResultReceived = true
