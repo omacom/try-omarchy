@@ -59,6 +59,7 @@ EXTRA_FILES = {'omarchy-lock-password', 'repair-update-holds.py', 'components.py
                'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json'}
 POWER_TARGETS = {'usr/bin/omarchy-powerprofiles-list', 'usr/bin/omarchy-powerprofiles-set',
                  'usr/share/omarchy/shell/plugins/panels/power/Panel.qml',
+                 'usr/share/omarchy/shell/plugins/panels/power/Model.js',
                  'usr/share/omarchy/shell/plugins/menu/Menu.qml'}
 FIXED_TARGETS = {p for group in GROUPS.values() for p, _ in group.values()} | set(LINKS) | POWER_TARGETS | {
     'etc/pam.d/omarchy-lock-password', 'etc/pacman.conf', 'usr/share/try-omarchy/pacman.conf',

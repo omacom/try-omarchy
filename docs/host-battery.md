@@ -153,13 +153,20 @@ reading is unavailable. A valid zero remains zero; unavailable readings are
 `null` on the wire and `-1` in the module state. Older host snapshots and bridge
 disconnects clear the reading.
 
-UPower uses `current_now` with `voltage_now` to calculate the power shown by the
-panel. This reports power entering or leaving the battery, not the charger's
+The panel's `omarchy-battery-status` command uses `current_now` with
+`voltage_now` to calculate live power, refreshing every five seconds while open. This reports power entering or leaving the battery, not the charger's
 rated wattage or the Mac's total power consumption. It updates when macOS
 publishes a changed reading, including when percentage and charging state have
-not changed. UPower deliberately suppresses the power estimate for ten seconds
-after an AC transition, then restores it on its next refresh; charging status
-updates independently of that settling interval. Existing guests need both the
+not changed. UPower also consumes these readings, but deliberately suppresses
+its own power estimate for ten seconds after an AC transition, then restores it
+on its next refresh. The panel's sysfs power reading avoids that delay.
+
+The native battery model trusts the reported charging state. It does not infer
+a charge-limit hold from zero watts or a long time estimate: the upstream
+heuristic could show **Holding** and remove the charging icon even when the
+Mac and UPower both reported **Charging**. Actual pending-charge and partially
+full hold states remain supported. The reviewed model patch also installs on
+matching existing guests while preserving customized files. Existing guests need both the
 updated Mac helper and the 1.3.0 integration; choose **Update and Launch** once
 to install it.
 
@@ -168,6 +175,9 @@ to install it.
 `make test` covers notification delivery without a main run loop, changes to
 charging state and current at a fixed percentage, optional-field negotiation,
 signed current conversion, guest stream processing, and the module parser.
+Battery model regressions verify that charging still shows its charging icon
+at zero watts, with an unknown rate, or with a long time estimate, while actual
+charging holds remain visible.
 For the actual Linux module, udev, and UPower path, run:
 
 ```sh

@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""Apply the reviewed macOS power-profile presentation to matching guests."""
+"""Apply reviewed macOS power and battery presentation to matching guests."""
 
 import hashlib
 import json
@@ -12,6 +12,7 @@ TARGETS = {
     "usr/bin/omarchy-powerprofiles-list",
     "usr/bin/omarchy-powerprofiles-set",
     "usr/share/omarchy/shell/plugins/panels/power/Panel.qml",
+    "usr/share/omarchy/shell/plugins/panels/power/Model.js",
     "usr/share/omarchy/shell/plugins/menu/Menu.qml",
 }
 

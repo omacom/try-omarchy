@@ -530,10 +530,10 @@
       },
       {
         "id": "macos-power-profile",
-        "description": "Show the read-only default power profile managed by macOS in the battery panel and menu.",
+        "description": "Show the read-only macOS power profile and preserve the Mac battery charge state while power estimates settle.",
         "reference": "https://github.com/basecamp/omarchy/blob/c668141e9c42b13c80c9ca4ea108e11708c5e8a5/bin/omarchy-powerprofiles-set",
         "patch": "patches/omarchy/macos-power-profile.patch",
-        "patchSha256": "8f5e3f587edb42fc6cd16f344361fb2565e2a6a544f17ad96b3ca2301590dd72",
+        "patchSha256": "2a9705076837550226d64b337fdd554a08d6e90efbba4ed1cff7f11e516b6fe4",
         "targets": [
           {
             "path": "bin/omarchy-powerprofiles-list",
@@ -554,6 +554,11 @@
             "path": "shell/plugins/menu/Menu.qml",
             "beforeSha256": "0154d0ec3855fbb48aa06eaa724a19f3c07c377494d4a3de65daed2d7d9100e3",
             "afterSha256": "bcbeefec65fddec4747c8bd715bf419c49a1b646b99d52aa882b85825f130b89"
+          },
+          {
+            "path": "shell/plugins/panels/power/Model.js",
+            "beforeSha256": "5ed21781bcd315742b8eda1aa72f415f72217a38e03c659fe40095ed939f7ed2",
+            "afterSha256": "bcbd73585f586159fc3b3cbcc4fecf8dd9eafdde5af87430c90db283ffc0b8a0"
           }
         ]
       }

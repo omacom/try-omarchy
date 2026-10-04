@@ -114,5 +114,16 @@
         "      script: \"printf 'Default, managed by macOS\\\\tdefault\\\\tdefault\\\\n'\",\n      icon: \"\\udb81\\udc0b\",\n      actionFor: function(value) { return \"\" }"
       ]
     ]
+  },
+  {
+    "path": "usr/share/omarchy/shell/plugins/panels/power/Model.js",
+    "beforeSha256": "5ed21781bcd315742b8eda1aa72f415f72217a38e03c659fe40095ed939f7ed2",
+    "afterSha256": "bcbd73585f586159fc3b3cbcc4fecf8dd9eafdde5af87430c90db283ffc0b8a0",
+    "replacements": [
+      [
+        "  if (d.state !== s.Charging || fraction >= 0.99) return false\n\n  return Number(d.changeRate || 0) <= 0.2 || Number(d.timeToFull || 0) >= 8 * 60 * 60\n",
+        "  // The mirrored Mac state is authoritative. UPower can temporarily report\n  // zero watts or no estimate after AC changes, even while charging.\n  return false\n"
+      ]
+    ]
   }
 ]

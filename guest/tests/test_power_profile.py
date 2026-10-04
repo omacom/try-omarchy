@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -77,6 +78,7 @@ class PowerProfileTests(unittest.TestCase):
     def test_boot_update_matches_factory_patch_and_preserves_mode(self):
         build_spec = json.loads((GUEST / 'spec.json').read_text())
         backport = next(b for b in build_spec['authenticity']['backports'] if b['id'] == 'macos-power-profile')
+        self.assertEqual(len(self.hooks), len(backport['targets']))
         for hook, target in zip(self.hooks, backport['targets']):
             self.assertEqual(hook['beforeSha256'], target['beforeSha256'])
             self.assertEqual(hook['afterSha256'], target['afterSha256'])
@@ -118,3 +120,55 @@ class PowerProfileTests(unittest.TestCase):
         hook['path'] = 'etc/passwd'
         with self.assertRaises(ValueError):
             installer.install(self.root, [hook])
+
+
+class BatteryPresentationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.path = 'shell/plugins/panels/power/Model.js'
+        self.hooks = json.loads((SHARE / 'power-profile-hooks.json').read_text())
+        self.hook = next(h for h in self.hooks if h['path'] == 'usr/share/omarchy/' + self.path)
+        self.model = self.root / self.hook['path']
+        self.model.parent.mkdir(parents=True)
+        self.original = (GUEST / 'tests/fixtures/power-profile/Model.js').read_bytes()
+        self.model.write_bytes(self.original)
+        self.model.chmod(0o644)
+
+    def test_boot_model_matches_the_audited_factory_patch_and_is_idempotent(self):
+        spec = json.loads((GUEST / 'spec.json').read_text())
+        backport = next(b for b in spec['authenticity']['backports'] if b['id'] == 'macos-power-profile')
+        target = next(t for t in backport['targets'] if t['path'] == self.path)
+        self.assertEqual(hashlib.sha256(self.original).hexdigest(), target['beforeSha256'])
+        staged = self.root / 'factory'
+        factory_model = staged / self.path
+        factory_model.parent.mkdir(parents=True)
+        factory_model.write_bytes(self.original)
+        subprocess.run(['git', 'apply', '--no-index', '--include=' + self.path,
+                        str(GUEST / backport['patch'])], cwd=staged, check=True)
+        installer.install(self.root, [self.hook])
+        self.assertEqual(self.model.read_bytes(), factory_model.read_bytes())
+        self.assertEqual(hashlib.sha256(self.model.read_bytes()).hexdigest(), target['afterSha256'])
+        self.assertEqual(self.model.stat().st_mode & 0o777, 0o644)
+        inode = self.model.stat().st_ino
+        installer.install(self.root, [self.hook])
+        self.assertEqual(self.model.stat().st_ino, inode)
+
+    @unittest.skipUnless(shutil.which('node'), 'node is required to execute the upstream battery model')
+    def test_charging_indicators_follow_state_while_power_estimates_settle(self):
+        installer.install(self.root, [self.hook])
+        subprocess.run(['node', str(GUEST / 'tests/battery-charge-state.test.js'), str(self.model)], check=True)
+
+    def test_customized_battery_model_and_symlink_are_preserved(self):
+        custom = self.original + b'\n// My battery presentation\n'
+        self.model.write_bytes(custom)
+        installer.install(self.root, [self.hook])
+        self.assertEqual(self.model.read_bytes(), custom)
+        destination = self.root / 'personal-model.js'
+        destination.write_bytes(self.original)
+        self.model.unlink()
+        self.model.symlink_to(destination)
+        installer.install(self.root, [self.hook])
+        self.assertTrue(self.model.is_symlink())
+        self.assertEqual(destination.read_bytes(), self.original)

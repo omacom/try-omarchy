@@ -134,6 +134,28 @@ class BootComponentTests(unittest.TestCase):
             self.assertTrue(extras.allowed_link(relative, f'{version}/{extras.kernel()}/aarch64'))
         self.assertFalse(extras.allowed_link(relative, f'custom/{extras.kernel()}/aarch64'))
 
+    def test_battery_presentation_boot_fix_updates_stock_and_preserves_custom_model(self):
+        relative = 'usr/share/omarchy/shell/plugins/panels/power/Model.js'
+        original = (support.GUEST / 'tests/fixtures/power-profile/Model.js').read_bytes()
+        for custom in (False, True):
+            with self.subTest(custom=custom), tempfile.TemporaryDirectory() as directory:
+                payload, root = self.prepare(directory)
+                target = root / relative
+                target.parent.mkdir(parents=True)
+                data = original + b'\n// My battery display\n' if custom else original
+                target.write_bytes(data)
+                result = fixes.migrate(payload, root, True, '')
+                self.assertEqual('preserved' if custom else 'applied', result['components']['power'])
+                if custom:
+                    self.assertEqual(target.read_bytes(), data)
+                else:
+                    hook = next(h for h in json.loads((payload / 'power-profile-hooks.json').read_text())
+                                if h['path'] == relative)
+                    self.assertEqual(fixes.digest(target.read_bytes()), hook['afterSha256'])
+                    inode = target.stat().st_ino
+                    fixes.migrate(payload, root, True, '')
+                    self.assertEqual(target.stat().st_ino, inode)
+
     def test_user_pinch_and_menu_migration_preserves_existing_settings_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = support.SettingsInstallTests().make_payload(directory)
