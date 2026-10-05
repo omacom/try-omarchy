@@ -42,7 +42,7 @@ help:
 	  '                      Pin an upstream release and refresh the ARM64 lock' \
 	  '  make package        Create a signed and notarized distribution DMG' \
 	  '  make release        Choose a version, tag, and build a notarized DMG' \
-	  '  make release VERSION=x.y.z  Choose the version without prompting' \
+	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
 	  '' \
 	  'Component builds:' \
 	  '  make guest          Ensure dist/guest is current (Docker)' \

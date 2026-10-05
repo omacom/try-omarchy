@@ -43,7 +43,7 @@ def version_numbers(tag: str) -> tuple[int, ...]:
 def choose_version(root: Path, requested: str) -> str:
     if not requested:
         if not sys.stdin.isatty():
-            raise ValueError("no interactive terminal; use make release VERSION=x.y.z")
+            raise ValueError("no interactive terminal; use make release VERSION=vX.Y.Z")
         tags = release_tags(root)
         current = release_tags(root, "--points-at", "HEAD")
         if len(current) > 1:
@@ -51,18 +51,37 @@ def choose_version(root: Path, requested: str) -> str:
         latest = max(tags, key=version_numbers) if tags else None
         if latest:
             print(f"Latest local release tag: {latest}", flush=True)
-        if current:
-            default = current[0].removeprefix("v")
-            print(f"HEAD is already tagged {current[0]}; Enter rebuilds that release.", flush=True)
-        elif latest:
-            major, minor, patch = version_numbers(latest)
-            default = f"{major}.{minor}.{patch + 1}"
-        else:
-            default = "0.1.0"
         try:
-            requested = input(f"Release version [{default}]: ").strip() or default
+            if current:
+                print(f"HEAD is already tagged {current[0]}; Enter rebuilds that release.", flush=True)
+                requested = input(f"Release tag [{current[0]}]: ").strip() or current[0]
+            else:
+                major, minor, patch = version_numbers(latest or "v0.0.0")
+                if not latest:
+                    print("No local release tags; increments start from v0.0.0.", flush=True)
+                choices = {
+                    "patch": f"v{major}.{minor}.{patch + 1}",
+                    "minor": f"v{major}.{minor + 1}.0",
+                    "major": f"v{major + 1}.0.0",
+                }
+                for number, (kind, tag) in enumerate(choices.items(), start=1):
+                    print(f"  {number}) {kind.capitalize()} — {tag}", flush=True)
+                print("  4) Custom", flush=True)
+                while not requested:
+                    choice = input("Select patch/minor/major/custom (1–4), or type vX.Y.Z: ").strip()
+                    kind = {"1": "patch", "2": "minor", "3": "major", "4": "custom"}.get(
+                        choice, choice.lower(),
+                    )
+                    if kind in choices:
+                        requested = choices[kind]
+                    elif kind == "custom":
+                        requested = input("Release tag (vX.Y.Z): ").strip()
+                    else:
+                        requested = choice
+                    if not requested:
+                        print("Select a release version; there is no default.", flush=True)
         except EOFError:
-            raise ValueError("version prompt cancelled; use make release VERSION=x.y.z") from None
+            raise ValueError("version prompt cancelled; use make release VERSION=vX.Y.Z") from None
     if not VERSION.fullmatch(requested):
         raise ValueError("VERSION must be x.y.z or vx.y.z, without leading zeros")
     return "v" + requested.removeprefix("v")
@@ -110,7 +129,7 @@ def release(root: Path, make: str) -> None:
         ], cwd=root, check=True)
         clean_head(root, head)
     except (ValueError, OSError, subprocess.CalledProcessError, KeyboardInterrupt):
-        print(f"Local tag {tag} remains. Retry with make release VERSION={tag[1:]}", file=sys.stderr)
+        print(f"Local tag {tag} remains. Retry with make release VERSION={tag}", file=sys.stderr)
         raise
     print(f"Release DMG: {root / 'dist' / f'TryOmarchy-{tag}.dmg'}", flush=True)
     print(f"After verifying it, push the tag: git push origin {tag}", flush=True)

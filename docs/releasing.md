@@ -10,19 +10,23 @@ make test
 make release
 ```
 
-`make release` asks for the version in the terminal, suggesting the next patch
-after the latest local release tag (or `0.1.0` for the first release). To choose
-the version explicitly, including in scripts, use:
+`make release` lets you choose **patch**, **minor**, **major**, or **custom** in
+the terminal. Each increment shows its resulting `vX.Y.Z` tag, calculated from
+the latest local release tag (or `v0.0.0` when no release tags exist). There is
+no default increment: Enter asks you to select a version. You can also type a
+custom tag directly. To choose the version explicitly, including in scripts,
+use:
 
 ```sh
-make release VERSION=X.Y.Z
+make release VERSION=vX.Y.Z
 ```
 
-Both `X.Y.Z` and `vX.Y.Z` are accepted. Without an interactive terminal, `VERSION`
-is required. The checkout must be clean, including untracked files; ignored
-build output does not make it dirty. New versions must be newer than the local
-release tags. Fetch any missing tags before choosing a version; this command
-does not check GitHub for published versions.
+All created tags use `vX.Y.Z`. Custom input and `VERSION` accept `vX.Y.Z` or
+`X.Y.Z`, which is normalized to the same tag format. Without an interactive
+terminal, `VERSION` is required. The checkout must be clean, including untracked
+files; ignored build output does not make it dirty. New versions must be newer
+than the local release tags. Fetch any missing tags before choosing a version;
+this command does not check GitHub for published versions.
 
 The command builds guest and runtime artifacts only when needed, rechecks the
 checkout, creates an annotated `vX.Y.Z` tag on the commit being packaged, and
@@ -31,7 +35,7 @@ so the app and DMG receive the correct version. Tests and the runtime release
 checklist below remain separate verification steps.
 
 If packaging or notarization fails, the local tag remains. Retry with
-`make release VERSION=X.Y.Z`; an existing tag is reused only when it points to
+`make release VERSION=vX.Y.Z`; an existing tag is reused only when it points to
 HEAD, and is never moved. The terminal prompt defaults to that existing version
 when HEAD is already tagged. A commit with a release tag cannot be given a
 second release version through this command, which keeps app version stamping
@@ -75,7 +79,7 @@ bundle ID and privacy grants, so production permission flows can be tested
 independently. Another maintainer can override the release defaults:
 
 ```sh
-make release VERSION=X.Y.Z \
+make release VERSION=vX.Y.Z \
   RELEASE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
   RELEASE_NOTARY_PROFILE=example-profile
 ```

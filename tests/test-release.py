@@ -131,24 +131,43 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.assertIn("git push origin v1.2.3", result.stdout)
         self.assertEqual("", self.git("status", "--porcelain"))
 
-    def test_prompt_suggests_patch_after_latest_local_tag(self) -> None:
+    def test_prompt_allows_explicit_patch_minor_and_major_selection(self) -> None:
         self.git("tag", "v1.9.9")
         self.git("tag", "v1.10.2")
         self.git("commit", "--allow-empty", "-qm", "Next release")
-        result = self.run_release(None, terminal=True)
+        for answer, tag in ((b"1\n", "v1.10.3"), (b"minor\n", "v1.11.0"), (b"3\n", "v2.0.0")):
+            with self.subTest(tag=tag):
+                result = self.run_release(None, terminal=True, answer=answer)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertIn("1) Patch — v1.10.3", result.stdout)
+                self.assertIn("2) Minor — v1.11.0", result.stdout)
+                self.assertIn("3) Major — v2.0.0", result.stdout)
+                self.assertTrue((self.root / f"dist/TryOmarchy-{tag}.dmg").exists())
+                self.git("tag", "-d", tag)
+
+    def test_empty_selection_does_not_default_to_patch(self) -> None:
+        self.git("tag", "v1.2.3")
+        self.git("commit", "--allow-empty", "-qm", "Next release")
+        result = self.run_release(None, terminal=True, answer=b"\n2\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("Release version [1.10.3]", result.stdout)
-        self.assertTrue((self.root / "dist/TryOmarchy-v1.10.3.dmg").exists())
+        self.assertIn("there is no default", result.stdout)
+        self.assertEqual("v1.2.3\nv1.3.0", self.git("tag"))
+
+    def test_custom_selection_prompts_for_a_tag(self) -> None:
+        result = self.run_release(None, terminal=True, answer=b"4\nv3.2.1\n")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("Release tag (vX.Y.Z):", result.stdout)
+        self.assertEqual("v3.2.1", self.git("tag"))
 
     def test_missing_version_without_terminal_fails_before_building(self) -> None:
-        self.assert_failed(self.run_release(None), "use make release VERSION=x.y.z")
+        self.assert_failed(self.run_release(None), "use make release VERSION=vX.Y.Z")
         self.assertFalse((self.root / "dist").exists())
         self.assertEqual("", self.git("tag"))
 
     def test_first_release_prompt_and_entered_version(self) -> None:
         result = self.run_release(None, terminal=True, answer=b"v3.0.0\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("Release version [0.1.0]", result.stdout)
+        self.assertIn("No local release tags; increments start from v0.0.0", result.stdout)
         self.assertTrue((self.root / "dist/TryOmarchy-v3.0.0.dmg").exists())
 
     def test_cancelled_prompt_does_not_build_or_tag(self) -> None:
@@ -199,7 +218,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
                 self.assertNotIn("package", (self.root / "dist/events").read_text())
 
     def test_packaging_failure_keeps_tag_and_retry_reuses_it(self) -> None:
-        self.assert_failed(self.run_release(FAIL_PACKAGE="1"), "Retry with make release VERSION=1.2.3")
+        self.assert_failed(self.run_release(FAIL_PACKAGE="1"), "Retry with make release VERSION=v1.2.3")
         original = self.git("rev-parse", "refs/tags/v1.2.3")
         result = self.run_release("v1.2.3")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
