@@ -8,6 +8,8 @@ override BUILD_CACHE := $(ROOT)/scripts/build-cache.py
 override BUILD_STATE := $(ROOT)/.build/state
 RELEASE_SIGN_IDENTITY ?= Developer ID Application: Eduardo Martinez (RZC79MPD34)
 RELEASE_NOTARY_PROFILE ?= try-omarchy
+VERSION ?=
+export VERSION RELEASE_SIGN_IDENTITY RELEASE_NOTARY_PROFILE
 DEVELOPMENT_SIGN_IDENTITY ?= auto
 PACKAGE_SIGN_IDENTITY ?= $(RELEASE_SIGN_IDENTITY)
 PACKAGE_NOTARY_PROFILE ?= $(RELEASE_NOTARY_PROFILE)
@@ -39,7 +41,8 @@ help:
 	  '  make update-omarchy OMARCHY_RELEASE=x.y.z' \
 	  '                      Pin an upstream release and refresh the ARM64 lock' \
 	  '  make package        Create a signed and notarized distribution DMG' \
-	  '  make release        Create a signed and notarized distribution DMG' \
+	  '  make release        Choose a version, tag, and build a notarized DMG' \
+	  '  make release VERSION=x.y.z  Choose the version without prompting' \
 	  '' \
 	  'Component builds:' \
 	  '  make guest          Ensure dist/guest is current (Docker)' \
@@ -83,6 +86,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-profile-process.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-development-sign-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-release.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
 	@$(ROOT)/macos/Tests/macos-compatibility.test.sh
 	@$(ROOT)/macos/Tests/runtime-relocation.test.sh
@@ -158,18 +162,13 @@ package: package-preflight
 	  --sign-identity "$(PACKAGE_SIGN_IDENTITY)" \
 	  --notarize-profile "$(PACKAGE_NOTARY_PROFILE)"
 
-release-preflight: version-preflight
+release-preflight:
 	@[[ "$(RELEASE_SIGN_IDENTITY)" == "Developer ID Application:"* ]] || { echo 'error: RELEASE_SIGN_IDENTITY must be a Developer ID Application identity' >&2; exit 1; }
 	@[[ -n "$(strip $(RELEASE_NOTARY_PROFILE))" ]] || { echo 'error: RELEASE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 
+release: export RELEASE_MAKE := $(MAKE)
 release: release-preflight
-	@$(MAKE) --no-print-directory guest runtime
-	@$(ROOT)/macos/build-app.sh \
-	  --configuration production \
-	  --dmg \
-	  --guest-dir "$(GUEST_DIST)" \
-	  --sign-identity "$(RELEASE_SIGN_IDENTITY)" \
-	  --notarize-profile "$(RELEASE_NOTARY_PROFILE)"
+	@python3 "$(ROOT)/scripts/release.py" --root "$(ROOT)"
 
 clean:
 	@echo 'Removing repository build output and caches...'

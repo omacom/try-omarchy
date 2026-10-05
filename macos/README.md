@@ -13,7 +13,8 @@ make runtime   # macos/.build/qemu-gpu-runtime
 make app       # dist/app.noindex/Try Omarchy.app
 make run
 make package   # signed and notarized dist/TryOmarchy-vX.Y.Z.dmg
-make release   # signed and notarized dist/TryOmarchy-vX.Y.Z.dmg
+make release   # prompt for version, tag, and build a signed/notarized DMG
+make release VERSION=x.y.z  # explicit version without prompting
 make test
 ```
 
@@ -46,8 +47,13 @@ See [performance profiling](../docs/performance.md) for CPU/memory accounting,
 reproducible measurements, and the current native-comparison limitations.
 
 `make release` defaults to the maintainer's Developer ID Application identity
-and `try-omarchy` notarytool profile. The app builder is also directly usable
-for release signing and notarization:
+and `try-omarchy` notarytool profile. It asks for a version (or accepts
+`VERSION=x.y.z`), ensures the guest and runtime are current, and creates an
+annotated release tag before building the app and DMG. It requires a clean
+checkout and reuses an existing tag only on the same commit, so failed
+notarization can be retried. See [releasing](../docs/releasing.md) for version
+selection and publishing. The app builder is also directly usable for release
+signing and notarization:
 
 ```sh
 macos/build-app.sh \

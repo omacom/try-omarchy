@@ -7,23 +7,45 @@ Releases are Apple Silicon-only and require macOS 15 or newer.
 ```sh
 make doctor
 make test
-make build
-# Choose the next version and tag the clean commit being packaged.
-git tag -a vX.Y.Z -m "vX.Y.Z"
-make package
+make release
 ```
 
-Replace `vX.Y.Z` with the intended release version. Both `make package` and
-`make release` require a clean checkout, including untracked files, with an
-exact `vX.Y.Z` tag on HEAD. Neither command selects the next version or checks
-whether that version has already been published. Ignored build output does
-not make the checkout dirty.
+`make release` asks for the version in the terminal, suggesting the next patch
+after the latest local release tag (or `0.1.0` for the first release). To choose
+the version explicitly, including in scripts, use:
+
+```sh
+make release VERSION=X.Y.Z
+```
+
+Both `X.Y.Z` and `vX.Y.Z` are accepted. Without an interactive terminal, `VERSION`
+is required. The checkout must be clean, including untracked files; ignored
+build output does not make it dirty. New versions must be newer than the local
+release tags. Fetch any missing tags before choosing a version; this command
+does not check GitHub for published versions.
+
+The command builds guest and runtime artifacts only when needed, rechecks the
+checkout, creates an annotated `vX.Y.Z` tag on the commit being packaged, and
+builds the signed and notarized app and DMG. The tag must exist before packaging
+so the app and DMG receive the correct version. Tests and the runtime release
+checklist below remain separate verification steps.
+
+If packaging or notarization fails, the local tag remains. Retry with
+`make release VERSION=X.Y.Z`; an existing tag is reused only when it points to
+HEAD, and is never moved. The terminal prompt defaults to that existing version
+when HEAD is already tagged. A commit with a release tag cannot be given a
+second release version through this command, which keeps app version stamping
+unambiguous.
+
+`make package` remains available for an already-tagged clean checkout. It
+neither prompts nor creates a tag.
 
 After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
 the GitHub release manually using that existing tag and attach
 `dist/TryOmarchy-vX.Y.Z.dmg`. The filename uses the version stamped into the
 app from the release tag (for example, `v0.4.0` produces
-`TryOmarchy-v0.4.0.dmg`). Packaging does not create tags or publish GitHub releases.
+`TryOmarchy-v0.4.0.dmg`). `make release` creates the local tag; pushing it,
+creating the GitHub release, and uploading the DMG remain manual.
 
 Older app release checkers recognize only `TryOmarchy.dmg`. To keep a release
 discoverable by those clients, also upload a copy under that legacy asset name.
@@ -53,7 +75,7 @@ bundle ID and privacy grants, so production permission flows can be tested
 independently. Another maintainer can override the release defaults:
 
 ```sh
-make release \
+make release VERSION=X.Y.Z \
   RELEASE_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" \
   RELEASE_NOTARY_PROFILE=example-profile
 ```
