@@ -89,7 +89,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         ).strip()
 
     def run_release(self, version: str | None = "1.2.3", *, terminal: bool = False,
-                    answer: bytes = b"\n", dry_run: bool = False,
+                    answer: bytes = b"\ny\n", dry_run: bool = False,
                     **environment: str) -> subprocess.CompletedProcess:
         env = os.environ.copy()
         for name in ("VERSION", "MAKEFLAGS", "MAKELEVEL", "MFLAGS", "RELEASE_MAKE"):
@@ -129,6 +129,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.assertEqual("1.2.3", plistlib.loads((self.root / "dist/Info.plist").read_bytes())[
             "CFBundleShortVersionString"])
         self.assertIn("git push origin v1.2.3", result.stdout)
+        self.assertNotIn("[y/N]", result.stdout)
         self.assertEqual("", self.git("status", "--porcelain"))
 
     def test_prompt_allows_explicit_patch_minor_and_major_selection(self) -> None:
@@ -137,7 +138,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.git("commit", "--allow-empty", "-qm", "Next release")
         for answer, tag in ((b"1\n", "v1.10.3"), (b"minor\n", "v1.11.0"), (b"3\n", "v2.0.0")):
             with self.subTest(tag=tag):
-                result = self.run_release(None, terminal=True, answer=answer)
+                result = self.run_release(None, terminal=True, answer=answer + b"y\n")
                 self.assertEqual(0, result.returncode, result.stdout + result.stderr)
                 self.assertIn("1) Patch — v1.10.3", result.stdout)
                 self.assertIn("2) Minor — v1.11.0", result.stdout)
@@ -148,13 +149,13 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
     def test_empty_selection_does_not_default_to_patch(self) -> None:
         self.git("tag", "v1.2.3")
         self.git("commit", "--allow-empty", "-qm", "Next release")
-        result = self.run_release(None, terminal=True, answer=b"\n2\n")
+        result = self.run_release(None, terminal=True, answer=b"\n2\ny\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("there is no default", result.stdout)
         self.assertEqual("v1.2.3\nv1.3.0", self.git("tag"))
 
     def test_version_can_be_entered_directly_without_a_custom_menu_option(self) -> None:
-        result = self.run_release(None, terminal=True, answer=b"v3.2.1\n")
+        result = self.run_release(None, terminal=True, answer=b"v3.2.1\ny\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Select patch/minor/major (1–3), or type vX.Y.Z:", result.stdout)
         self.assertNotIn("4) Custom", result.stdout)
@@ -166,10 +167,28 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.assertEqual("", self.git("tag"))
 
     def test_first_release_prompt_and_entered_version(self) -> None:
-        result = self.run_release(None, terminal=True, answer=b"v3.0.0\n")
+        result = self.run_release(None, terminal=True, answer=b"v3.0.0\nyes\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("No local release tags; increments start from v0.0.0", result.stdout)
         self.assertTrue((self.root / "dist/TryOmarchy-v3.0.0.dmg").exists())
+        self.assertIn(f"Create release v3.0.0 from commit {self.git('rev-parse', 'HEAD')[:12]}? [y/N]",
+                      result.stdout)
+
+    def test_confirmation_defaults_to_no_and_leaves_checkout_untouched(self) -> None:
+        for answer in (b"\n", b"n\n", b"maybe\n", b"\x04"):
+            with self.subTest(answer=answer):
+                result = self.run_release(None, terminal=True, answer=b"v3.0.0\n" + answer)
+                self.assert_failed(result, "release cancelled; no builds or tag changes")
+                self.assertIn("Create release v3.0.0 from commit", result.stdout)
+                self.assertEqual("", self.git("tag"))
+                self.assertFalse((self.root / "dist").exists())
+
+    def test_explicit_version_also_requires_confirmation_in_a_terminal(self) -> None:
+        result = self.run_release("v3.0.0", terminal=True, answer=b"n\n")
+        self.assert_failed(result, "release cancelled")
+        self.assertIn("Create release v3.0.0 from commit", result.stdout)
+        self.assertEqual("", self.git("tag"))
+        self.assertFalse((self.root / "dist").exists())
 
     def test_cancelled_prompt_does_not_build_or_tag(self) -> None:
         self.assert_failed(self.run_release(None, terminal=True, answer=b"\x04"), "prompt cancelled")
@@ -231,6 +250,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         result = self.run_release(None, terminal=True)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Enter rebuilds that release", result.stdout)
+        self.assertIn("Rebuild release v1.2.3 from commit", result.stdout)
         self.assertEqual("v1.2.3", self.git("tag"))
 
     def test_invalid_credentials_and_dry_run_never_create_a_tag(self) -> None:

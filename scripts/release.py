@@ -106,7 +106,16 @@ def release(root: Path, make: str) -> None:
         raise ValueError("release signing requires a Developer ID Application identity and notary profile")
     head = clean_head(root)
     tag = choose_version(root, os.environ.get("VERSION", ""))
-    validate_tag(root, tag, head)
+    reusing = validate_tag(root, tag, head)
+    if sys.stdin.isatty():
+        action = "Rebuild release" if reusing else "Create release"
+        try:
+            answer = input(f"{action} {tag} from commit {head[:12]}? [y/N]: ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            raise ValueError("release cancelled; no builds or tag changes were made")
+    clean_head(root, head)
     print(f"Preparing {tag} from {head[:12]}", flush=True)
     subprocess.run([make, "--no-print-directory", "-C", str(root), "guest", "runtime"], check=True)
     clean_head(root, head)

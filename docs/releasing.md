@@ -14,9 +14,10 @@ make release
 version directly in the terminal. Each increment shows its resulting `vX.Y.Z`
 tag, calculated from the latest local release tag (or `v0.0.0` when no release
 tags exist). There is no default increment: Enter asks you to select a version.
-You can also type a
-custom tag directly. To choose the version explicitly, including in scripts,
-use:
+You can also type a custom tag directly. Before building or creating a tag, an
+interactive run shows the exact release tag and commit and asks for confirmation
+with **No** as the default. Only `y` or `yes` proceeds, including when rebuilding
+an existing tag. To choose the version explicitly, including in scripts, use:
 
 ```sh
 make release VERSION=vX.Y.Z
@@ -28,6 +29,9 @@ terminal, `VERSION` is required. The checkout must be clean, including untracked
 files; ignored build output does not make it dirty. New versions must be newer
 than the local release tags. Fetch any missing tags before choosing a version;
 this command does not check GitHub for published versions.
+
+Noninteractive runs with `VERSION` skip confirmation; supplying the version is
+the explicit instruction to build that release.
 
 The command builds guest and runtime artifacts only when needed, rechecks the
 checkout, creates an annotated `vX.Y.Z` tag on the commit being packaged, and
