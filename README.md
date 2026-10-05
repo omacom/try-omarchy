@@ -916,9 +916,9 @@ Both DMG targets create distributable artifacts:
   `PACKAGE_SIGN_IDENTITY` and `PACKAGE_NOTARY_PROFILE`, which default to the
   configured release credentials, and fails instead of producing an
   unnotarized fallback.
-- `make release` offers patch, minor, major, or custom version selection, builds
-  guest and runtime artifacts when needed, creates an annotated local release
-  tag, and performs the same signing and notarization workflow with the
+- `make release` offers patch, minor, or major selection and direct version
+  entry, builds guest and runtime artifacts when needed, creates an annotated
+  local release tag, and performs the same signing and notarization workflow with the
   release-specific credential variables.
   Use `make release VERSION=vX.Y.Z` to choose the version without prompting.
   GitHub publishing remains manual.

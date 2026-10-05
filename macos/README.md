@@ -47,10 +47,10 @@ See [performance profiling](../docs/performance.md) for CPU/memory accounting,
 reproducible measurements, and the current native-comparison limitations.
 
 `make release` defaults to the maintainer's Developer ID Application identity
-and `try-omarchy` notarytool profile. It offers patch, minor, major, or custom
-version selection (or accepts `VERSION=vX.Y.Z`), ensures the guest and runtime
-are current, and creates an annotated release tag before building the app and
-DMG. It requires a clean checkout and reuses an existing tag only on the same
+and `try-omarchy` notarytool profile. It offers patch, minor, or major selection
+and direct version entry (or accepts `VERSION=vX.Y.Z`), ensures the guest and
+runtime are current, and creates an annotated release tag before building the
+app and DMG. It requires a clean checkout and reuses an existing tag only on the same
 commit, so failed
 notarization can be retried. See [releasing](../docs/releasing.md) for version
 selection and publishing. The app builder is also directly usable for release

@@ -153,10 +153,11 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.assertIn("there is no default", result.stdout)
         self.assertEqual("v1.2.3\nv1.3.0", self.git("tag"))
 
-    def test_custom_selection_prompts_for_a_tag(self) -> None:
-        result = self.run_release(None, terminal=True, answer=b"4\nv3.2.1\n")
+    def test_version_can_be_entered_directly_without_a_custom_menu_option(self) -> None:
+        result = self.run_release(None, terminal=True, answer=b"v3.2.1\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("Release tag (vX.Y.Z):", result.stdout)
+        self.assertIn("Select patch/minor/major (1–3), or type vX.Y.Z:", result.stdout)
+        self.assertNotIn("4) Custom", result.stdout)
         self.assertEqual("v3.2.1", self.git("tag"))
 
     def test_missing_version_without_terminal_fails_before_building(self) -> None:

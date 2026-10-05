@@ -10,10 +10,11 @@ make test
 make release
 ```
 
-`make release` lets you choose **patch**, **minor**, **major**, or **custom** in
-the terminal. Each increment shows its resulting `vX.Y.Z` tag, calculated from
-the latest local release tag (or `v0.0.0` when no release tags exist). There is
-no default increment: Enter asks you to select a version. You can also type a
+`make release` lets you choose **patch**, **minor**, or **major**, or type a
+version directly in the terminal. Each increment shows its resulting `vX.Y.Z`
+tag, calculated from the latest local release tag (or `v0.0.0` when no release
+tags exist). There is no default increment: Enter asks you to select a version.
+You can also type a
 custom tag directly. To choose the version explicitly, including in scripts,
 use:
 

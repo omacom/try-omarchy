@@ -66,16 +66,13 @@ def choose_version(root: Path, requested: str) -> str:
                 }
                 for number, (kind, tag) in enumerate(choices.items(), start=1):
                     print(f"  {number}) {kind.capitalize()} — {tag}", flush=True)
-                print("  4) Custom", flush=True)
                 while not requested:
-                    choice = input("Select patch/minor/major/custom (1–4), or type vX.Y.Z: ").strip()
-                    kind = {"1": "patch", "2": "minor", "3": "major", "4": "custom"}.get(
+                    choice = input("Select patch/minor/major (1–3), or type vX.Y.Z: ").strip()
+                    kind = {"1": "patch", "2": "minor", "3": "major"}.get(
                         choice, choice.lower(),
                     )
                     if kind in choices:
                         requested = choices[kind]
-                    elif kind == "custom":
-                        requested = input("Release tag (vX.Y.Z): ").strip()
                     else:
                         requested = choice
                     if not requested:
