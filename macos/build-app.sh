@@ -349,8 +349,7 @@ codesign --verify --deep --strict --verbose=2 "$app"
 
 echo "[native] Built $app"
 if (( build_dmg )); then
-  app_version=$(/usr/bin/plutil -extract CFBundleShortVersionString raw "$contents/Info.plist")
-  dmg="$repo_dir/dist/TryOmarchy-v${app_version}.dmg"
+  dmg="$repo_dir/dist/TryOmarchy.dmg"
   rm -f "$dmg"
   package_options=()
   if [[ $sign_identity != - ]]; then

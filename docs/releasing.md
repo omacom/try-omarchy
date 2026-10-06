@@ -51,13 +51,14 @@ neither prompts nor creates a tag.
 
 After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
 the GitHub release manually using that existing tag and attach
-`dist/TryOmarchy-vX.Y.Z.dmg`. The filename uses the version stamped into the
-app from the release tag (for example, `v0.4.0` produces
-`TryOmarchy-v0.4.0.dmg`). `make release` creates the local tag; pushing it,
-creating the GitHub release, and uploading the DMG remain manual.
+`dist/TryOmarchy.dmg`. The filename stays the same for every release; the app
+inside is stamped with the version from the release tag. `make release` creates
+the local tag; pushing it, creating the GitHub release, and uploading the DMG
+remain manual.
 
-Older app release checkers recognize only `TryOmarchy.dmg`. To keep a release
-discoverable by those clients, also upload a copy under that legacy asset name.
+Always upload the DMG as `TryOmarchy.dmg` so older app release checkers and the
+website's stable download link continue to work:
+<https://github.com/omacom/try-omarchy/releases/latest/download/TryOmarchy.dmg>.
 
 When the release updates Omarchy itself, first run:
 
@@ -71,7 +72,7 @@ before continuing with the normal build and verification sequence.
 Outputs are written to:
 
 - `dist/release.noindex/Try Omarchy.app` (production)
-- `dist/TryOmarchy-vX.Y.Z.dmg`
+- `dist/TryOmarchy.dmg`
 - `dist/guest/`
 
 `make package` and `make release` both create distributable builds: they sign

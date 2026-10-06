@@ -72,8 +72,7 @@ subprocess.run([sys.executable, str(root / "scripts/app_version.py"),
     "--root", str(root), "--plist", str(plist)], check=True)
 if os.environ.get("FAIL_PACKAGE"):
     sys.exit(24)
-version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
-(out / f"TryOmarchy-v{version}.dmg").write_text("test DMG\\n")
+(out / "TryOmarchy.dmg").write_text("test DMG\\n")
 ''')
         builder.chmod(0o755)
         self.git("init", "-q")
@@ -119,13 +118,14 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn(message, result.stderr)
 
-    def test_explicit_version_tags_before_packaging_and_stamps_dmg(self) -> None:
+    def test_explicit_version_tags_before_packaging_and_stamps_app(self) -> None:
         result = self.run_release()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("tag", self.git("cat-file", "-t", "refs/tags/v1.2.3"))
         self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "v1.2.3^{commit}"))
         self.assertEqual("guest:\nruntime:\npackage\n", (self.root / "dist/events").read_text())
-        self.assertTrue((self.root / "dist/TryOmarchy-v1.2.3.dmg").exists())
+        self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
+        self.assertIn(f"Release DMG: {self.root.resolve() / 'dist/TryOmarchy.dmg'}", result.stdout)
         self.assertEqual("1.2.3", plistlib.loads((self.root / "dist/Info.plist").read_bytes())[
             "CFBundleShortVersionString"])
         self.assertIn("git push origin v1.2.3", result.stdout)
@@ -143,7 +143,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
                 self.assertIn("1) Patch — v1.10.3", result.stdout)
                 self.assertIn("2) Minor — v1.11.0", result.stdout)
                 self.assertIn("3) Major — v2.0.0", result.stdout)
-                self.assertTrue((self.root / f"dist/TryOmarchy-{tag}.dmg").exists())
+                self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
                 self.git("tag", "-d", tag)
 
     def test_empty_selection_does_not_default_to_patch(self) -> None:
@@ -170,7 +170,7 @@ version = plistlib.loads(plist.read_bytes())["CFBundleShortVersionString"]
         result = self.run_release(None, terminal=True, answer=b"v3.0.0\nyes\n")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("No local release tags; increments start from v0.0.0", result.stdout)
-        self.assertTrue((self.root / "dist/TryOmarchy-v3.0.0.dmg").exists())
+        self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
         self.assertIn(f"Create release v3.0.0 from commit {self.git('rev-parse', 'HEAD')[:12]}? [y/N]",
                       result.stdout)
 
