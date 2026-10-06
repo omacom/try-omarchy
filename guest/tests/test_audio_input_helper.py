@@ -19,6 +19,12 @@ HELPER = (
 
 class AudioInputHelperTests(unittest.TestCase):
     def test_only_application_recordings_move_to_the_selected_source(self) -> None:
+        self.assert_application_recordings_move("C")
+
+    def test_localized_sessions_still_move_application_recordings(self) -> None:
+        self.assert_application_recordings_move("zh_CN.UTF-8")
+
+    def assert_application_recordings_move(self, locale: str) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             commands = root / "commands"
@@ -42,7 +48,11 @@ class AudioInputHelperTests(unittest.TestCase):
                 commands / "pactl",
                 r"""
                 if [[ $1 == list && $2 == source-outputs ]]; then
-                  printf '%b' 'Source Output #41\n\tProperties:\n\t\tpulse.module.id = "100"\n\t\tmedia.name = "output.omarchy_host_input_internal"\nSource Output #52\n\tProperties:\n\t\tapplication.name = "Voice Recorder"\nSource Output #63\n\tProperties:\n\t\tapplication.name = "EasyEffects"\n'
+                  header='Source Output'
+                  if [[ ${LC_ALL:-} == zh_CN.UTF-8 ]]; then
+                    header='信源输出'
+                  fi
+                  printf '%b' "$header"' #41\n\tProperties:\n\t\tpulse.module.id = "100"\n\t\tmedia.name = "output.omarchy_host_input_internal"\n'"$header"' #52\n\tProperties:\n\t\tapplication.name = "Voice Recorder"\n'"$header"' #63\n\tProperties:\n\t\tapplication.name = "EasyEffects"\n'
                   exit 0
                 fi
                 printf 'pactl %s\n' "$*" >>"$AUDIO_INPUT_TEST_LOG"
@@ -52,6 +62,8 @@ class AudioInputHelperTests(unittest.TestCase):
             environment = os.environ.copy()
             environment["PATH"] = f"{commands}:{environment['PATH']}"
             environment["AUDIO_INPUT_TEST_LOG"] = str(log)
+            environment["LC_ALL"] = locale
+            environment["LANGUAGE"] = "zh_CN"
             subprocess.run(
                 [str(HELPER), "77", "omarchy_host_input_macbook"],
                 check=True,
