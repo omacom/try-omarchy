@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 
 GUEST = Path(__file__).resolve().parents[1]
@@ -723,8 +724,8 @@ def main() -> None:
     )
     check(
         "en_US.UTF-8 UTF-8" in configure and "zh_TW.UTF-8 UTF-8" in configure
-        and "zh_CN.UTF-8 UTF-8" in configure,
-        "both Chinese locales are generated alongside English for host-language initialization",
+        and "zh_CN.UTF-8 UTF-8" in configure and "ko_KR.UTF-8 UTF-8" in configure,
+        "both Chinese locales and Korean are generated alongside English for host-language initialization",
     )
     check(
         "LANG=en_US.UTF-8" in configure and "KEYMAP=us" in configure,
@@ -753,6 +754,20 @@ def main() -> None:
         "keyboard-us sits at item index 0 ahead of chewing, so a user who never triggers the IME "
         "(an inactive input context) still lands on plain US input, even though fcitx5 resolves "
         "and rewrites the group's actual default input method to chewing",
+    )
+    check(
+        "[Groups/0/Items/2]" not in fcitx5_profile
+        and "[Groups/1/Items/2]" not in fcitx5_profile
+        and "[Groups/1]\nName=Korean\nDefault Layout=us\nDefaultIM=hangul\n" in fcitx5_profile
+        and "[Groups/1/Items/0]\nName=keyboard-us\nLayout=\n" in fcitx5_profile
+        and "[Groups/1/Items/1]\nName=hangul\nLayout=\n" in fcitx5_profile
+        and fcitx5_profile.rstrip("\n").endswith("[GroupOrder]\n0=Default\n1=Korean")
+        and "fcitx5-hangul" in requested_packages
+        and "fcitx5-hangul" in packages
+        and "libhangul" in packages,
+        "Hangul lives in its own Korean group (US + Hangul) after Default, so the Default "
+        "group stays US + Chewing, and the hangul engine and its libhangul dependency are "
+        "part of the locked transaction",
     )
     check(
         'chromium_flags="$root/etc/skel/.config/chromium-flags.conf"' in configure
@@ -950,6 +965,20 @@ def main() -> None:
             for family in ("sans-serif", "serif", "monospace")
         ),
         "the Traditional Chinese font preference is scoped to generic sans/serif/monospace requests and wins over later fontconfig stages",
+    )
+    cjk_font_rules = ET.fromstring(cjk_fontconfig).findall("match[@target='pattern']")
+    check(
+        all(
+            any(
+                rule.findtext("test[@name='family'][@qual='any']/string") == family
+                and rule.findtext("test[@name='lang'][@compare='contains']/string") == "ko"
+                and rule.findtext("edit[@name='family'][@mode='prepend'][@binding='strong']/string")
+                == f"Noto {kind} CJK KR"
+                for rule in cjk_font_rules
+            )
+            for family, kind in (("sans-serif", "Sans"), ("serif", "Serif"), ("monospace", "Sans Mono"))
+        ),
+        "Korean text prefers KR Han glyphs for generic sans, serif, and monospace with the same strong prepend rules",
     )
     environment_conf = read(
         GUEST / "factory-overlay/usr/lib/environment.d/90-try-omarchy.conf"
@@ -1325,9 +1354,15 @@ def main() -> None:
     check(
         locale_gen_format is not None
         and locale_allowlist_match is not None
-        and generated_locales == allowlisted_locales,
+        and generated_locales == allowlisted_locales
+        and "ko_KR.UTF-8" in allowlisted_locales,
         "locale script's allowlist cannot drift from the locales configure-rootfs.sh actually "
         "generates, or a chosen language silently gets no LANG",
+    )
+    check(
+        [token for token in spec["runtime"]["kernelCommandLine"].split()
+         if token.startswith("tryomarchy.locale_support=")] == ["tryomarchy.locale_support=3"],
+        "the factory advertises locale support 3 for English, both Chinese locales, and Korean",
     )
     check(
         locale_script_path.is_file()
@@ -1362,6 +1397,20 @@ def main() -> None:
     check(
         '[ ! -L "$locale_conf" ] || exit 1' in locale_script,
         "locale script refuses to write through a symlink",
+    )
+    check(
+        'if [ "$locale" = ko_KR.UTF-8 ]; then' in locale_script
+        and 'TRY_OMARCHY_LOCALE_FCITX5_PROFILE_PATH:-/etc/skel/.config/fcitx5/profile' in locale_script
+        and '[ -L "$fcitx5_profile" ]' in locale_script
+        and '[ -e "$fcitx5_profile" ] && [ ! -f "$fcitx5_profile" ]' in locale_script
+        and locale_script.index('[ -L "$fcitx5_profile" ]') < locale_script.index("# Replace LANG only:")
+        and locale_script.index('[ ! -f "$fcitx5_profile" ]') < locale_script.index("# Replace LANG only:")
+        and 'python3 - "$fcitx5_profile"' in locale_script
+        and 'fcitx5 profile must be a regular file' in locale_script
+        and 'len(orders) != 1 or orders[0].group(1) != b"0=Default\\n1=Korean\\n"' in locale_script
+        and 'b"0=Korean\\n1=Default\\n"' in locale_script
+        and '[GroupOrder]\n0=Default\n1=Korean\n' in fcitx5_profile,
+        "only Korean initialization reorders the unchanged factory GroupOrder in a regular skel profile",
     )
 
     check(

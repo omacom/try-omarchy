@@ -1152,7 +1152,7 @@ guest_locale=${OMARCHY_QEMU_GPU_LOCALE:-}
 locale_kernel_argument=""
 if [[ -n $guest_locale ]]; then
   case $guest_locale in
-    en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8)
+    en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8 | ko_KR.UTF-8)
       locale_kernel_argument=" tryomarchy.locale=$guest_locale"
       ;;
     *)
@@ -1604,7 +1604,12 @@ fi
 # A saved disk owns its capability. Never apply a newer app's locale to an
 # older guest; mask the legacy every-boot writer so in-guest edits survive.
 case " $launch_kernel_command_line " in
-  *' tryomarchy.locale_support=2 '*) ;;
+  *' tryomarchy.locale_support=3 '*) ;;
+  *' tryomarchy.locale_support=2 '*)
+    if [[ $guest_locale == ko_KR.UTF-8 ]]; then
+      locale_kernel_argument=" tryomarchy.locale=en_US.UTF-8"
+    fi
+    ;;
   *' tryomarchy.locale_support=1 '*)
     locale_kernel_argument=" systemd.mask=try-omarchy-locale.service"
     ;;

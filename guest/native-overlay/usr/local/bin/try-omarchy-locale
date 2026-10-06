@@ -32,11 +32,24 @@ for argument in $command_line; do
       # reads on every login, so anything else is ignored (keeping whatever
       # is already selected) rather than trusted or shell-interpolated.
       case $candidate in
-        en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8) locale=$candidate ;;
+        en_US.UTF-8 | zh_TW.UTF-8 | zh_CN.UTF-8 | ko_KR.UTF-8) locale=$candidate ;;
       esac
       ;;
   esac
 done
+
+# Check the Korean input profile before writing anything, so a refused
+# profile leaves both files untouched for the next boot's retry.
+fcitx5_profile=${TRY_OMARCHY_LOCALE_FCITX5_PROFILE_PATH:-/etc/skel/.config/fcitx5/profile}
+if [ "$locale" = ko_KR.UTF-8 ]; then
+  if [ -L "$fcitx5_profile" ]; then
+    exit 1
+  fi
+  if [ -e "$fcitx5_profile" ] && [ ! -f "$fcitx5_profile" ]; then
+    echo "fcitx5 profile must be a regular file" >&2
+    exit 1
+  fi
+fi
 
 # Replace LANG only: users can customize LC_TIME, LC_NUMERIC and other
 # categories after provisioning. Never source their configuration as root.
@@ -75,6 +88,48 @@ if contents != updated:
         if os.path.exists(temporary):
             os.unlink(temporary)
 PY
+
+# The owner account is created from /etc/skel after this unit, which orders
+# Before=omarchy-provision-owner.service. Select Korean only for a Korean Mac;
+# leave other locales and customized group orders untouched.
+if [ "$locale" = ko_KR.UTF-8 ]; then
+  python3 - "$fcitx5_profile" <<'PY'
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+
+path = Path(sys.argv[1])
+try:
+    mode = path.lstat().st_mode
+except FileNotFoundError:
+    # A removed profile should not prevent LANG initialization or be recreated.
+    raise SystemExit(0)
+if not stat.S_ISREG(mode):
+    raise SystemExit("fcitx5 profile must be a regular file")
+contents = path.read_bytes()
+orders = list(re.finditer(
+    rb"^\[GroupOrder\]\n(.*?)(?=^\[|\Z)", contents, re.MULTILINE | re.DOTALL
+))
+if len(orders) != 1 or orders[0].group(1) != b"0=Default\n1=Korean\n":
+    raise SystemExit(0)
+start, end = orders[0].span(1)
+updated = contents[:start] + b"0=Korean\n1=Default\n" + contents[end:]
+descriptor, temporary = tempfile.mkstemp(prefix=".fcitx5-profile.", dir=path.parent)
+try:
+    with os.fdopen(descriptor, "wb") as output:
+        output.write(updated)
+        output.flush()
+        os.fchmod(output.fileno(), stat.S_IMODE(mode))
+        os.fsync(output.fileno())
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+fi
 
 # Keep the marker on failure so the next boot can retry.
 rm -- "$pending"

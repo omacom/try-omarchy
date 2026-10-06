@@ -559,15 +559,24 @@ accept values between menu steps, down to the guest's 2048 MiB minimum. The
 ## Language
 
 New VMs inherit the Mac's primary language on first boot: English, Traditional
-Chinese (`zh_TW.UTF-8`), or Simplified Chinese (`zh_CN.UTF-8`). Other Mac
-languages currently fall back to English. There is no launcher language setting;
-change the locale inside Omarchy afterward. Later boots and Mac language changes
-do not overwrite that guest choice. Existing VMs keep their saved language.
+Chinese (`zh_TW.UTF-8`), Simplified Chinese (`zh_CN.UTF-8`), or Korean
+(`ko_KR.UTF-8`). Other Mac languages currently fall back to English. There is no
+launcher language setting; change the locale inside Omarchy afterward. Later
+boots and Mac language changes do not overwrite that guest choice. Existing VMs
+keep their saved language.
 
 Applications use translations where available. Omarchy's own setup wizard and
 menus stay in English: upstream has no translation mechanism for those shell
 scripts. The US keyboard layout remains the default input method; fcitx5 also
-includes Chewing (Bopomofo), reachable with `Ctrl + Space`.
+includes Chewing (Bopomofo), reachable with `Ctrl + Space` in the Default group.
+A Korean Mac automatically selects the Korean group for the first owner account,
+so `Ctrl + Space` toggles US and Hangul. Other languages keep the Default group.
+Noto CJK KR glyph variants are preferred for Korean text; the Traditional Chinese
+font preference remains unchanged.
+
+These defaults apply to new or reset guests; an existing VM keeps its packages
+and profile. To switch groups manually, run `fcitx5-remote -g Korean` or
+`fcitx5-remote -g Default` in a guest terminal; the choice persists.
 
 ## Requirements
 

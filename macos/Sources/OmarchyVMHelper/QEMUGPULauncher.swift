@@ -234,14 +234,16 @@ enum QEMUGPUStorageSpaceEstimate {
         environment: [String: String],
         metrics: BundledGuestMetrics?,
         preference: StorageLocationPreference = .default,
+        requiresKorean: Bool = false,
         fileManager: FileManager = .default
     ) -> Bool {
         guard let metrics,
               let root = storageRootURL(environment: environment, preference: preference, fileManager: fileManager)
         else { return false }
+        let factorySupportsSelection = requiresKorean ? metrics.supportsKorean : metrics.supportsLanguageSelection
         let disks = root.appendingPathComponent("disks", isDirectory: true)
         if !fileManager.fileExists(atPath: disks.path) {
-            return metrics.supportsLanguageSelection
+            return factorySupportsSelection
         }
         guard hasAttributes(disks, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
               let entries = try? fileManager.contentsOfDirectory(at: disks, includingPropertiesForKeys: nil)
@@ -249,14 +251,14 @@ enum QEMUGPUStorageSpaceEstimate {
         let selected: RecordedPersistentDisk?
         if environment["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK"] == "1" {
             let directory = disks.appendingPathComponent(metrics.identity)
-            if !fileManager.fileExists(atPath: directory.path) { return metrics.supportsLanguageSelection }
+            if !fileManager.fileExists(atPath: directory.path) { return factorySupportsSelection }
             selected = recordedPersistentDisk(in: directory, fileManager: fileManager)
         } else {
-            if entries.isEmpty { return metrics.supportsLanguageSelection }
+            if entries.isEmpty { return factorySupportsSelection }
             selected = selectedSinglePersistentDisk(from: entries, bundleIdentity: metrics.identity, fileManager: fileManager)
         }
         guard let selected, selected.schemaVersion == 2 else { return false }
-        if selected.identity == metrics.identity { return metrics.supportsLanguageSelection }
+        if selected.identity == metrics.identity { return factorySupportsSelection }
         let boot = root.appendingPathComponent("boot", isDirectory: true)
         let kit = boot.appendingPathComponent(selected.identity, isDirectory: true)
         let commandLine = kit.appendingPathComponent("command-line")
@@ -267,7 +269,7 @@ enum QEMUGPUStorageSpaceEstimate {
               size <= 16385,
               let contents = try? String(contentsOf: commandLine, encoding: .utf8)
         else { return false }
-        return GuestLocaleCatalog.supportsSelection(kernelCommandLine: contents)
+        return GuestLocaleCatalog.supportsSelection(kernelCommandLine: contents, requiresKorean: requiresKorean)
     }
 
     /// Read-only best-effort preflight for the one-time legacy boot-file
@@ -361,6 +363,9 @@ enum QEMUGPUStorageSpaceEstimate {
             workingDiskBytes: Int64(workingBytes),
             supportsLanguageSelection: GuestLocaleCatalog.supportsSelection(
                 kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? ""
+            ),
+            supportsKorean: GuestLocaleCatalog.supportsSelection(
+                kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? "", requiresKorean: true
             )
         )
     }

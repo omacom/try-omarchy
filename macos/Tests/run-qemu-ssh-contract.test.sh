@@ -908,6 +908,8 @@ assert_contains "$(<"$test_root/hvf-trace-relative/stderr")" 'must be an absolut
 # legacy every-boot writers are masked, and new images seed only once.
 run_scenario locale-unsupported 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
 assert_not_contains "$(<"$test_root/locale-unsupported/qemu.log")" 'tryomarchy.locale='
+run_scenario locale-korean-unsupported 0 '' OMARCHY_QEMU_GPU_LOCALE=ko_KR.UTF-8
+assert_not_contains "$(<"$test_root/locale-korean-unsupported/qemu.log")" 'tryomarchy.locale='
 saved_command_line=$(<"$persistent_root/boot/command-line")
 printf '%s tryomarchy.locale_support=1\n' "$saved_command_line" >"$persistent_root/boot/command-line"
 run_scenario locale-legacy 0 '' OMARCHY_QEMU_GPU_LOCALE=zh_TW.UTF-8
@@ -919,6 +921,14 @@ printf '%s tryomarchy.locale_support=2\n' "$saved_command_line" >"$persistent_ro
 for locale in en_US.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8; do
   run_scenario "locale-$locale" 0 '' "OMARCHY_QEMU_GPU_LOCALE=$locale"
   assert_contains "$(<"$test_root/locale-$locale/qemu.log")" "tryomarchy.locale=$locale"
+done
+run_scenario locale-korean-v2 0 '' OMARCHY_QEMU_GPU_LOCALE=ko_KR.UTF-8
+assert_contains "$(<"$test_root/locale-korean-v2/qemu.log")" 'tryomarchy.locale=en_US.UTF-8'
+assert_not_contains "$(<"$test_root/locale-korean-v2/qemu.log")" 'tryomarchy.locale=ko_KR.UTF-8'
+printf '%s tryomarchy.locale_support=3\n' "$saved_command_line" >"$persistent_root/boot/command-line"
+for locale in en_US.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8 ko_KR.UTF-8; do
+  run_scenario "locale-v3-$locale" 0 '' "OMARCHY_QEMU_GPU_LOCALE=$locale"
+  assert_contains "$(<"$test_root/locale-v3-$locale/qemu.log")" "tryomarchy.locale=$locale"
 done
 run_scenario locale-invalid 1 '' OMARCHY_QEMU_GPU_LOCALE=fr_FR.UTF-8
 assert_contains "$(<"$test_root/locale-invalid/stderr")" 'unsupported guest locale'

@@ -146,7 +146,7 @@ cat >"$root/etc/hosts" <<EOF
 EOF
 # First boot seeds LANG from the Mac's primary language. English is the
 # fallback; both Chinese scripts are available. Keyboard input is independent.
-printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\nzh_CN.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
+printf 'en_US.UTF-8 UTF-8\nzh_TW.UTF-8 UTF-8\nzh_CN.UTF-8 UTF-8\nko_KR.UTF-8 UTF-8\n' >"$root/etc/locale.gen"
 printf 'LANG=en_US.UTF-8\n' >"$root/etc/locale.conf"
 printf 'KEYMAP=us\n' >"$root/etc/vconsole.conf"
 # Only a fresh factory contains this marker. Successful initialization removes
@@ -181,6 +181,7 @@ install -m 0755 "$refresh_hook" \
 # Seed fcitx5 with the US keyboard as item 0 and Chewing (Bopomofo/zhuyin) as
 # item 1. Ctrl+Space is fcitx5's built-in default trigger, so a user who never
 # presses it stays on plain US input; pressing it reaches Traditional Chinese.
+# A second group, Korean, holds US and Hangul; selecting it once persists.
 fcitx5_profile="$guest_dir/fragments/fcitx5-profile.ini"
 [[ -f $fcitx5_profile ]] || fail "fcitx5 profile fragment not found: $fcitx5_profile"
 install -d -m 0755 "$root/etc/skel/.config/fcitx5"

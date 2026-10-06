@@ -1009,6 +1009,7 @@ struct SavedGuestLanguageSupportTests {
     private var supportedMetrics: BundledGuestMetrics {
         var result = metrics
         result.supportsLanguageSelection = true
+        result.supportsKorean = true
         return result
     }
 
@@ -1019,6 +1020,10 @@ struct SavedGuestLanguageSupportTests {
         let environment = [StorageLocationPolicy.environmentKey: root.path]
         #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
         #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: metrics))
+        #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics, requiresKorean: true))
+        var olderMetrics = supportedMetrics
+        olderMetrics.supportsKorean = false
+        #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: olderMetrics, requiresKorean: true))
     }
 
     @Test("older saved disks use their own capability across app updates", arguments: ["current", String(repeating: "b", count: 64)])
@@ -1038,24 +1043,29 @@ struct SavedGuestLanguageSupportTests {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         }
         let commandLine = kit.appendingPathComponent("command-line")
-        for (line, expected) in [
-            ("root=/dev/vda rw", false),
-            ("root=/dev/vda rw tryomarchy.locale_support=1", false),
-            ("root=/dev/vda rw tryomarchy.locale_support=20", false),
-            ("root=/dev/vda rw tryomarchy.locale_support=2\n", true),
+        for (line, expected, korean) in [
+            ("root=/dev/vda rw", false, false),
+            ("root=/dev/vda rw tryomarchy.locale_support=1", false, false),
+            ("root=/dev/vda rw tryomarchy.locale_support=20", false, false),
+            ("root=/dev/vda rw tryomarchy.locale_support=30", false, false),
+            ("root=/dev/vda rw tryomarchy.locale_support=2\n", true, false),
+            ("root=/dev/vda rw tryomarchy.locale_support=3\n", true, true),
         ] {
             try Data(line.utf8).write(to: commandLine)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: commandLine.path)
             #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics) == expected)
+            #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics, requiresKorean: true) == korean)
         }
         // A custom storage preference must select the same VM, too.
         let preference = StorageLocationPreference(containerPath: root.path)
         #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: [:], metrics: supportedMetrics, preference: preference))
+        #expect(QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: [:], metrics: supportedMetrics, preference: preference, requiresKorean: true))
         try FileManager.default.removeItem(at: commandLine)
         let target = root.appendingPathComponent("untrusted-command-line")
-        try Data("tryomarchy.locale_support=2\n".utf8).write(to: target)
+        try Data("tryomarchy.locale_support=3\n".utf8).write(to: target)
         try FileManager.default.createSymbolicLink(at: commandLine, withDestinationURL: target)
         #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics))
+        #expect(!QEMUGPUStorageSpaceEstimate.supportsLanguageSelection(environment: environment, metrics: supportedMetrics, requiresKorean: true))
     }
 
     @Test("a VM created from this factory keeps language support before boot-kit staging")

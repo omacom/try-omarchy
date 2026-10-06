@@ -69,6 +69,7 @@
     "fcitx5": "5.1.23-1",
     "fcitx5-chewing": "5.1.13-1",
     "fcitx5-gtk": "5.1.7-1",
+    "fcitx5-hangul": "5.1.11-1",
     "fcitx5-qt": "5.1.16-1",
     "fd": "10.5.0-3",
     "ffmpeg": "2:9.0.2-1",
@@ -257,6 +258,7 @@
     "libgsf": "1.14.60-1",
     "libgudev": "238-3",
     "libgxps": "0.3.2-5",
+    "libhangul": "0.2.0-1",
     "libheif": "1.23.5-1",
     "libice": "1.1.2-1",
     "libidn2": "2.3.8-1",
@@ -631,6 +633,6 @@
     "zram-generator": "1.2.1-1",
     "zstd": "1.5.7-3"
   },
-  "requestedFileSha256": "59397aaea4f9e2f893163aa6ffe2241c6d1051cfea619c63beaebeb5243febd4",
+  "requestedFileSha256": "930ee5edfccd38b042ef360110064e84a28cf4aed8ca1539b70d3e10560a1efc",
   "schemaVersion": 1
 }
