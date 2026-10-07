@@ -129,11 +129,15 @@ cp -a "$cursor_restore" "$stage/usr/local/bin/omarchy-native-cursor-restore"
 
 vivaldi_installer="$root/usr/local/lib/try-omarchy/install-vivaldi-arm64"
 vivaldi_key="$root/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
+vivaldi_update_hook="$root/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook"
 [[ -f $vivaldi_installer && -x $vivaldi_installer && ! -L $vivaldi_installer ]] ||
   fail "Vivaldi ARM64 installer is missing or unsafe"
 [[ -f $vivaldi_key && ! -L $vivaldi_key ]] || fail "Vivaldi package key is missing or unsafe"
+[[ -f $vivaldi_update_hook && -x $vivaldi_update_hook && ! -L $vivaldi_update_hook ]] ||
+  fail "Vivaldi post-update hook is missing or unsafe"
 cp -a "$vivaldi_installer" "$stage/usr/local/lib/try-omarchy/install-vivaldi-arm64"
 cp -a "$vivaldi_key" "$stage/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
+cp -a "$vivaldi_update_hook" "$stage/usr/local/share/try-omarchy/vivaldi/update-vivaldi-arm64.hook"
 
 # Keep the optional Ghostty installer and its verified build inputs owned.
 for relative in \
