@@ -79,6 +79,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-scroll.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-iso-keyboard.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-injected-text.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-command-chord.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hvf-memory-reclaim.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hvf-mapped-sections.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-virtio-pinch.py"
