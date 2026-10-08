@@ -66,10 +66,16 @@ with (out / "events").open("a") as stream:
 assert sys.argv[1:] == ["--configuration", "production", "--dmg",
     "--guest-dir", str(out / "guest"), "--sign-identity",
     "Developer ID Application: Release Tests (TEST)", "--notarize-profile", "test-profile"]
-plist = out / "Info.plist"
+app = out / "release.noindex/Try Omarchy.app"
+plist = app / "Contents/Info.plist"
+plist.parent.mkdir(parents=True, exist_ok=True)
 plist.write_bytes(plistlib.dumps({}))
 subprocess.run([sys.executable, str(root / "scripts/app_version.py"),
     "--root", str(root), "--plist", str(plist)], check=True)
+if os.environ.get("WRONG_APP_VERSION"):
+    info = plistlib.loads(plist.read_bytes())
+    info["CFBundleShortVersionString"] = os.environ["WRONG_APP_VERSION"]
+    plist.write_bytes(plistlib.dumps(info))
 if os.environ.get("FAIL_PACKAGE"):
     sys.exit(24)
 (out / "TryOmarchy.dmg").write_text("test DMG\\n")
@@ -126,8 +132,9 @@ if os.environ.get("FAIL_PACKAGE"):
         self.assertEqual("guest:\nruntime:\npackage\n", (self.root / "dist/events").read_text())
         self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
         self.assertIn(f"Release DMG: {self.root.resolve() / 'dist/TryOmarchy.dmg'}", result.stdout)
-        self.assertEqual("1.2.3", plistlib.loads((self.root / "dist/Info.plist").read_bytes())[
-            "CFBundleShortVersionString"])
+        app_info = plistlib.loads((self.root / "dist/release.noindex/Try Omarchy.app/Contents/Info.plist").read_bytes())
+        self.assertEqual("1.2.3", app_info["CFBundleShortVersionString"])
+        self.assertEqual("v1.2.3", app_info["TryOmarchyBuildDescribe"])
         self.assertIn("git push origin v1.2.3", result.stdout)
         self.assertNotIn("[y/N]", result.stdout)
         self.assertEqual("", self.git("status", "--porcelain"))
@@ -244,6 +251,11 @@ if os.environ.get("FAIL_PACKAGE"):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Reusing v1.2.3", result.stdout)
         self.assertEqual(original, self.git("rev-parse", "refs/tags/v1.2.3"))
+
+    def test_wrong_built_app_version_fails_release(self) -> None:
+        result = self.run_release(WRONG_APP_VERSION="1.2.2")
+        self.assert_failed(result, "built app version does not match v1.2.3")
+        self.assertEqual("v1.2.3", self.git("tag"))
 
     def test_prompt_on_tagged_head_defaults_to_rebuilding(self) -> None:
         self.git("tag", "-a", "v1.2.3", "-m", "v1.2.3")

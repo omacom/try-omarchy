@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import plistlib
 import re
 import subprocess
 import sys
@@ -99,6 +100,23 @@ def validate_tag(root: Path, tag: str, head: str) -> bool:
     return False
 
 
+def verify_release_artifacts(root: Path, tag: str) -> None:
+    app = root / "dist/release.noindex/Try Omarchy.app"
+    try:
+        info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    except (OSError, plistlib.InvalidFileException, ValueError) as error:
+        raise ValueError(f"could not verify built app version: {error}") from error
+
+    version = tag.removeprefix("v")
+    if (info.get("CFBundleShortVersionString") != version
+            or info.get("TryOmarchyBuildDescribe") != tag):
+        raise ValueError(f"built app version does not match {tag}")
+
+    dmg = root / "dist/TryOmarchy.dmg"
+    if not dmg.is_file():
+        raise ValueError(f"release DMG was not produced: {dmg}")
+
+
 def release(root: Path, make: str) -> None:
     identity = os.environ.get("RELEASE_SIGN_IDENTITY", "")
     profile = os.environ.get("RELEASE_NOTARY_PROFILE", "")
@@ -133,6 +151,7 @@ def release(root: Path, make: str) -> None:
             "--guest-dir", str(root / "dist/guest"),
             "--sign-identity", identity, "--notarize-profile", profile,
         ], cwd=root, check=True)
+        verify_release_artifacts(root, tag)
         clean_head(root, head)
     except (ValueError, OSError, subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Local tag {tag} remains. Retry with make release VERSION={tag}", file=sys.stderr)
