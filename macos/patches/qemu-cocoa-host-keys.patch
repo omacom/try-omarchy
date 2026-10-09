@@ -1,0 +1,169 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: leave configurable host keys with macOS
+
+Applies after the Try Omarchy full-grab-reenable patch.
+
+Full grab installs an HID-level CGEventTap so that system shortcuts reach
+the focused guest before macOS acts on them. handleEventLocked reports
+every key event as consumed once the keyboard is captured, mapped or not,
+so the tap swallows everything it is offered, including the Mac's
+dedicated keys: display brightness, Mission Control and Spotlight.
+
+Add a host-keys display option that lists macOS virtual keycodes to hand
+straight back to macOS from the tap, before the conversion that would
+offer them to the view. The window path declines them as well, so nothing
+leaks to the guest when macOS also delivers the key to our key window.
+
+In its default mode an Apple keyboard sends these caps as plain key events
+with dedicated keycodes rather than as F-keys. With "Use F1, F2, etc. as
+standard function keys" enabled the same caps arrive as F-keys and keep
+reaching the guest. Media and volume keys are a different event type the
+tap never captured.
+
+diff --git a/qapi/ui.json b/qapi/ui.json
+index e76aa4c..c709e67 100644
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1437,6 +1437,10 @@
+ #     grab on key events.  (default: off)  See
+ #     https://support.apple.com/en-in/guide/mac-help/mh32356/mac
+ #
++# @host-keys: Colon-separated macOS virtual keycodes (0-255) that
++#     stay with macOS while full grab captures the keyboard, such as
++#     an Apple keyboard's display brightness keys.  (default: none)
++#
+ # @immersive: Hide the host menu bar and Dock instead of using
+ #     AppKit's standard fullscreen auto-hide behavior.  This does not
+ #     affect keyboard capture.  (default: on)
+@@ -1458,6 +1462,7 @@
+   'data': {
+       '*left-command-key': 'bool',
+       '*full-grab': 'bool',
++      '*host-keys': 'str',
+       '*immersive': 'bool',
+       '*swap-opt-cmd': 'bool',
+       '*zoom-to-fit': 'bool',
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 6be4717..44c2560 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -2259,6 +2259,7 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
+ #endif
+ #if defined(CONFIG_COCOA)
+     "-display cocoa[,full-grab=on|off][,immersive=on|off][,swap-opt-cmd=on|off]\n"
++    "              [,host-keys=code:code...]\n"
+     "              [,show-cursor=on|off][,left-command-key=on|off]\n"
+     "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
+ #endif
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index f2b8f21..8d3cc3e 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -360,6 +360,54 @@ - (void) raiseAllKeys;
+ 
+ QemuCocoaView *cocoaView;
+ 
++/*
++ * Keycodes of the Mac's dedicated keys that stay with macOS while full grab
++ * owns the keyboard, from the host-keys display option. In its default mode
++ * an Apple keyboard sends keys such as display brightness as plain key
++ * events with their own keycodes, not as F-keys, so a keycode test leaves
++ * real function keys alone.
++ */
++static bool cocoa_host_keys[256];
++
++/* Parse "a:b:c" (each 0-255) into host_keys; false if malformed. */
++static bool cocoa_parse_host_keys(const char *spec, bool host_keys[256])
++{
++    const char *cursor = spec;
++
++    memset(host_keys, 0, 256 * sizeof(bool));
++    if (*cursor == '\0') {
++        return true;
++    }
++    for (;;) {
++        unsigned value = 0;
++        int digits = 0;
++
++        while (*cursor >= '0' && *cursor <= '9') {
++            if (++digits > 3) {
++                return false;
++            }
++            value = value * 10 + (unsigned)(*cursor - '0');
++            cursor++;
++        }
++        if (digits == 0 || value > 255) {
++            return false;
++        }
++        host_keys[value] = true;
++        if (*cursor == '\0') {
++            return true;
++        }
++        if (*cursor != ':') {
++            return false;
++        }
++        cursor++;
++    }
++}
++
++static bool cocoa_is_host_key(CGKeyCode keycode)
++{
++    return keycode < 256 && cocoa_host_keys[keycode];
++}
++
+ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef cgEvent, void *userInfo)
+ {
+     QemuCocoaView *view = userInfo;
+@@ -378,6 +426,17 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+         return cgEvent;
+     }
+ 
++    /*
++     * The tap sees the Mac's dedicated keys before macOS does, and the
++     * capture below would swallow them for the whole session. Hand the
++     * ones configured with host-keys straight back to macOS.
++     */
++    if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
++        cocoa_is_host_key(CGEventGetIntegerValueField(cgEvent,
++                                    kCGKeyboardEventKeycode))) {
++        return cgEvent;
++    }
++
+     NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];
+     if ([view isKeyboardCaptured] && [view handleEvent:event]) {
+         COCOA_DEBUG("Global events tap: qemu handled the event, capturing!\n");
+@@ -1077,6 +1136,11 @@ - (bool) handleEventLocked:(NSEvent *)event
+         case NSEventTypeKeyDown:
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
++            // Host keys stay with macOS even when they reach our key window rather than the tap.
++            if (cocoa_is_host_key([event keyCode])) {
++                return false;
++            }
++
+             // Keep Command chords with the host unless the focused guest
+             // captured the keyboard.
+             if (![self isKeyboardCaptured] &&
+@@ -1115,6 +1179,10 @@ - (bool) handleEventLocked:(NSEvent *)event
+         case NSEventTypeKeyUp:
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
++            if (cocoa_is_host_key([event keyCode])) {
++                return false;
++            }
++
+             // don't pass the guest a spurious key-up if we treated this
+             // command-key combo as a host UI action
+             if (![self isKeyboardCaptured] &&
+@@ -2657,6 +2725,11 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+                         opts->u.cocoa.full_grab;
+     immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
+                              opts->u.cocoa.immersive;
++    if (opts->u.cocoa.host_keys &&
++        !cocoa_parse_host_keys(opts->u.cocoa.host_keys, cocoa_host_keys)) {
++        error_report("cocoa: host-keys must be keycodes 0-255 separated by ':'");
++        exit(1);
++    }
+ 
+     /* if fullscreen mode is to be used */
+     if (opts->has_full_screen && opts->full_screen) {

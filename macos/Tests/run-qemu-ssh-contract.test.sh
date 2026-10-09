@@ -161,7 +161,8 @@ case " $* " in
       '-add-fd fd=fd,set=set[,opaque=opaque]' \
       '-action reboot=reset|shutdown' \
       'full-grab=on|off' \
-      'immersive=on|off'
+      'immersive=on|off' \
+      '[,host-keys=code:code...]'
     if [[ ${FAKE_QEMU_MISSING_SHUTDOWN:-0} != 1 ]]; then
       printf '%s\n' '-action shutdown=poweroff|pause'
     fi
@@ -903,6 +904,30 @@ assert_not_contains "$(<"$test_root/disabled/qemu.log")" hvf_vm_unmap
 run_scenario hvf-trace-relative 1 '' OMARCHY_QEMU_GPU_HVF_TRACE_LOG=hvf-trace.log
 assert_contains "$(<"$test_root/hvf-trace-relative/stderr")" 'must be an absolute path'
 [[ ! -f $test_root/hvf-trace-relative/qemu.log ]] || fail 'relative HVF trace path started QEMU'
+
+# Unset keeps the app's defaults: brightness, Mission Control, Spotlight,
+# Dictation, Do Not Disturb.
+assert_contains "$disabled_qemu" 'swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178'
+
+run_scenario host-keys-custom 0 '' OMARCHY_QEMU_GPU_HOST_KEYS=144,145
+assert_contains "$(<"$test_root/host-keys-custom/qemu.log")" \
+  'swap-opt-cmd=off,host-keys=144:145'
+
+# Empty sends every dedicated key to Omarchy: no option at all.
+run_scenario host-keys-none 0 '' OMARCHY_QEMU_GPU_HOST_KEYS=
+host_keys_none_qemu=$(<"$test_root/host-keys-none/qemu.log")
+assert_contains "$host_keys_none_qemu" 'immersive=on,swap-opt-cmd=off'
+assert_not_contains "$host_keys_none_qemu" host-keys=
+
+invalid_index=0
+for invalid_host_keys in 256 abc 1,,2 ,144 144, 1:2 -1 1234; do
+  invalid_index=$((invalid_index + 1))
+  scenario="invalid-host-keys-$invalid_index"
+  run_scenario "$scenario" 1 '' "OMARCHY_QEMU_GPU_HOST_KEYS=$invalid_host_keys"
+  assert_contains "$(<"$test_root/$scenario/stderr")" \
+    'OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255'
+  [[ ! -e $test_root/$scenario/qemu.log ]] || fail 'malformed host keys started QEMU'
+done
 
 # The selected disk owns locale support. Unsupported images ignore the hint;
 # legacy every-boot writers are masked, and new images seed only once.
