@@ -127,6 +127,11 @@ cursor_restore="$root/usr/local/bin/omarchy-native-cursor-restore"
   fail "native screensaver cursor helper is missing or unsafe"
 cp -a "$cursor_restore" "$stage/usr/local/bin/omarchy-native-cursor-restore"
 
+bitwarden_installer="$root/usr/local/bin/omarchy-install-service-bitwarden"
+[[ -f $bitwarden_installer && -x $bitwarden_installer && ! -L $bitwarden_installer ]] ||
+  fail "Bitwarden installer is missing or unsafe"
+cp -a "$bitwarden_installer" "$stage/usr/local/bin/omarchy-install-service-bitwarden"
+
 vivaldi_installer="$root/usr/local/lib/try-omarchy/install-vivaldi-arm64"
 vivaldi_key="$root/usr/local/share/try-omarchy/vivaldi/linux_signing_key.pub"
 [[ -f $vivaldi_installer && -x $vivaldi_installer && ! -L $vivaldi_installer ]] ||

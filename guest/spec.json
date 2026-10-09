@@ -300,15 +300,15 @@
       },
       {
         "id": "vivaldi-menu-entries",
-        "description": "Expose Vivaldi in Install/Remove/Default Browser menus for the Try Omarchy ARM64 installer.",
+        "description": "Expose Vivaldi menus and route Bitwarden through its ARM64 AUR package.",
         "reference": "https://github.com/basecamp/omarchy/blob/346e69e1cec6c4e8924531874af6ba010a1bc99e/default/omarchy/omarchy-menu.jsonc",
         "patch": "patches/omarchy/vivaldi-menu-entries.patch",
-        "patchSha256": "dafcf0d53dfa81d615a9fe146f9f254412897160489613e04c2c6540485e0d8e",
+        "patchSha256": "b20e879975a1199833daf05df17005d7700c333e46f41cf000a7bb978356f56d",
         "targets": [
           {
             "path": "default/omarchy/omarchy-menu.jsonc",
             "beforeSha256": "8c791cfc457d6c50b90a6636a6f28c9415a2fa6e4edf84826906457b75649689",
-            "afterSha256": "78d817a76be7ce7d204e15c2617df72f897efe90e22f9af4e255bdf17fbfbedb"
+            "afterSha256": "11d6510e4aad1690b60fdc013811c1561357df6b8d9249a8f36c6c8f13784478"
           }
         ]
       },
