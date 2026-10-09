@@ -1,1 +1,3 @@
 *.patch whitespace=-blank-at-eol
+guest/hdr/virtio-gpu-hdr.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+guest/patches/hyprland/client-sdr-white.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

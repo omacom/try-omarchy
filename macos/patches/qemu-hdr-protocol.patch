@@ -1,0 +1,316 @@
+diff --git a/hw/display/edid-generate.c b/hw/display/edid-generate.c
+--- a/hw/display/edid-generate.c
++++ b/hw/display/edid-generate.c
+@@ -467,7 +467,7 @@
+     /* =============== basic display parameters =============== */
+ 
+     /* video input: digital, 8bpc, displayport */
+-    edid[20] = 0xa5;
++    edid[20] = info->hdr ? 0xb5 : 0xa5;
+ 
+     /* screen size: undefined */
+     edid[21] = width_mm / 10;
+@@ -508,6 +508,18 @@
+     edid_desc_xtra3_std(xtra3);
+     desc = edid_desc_next(edid, dta, desc);
+     edid_fill_modes(edid, xtra3, dta, info->maxx, info->maxy);
++    if (info->hdr && dta && dta[2] <= 116) {
++        /* CTA colorimetry (BT.2020 RGB), followed by static HDR type 1.
++         * This is a 1000-nit virtual display, not a physical-panel measurement.
++         * The Cocoa EDR presenter tone maps to the actual window's display. */
++        const uint8_t blocks[] = { 0xe3, 0x05, 0x80, 0x00,
++                                   0xe6, 0x06, 0x05, 0x01, 138, 96, 0 };
++        memcpy(dta + dta[2], blocks, sizeof(blocks));
++        dta[2] += sizeof(blocks);
++        edid[24] &= ~0x04; /* The native primaries below are not sRGB. */
++        edid_colorspace(edid, 0.708, 0.292, 0.170, 0.797,
++                         0.131, 0.046, 0.3127, 0.3290);
++    }
+     /*
+      * dta video data block is finished at thus point,
+      * so dta descriptor offsets don't move any more.
+diff --git a/hw/display/virtio-gpu-base.c b/hw/display/virtio-gpu-base.c
+--- a/hw/display/virtio-gpu-base.c
++++ b/hw/display/virtio-gpu-base.c
+@@ -75,6 +75,12 @@
+         }
+     }
+ 
++    info.hdr = g->conf.omarchy_hdr &&
++        virtio_vdev_has_feature(&g->parent_obj, VIRTIO_GPU_F_OMARCHY_HDR) &&
++        qemu_console_gl_has_hdr(g->scanout[scanout].con);
++    if (info.hdr && !info.name) {
++        info.name = "Omarchy HDR";
++    }
+     edid->size = cpu_to_le32(sizeof(edid->edid));
+     qemu_edid_generate(edid->edid, sizeof(edid->edid), &info);
+ }
+@@ -263,6 +269,9 @@
+     if (virtio_gpu_virgl_enabled(g->conf) ||
+         virtio_gpu_rutabaga_enabled(g->conf)) {
+         features |= (1 << VIRTIO_GPU_F_VIRGL);
++    }
++    if (g->conf.omarchy_hdr && virtio_gpu_virgl_enabled(g->conf)) {
++        features |= (1 << VIRTIO_GPU_F_OMARCHY_HDR);
+     }
+     if (virtio_gpu_edid_enabled(g->conf)) {
+         features |= (1 << VIRTIO_GPU_F_EDID);
+diff --git a/hw/display/virtio-gpu-virgl.c b/hw/display/virtio-gpu-virgl.c
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -430,6 +430,12 @@
+     if (res_iovs != NULL && num_iovs != 0) {
+         virtio_gpu_cleanup_mapping_iov(g, res_iovs, num_iovs);
+     }
++    for (unsigned i = 0; i < g->parent_obj.conf.max_outputs; ++i) {
++        struct virtio_gpu_scanout *scanout = &g->parent_obj.scanout[i];
++        if (scanout->pending_hdr_resource == res->base.resource_id) {
++            scanout->hdr_pending = false;
++        }
++    }
+     virgl_renderer_resource_unref(res->base.resource_id);
+ 
+     QTAILQ_REMOVE(&g->reslist, &res->base, next);
+@@ -524,6 +530,65 @@
+     qemu_console_gl_update(g->parent_obj.scanout[idx].con, x, y, width, height);
+ }
+ 
++static void virgl_cmd_omarchy_hdr(VirtIOGPU *g,
++                                  struct virtio_gpu_ctrl_command *cmd)
++{
++    /* All payload words use little endian; do not expose a C host ABI. */
++    uint32_t words[18];
++    struct virtio_gpu_scanout *scanout;
++    QemuHDRMetadata metadata;
++    size_t received;
++    unsigned int i;
++    if (!g->parent_obj.conf.omarchy_hdr ||
++        !virtio_vdev_has_feature(&g->parent_obj.parent_obj, VIRTIO_GPU_F_OMARCHY_HDR)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
++        return;
++    }
++    received = iov_to_buf(cmd->elem.out_sg, cmd->elem.out_num,
++                          sizeof(struct virtio_gpu_ctrl_hdr), words, sizeof(words));
++    if (received != sizeof(words) ||
++        iov_size(cmd->elem.out_sg, cmd->elem.out_num) != sizeof(words) + sizeof(struct virtio_gpu_ctrl_hdr)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++        return;
++    }
++    for (i = 0; i < G_N_ELEMENTS(words); ++i) {
++        words[i] = le32_to_cpu(words[i]);
++    }
++    if (words[0] != OMARCHY_HDR_MAGIC || words[1] != 1 ||
++        words[2] >= g->parent_obj.conf.max_outputs ||
++        (words[4] != 0 && words[4] != 9) ||
++        (words[5] != 0 && words[5] != 2) || (words[5] == 2 && words[4] != 9)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++        return;
++    }
++    for (i = 6; i < 14; ++i) {
++        if (words[i] > 50000) {
++            cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++            return;
++        }
++    }
++    for (i = 14; i < 18; ++i) {
++        if (words[i] > 65535) {
++            cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER;
++            return;
++        }
++    }
++    scanout = &g->parent_obj.scanout[words[2]];
++    if (!qemu_console_gl_has_hdr(scanout->con)) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_UNSPEC;
++        return;
++    }
++    if (words[3] && !virtio_gpu_virgl_find_resource(g, words[3])) {
++        cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_RESOURCE_ID;
++        return;
++    }
++    memcpy(&metadata, words + 4, sizeof(metadata));
++    scanout->pending_hdr = metadata;
++    scanout->pending_hdr_resource = words[3];
++    scanout->hdr_pending = true;
++    /* Metadata is latched by the matching frame flush, after set_scanout. */
++}
++
+ static void virgl_cmd_resource_flush(VirtIOGPU *g,
+                                      struct virtio_gpu_ctrl_command *cmd)
+ {
+@@ -537,6 +602,11 @@
+     for (i = 0; i < g->parent_obj.conf.max_outputs; i++) {
+         if (g->parent_obj.scanout[i].resource_id != rf.resource_id) {
+             continue;
++        }
++        struct virtio_gpu_scanout *scanout = &g->parent_obj.scanout[i];
++        if (scanout->hdr_pending && scanout->pending_hdr_resource == rf.resource_id) {
++            qemu_console_gl_hdr_metadata(scanout->con, &scanout->pending_hdr);
++            scanout->hdr_pending = false;
+         }
+         virtio_gpu_rect_update(g, i, rf.r.x, rf.r.y, rf.r.width, rf.r.height);
+     }
+@@ -1098,6 +1168,9 @@
+         break;
+     case VIRTIO_GPU_CMD_RESOURCE_DETACH_BACKING:
+         virgl_resource_detach_backing(g, cmd);
++        break;
++    case VIRTIO_GPU_CMD_OMARCHY_HDR:
++        virgl_cmd_omarchy_hdr(g, cmd);
+         break;
+     case VIRTIO_GPU_CMD_SET_SCANOUT:
+         virgl_cmd_set_scanout(g, cmd);
+@@ -1441,6 +1514,9 @@
+     for (i = 0; i < g->parent_obj.conf.max_outputs; i++) {
+         qemu_console_set_surface(g->parent_obj.scanout[i].con, NULL);
+         qemu_console_gl_scanout_disable(g->parent_obj.scanout[i].con);
++        g->parent_obj.scanout[i].hdr_pending = false;
++        QemuHDRMetadata metadata = { 0 };
++        qemu_console_gl_hdr_metadata(g->parent_obj.scanout[i].con, &metadata);
+     }
+ }
+ 
+diff --git a/include/hw/display/edid.h b/include/hw/display/edid.h
+--- a/include/hw/display/edid.h
++++ b/include/hw/display/edid.h
+@@ -4,6 +4,7 @@
+ #define EDID_NAME_MAX_LENGTH 12
+ 
+ typedef struct qemu_edid_info {
++    bool hdr; /* virtual BT.2020/PQ display; host compositor handles tone mapping */
+     const char *vendor; /* http://www.uefi.org/pnp_id_list */
+     const char *name;
+     const char *serial;
+diff --git a/include/hw/virtio/virtio-gpu.h b/include/hw/virtio/virtio-gpu.h
+--- a/include/hw/virtio/virtio-gpu.h
++++ b/include/hw/virtio/virtio-gpu.h
+@@ -71,7 +71,15 @@
+     uint32_t offset;
+ };
+ 
++/* Private opt-in Try Omarchy v1 extension; not a standard virtio feature. */
++#define VIRTIO_GPU_F_OMARCHY_HDR 6
++#define VIRTIO_GPU_CMD_OMARCHY_HDR 0x0400
++#define OMARCHY_HDR_MAGIC 0x544f4844
++
+ struct virtio_gpu_scanout {
++    QemuHDRMetadata pending_hdr;
++    uint32_t pending_hdr_resource;
++    bool hdr_pending;
+     QemuConsole *con;
+     DisplaySurface *ds;
+     uint32_t width, height;
+@@ -127,6 +135,7 @@
+     (_cfg.flags & (1 << VIRTIO_GPU_FLAG_DRM_ENABLED))
+ 
+ struct virtio_gpu_base_conf {
++    bool omarchy_hdr;
+     uint32_t max_outputs;
+     uint32_t flags;
+     uint32_t xres;
+@@ -171,6 +180,7 @@
+ };
+ 
+ #define VIRTIO_GPU_BASE_PROPERTIES(_state, _conf)                       \
++    DEFINE_PROP_BOOL("x-omarchy-hdr", _state, _conf.omarchy_hdr, false), \
+     DEFINE_PROP_UINT32("max_outputs", _state, _conf.max_outputs, 1),    \
+     DEFINE_PROP_VIRTIO_GPU_OUTPUT_LIST("outputs", _state, _conf.outputs), \
+     DEFINE_PROP_BIT("edid", _state, _conf.flags, \
+diff --git a/include/ui/console.h b/include/ui/console.h
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -1,6 +1,7 @@
+ #ifndef CONSOLE_H
+ #define CONSOLE_H
+ 
++#include "ui/hdr.h"
+ #include "ui/qemu-pixman.h"
+ #include "qom/object.h"
+ #include "qemu/notify.h"
+@@ -204,6 +205,9 @@
+     void (*dpy_cursor_define)(DisplayChangeListener *dcl,
+                               QEMUCursor *cursor);
+ 
++    /* Optional: explicitly describes scanout color, never inferred from bit depth. */
++    bool (*dpy_gl_has_hdr)(DisplayChangeListener *dcl);
++    void (*dpy_gl_hdr_metadata)(DisplayChangeListener *dcl, const QemuHDRMetadata *metadata);
+     /* required if GL */
+     void (*dpy_gl_scanout_disable)(DisplayChangeListener *dcl);
+     /* required if GL */
+@@ -292,6 +296,8 @@
+ bool qemu_console_check_format(QemuConsole *con,
+                                pixman_format_code_t format);
+ 
++bool qemu_console_gl_has_hdr(QemuConsole *con);
++void qemu_console_gl_hdr_metadata(QemuConsole *con, const QemuHDRMetadata *metadata);
+ void qemu_console_gl_scanout_disable(QemuConsole *con);
+ void qemu_console_gl_scanout_texture(QemuConsole *con, uint32_t backing_id,
+                                      DisplayGLTextureBorrower backing_borrow,
+diff --git a/include/ui/hdr.h b/include/ui/hdr.h
+--- /dev/null
++++ b/include/ui/hdr.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef QEMU_UI_HDR_H
++#define QEMU_UI_HDR_H
++#include <stdint.h>
++typedef struct QemuHDRMetadata {
++    uint32_t colorspace, eotf;
++    uint32_t primaries[6], whitepoint[2];
++    uint32_t min_luminance, max_luminance, max_cll, max_fall;
++} QemuHDRMetadata;
++#endif
+diff --git a/qapi/ui.json b/qapi/ui.json
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1449,6 +1449,9 @@
+ #     turned off the host window will be resized instead.  Defaults to
+ #     "off".  (Since 8.2)
+ #
++# @hdr: Use native OpenGL EDR with the private virtio HDR
++#     extension.  Defaults to off.
++#
+ # @zoom-interpolation: Apply interpolation to smooth output when
+ #     zoom-to-fit is enabled.  Defaults to "off".  (Since 9.0)
+ #
+@@ -1461,7 +1464,8 @@
+       '*immersive': 'bool',
+       '*swap-opt-cmd': 'bool',
+       '*zoom-to-fit': 'bool',
+-      '*zoom-interpolation': 'bool'
++      '*zoom-interpolation': 'bool',
++      '*hdr': 'bool'
+   } }
+ 
+ ##
+diff --git a/ui/console.c b/ui/console.c
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -935,6 +935,28 @@
+     return con->gl->ops->dpy_gl_ctx_make_current(con->gl, ctx);
+ }
+ 
++bool qemu_console_gl_has_hdr(QemuConsole *con)
++{
++    DisplayChangeListener *dcl;
++    QLIST_FOREACH(dcl, &con->ds->listeners, next) {
++        if (con == dcl->con && dcl->ops->dpy_gl_has_hdr &&
++            dcl->ops->dpy_gl_has_hdr(dcl)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++void qemu_console_gl_hdr_metadata(QemuConsole *con, const QemuHDRMetadata *metadata)
++{
++    DisplayChangeListener *dcl;
++    QLIST_FOREACH(dcl, &con->ds->listeners, next) {
++        if (con == dcl->con && dcl->ops->dpy_gl_hdr_metadata) {
++            dcl->ops->dpy_gl_hdr_metadata(dcl, metadata);
++        }
++    }
++}
++
+ void qemu_console_gl_scanout_disable(QemuConsole *con)
+ {
+     DisplayState *s = con->ds;

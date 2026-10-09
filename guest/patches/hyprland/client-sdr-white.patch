@@ -1,0 +1,79 @@
+--- a/src/output/Monitor.hpp
++++ b/src/output/Monitor.hpp
+@@ -366,6 +366,8 @@
+         int                                 m_cachedCompositorDRMFD = -1;
+         std::optional<bool>                 m_cachedSameGPU;
+ 
++        NColorManagement::PImageDescription getClientImageDescription() const;
++
+         NColorManagement::PImageDescription m_imageDescription = NColorManagement::CImageDescription::from(NColorManagement::SImageDescription{});
+         bool                                m_noShaderCTM      = false; // sets drm CTM, restore needed
+ 
+--- a/src/output/Monitor.cpp
++++ b/src/output/Monitor.cpp
+@@ -649,7 +649,22 @@
+     }
+ }
+ 
++NColorManagement::PImageDescription CMonitor::getClientImageDescription() const {
++    const auto& value = m_imageDescription->value();
++    if (value.transferFunction != NColorManagement::CM_TRANSFER_FUNCTION_ST2084_PQ || value.icc.present || m_sdrMaxLuminance <= 0)
++        return m_imageDescription;
++
++    // Clients compose SDR UI into PQ themselves. Advertise the same white level
++    // as the compositor's SDR conversion, without changing its HDR render target
++    // or the absolute luminance / tone mapping of existing HDR video surfaces.
++    const double brightness = std::isfinite(m_sdrBrightness) && m_sdrBrightness > 0 ? m_sdrBrightness : 1.0;
++    const double peak = value.luminances.max > 0 ? value.luminances.max : 10000;
++    const auto reference = static_cast<uint32_t>(std::clamp(std::round(m_sdrMaxLuminance * brightness), 1.0, peak));
++    return m_imageDescription->with({.min = value.luminances.min, .max = value.luminances.max, .reference = reference});
++}
++
+ bool CMonitor::applyMonitorRuleSoft(Config::CMonitorRule&& pMonitorRule) {
++    const auto oldClientDescription = getClientImageDescription();
+     m_activeMonitorRule = std::move(pMonitorRule);
+     m_reservedArea.setStatic(m_activeMonitorRule.m_reservedArea);
+     m_transform         = m_activeMonitorRule.m_transform;
+@@ -695,6 +710,9 @@
+             }
+         }
+     }
++
++    if (oldClientDescription != getClientImageDescription() && PROTO::colorManagement)
++        PROTO::colorManagement->onMonitorImageDescriptionChanged(m_self);
+ 
+     Vector2D xfmd     = m_transform % 2 == 1 ? Vector2D{m_pixelSize.y, m_pixelSize.x} : m_pixelSize;
+     m_size            = (xfmd / m_scale).round();
+--- a/src/protocols/ColorManagement.cpp
++++ b/src/protocols/ColorManagement.cpp
+@@ -269,7 +269,7 @@
+         if (!m_output || !m_output->m_monitor.valid())
+             RESOURCE->m_resource->sendFailed(WP_IMAGE_DESCRIPTION_V1_CAUSE_NO_OUTPUT, "No output");
+         else {
+-            RESOURCE->m_settings = m_output->m_monitor->m_imageDescription;
++            RESOURCE->m_settings = m_output->m_monitor->getClientImageDescription();
+ 
+             RESOURCE->sendMaybeReady();
+         }
+--- a/src/protocols/core/Compositor.cpp
++++ b/src/protocols/core/Compositor.cpp
+@@ -685,7 +685,7 @@
+     else if (m_hlSurface.valid() && WINDOW)
+         monitor = WINDOW->m_monitor;
+ 
+-    return monitor ? monitor->m_imageDescription : g_pCompositor->getPreferredImageDescription();
++    return monitor ? monitor->getClientImageDescription() : g_pCompositor->getPreferredImageDescription();
+ }
+ 
+ void CWLSurfaceResource::sortSubsurfaces() {
+--- a/src/Compositor.cpp
++++ b/src/Compositor.cpp
+@@ -957,7 +957,7 @@
+     }
+     Log::logger->log(Log::WARN, "FIXME: color management protocol is enabled, determine correct preferred image description");
+     // should determine some common settings to avoid unnecessary transformations while keeping maximum displayable precision
+-    return State::monitorState()->monitors().size() == 1 ? State::monitorState()->monitors()[0]->m_imageDescription :
++    return State::monitorState()->monitors().size() == 1 ? State::monitorState()->monitors()[0]->getClientImageDescription() :
+                                                            CImageDescription::from(SImageDescription{.primaries = NColorPrimaries::BT709});
+ }
+ 

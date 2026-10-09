@@ -72,6 +72,7 @@ test:
 test-all: test-swift test-contracts test-guest test-shell test-resize
 
 test-contracts:
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/native-client-sdr-white.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hda-recovery.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-network-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-libslirp-icmp.py"

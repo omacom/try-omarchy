@@ -171,7 +171,12 @@ case " $* " in
     ;;
   *' -machine virt -netdev help '*) printf '%s\n' user stream ;;
   *' -machine virt -audiodev help '*) printf '%s\n' sdl ;;
-  *' -device virtio-gpu-gl-pci,help '*) printf '%s\n' 'romfile=<str>' ;;
+  *' -device virtio-gpu-gl-pci,help '*)
+    printf '%s\n' 'romfile=<str>'
+    if [[ ${FAKE_QEMU_HDR:-0} == 1 ]]; then
+      printf '%s\n' 'x-omarchy-hdr=<bool>'
+    fi
+    ;;
   *' -machine virt,gic-version=3,virtualization=on '*' -qmp stdio '*)
     printf 'probe\n' >>"$FAKE_QEMU_NESTED_LOG"
     exit "${FAKE_QEMU_NESTED_STATUS:-0}"
@@ -650,6 +655,14 @@ run_scenario() {
 
 run_scenario disabled 0 ''
 disabled_qemu=$(<"$test_root/disabled/qemu.log")
+run_scenario hdr-default 0 '' FAKE_QEMU_HDR=1 OMARCHY_NATIVE_OPENGL_HDR=0
+assert_not_contains "$(<"$test_root/hdr-default/qemu.log")" 'hdr=on'
+run_scenario hdr-opt-in 0 '' FAKE_QEMU_HDR=1 OMARCHY_NATIVE_OPENGL_HDR=1
+assert_contains "$(<"$test_root/hdr-opt-in/qemu.log")" 'cocoa,gl=on,hdr=on,'
+assert_contains "$(<"$test_root/hdr-opt-in/qemu.log")" 'x-omarchy-hdr=on'
+assert_not_contains "$(<"$test_root/hdr-opt-in/qemu.log")" 'gl=es'
+run_scenario hdr-older-runtime 0 '' FAKE_QEMU_HDR=0 OMARCHY_NATIVE_OPENGL_HDR=1
+assert_not_contains "$(<"$test_root/hdr-older-runtime/qemu.log")" 'hdr=on'
 assert_contains "$disabled_qemu" 'tryomarchy.timezone=Asia/Tokyo'
 assert_contains "$disabled_qemu" 'name=dev.tryomarchy.timezone'
 run_scenario timezone-travel 0 '' FAKE_HOST_TIMEZONE=America/New_York

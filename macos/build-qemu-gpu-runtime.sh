@@ -488,6 +488,14 @@ patch -d "$source_dir" -p1 -f -i "$iso_swap_patch"
 patch -d "$source_dir" -p1 -f -i "$injected_text_patch"
 patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 
+
+verify_file_sha "Native HDR qemu-hdr-protocol.patch" "$native_dir/patches/qemu-hdr-protocol.patch" "2a99ed9c418d1d9f9151507c326696da96cb4a50edb565d0caa6f4b3a1877b07"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-hdr-protocol.patch"
+verify_file_sha "Native HDR qemu-cocoa-sdr-white.patch" "$native_dir/patches/qemu-cocoa-sdr-white.patch" "d0246389c826698db014ed9da6687fedc81012dfe4542f783a6c85611ea49eb2"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-cocoa-sdr-white.patch"
+verify_file_sha "Native HDR qemu-cocoa-native-hdr.patch" "$native_dir/patches/qemu-cocoa-native-hdr.patch" "d97cd394781768716358a4220c3d875792e9aeaf6bbcc433850d2d3eba703ce4"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-cocoa-native-hdr.patch"
+
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
 epoxy_root="$dependency_root/libepoxy/$epoxy_version"

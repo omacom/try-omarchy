@@ -222,6 +222,11 @@ gpu_help=$("$qemu_bin" -device virtio-gpu-gl-pci,help 2>&1) || {
   fail "cannot inspect the staged VirGL device"
 }
 gpu_device='virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080'
+cocoa_hdr=''
+if [[ ${OMARCHY_NATIVE_OPENGL_HDR:-0} == 1 && $gpu_help == *x-omarchy-hdr* ]]; then
+  gpu_device+=',x-omarchy-hdr=on'
+  cocoa_hdr=',hdr=on'
+fi
 if [[ $gpu_help == *'romfile=<str>'* ]]; then
   gpu_device+=',romfile='
 fi
@@ -1765,7 +1770,7 @@ qemu_args=(
   # Full grab keeps every Command chord with the focused guest in either
   # presentation mode. Immersive launches Full Screen and hard-hides the Mac
   # menu bar and Dock; otherwise Cocoa opens a centered, resizable window.
-  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
+  -display "cocoa,gl=on${cocoa_hdr},show-cursor=on,zoom-to-fit=on,full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='

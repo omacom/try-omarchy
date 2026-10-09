@@ -1,0 +1,365 @@
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -128,7 +128,9 @@
+ 
+ #ifdef CONFIG_OPENGL
+ 
+-@interface QemuCGLLayer : CAOpenGLLayer
++@interface QemuCGLLayer : CAOpenGLLayer {
++    GLuint hdrVAO;
++}
+ @end
+ 
+ static bool gl_dirty;
+@@ -187,7 +189,13 @@
+ static void cocoa_gl_switch(DisplayChangeListener *dcl,
+                             DisplaySurface *new_surface);
+ 
+-static void cocoa_gl_render(void);
++#include "ui/cocoa-gl-hdr.h"
++static bool hdr_enabled;
++static CocoaGLHDRShader hdr_shader;
++static QemuHDRMetadata hdr_metadata;
++static uint32_t hdr_sdr_white_nits = 100;
++
++static void cocoa_gl_render(GLuint hdr_vao);
+ 
+ static bool cocoa_gl_is_compatible_dcl(DisplayGLCtx *dgc,
+                                        DisplayChangeListener *dcl);
+@@ -216,6 +224,12 @@
+     self = [super init];
+     if (self) {
+         [self setAsynchronous:NO];
++        if (hdr_enabled) {
++            self.wantsExtendedDynamicRangeContent = YES;
++            CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearITUR_2020);
++            self.colorspace = space;
++            CGColorSpaceRelease(space);
++        }
+     }
+     return self;
+ }
+@@ -237,12 +251,27 @@
+         kCGLPFAOpenGLProfile,
+         /* macOS exposes 4.1 via the 3.2 core selector. */
+         (CGLPixelFormatAttribute)kCGLOGLPVersion_3_2_Core,
++        kCGLPFAAccelerated,
++        kCGLPFAColorSize, hdr_enabled ? 64 : 32,
++        hdr_enabled ? kCGLPFAColorFloat : 0,
+         0
+     };
+ 
+     CGLChoosePixelFormat(attribs, &pix, &npix);
+ 
+     return pix;
++}
++
++- (void)releaseCGLContext:(CGLContextObj)ctx
++{
++    CGLContextObj previous = CGLGetCurrentContext();
++    CGLSetCurrentContext(ctx);
++    if (hdrVAO) {
++        glDeleteVertexArrays(1, &hdrVAO);
++        hdrVAO = 0;
++    }
++    CGLSetCurrentContext(previous == ctx ? NULL : previous);
++    [super releaseCGLContext:ctx];
+ }
+ 
+ - (void)drawInCGLContext:(CGLContextObj)ctx
+@@ -253,7 +282,23 @@
+     CGLSetCurrentContext(ctx);
+     
+     BQL_LOCK_GUARD();
+-    cocoa_gl_render();
++    if (hdr_enabled && !hdrVAO) {
++        glGenVertexArrays(1, &hdrVAO);
++        GLint bits = 0, type = 0, framebuffer = 0;
++        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &framebuffer);
++        GLenum attachment = framebuffer ? GL_COLOR_ATTACHMENT0 : GL_BACK_LEFT;
++        glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, attachment,
++                            GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE, &bits);
++        glGetFramebufferAttachmentParameteriv(GL_DRAW_FRAMEBUFFER, attachment,
++                            GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &type);
++        if (bits < 16 || type != GL_FLOAT || glGetError() != GL_NO_ERROR) {
++            error_report("Cocoa HDR requires a floating-point OpenGL layer buffer");
++            exit(1);
++        }
++        fprintf(stderr, "[cocoa-gl-hdr] native OpenGL layer: %d-bit float; renderer=%s\n",
++                bits, glGetString(GL_RENDERER));
++    }
++    cocoa_gl_render(hdrVAO);
+ 
+     [super drawInCGLContext:ctx
+                 pixelFormat:pf
+@@ -840,6 +885,9 @@
+         uint32_t refreshRate = 0;
+ 
+         info.sdr_white_nits = cocoa_sdr_white_nits([[self window] screen]);
++#ifdef CONFIG_OPENGL
++        hdr_sdr_white_nits = info.sdr_white_nits ? info.sdr_white_nits : 100;
++#endif
+ 
+         frameSize = isFullscreen ? [self screenSafeAreaSize] : [self frame].size;
+ 
+@@ -2562,6 +2610,7 @@
+         NSOpenGLPFAOpenGLProfile, NSOpenGLProfileVersion3_2Core,
+         NSOpenGLPFAColorSize, (NSOpenGLPixelFormatAttribute)bpp,
+         NSOpenGLPFADoubleBuffer,
++        bpp == 64 ? NSOpenGLPFAColorFloat : 0,
+         0
+     };
+ 
+@@ -2644,7 +2693,7 @@
+     gl_dirty = true;
+ }
+ 
+-static void cocoa_gl_render(void)
++static void cocoa_gl_render(GLuint hdr_vao)
+ {
+     NSSize size = [cocoaView convertSizeToBacking:[cocoaView frame].size];
+     GLint filter = qatomic_read(&zoom_interpolation) ? GL_LINEAR : GL_NEAREST;
+@@ -2712,7 +2761,13 @@
+             cocoa_gl_log("pre blit fb=%d status=0x%x color0=%d", draw_fb, fbs, attach_type);
+         }
+ 
+-        qemu_gl_run_texture_blit(dgc.gls, texture.y_0_top);
++        if (hdr_enabled) {
++            cocoa_hdr_shader_draw(&hdr_shader, hdr_vao, texture.id, texture.y_0_top,
++                                  hdr_metadata.eotf == 2, hdr_metadata.colorspace == 9,
++                                  hdr_sdr_white_nits);
++        } else {
++            qemu_gl_run_texture_blit(dgc.gls, texture.y_0_top);
++        }
+         if (cocoa_gl_trace_enabled()) {
+             GLenum blit_err = glGetError();
+             GLint fb = 0;
+@@ -2723,7 +2778,13 @@
+         glBindTexture(GL_TEXTURE_2D, surface->texture);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+-        surface_gl_render_texture(dgc.gls, surface);
++        if (hdr_enabled) {
++            /* Text consoles and boot surfaces remain sRGB regardless of scanout metadata. */
++            cocoa_hdr_shader_draw(&hdr_shader, hdr_vao, surface->texture, false,
++                                  false, false, hdr_sdr_white_nits);
++        } else {
++            surface_gl_render_texture(dgc.gls, surface);
++        }
+     }
+ 
+     if (cocoa_gl_trace_enabled()) {
+@@ -2750,7 +2811,7 @@
+ #ifdef CONFIG_EGL
+         if (egl_surface) {
+             with_gl_view_ctx(^{
+-                cocoa_gl_render();
++                cocoa_gl_render(0);
+                 eglSwapBuffers(qemu_egl_display, egl_surface);
+                 cocoa_gl_log_error("eglSwapBuffers");
+             });
+@@ -2765,8 +2826,24 @@
+     }
+ }
+ 
++static bool cocoa_gl_has_hdr(DisplayChangeListener *dcl)
++{
++    return hdr_enabled && hdr_shader.program;
++}
++
++static void cocoa_gl_hdr_metadata(DisplayChangeListener *dcl, const QemuHDRMetadata *metadata)
++{
++    if (memcmp(&hdr_metadata, metadata, sizeof(*metadata))) {
++        fprintf(stderr, "[cocoa-gl-hdr] scanout colorspace=%u eotf=%u CLL=%u FALL=%u SDR-white=%u\n",
++                metadata->colorspace, metadata->eotf, metadata->max_cll,
++                metadata->max_fall, hdr_sdr_white_nits);
++    }
++    hdr_metadata = *metadata;
++}
++
+ static void cocoa_gl_scanout_disable(DisplayChangeListener *dcl)
+ {
++    memset(&hdr_metadata, 0, sizeof(hdr_metadata));
+     gl_scanout_borrow = NULL;
+     gl_dirty = true;
+ 
+@@ -2805,6 +2882,8 @@
+     .dpy_mouse_set          = cocoa_mouse_set,
+     .dpy_cursor_define      = cocoa_cursor_define,
+ 
++    .dpy_gl_has_hdr         = cocoa_gl_has_hdr,
++    .dpy_gl_hdr_metadata    = cocoa_gl_hdr_metadata,
+     .dpy_gl_scanout_disable = cocoa_gl_scanout_disable,
+     .dpy_gl_scanout_texture = cocoa_gl_scanout_texture,
+     .dpy_gl_update          = cocoa_gl_scanout_flush,
+@@ -2852,6 +2931,13 @@
+ 
+ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ {
++#ifdef CONFIG_OPENGL
++    hdr_enabled = opts->u.cocoa.has_hdr && opts->u.cocoa.hdr;
++    if (hdr_enabled && (!display_opengl || opts->gl != DISPLAY_GL_MODE_ON)) {
++        error_report("Cocoa native HDR requires gl=on");
++        exit(1);
++    }
++#endif
+     NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
+     QemuCocoaAppController *controller;
+ 
+@@ -2899,7 +2985,7 @@
+             exit(1);
+ #endif
+         } else {
+-            gl_view_nsctx = cocoa_gl_create_nscontext(32);
++            gl_view_nsctx = cocoa_gl_create_nscontext(hdr_enabled ? 64 : 32);
+             if (!gl_view_nsctx) {
+                 exit(1);
+             }
+@@ -2909,6 +2995,14 @@
+             egl_surface = EGL_NO_SURFACE;
+ #endif
+             cocoa_gl_make_context_current(&dgc, gl_view_ctx);
++            if (hdr_enabled && !cocoa_hdr_shader_init(&hdr_shader)) {
++                error_report("Cocoa native HDR shader initialization failed");
++                exit(1);
++            }
++            if (hdr_enabled) {
++                fprintf(stderr, "[cocoa-gl-hdr] native OpenGL HDR initialized; GL=%s\n",
++                        glGetString(GL_VERSION));
++            }
+         }
+ 
+         dgc.gls = qemu_gl_init_shader();
+diff --git a/ui/cocoa-gl-hdr.h b/ui/cocoa-gl-hdr.h
+--- /dev/null
++++ b/ui/cocoa-gl-hdr.h
+@@ -0,0 +1,128 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef QEMU_COCOA_GL_HDR_H
++#define QEMU_COCOA_GL_HDR_H
++
++static const char cocoa_hdr_vertex[] =
++    "#version 150\n"
++    "out vec2 uv; uniform int flip;\n"
++    "void main() {\n"
++    "  vec2 positions[3] = vec2[3](vec2(-1,-1), vec2(3,-1), vec2(-1,3));\n"
++    "  vec2 p = positions[gl_VertexID];\n"
++    "  gl_Position = vec4(p,0,1); uv = p * 0.5 + 0.5;\n"
++    "  if (flip == 0) uv.y = 1.0 - uv.y;\n"
++    "}\n";
++
++static const char cocoa_hdr_fragment[] =
++    "#version 150\n"
++    "in vec2 uv; out vec4 color;\n"
++    "uniform sampler2D source; uniform int pq; uniform int bt2020;\n"
++    "uniform float sdr_white;\n"
++    "vec3 srgb_linear(vec3 v) {\n"
++    "  return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)),\n"
++    "             greaterThan(v, vec3(0.04045)));\n"
++    "}\n"
++    "void main() {\n"
++    "  vec3 rgb = max(texture(source, uv).rgb, vec3(0));\n"
++    "  if (pq != 0) {\n"
++    "    const float m1=2610.0/16384.0, m2=2523.0/32.0;\n"
++    "    const float c1=3424.0/4096.0, c2=2413.0/128.0, c3=2392.0/128.0;\n"
++    "    vec3 v = pow(min(rgb, vec3(1)), vec3(1.0/m2));\n"
++    "    rgb = pow(max(v-c1, vec3(0))/max(c2-c3*v, vec3(0.000001)),\n"
++    "              vec3(1.0/m1)) * (10000.0/sdr_white);\n"
++    "  } else {\n"
++    "    rgb = srgb_linear(rgb);\n"
++    "    if (bt2020 == 0) {\n"
++    "      const mat3 to2020 = mat3(\n"
++    "        0.627403896,0.069097289,0.016391439,\n"
++    "        0.329283038,0.919540395,0.088013308,\n"
++    "        0.043313066,0.011362316,0.895595253);\n"
++    "      rgb = to2020 * rgb;\n"
++    "    }\n"
++    "  }\n"
++    "  color = vec4(rgb,1);\n"
++    "}\n";
++
++typedef struct CocoaGLHDRShader {
++    GLuint program;
++    GLint source, flip, pq, bt2020, sdr_white;
++} CocoaGLHDRShader;
++
++static GLuint cocoa_hdr_compile(GLenum type, const char *source)
++{
++    GLuint shader = glCreateShader(type);
++    GLint ok;
++    glShaderSource(shader, 1, &source, NULL);
++    glCompileShader(shader);
++    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok) {
++        char message[2048];
++        glGetShaderInfoLog(shader, sizeof(message), NULL, message);
++        fprintf(stderr, "[cocoa-gl-hdr] shader compile failed: %s\n", message);
++        glDeleteShader(shader);
++        return 0;
++    }
++    return shader;
++}
++
++static bool cocoa_hdr_shader_init(CocoaGLHDRShader *shader)
++{
++    GLuint vertex = cocoa_hdr_compile(GL_VERTEX_SHADER, cocoa_hdr_vertex);
++    GLuint fragment = cocoa_hdr_compile(GL_FRAGMENT_SHADER, cocoa_hdr_fragment);
++    GLint ok = 0;
++    if (vertex && fragment) {
++        shader->program = glCreateProgram();
++        glAttachShader(shader->program, vertex);
++        glAttachShader(shader->program, fragment);
++        glLinkProgram(shader->program);
++        glGetProgramiv(shader->program, GL_LINK_STATUS, &ok);
++        if (!ok) {
++            char message[2048];
++            glGetProgramInfoLog(shader->program, sizeof(message), NULL, message);
++            fprintf(stderr, "[cocoa-gl-hdr] shader link failed: %s\n", message);
++            glDeleteProgram(shader->program);
++            shader->program = 0;
++        }
++    }
++    if (vertex) glDeleteShader(vertex);
++    if (fragment) glDeleteShader(fragment);
++    if (!ok) return false;
++    shader->source = glGetUniformLocation(shader->program, "source");
++    shader->flip = glGetUniformLocation(shader->program, "flip");
++    shader->pq = glGetUniformLocation(shader->program, "pq");
++    shader->bt2020 = glGetUniformLocation(shader->program, "bt2020");
++    shader->sdr_white = glGetUniformLocation(shader->program, "sdr_white");
++    return true;
++}
++
++/* Programs are shared by CGL contexts; vertex-array objects are not. */
++static void cocoa_hdr_shader_draw(const CocoaGLHDRShader *shader, GLuint vao,
++                                  GLuint texture, bool flip, bool pq,
++                                  bool bt2020, float sdr_white)
++{
++    GLint old_program, old_vao, old_active, old_texture;
++    GLboolean blend = glIsEnabled(GL_BLEND);
++    GLboolean srgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
++    glGetIntegerv(GL_CURRENT_PROGRAM, &old_program);
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &old_vao);
++    glGetIntegerv(GL_ACTIVE_TEXTURE, &old_active);
++    glActiveTexture(GL_TEXTURE0);
++    glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_texture);
++    glDisable(GL_BLEND);
++    glDisable(GL_FRAMEBUFFER_SRGB);
++    glUseProgram(shader->program);
++    glUniform1i(shader->source, 0);
++    glUniform1i(shader->flip, flip);
++    glUniform1i(shader->pq, pq);
++    glUniform1i(shader->bt2020, bt2020);
++    glUniform1f(shader->sdr_white, sdr_white);
++    glBindVertexArray(vao);
++    glBindTexture(GL_TEXTURE_2D, texture);
++    glDrawArrays(GL_TRIANGLES, 0, 3);
++    glBindTexture(GL_TEXTURE_2D, old_texture);
++    glActiveTexture(old_active);
++    glBindVertexArray(old_vao);
++    glUseProgram(old_program);
++    if (blend) glEnable(GL_BLEND);
++    if (srgb) glEnable(GL_FRAMEBUFFER_SRGB);
++}
++#endif
