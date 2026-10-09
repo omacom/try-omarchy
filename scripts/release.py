@@ -112,7 +112,7 @@ def verify_release_artifacts(root: Path, tag: str) -> None:
             or info.get("TryOmarchyBuildDescribe") != tag):
         raise ValueError(f"built app version does not match {tag}")
 
-    dmg = root / "dist/TryOmarchy.dmg"
+    dmg = root / "dist" / f"TryOmarchy-{tag}.dmg"
     if not dmg.is_file():
         raise ValueError(f"release DMG was not produced: {dmg}")
 
@@ -156,7 +156,7 @@ def release(root: Path, make: str) -> None:
     except (ValueError, OSError, subprocess.CalledProcessError, KeyboardInterrupt):
         print(f"Local tag {tag} remains. Retry with make release VERSION={tag}", file=sys.stderr)
         raise
-    print(f"Release DMG: {root / 'dist' / 'TryOmarchy.dmg'}", flush=True)
+    print(f"Release DMG: {root / 'dist' / f'TryOmarchy-{tag}.dmg'}", flush=True)
     print(f"After verifying it, push the tag: git push origin {tag}", flush=True)
     print("Then create the GitHub release and upload the DMG.", flush=True)
 

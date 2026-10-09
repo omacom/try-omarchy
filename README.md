@@ -914,7 +914,7 @@ dist/
 │   └── Try Omarchy.app     # development identity
 ├── release.noindex/
 │   └── Try Omarchy.app     # production identity
-├── TryOmarchy.dmg         # after make package or make release
+├── TryOmarchy-vX.Y.Z.dmg   # after make package or make release
 └── guest/                 # verified guest build artifacts
 ```
 
