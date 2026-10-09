@@ -15,6 +15,11 @@ struct FullscreenNativeContractTests {
             "full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
         ))
         #expect(!runner.contains("cocoa_full_grab"))
+        #expect(runner.contains("host_keys=${OMARCHY_QEMU_GPU_HOST_KEYS-131,144,145,160,176,177,178}"))
+        #expect(runner.contains("grep -Fq 'host-keys=code'"))
+        #expect(runner.contains("swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys\""))
+        #expect(runner.contains("case ${OMARCHY_QEMU_GPU_MEDIA_KEYS:-0} in"))
+        #expect(runner.contains("grep -Fq 'media-keys=on|off'"))
     }
 
     @Test("Cocoa separates fullscreen presentation from focused keyboard capture")
@@ -94,6 +99,36 @@ struct FullscreenNativeContractTests {
             builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$reenable_patch\"")
         )
         #expect(fullGrab.lowerBound < reenable.lowerBound)
+    }
+
+    @Test("Runtime build applies the host-keys pass-through after the tap recovery")
+    func hostKeysAreBuilt() throws {
+        let builder = try source(named: "build-qemu-gpu-runtime.sh")
+        #expect(builder.contains(
+            "host_keys_patch=\"$native_dir/patches/qemu-cocoa-host-keys.patch\""
+        ))
+        let reenable = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$reenable_patch\"")
+        )
+        let hostKeys = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$host_keys_patch\"")
+        )
+        #expect(reenable.lowerBound < hostKeys.lowerBound)
+    }
+
+    @Test("Runtime build applies the media-keys patch after host-keys")
+    func mediaKeysAreBuilt() throws {
+        let builder = try source(named: "build-qemu-gpu-runtime.sh")
+        #expect(builder.contains(
+            "media_keys_patch=\"$native_dir/patches/qemu-cocoa-media-keys.patch\""
+        ))
+        let hostKeys = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$host_keys_patch\"")
+        )
+        let mediaKeys = try #require(
+            builder.range(of: "patch -d \"$source_dir\" -p1 -f -i \"$media_keys_patch\"")
+        )
+        #expect(hostKeys.lowerBound < mediaKeys.lowerBound)
     }
 
     private func source(named relativePath: String) throws -> String {

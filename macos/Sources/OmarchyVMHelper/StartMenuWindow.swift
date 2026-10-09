@@ -175,6 +175,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var networkEditor: NetworkEditor?
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
+    private let keyboardRouting: () -> KeyboardRoutingPreferences
+    private let saveKeyboardRouting: (KeyboardRoutingPreferences) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
@@ -217,6 +219,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             && !microphoneRequestInFlight && !cameraRequestInFlight
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
+            && keyboardRoutingEditor == nil
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -230,6 +233,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
     private(set) var usbDeviceEditor: USBDeviceEditor?
+    private(set) var keyboardRoutingEditor: KeyboardRoutingEditor?
     private weak var immersiveCaption: NSTextField?
     private var accessibilityRow: StartMenuPermissionRow?
     private var microphoneRow: StartMenuPermissionRow?
@@ -271,6 +275,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         networkIdentity: VMNetworkIdentityAccess = .unavailable,
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
+        keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
+        saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
@@ -315,6 +321,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.networkIdentity = networkIdentity
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
+        self.keyboardRouting = keyboardRouting
+        self.saveKeyboardRouting = saveKeyboardRouting
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
@@ -532,6 +540,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         portForwardingEditor = nil
         resourceEditor?.dismiss()
         resourceEditor = nil
+        keyboardRoutingEditor?.dismiss()
+        keyboardRoutingEditor = nil
         window.orderOut(nil)
     }
 
@@ -807,6 +817,16 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             minimumHeight: 90
         )
         let immersiveRow = immersiveSettingRow(isEnabled: immersiveMode())
+        let routing = keyboardRouting()
+        let keyboardRow = permissionRow(
+            symbolName: "keyboard",
+            title: "Keyboard",
+            detail: StartMenuPresentation.keyboardRouting(routing),
+            granted: routing != .defaults,
+            statusLabels: ("●  Custom", "○  Default"),
+            actions: [("Configure…", #selector(beginKeyboardConfiguration))],
+            minimumHeight: 72
+        )
         let selectedResources = resources()
         let resourceRow = permissionRow(
             symbolName: "cpu",
@@ -874,7 +894,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
+        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, keyboardRow, automaticStartSettingRow()])
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1024,7 +1044,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         restart.isEnabled = !controlsBusy
         let restartCaption = NSTextField(wrappingLabelWithString: shutdownInProgress
             ? "Waiting for Omarchy to shut down. Finish saving your work inside Omarchy."
-            : "CPU, memory, shared folder, networking, port forwarding, and immersive mode changes apply when Try Omarchy next starts. Restart to apply them now.")
+            : "CPU, memory, shared folder, networking, port forwarding, immersive mode, and keyboard changes apply when Try Omarchy next starts. Restart to apply them now.")
         restartCaption.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         restartCaption.textColor = OmarchyStartMenuTheme.muted
         restartCaption.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -1755,6 +1775,22 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             }
         )
         resourceEditor = editor
+        editor.beginSheet(for: window)
+    }
+
+    @objc private func beginKeyboardConfiguration() {
+        guard !controlsBusy, !resetInProgress,
+              !microphoneRequestInFlight, !cameraRequestInFlight,
+              keyboardRoutingEditor == nil, window.attachedSheet == nil else { return }
+        let editor = KeyboardRoutingEditor(
+            preferences: keyboardRouting(),
+            save: { [weak self] preferences in self?.saveKeyboardRouting(preferences) },
+            didClose: { [weak self] in
+                self?.keyboardRoutingEditor = nil
+                self?.render()
+            }
+        )
+        keyboardRoutingEditor = editor
         editor.beginSheet(for: window)
     }
 

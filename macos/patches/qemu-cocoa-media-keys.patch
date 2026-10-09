@@ -1,0 +1,183 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: optionally send the Mac's media keys to the guest
+
+Applies after the Try Omarchy host-keys patch.
+
+The Mac's play/pause, next and previous keys arrive as NX_SYSDEFINED
+aux-control events, not as key events, so the full-grab tap never sees
+them and macOS always handles them. Try Omarchy cannot forward them from
+outside QEMU: its input bridge is not launched, and QMP accepts a single
+client, which the helper already holds.
+
+Add a media-keys display option (default off). When it is on, the tap
+also listens for system-defined events. While the guest has the keyboard,
+it decodes the transport keys and presses them through the view's
+keyboard state tracker, so losing focus lifts a held key like any other.
+Volume, mute, brightness and backlight events, and every media key while
+the keyboard is not captured, go straight back to macOS. With the option
+off the tap's event mask is unchanged.
+
+diff --git a/qapi/ui.json b/qapi/ui.json
+index c709e67..6460f2a 100644
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1441,6 +1441,10 @@
+ #     stay with macOS while full grab captures the keyboard, such as
+ #     an Apple keyboard's display brightness keys.  (default: none)
+ #
++# @media-keys: Send the Mac's media transport keys (previous,
++#     play/pause, next) to the guest while full grab captures the
++#     keyboard.  Volume keys always stay with macOS.  (default: off)
++#
+ # @immersive: Hide the host menu bar and Dock instead of using
+ #     AppKit's standard fullscreen auto-hide behavior.  This does not
+ #     affect keyboard capture.  (default: on)
+@@ -1463,6 +1467,7 @@
+       '*left-command-key': 'bool',
+       '*full-grab': 'bool',
+       '*host-keys': 'str',
++      '*media-keys': 'bool',
+       '*immersive': 'bool',
+       '*swap-opt-cmd': 'bool',
+       '*zoom-to-fit': 'bool',
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 44c2560..7c4ece1 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -2259,7 +2259,7 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
+ #endif
+ #if defined(CONFIG_COCOA)
+     "-display cocoa[,full-grab=on|off][,immersive=on|off][,swap-opt-cmd=on|off]\n"
+-    "              [,host-keys=code:code...]\n"
++    "              [,host-keys=code:code...][,media-keys=on|off]\n"
+     "              [,show-cursor=on|off][,left-command-key=on|off]\n"
+     "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
+ #endif
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index 8d3cc3e..a856a8f 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -355,6 +355,7 @@ - (void) notifyMouseModeChange;
+ - (BOOL) isMouseGrabbed;
+ - (BOOL) isKeyboardCaptured;
+ - (void) reenableEventTap;
++- (void) sendMediaKey:(int)qcode down:(bool)down;
+ - (void) raiseAllKeys;
+ @end
+ 
+@@ -368,6 +369,7 @@ - (void) raiseAllKeys;
+  * real function keys alone.
+  */
+ static bool cocoa_host_keys[256];
++static bool media_keys_enabled;
+ 
+ /* Parse "a:b:c" (each 0-255) into host_keys; false if malformed. */
+ static bool cocoa_parse_host_keys(const char *spec, bool host_keys[256])
+@@ -408,6 +410,41 @@ static bool cocoa_is_host_key(CGKeyCode keycode)
+     return keycode < 256 && cocoa_host_keys[keycode];
+ }
+ 
++/*
++ * Decode an NX_SYSDEFINED aux-control event's data1 into a media
++ * transport key. Volume, mute, brightness and backlight return false and
++ * stay with macOS.
++ */
++static bool cocoa_media_key(long data1, int *qcode, bool *down)
++{
++    long key_type = (data1 & 0xFFFF0000) >> 16;
++    long state = (data1 & 0xFF00) >> 8;
++
++    switch (key_type) {
++    case 16: /* NX_KEYTYPE_PLAY */
++        *qcode = Q_KEY_CODE_AUDIOPLAY;
++        break;
++    case 17: /* NX_KEYTYPE_NEXT */
++    case 19: /* NX_KEYTYPE_FAST */
++        *qcode = Q_KEY_CODE_AUDIONEXT;
++        break;
++    case 18: /* NX_KEYTYPE_PREVIOUS */
++    case 20: /* NX_KEYTYPE_REWIND */
++        *qcode = Q_KEY_CODE_AUDIOPREV;
++        break;
++    default:
++        return false;
++    }
++    if (state == 0xA) {
++        *down = true;
++    } else if (state == 0xB) {
++        *down = false;
++    } else {
++        return false;
++    }
++    return true;
++}
++
+ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef cgEvent, void *userInfo)
+ {
+     QemuCocoaView *view = userInfo;
+@@ -426,6 +463,25 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+         return cgEvent;
+     }
+ 
++    /*
++     * With media-keys on, the Mac's play/pause, next and previous keys
++     * go to the guest while it has the keyboard; every other
++     * system-defined event (volume, brightness) stays with macOS.
++     */
++    if (type == 14 /* NX_SYSDEFINED */) {
++        NSEvent *systemEvent = [NSEvent eventWithCGEvent:cgEvent];
++        int qcode;
++        bool down;
++
++        if (media_keys_enabled && [view isKeyboardCaptured] &&
++            [systemEvent subtype] == 8 /* NX_SUBTYPE_AUX_CONTROL_BUTTONS */ &&
++            cocoa_media_key([systemEvent data1], &qcode, &down)) {
++            [view sendMediaKey:qcode down:down];
++            return NULL;
++        }
++        return cgEvent;
++    }
++
+     /*
+      * The tap sees the Mac's dedicated keys before macOS does, and the
+      * capture below would swallow them for the whole session. Hand the
+@@ -882,6 +938,9 @@ - (void) setFullGrab:(id)sender
+     COCOA_DEBUG("QemuCocoaView: setFullGrab\n");
+ 
+     CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp) | CGEventMaskBit(kCGEventFlagsChanged);
++    if (media_keys_enabled) {
++        mask |= CGEventMaskBit(14 /* NX_SYSDEFINED */);
++    }
+     eventsTap = CGEventTapCreate(kCGHIDEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
+                                  mask, handleTapEvent, self);
+     if (!eventsTap) {
+@@ -1421,6 +1480,20 @@ - (void) raiseAllKeys
+     });
+ }
+ 
++/*
++ * Press or release a media transport key through the keyboard state
++ * tracker, so raiseAllKeys also lifts it when the window loses focus.
++ */
++- (void) sendMediaKey:(int)qcode down:(bool)down
++{
++    with_bql(^{
++        if (qemu_console_is_graphic(dcl.con)) {
++            qkbd_state_key_event(kbd, qemu_input_map_qcode_to_linux[qcode],
++                                 down);
++        }
++    });
++}
++
+ - (void) raiseAllButtons
+ {
+     with_bql(^{
+@@ -2725,6 +2798,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+                         opts->u.cocoa.full_grab;
+     immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
+                              opts->u.cocoa.immersive;
++    media_keys_enabled = opts->u.cocoa.has_media_keys &&
++                         opts->u.cocoa.media_keys;
+     if (opts->u.cocoa.host_keys &&
+         !cocoa_parse_host_keys(opts->u.cocoa.host_keys, cocoa_host_keys)) {
+         error_report("cocoa: host-keys must be keycodes 0-255 separated by ':'");
