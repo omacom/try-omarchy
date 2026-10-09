@@ -25,6 +25,12 @@ includes Ghostty's `xterm-ghostty` entry. Revision `1.3.1-2` fixes the file
 conflict that prevented `1.3.1-1` from installing. If you encountered that
 failure, apply the VM update described below, then retry the terminal menu.
 
+Revision `1.3.1-3` builds Ghostty against the system fontconfig that GTK
+already loads. Earlier revisions bundled a second copy, which could crash open
+Ghostty windows when a font was installed or the font cache was rebuilt. To
+get this fix on an existing installation, apply the VM update, then choose
+**Install → Terminal → Ghostty** again to rebuild the package.
+
 ## Existing VMs
 
 In a Try Omarchy app build containing this fix, choose **Update**, then
