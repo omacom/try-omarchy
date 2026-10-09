@@ -15,11 +15,11 @@ GUEST = support.support.GUEST
 
 
 class GhosttyMigrationTests(unittest.TestCase):
-    def prepare(self, directory):
+    def prepare(self, directory, recipe='ghostty-PKGBUILD-before-terminfo-fix'):
         payload, root = support.BootComponentTests().prepare(directory)
         legacy = {
             'install-ghostty-arm64': 'ghostty-installer-before-update-pins',
-            'ghostty-PKGBUILD': 'ghostty-PKGBUILD-before-terminfo-fix',
+            'ghostty-PKGBUILD': recipe,
             'omarchy-install-terminal': 'omarchy-install-terminal',
         }
         preimages = json.loads((payload / 'preimages.json').read_text())
@@ -84,6 +84,15 @@ class GhosttyMigrationTests(unittest.TestCase):
             self.assertEqual('current', result['components']['ghostty'])
             for relative, inode in inodes.items():
                 self.assertEqual(inode, (root / relative).stat().st_ino)
+
+    def test_update_replaces_the_bundled_fontconfig_recipe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload, root, factory = self.prepare(directory, 'ghostty-PKGBUILD-before-system-fontconfig')
+            result = fixes.migrate(payload, root, True, '')
+            self.assertEqual('applied', result['components']['ghostty'])
+            recipe = root / extras.GROUPS['ghostty']['ghostty-PKGBUILD'][0]
+            self.assertEqual((payload / 'ghostty-PKGBUILD').read_bytes(), recipe.read_bytes())
+            self.assertIn('-fsys=fontconfig', recipe.read_text())
 
     def test_skipped_update_keeps_the_previous_installer_and_pins(self):
         with tempfile.TemporaryDirectory() as directory:

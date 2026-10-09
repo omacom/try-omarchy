@@ -91,6 +91,7 @@ class GhosttyTests(unittest.TestCase):
                 capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('ncurses', result.stdout.splitlines())
+            self.assertIn('fontconfig', result.stdout.splitlines())
             self.assertFalse((pkg / 'usr/share/terminfo/g/ghostty').exists())
             self.assertEqual(alias.read_bytes(), b'compiled terminfo')
             for name, contents in files.items():
