@@ -188,6 +188,14 @@ copy_contents "$source_dir/default/systemd/user@.service.d" "$root/usr/lib/syste
 copy_contents "$source_dir/default/systemd/zram-generator.conf.d" "$root/usr/lib/systemd/zram-generator.conf.d"
 install_file 0644 "$source_dir/default/systemd/faster-shutdown.conf" "$root/etc/systemd/system.conf.d/10-faster-shutdown.conf"
 install_file 0644 "$source_dir/default/wayland-sessions/omarchy.desktop" "$root/usr/local/share/wayland-sessions/omarchy.desktop"
+# Install and select the Omarchy SDDM theme like omarchy-settings does, so
+# logging out shows Omarchy's login screen instead of SDDM's built-in fallback.
+# The upstream Wayland greeter drop-in is intentionally not taken: the guest
+# keeps SDDM's default X11 greeter, which renders this theme.
+copy_tree "$source_dir/default/sddm/omarchy" "$root/usr/share/sddm/themes/omarchy"
+find "$root/usr/share/sddm/themes/omarchy" -type d -exec chmod 0755 {} +
+find "$root/usr/share/sddm/themes/omarchy" -type f -exec chmod 0644 {} +
+install_file 0644 "$source_dir/etc/sddm.conf.d/10-theme.conf" "$root/etc/sddm.conf.d/10-theme.conf"
 install_file 0644 "$source_dir/default/fonts/omarchy/omarchy.ttf" "$root/usr/share/fonts/omarchy/omarchy.ttf"
 install_file 0644 "$source_dir/etc/profile.d/omarchy.sh" "$root/etc/profile.d/omarchy.sh"
 install_file 0644 "$source_dir/etc/fastfetch/config.jsonc" "$root/etc/fastfetch/config.jsonc"
