@@ -2166,11 +2166,28 @@ HOTPLUG=1
             for upstream_path, installed_path in (
                 ("etc/xdg/kitty/kitty.conf", "etc/xdg/kitty/kitty.conf"),
                 ("etc/tmpfiles.d/omarchy-nopasswd-sudo.conf", "usr/lib/tmpfiles.d/omarchy-nopasswd-sudo.conf"),
+                ("etc/sddm.conf.d/10-theme.conf", "etc/sddm.conf.d/10-theme.conf"),
             ):
                 check(
                     (staged_root / installed_path).read_bytes() == (source / upstream_path).read_bytes(),
                     f"materialized system integration matches upstream: {installed_path}",
                 )
+            upstream_sddm_theme = source / "default/sddm/omarchy"
+            staged_sddm_theme = staged_root / "usr/share/sddm/themes/omarchy"
+            upstream_sddm_files = sorted(
+                path.relative_to(upstream_sddm_theme) for path in upstream_sddm_theme.rglob("*") if path.is_file()
+            )
+            check(
+                bool(upstream_sddm_files)
+                and upstream_sddm_files
+                == sorted(path.relative_to(staged_sddm_theme) for path in staged_sddm_theme.rglob("*") if path.is_file())
+                and all(
+                    (staged_sddm_theme / relative).read_bytes() == (upstream_sddm_theme / relative).read_bytes()
+                    and stat.S_IMODE((staged_sddm_theme / relative).stat().st_mode) == 0o644
+                    for relative in upstream_sddm_files
+                ),
+                "materialized SDDM theme matches upstream with mode 0644",
+            )
             icon_names = {path.name for path in staged_icons.iterdir() if path.is_file()}
             expected_normalized_icons = {
                 "battle-net.png",
