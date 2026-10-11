@@ -142,7 +142,7 @@ class TobParseTests(unittest.TestCase):
         self.assertEqual(parsed["charge_limit"], 95)
         self.assertEqual(parsed["capacity"], 42)
         self.assertEqual(self.fields(b"present=1 status=full capacity=95 ac=1\n")["charge_limit"], -1)
-        self.assertEqual(self.fields(bridge.unknown_state_line(message))["charge_limit"], -1)
+        self.assertEqual(self.fields(bridge.DISCONNECTED_LINE)["charge_limit"], -1)
 
     def test_invalid_charge_limit_rejects_the_whole_snapshot(self) -> None:
         for limit in (-2, 0, 100, 101):
@@ -161,7 +161,7 @@ class TobParseTests(unittest.TestCase):
             self.assertEqual(parsed[field], message[key])
         self.assertEqual(parsed["capacity"], 95)
         self.assertEqual(parsed["charge_limit"], 95)
-        for line in (bridge.unknown_state_line(message), b"present=1 status=full capacity=95 ac=1\n"):
+        for line in (bridge.DISCONNECTED_LINE, b"present=1 status=full capacity=95 ac=1\n"):
             cleared = self.fields(line)
             for field in bridge.DETAIL_FIELDS.values():
                 self.assertEqual(cleared[field], -1)
@@ -194,7 +194,7 @@ class TobParseTests(unittest.TestCase):
                 self.assertEqual(parsed["capacity"], 57)
                 self.assertEqual(parsed["ac"], ac)
                 self.assertEqual(parsed["current_now"], current)
-                self.assertEqual(self.fields(bridge.unknown_state_line(message))["current_now"], -1)
+                self.assertEqual(self.fields(bridge.DISCONNECTED_LINE)["current_now"], -1)
 
     def test_unknown_legacy_or_absent_battery_clears_current(self) -> None:
         for line in (b"present=1 status=full capacity=100 ac=1\n",
@@ -216,14 +216,10 @@ class TobParseTests(unittest.TestCase):
         self.assertEqual(parsed["ac"], 1)
 
     def test_accepts_the_agents_disconnect_line(self) -> None:
-        last = bridge.decode_message(
-            b'{"type":"state","present":true,"percentage":42,"state":"charging",'
-            b'"acConnected":true,"timeToEmptySeconds":null,"timeToFullSeconds":600}'
-        )
-        parsed = self.fields(bridge.unknown_state_line(last))
-        self.assertEqual(parsed["capacity"], 42)
-        self.assertEqual(parsed["time_to_empty"], -1)
-        self.assertEqual(parsed["time_to_full"], -1)
+        # A dead host bridge drops the battery instead of keeping a stale level.
+        parsed = self.fields(bridge.DISCONNECTED_LINE)
+        self.assertEqual(parsed["present"], 0)
+        self.assertEqual(parsed["ac"], 1)
 
     # The status-token table is written twice, once per language.
 

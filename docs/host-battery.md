@@ -297,7 +297,7 @@ All are non-fatal to the VM, matching the camera bridge's posture:
 | Condition | Behavior |
 | --- | --- |
 | Mac has no internal battery | `present:false`; guest keeps `ADP0` only; bar shows nothing |
-| Host bridge dies | Agent writes `status=unknown`, exits; systemd restarts it; launcher restarts the bridge |
+| Host bridge dies | Agent writes `present=0 ac=1`, so the guest shows no battery until the next snapshot; exits; systemd restarts it; launcher restarts the bridge |
 | Module absent (un-retrofitted guest) | The unit's `ConditionPathExists` on the sysfs attribute fails; the agent never starts, and a later retrofit brings it up |
 | Malformed JSON line or state line | Rejected; previous state retained |
 | Host sleep and wake | Fresh snapshot on the next notification or the 30-second tick |
