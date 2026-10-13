@@ -407,7 +407,8 @@ verify_runtime_tree() {
     die "relocated QEMU is missing the ARM virt machine"
   virt_help=$("$qemu" -machine virt,help 2>&1) || \
     die "relocated QEMU could not inspect the ARM virt machine: $virt_help"
-  printf '%s\n' "$virt_help" | grep -Fq 'virtualization=<bool>' || \
+  # grep -q can close the pipe before printf finishes and fail under pipefail.
+  [[ $virt_help == *'virtualization=<bool>'* ]] || \
     die "relocated QEMU is missing the ARM virtualization-extension switch"
 
   cpu_help=$("$qemu" -cpu help 2>&1) || \
