@@ -1579,9 +1579,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
               !storageLocationStatus().isEnvironmentOverride else { return }
         let menu = NSMenu()
         for (title, action) in [
-            ("Boot Existing VM…", #selector(beginExistingVMSelection)),
-            ("New VM Folder…", #selector(beginStorageLocationSelection)),
-            ("Move VM…", #selector(beginVMMove)),
+            ("Boot Existing VM from Folder…", #selector(beginExistingVMSelection)),
+            ("Start New VM in New Folder…", #selector(beginStorageLocationSelection)),
+            ("Move Current VM to New Folder…", #selector(beginVMMove)),
             ("Use Default Folder", #selector(useDefaultStorageLocationAction))
         ] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
@@ -1622,10 +1622,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
               !storageLocationStatus().isEnvironmentOverride else { return }
         guard let url = storageFolderPanel(
-            title: existing ? "Boot an existing Omarchy VM" : "Choose a new VM folder",
+            title: existing ? "Boot an Existing VM from a Folder" : "Start a New VM in a New Folder",
             message: existing
-                ? "Select the complete VM folder containing boot, disks, and locks. The saved disk and its boot files will be used on the next launch."
-                : "Choose or create an empty folder on an APFS drive. A new VM will be created there on the next launch; your current VM stays where it is.",
+                ? "Select the complete VM folder containing boot, disks, and locks. This becomes the current VM, used on the next launch. Your previously selected VM stays where it is."
+                : "Choose or create an empty folder on an APFS drive. This becomes the current VM location. The next launch creates a new VM there; your previously selected VM stays where it is.",
             prompt: existing ? "Use This VM" : "Use Folder"
         ) else { return }
         if let problem = validateStorageLocation(url.path) { storageError(problem); return }
@@ -1633,7 +1633,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             if existing {
                 try VMWorkspaceTransfer.requireExistingVM(url.path)
             } else if try !FileManager.default.contentsOfDirectory(atPath: url.path).allSatisfy({ [".DS_Store", ".localized", "Icon\r"].contains($0) }) {
-                throw HelperError.io("Choose an empty folder for a new VM. Use Boot Existing VM to select a saved VM.")
+                throw HelperError.io("Choose an empty folder for a new VM. Use Boot Existing VM from Folder to select a saved VM.")
             }
         } catch { storageError(error.localizedDescription); return }
         if let problem = chooseStorageLocation(url.path) { storageError(problem) }
@@ -1647,8 +1647,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         do { try VMWorkspaceTransfer.requireExistingVM(source.path) }
         catch { storageError(error.localizedDescription); return }
         guard let destination = storageFolderPanel(
-            title: "Move the Omarchy VM",
-            message: "Choose or create a completely empty folder on an APFS drive. Omarchy copies and verifies the complete VM, then boots from the new folder. The original is kept as a recovery copy.",
+            title: "Move the Current VM to a New Folder",
+            message: "Current VM: \(source.path)\n\nChoose or create a completely empty folder on an APFS drive. Omarchy copies and verifies this VM, then selects the new folder for the next launch. The original stays where it is as a recovery copy.",
             prompt: "Copy and Switch"
         ) else { return }
         storageMoveInProgress = true
@@ -1660,7 +1660,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             if let problem { self.storageError(problem); return }
             let alert = NSAlert()
             alert.messageText = "VM copied and verified"
-            alert.informativeText = "The next launch uses \(destination.path). Your original VM remains at \(source.path). Use Boot Existing VM to switch back. The two copies evolve independently after booting."
+            alert.informativeText = "The next launch uses \(destination.path). Your original VM remains at \(source.path). Use Boot Existing VM from Folder to switch back. The two copies evolve independently after booting."
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: self.window)
         }

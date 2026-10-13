@@ -328,9 +328,10 @@ disk sparsely and uses `cp -c` for uncompressed development sources. It
 serializes launches with a `lockf` advisory lock. On exFAT the same expansion allocates the full working size immediately,
 and on a network share the lock is unreliable. Both layers check independently, the app
 when the folder is chosen and the shell library again at launch, because the
-volume can change in between. **Boot Existing VM** selects a recognized saved disk without copying it;
-**New VM Folder** selects an empty location for a new disk. **Move VM** runs a
-separate native helper that locks the source with the launcher's POSIX record
+volume can change in between. **Boot Existing VM from Folder** selects a
+recognized saved disk without copying it; **Start New VM in New Folder**
+selects an empty location for a new disk. **Move Current VM to New Folder**
+runs a separate native helper that locks the source with the launcher's POSIX record
 locks, clones or sparsely copies the full workspace to a private staging
 sibling, hashes every regular file, checks for source and destination changes,
 flushes files and directories, and atomically publishes the copy. Only success

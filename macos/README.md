@@ -129,8 +129,9 @@ the reset. The next launch prepares a new disk if needed, with its button
 showing checking, image preparation, verification, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
-The start menu's **VM Location → Manage…** menu separates **Boot Existing VM…**,
-**New VM Folder…**, and **Move VM…**. Existing selection requires a recognized
+The start menu's **VM Location → Manage…** menu separates
+**Boot Existing VM from Folder…**, **Start New VM in New Folder…**, and
+**Move Current VM to New Folder…**. Existing selection requires a recognized
 persistent disk and workspace marker. New selection requires an empty folder.
 Relocation runs the native `--copy-vm SOURCE EMPTY_DESTINATION` helper in a
 separate process, holds the launcher's POSIX locks, stages a private sibling

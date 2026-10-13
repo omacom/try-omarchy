@@ -783,17 +783,22 @@ reinstall, or change to the factory image is needed.
 Open **Manage…** on the start menu's **VM Location** row after shutting down
 Omarchy:
 
-- **Boot Existing VM…** selects a saved workspace for the next launch. Choose
-  the complete folder containing `boot`, `disks`, and `locks`, rather than the
+- **Boot Existing VM from Folder…** selects a saved workspace for the next
+  launch. Choose the complete folder containing `boot`, `disks`, and `locks`, rather than the
   `rootfs.ext4` disk or its parent. Its saved disk and paired boot files are used.
-- **New VM Folder…** selects an empty folder; the next launch creates a new VM
-  there. Your current VM stays where it is.
-- **Move VM…** copies the complete workspace to a completely empty folder,
-  verifies every file's SHA-256, and switches the next launch to the copy only
+- **Start New VM in New Folder…** selects an empty folder; the next launch
+  creates a new VM there. Your current VM stays where it is.
+- **Move Current VM to New Folder…** copies the complete workspace to a
+  completely empty folder, verifies every file's SHA-256, and switches the next launch to the copy only
   after success. The original remains a recovery copy. Copies evolve
-  independently after booting; select either with **Boot Existing VM…**.
+  independently after booting; select either with **Boot Existing VM from Folder…**.
 - **Use Default Folder** selects
-  `~/Library/Application Support/Try Omarchy/VM/v1` again.
+  `~/Library/Application Support/Try Omarchy/VM/v1` again. If that VM has been
+  deleted, the next launch creates a fresh VM there.
+
+Each selection becomes the current VM location. **Move Current VM** always
+operates on the location shown in the row: select a different existing VM
+first to move that VM instead. Selecting a VM does not boot it immediately.
 
 For example, create `~/Try Omarchy` in the folder picker to relocate the VM
 into your home directory. Omarchy uses exactly the selected folder. A drive's
@@ -805,7 +810,11 @@ replaces files at the destination. Same-volume copies use APFS clones;
 cross-volume copies preserve sparse capacity. Leave enough free space for the
 VM's allocated data plus 1 GiB of headroom. If copying or verification fails,
 the original and the selected boot location stay unchanged. Do not delete the
-original until you have booted and checked the relocated VM.
+original until you have booted and checked the relocated VM. Once you have
+checked your files and settings, you can delete that old workspace, or retain
+it as a recovery copy. For the default location, delete only `VM/v1`, keeping
+the surrounding `Try Omarchy` Application Support folder: it also stores the
+host Touch ID keys used by the relocated VM.
 
 - Do not disconnect the drive while Omarchy is running. macOS refuses a normal
   eject while the VM holds the disk, but pulling the cable can damage it. If the
