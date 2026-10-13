@@ -129,14 +129,21 @@ the reset. The next launch prepares a new disk if needed, with its button
 showing checking, image preparation, verification, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
-The start menu can move that workspace to any APFS folder the user picks; the
-folder is used exactly as chosen, never with a folder created inside it — a
-folder with other files already in it, or a drive's top level, is refused
-instead of restructured. The choice is stored in `UserDefaults` and published
-to the launcher as `OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value of that
-variable still wins, so the development and test override keeps working
-unchanged. Reset composes its environment exactly as a launch does, so it
-always erases the workspace the user is actually running.
+The start menu's **VM Location → Manage…** menu separates **Boot Existing VM…**,
+**New VM Folder…**, and **Move VM…**. Existing selection requires a recognized
+persistent disk and workspace marker. New selection requires an empty folder.
+Relocation runs the native `--copy-vm SOURCE EMPTY_DESTINATION` helper in a
+separate process, holds the launcher's POSIX locks, stages a private sibling
+copy, and verifies every regular file with SHA-256 before atomic publication.
+The original is retained for recovery; the preference changes only on success.
+APFS clones are used on the same volume, and sparse copying across volumes.
+Both locations must be local APFS folders. Symlinks, hard links, special files,
+occupied destinations, and changes during copying are refused.
+
+The choice is stored in `UserDefaults` and published to the launcher as
+`OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value still wins and disables
+location changes in the menu. Reset composes its environment exactly as launch
+does, so it always erases the workspace the user is actually running.
 
 **Skip launcher** is stored in the versioned `launcher-settings.json` file at
 that workspace's root (normally `~/Library/Application Support/Try Omarchy/VM/v1`).

@@ -193,10 +193,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let storageLocationStatus: () -> StorageLocationMenuState
     private let validateStorageLocation: (String) -> String?
     private let chooseStorageLocation: (String) -> String?
+    private let moveStorageLocation: (String, @escaping (String?) -> Void) -> Void
     private let useDefaultStorageLocation: () -> Void
 
     private var microphoneRequestInFlight = false
     private var cameraRequestInFlight = false
+    private var storageMoveInProgress = false
     private var resetInProgress = false
     private var resetPhase = VMResetPhase.checking
     private weak var resetActionButton: OmarchyActionButton?
@@ -209,7 +211,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var requestSettingsAction: ((VMRunLifecycle.SettingsAction) -> Void)?
     private var automaticStartupConfirmationInProgress = false
     private var controlsBusy: Bool {
-        launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress
+        launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress || storageMoveInProgress
     }
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
@@ -254,6 +256,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         chooseStorageLocation: @escaping (String) -> String?,
         useDefaultStorageLocation: @escaping () -> Void,
         resetStorage: @escaping () -> Void,
+        moveStorageLocation: @escaping (String, @escaping (String?) -> Void) -> Void = { _, completion in completion("VM relocation is unavailable.") },
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
         chooseSharedFolder: @escaping (String) -> String?,
         setSharedFolderEnabled: @escaping (Bool) -> Void,
@@ -296,6 +299,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.storageLocationStatus = storageLocationStatus
         self.validateStorageLocation = validateStorageLocation
         self.chooseStorageLocation = chooseStorageLocation
+        self.moveStorageLocation = moveStorageLocation
         self.useDefaultStorageLocation = useDefaultStorageLocation
         self.resetStorage = resetStorage
         self.sharedFolderStatus = sharedFolderStatus
@@ -649,6 +653,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if storageMoveInProgress { return false }
         if virtualMachineRunning {
             closeSettings()
         } else {
@@ -848,23 +853,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 storageDetailLines = nil
             }
 
-            var storageActions: [(String, Selector)] = [("Change\u{2026}", #selector(beginStorageLocationSelection))]
-            if !storageStatus.isDefault {
-                storageActions.append(("Use Default", #selector(useDefaultStorageLocationAction)))
-            }
+            let storageActions: [(String, Selector)] = [("Manage…", #selector(showStorageActions(_:)))]
 
             storageRow = permissionRow(
                 symbolName: "externaldrive",
                 title: "VM Location",
-                detail: storageDetail,
-                compactDetailLines: storageDetailLines,
+                detail: storageMoveInProgress ? "Copying and verifying your VM… Original retained." : storageDetail,
+                compactDetailLines: storageMoveInProgress ? nil : storageDetailLines,
                 detailAction: storageStatus.problem == nil && storageLocationURL() != nil
                     ? #selector(openStorageLocation)
                     : nil,
                 granted: !storageStatus.isDefault && storageStatus.problem == nil,
                 statusLabels: ("\u{25cf}  Custom", "\u{25cb}  Default"),
                 actions: storageActions,
-                actionsEnabled: canResetStorage && !virtualMachineRunning && !storageStatus.isEnvironmentOverride,
+                actionsEnabled: canResetStorage && !prelaunchControlsLocked && !resetInProgress && !storageStatus.isEnvironmentOverride,
                 minimumHeight: storageDetailLines != nil || storageActions.count > 1 ? 90 : 68
             )
         }
@@ -1572,59 +1574,96 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         confirmReset()
     }
 
-    @objc private func beginStorageLocationSelection() {
-        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress else { return }
+    @objc private func showStorageActions(_ sender: NSButton) {
+        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
+              !storageLocationStatus().isEnvironmentOverride else { return }
+        let menu = NSMenu()
+        for (title, action) in [
+            ("Boot Existing VM…", #selector(beginExistingVMSelection)),
+            ("New VM Folder…", #selector(beginStorageLocationSelection)),
+            ("Move VM…", #selector(beginVMMove)),
+            ("Use Default Folder", #selector(useDefaultStorageLocationAction))
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
+    }
+
+    private func storageFolderPanel(title: String, message: String, prompt: String) -> URL? {
         let panel = NSOpenPanel()
-        panel.title = "Choose where to keep the Omarchy VM"
-        panel.message = "Omarchy puts its VM files straight into the folder you choose \u{2014} it does not create a folder inside it. Pick an empty folder, or one Omarchy already uses. The drive must be APFS."
-        panel.prompt = "Use Folder"
+        panel.title = title
+        panel.message = message
+        panel.prompt = prompt
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.resolvesAliases = true
-        if let current = storageLocationStatus().containerPath {
-            panel.directoryURL = URL(fileURLWithPath: current, isDirectory: true)
-        } else {
-            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-        }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
 
-        // Reject before confirming: nobody should agree to a move that is about
-        // to be refused because the drive is the wrong format or too full.
-        if let problem = validateStorageLocation(url.path) {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = "That folder can\u{2019}t hold the Omarchy VM"
-            alert.informativeText = problem
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
+    private func storageError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "VM location could not be changed"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
 
-        let destination = StorageLocationPolicy.stateRoot(forContainer: url.path)
-        let confirmation = NSAlert()
-        confirmation.alertStyle = .warning
-        confirmation.messageText = "Keep the Omarchy VM here?"
-        confirmation.informativeText = """
-            Omarchy will use \(destination) from the next launch.
+    @objc private func beginStorageLocationSelection() { selectStorageLocation(existing: false) }
+    @objc private func beginExistingVMSelection() { selectStorageLocation(existing: true) }
 
-            Your current VM is not moved. It stays where it is, and you can \
-            reach it again by switching this setting back.
-            """
-        confirmation.addButton(withTitle: "Cancel")
-        confirmation.addButton(withTitle: "Use This Folder")
-        guard confirmation.runModal() == .alertSecondButtonReturn else { return }
-
-        if let problem = chooseStorageLocation(url.path) {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = "That folder can\u{2019}t hold the Omarchy VM"
-            alert.informativeText = problem
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-        }
+    private func selectStorageLocation(existing: Bool) {
+        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
+              !storageLocationStatus().isEnvironmentOverride else { return }
+        guard let url = storageFolderPanel(
+            title: existing ? "Boot an existing Omarchy VM" : "Choose a new VM folder",
+            message: existing
+                ? "Select the complete VM folder containing boot, disks, and locks. The saved disk and its boot files will be used on the next launch."
+                : "Choose or create an empty folder on an APFS drive. A new VM will be created there on the next launch; your current VM stays where it is.",
+            prompt: existing ? "Use This VM" : "Use Folder"
+        ) else { return }
+        if let problem = validateStorageLocation(url.path) { storageError(problem); return }
+        do {
+            if existing {
+                try VMWorkspaceTransfer.requireExistingVM(url.path)
+            } else if try !FileManager.default.contentsOfDirectory(atPath: url.path).allSatisfy({ [".DS_Store", ".localized", "Icon\r"].contains($0) }) {
+                throw HelperError.io("Choose an empty folder for a new VM. Use Boot Existing VM to select a saved VM.")
+            }
+        } catch { storageError(error.localizedDescription); return }
+        if let problem = chooseStorageLocation(url.path) { storageError(problem) }
         render()
+    }
+
+    @objc private func beginVMMove() {
+        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
+              !storageLocationStatus().isEnvironmentOverride,
+              let source = storageLocationURL() else { return }
+        do { try VMWorkspaceTransfer.requireExistingVM(source.path) }
+        catch { storageError(error.localizedDescription); return }
+        guard let destination = storageFolderPanel(
+            title: "Move the Omarchy VM",
+            message: "Choose or create a completely empty folder on an APFS drive. Omarchy copies and verifies the complete VM, then boots from the new folder. The original is kept as a recovery copy.",
+            prompt: "Copy and Switch"
+        ) else { return }
+        storageMoveInProgress = true
+        render()
+        moveStorageLocation(destination.path) { [weak self] problem in
+            guard let self else { return }
+            self.storageMoveInProgress = false
+            self.render()
+            if let problem { self.storageError(problem); return }
+            let alert = NSAlert()
+            alert.messageText = "VM copied and verified"
+            alert.informativeText = "The next launch uses \(destination.path). Your original VM remains at \(source.path). Use Boot Existing VM to switch back. The two copies evolve independently after booting."
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: self.window)
+        }
     }
 
     @objc private func useDefaultStorageLocationAction() {

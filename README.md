@@ -780,23 +780,33 @@ reinstall, or change to the factory image is needed.
 
 ### Choosing where the VM lives
 
-**Change…** on the start menu's **VM Location** row moves the VM to any folder
-you pick, including one on an external drive. Omarchy uses exactly the folder
-you choose — it never creates a folder inside it on your behalf.
+Open **Manage…** on the start menu's **VM Location** row after shutting down
+Omarchy:
 
-- The folder must be **empty**, or one Omarchy has already used. A folder with
-  other files in it, or a drive's top level, is turned away with an
-  explanation instead of being restructured; create or pick an empty folder
-  (for example, one named "Try Omarchy") to use instead.
-- The drive must be **APFS**. The VM disk grows as you use it, which only APFS
-  supports here: on exFAT, FAT, or NTFS the same disk would claim its full size
-  the moment it was created. Network volumes are refused because the VM's disk
-  lock is unreliable on them. Anything else is turned away when you pick it, with
-  the actual format named.
-- You need roughly 7 GB free to create the VM, and up to 30 GB as it fills. The
-  disk is sparse, so it only ever occupies what the guest has actually written.
-- **Changing the location does not move your existing VM.** It stays where it
-  is, and switching back reaches it again.
+- **Boot Existing VM…** selects a saved workspace for the next launch. Choose
+  the complete folder containing `boot`, `disks`, and `locks`, rather than the
+  `rootfs.ext4` disk or its parent. Its saved disk and paired boot files are used.
+- **New VM Folder…** selects an empty folder; the next launch creates a new VM
+  there. Your current VM stays where it is.
+- **Move VM…** copies the complete workspace to a completely empty folder,
+  verifies every file's SHA-256, and switches the next launch to the copy only
+  after success. The original remains a recovery copy. Copies evolve
+  independently after booting; select either with **Boot Existing VM…**.
+- **Use Default Folder** selects
+  `~/Library/Application Support/Try Omarchy/VM/v1` again.
+
+For example, create `~/Try Omarchy` in the folder picker to relocate the VM
+into your home directory. Omarchy uses exactly the selected folder. A drive's
+top level and unrelated populated folders are refused.
+
+Both locations must be on local **APFS** drives. Relocation holds the same
+POSIX locks as the launcher, refuses an open VM and unsafe links, and never
+replaces files at the destination. Same-volume copies use APFS clones;
+cross-volume copies preserve sparse capacity. Leave enough free space for the
+VM's allocated data plus 1 GiB of headroom. If copying or verification fails,
+the original and the selected boot location stay unchanged. Do not delete the
+original until you have booted and checked the relocated VM.
+
 - Do not disconnect the drive while Omarchy is running. macOS refuses a normal
   eject while the VM holds the disk, but pulling the cable can damage it. If the
   volume does disappear, Omarchy shuts the VM down instead of writing on.
