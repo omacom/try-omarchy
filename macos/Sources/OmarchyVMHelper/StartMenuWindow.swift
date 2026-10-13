@@ -962,9 +962,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             action: virtualMachineRunning ? #selector(closeSettings) : (fixesPending ? #selector(reviewVMFixes) : #selector(launchOmarchy))
         )
         launchActionButton = launchButton
-        launchButton.keyEquivalent = launchInProgress ? "" : "\r"
-        launchButton.isEnabled = virtualMachineRunning || (!launchInProgress
-            && !resetInProgress)
+        launchButton.keyEquivalent = launchInProgress || storageMoveInProgress ? "" : "\r"
+        launchButton.isEnabled = !storageMoveInProgress && (virtualMachineRunning || (!launchInProgress
+            && !resetInProgress))
         launchButton.identifier = NSUserInterfaceItemIdentifier("launch-button")
         launchButton.setAccessibilityLabel(launchButtonTitle)
         if launchInProgress {

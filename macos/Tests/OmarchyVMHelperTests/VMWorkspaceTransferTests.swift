@@ -129,6 +129,39 @@ struct VMWorkspaceTransferTests {
         if changeDestination { #expect(try String(contentsOf: fixture.destination.appendingPathComponent("new-file"), encoding: .utf8) == "new file") }
     }
 
+    @Test("Native picker metadata changes do not prevent copying into the same empty folder")
+    func pickerMetadataChanges() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var changed = false
+        _ = try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path, copyFile: { source, destination in
+            try VMWorkspaceTransfer.copyRegularFile(source, destination)
+            if !changed {
+                changed = true
+                try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: fixture.destination.path)
+            }
+        })
+        try VMWorkspaceTransfer.requireExistingVM(fixture.destination.path)
+    }
+
+    @Test("An empty replacement destination is refused even when its path is unchanged")
+    func replacedDestination() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var replaced = false
+        #expect(throws: (any Error).self) {
+            try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path, copyFile: { source, destination in
+                try VMWorkspaceTransfer.copyRegularFile(source, destination)
+                if !replaced {
+                    replaced = true
+                    try FileManager.default.moveItem(at: fixture.destination, to: fixture.root.appendingPathComponent("old-destination"))
+                    try FileManager.default.createDirectory(at: fixture.destination, withIntermediateDirectories: false)
+                }
+            })
+        }
+        try fixture.expectOriginalAndEmptyDestination()
+    }
+
     @Test("Cross-volume copy implementation retains sparse capacity and contents")
     func sparseCopy() throws {
         let fixture = try Fixture()

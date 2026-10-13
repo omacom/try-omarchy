@@ -247,14 +247,15 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             canResetStorage: canResetStorage,
             storageLocation: { [weak self] in
                 guard canResetStorage, let self else { return nil }
-                return QEMUGPUStorageSpaceEstimate.dataDirectoryDisplayPath(
+                guard let root = QEMUGPUStorageSpaceEstimate.storageRootURL(
                     environment: self.baseEnvironment,
                     preference: self.storageLocationStore.load()
-                )
+                ) else { return nil }
+                return StorageLocationPolicy.displayPath(root.path, homeDirectory: Self.homeDirectory)
             },
             storageLocationURL: { [weak self] in
                 guard canResetStorage, let self else { return nil }
-                return QEMUGPUStorageSpaceEstimate.dataDirectoryURL(
+                return QEMUGPUStorageSpaceEstimate.storageRootURL(
                     environment: self.baseEnvironment,
                     preference: self.storageLocationStore.load()
                 )
@@ -998,7 +999,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         do { try process.run() }
         catch { completion(error.localizedDescription); return }
         workspaceTransferProcess = process
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let output = errors.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             DispatchQueue.main.async { [weak self] in

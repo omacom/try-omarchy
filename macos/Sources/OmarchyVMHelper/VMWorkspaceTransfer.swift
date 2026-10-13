@@ -7,6 +7,7 @@ enum VMWorkspaceTransfer {
     struct Entry: Equatable {
         let relativePath: String
         let isDirectory: Bool
+        let identity: String
         let signature: String
         let allocatedBytes: Int64
     }
@@ -35,7 +36,7 @@ enum VMWorkspaceTransfer {
         guard try manager.contentsOfDirectory(atPath: destination).isEmpty else {
             throw HelperError.io("The destination must be completely empty. Existing files and VMs are never replaced.")
         }
-        let destinationSignature = try entry(at: destination, relativePath: "").signature
+        let destinationIdentity = try entry(at: destination, relativePath: "").identity
         let lockDirectory = source + "/locks"
         let lockNames = try manager.contentsOfDirectory(atPath: lockDirectory).sorted()
         guard lockNames.contains("current.lock") else {
@@ -105,7 +106,9 @@ enum VMWorkspaceTransfer {
         try requireExistingVM(staging.path)
         let directories = before.filter(\.isDirectory).map { staging.appendingPathComponent($0.relativePath).path }
         try StorageIO.sync(paths: directories.reversed() + [staging.path])
-        guard try entry(at: destination, relativePath: "").signature == destinationSignature,
+        // The native folder picker can add com.apple.macl after returning,
+        // changing ctime without changing the folder or its contents.
+        guard try entry(at: destination, relativePath: "").identity == destinationIdentity,
               try manager.contentsOfDirectory(atPath: destination).isEmpty else {
             throw HelperError.io("The destination changed while copying. Nothing was replaced.")
         }
@@ -129,6 +132,7 @@ enum VMWorkspaceTransfer {
             throw HelperError.io("The VM folder contains a symbolic link, special file, shared file, or file owned by another user. Nothing was moved: \(path)")
         }
         return Entry(relativePath: relativePath, isDirectory: info.st_mode & S_IFMT == S_IFDIR,
+                     identity: "\(info.st_dev):\(info.st_ino)",
                      signature: "\(info.st_dev):\(info.st_ino):\(info.st_mode):\(info.st_nlink):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec):\(info.st_ctimespec.tv_sec):\(info.st_ctimespec.tv_nsec)",
                      allocatedBytes: info.st_mode & S_IFMT == S_IFREG ? Int64(info.st_blocks) * 512 : 0)
     }
