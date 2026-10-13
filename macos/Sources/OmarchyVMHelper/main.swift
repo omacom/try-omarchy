@@ -36,7 +36,15 @@ do {
     }
     if arguments.first == "--copy-vm" {
         guard arguments.count == 3 else { usage() }
-        print(try VMWorkspaceTransfer.copy(from: arguments[1], to: arguments[2]))
+        var previousPhase: VMTransferProgress.Phase?
+        var lastEmission: TimeInterval = 0
+        print(try VMWorkspaceTransfer.copy(from: arguments[1], to: arguments[2], progress: { update in
+            let now = ProcessInfo.processInfo.systemUptime
+            guard update.phase != previousPhase || now - lastEmission >= 0.2 || update.fraction == 1 else { return }
+            previousPhase = update.phase
+            lastEmission = now
+            FileHandle.standardError.write(Data(update.line.utf8))
+        }))
         exit(0)
     }
     if arguments.first == "--storage-sha256" {

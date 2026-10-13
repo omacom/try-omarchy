@@ -61,6 +61,26 @@ struct VMWorkspaceTransferTests {
         #expect(try StorageIO.sha256(path: fixture.disk.path) == digest)
     }
 
+    @Test("Progress measures both verified copies and never reports completion before publication")
+    func verificationProgress() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        var updates: [VMTransferProgress] = []
+        _ = try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path, progress: { updates.append($0) })
+        #expect(updates.first?.phase == .checking)
+        #expect(updates.contains { $0.phase == .copying })
+        let verification = updates.filter { $0.phase == .verifying }
+        #expect(verification.count > 2)
+        #expect(verification.last?.fraction == 1)
+        #expect(verification.last!.totalBytes >= 2 * 64 * 1024 * 1024)
+        for (previous, next) in zip(verification, verification.dropFirst()) {
+            #expect(next.completedBytes >= previous.completedBytes)
+            #expect(next.totalBytes == previous.totalBytes)
+        }
+        #expect(updates.last?.phase == .finishing)
+        try VMWorkspaceTransfer.requireExistingVM(fixture.destination.path)
+    }
+
     @Test("Copy errors and corrupted copies leave the source intact and destination empty", arguments: [false, true])
     func failedCopy(corrupt: Bool) throws {
         let fixture = try Fixture()

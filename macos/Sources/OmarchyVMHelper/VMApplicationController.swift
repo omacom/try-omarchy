@@ -283,8 +283,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             resetStorage: { [weak self] in
                 self?.resetVirtualMachine()
             },
-            moveStorageLocation: { [weak self] path, completion in
-                self?.moveStorageLocation(path, completion: completion)
+            moveStorageLocation: { [weak self] source, path, progress, completion in
+                self?.moveStorageLocation(from: source, to: path, progress: progress, completion: completion)
             },
             sharedFolderStatus: { [weak self] in
                 self?.sharedFolderMenuState() ?? SharedFolderMenuState.disabled
@@ -555,7 +555,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if workspaceTransferProcess?.isRunning == true { return .terminateCancel }
+        if workspaceTransferProcess != nil { return .terminateCancel }
         guard childRunning else { return .terminateNow }
         guard !applicationTerminationPending else { return .terminateLater }
 
@@ -981,9 +981,10 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     private var workspaceTransferProcess: Process?
 
-    private func moveStorageLocation(_ path: String, completion: @escaping (String?) -> Void) {
+    private func moveStorageLocation(from source: String, to path: String,
+        progress: @escaping (VMTransferProgress) -> Void, completion: @escaping (String?) -> Void) {
         guard !childRunning, storageEnvironmentOverride == nil,
-              let root = startupPreferenceRoot(),
+              let root = startupPreferenceRoot(), root.path == source,
               let executable = Bundle.main.executableURL else {
             completion("Shut down Omarchy before relocating its VM. Environment overrides must be removed first.")
             return
@@ -1000,14 +1001,23 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         catch { completion(error.localizedDescription); return }
         workspaceTransferProcess = process
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let output = errors.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage: String
+            do {
+                errorMessage = try VMTransferOutput.read(from: errors.fileHandleForReading) { update in
+                    DispatchQueue.main.async { progress(update) }
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                if process.isRunning { process.terminate() }
+            }
             process.waitUntilExit()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.workspaceTransferProcess = nil
                 guard process.terminationStatus == 0 else {
-                    completion(String(data: output, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                        ?? "VM relocation failed. The original VM and selected location were retained.")
+                    completion(errorMessage.isEmpty
+                        ? "VM relocation failed. The original VM and selected location were retained."
+                        : errorMessage)
                     return
                 }
                 completion(self.chooseStorageLocation(path))

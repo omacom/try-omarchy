@@ -129,21 +129,26 @@ the reset. The next launch prepares a new disk if needed, with its button
 showing checking, image preparation, verification, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
-The start menu's **VM Location → Manage…** menu separates
-**Boot Existing VM from Folder…**, **Start New VM in New Folder…**, and
-**Move Current VM to New Folder…**. Existing selection requires a recognized
-persistent disk and workspace marker. New selection requires an empty folder.
-Relocation runs the native `--copy-vm SOURCE EMPTY_DESTINATION` helper in a
-separate process, holds the launcher's POSIX locks, stages a private sibling
-copy, and verifies every regular file with SHA-256 before atomic publication.
-The original is retained for recovery; the preference changes only on success.
-APFS clones are used on the same volume, and sparse copying across volumes.
-Both locations must be local APFS folders. Symlinks, hard links, special files,
-occupied destinations, and changes during copying are refused.
+The launcher's **Selected VM → Manage…** sheet shows the current selection,
+explains switching, moving, and creating a separate VM, and returns to the
+launcher with **Done**. Selection is saved immediately but does not start a
+VM. New selection requires an empty folder; existing selection requires a
+recognized persistent disk and workspace marker.
+
+Relocation runs `--copy-vm SOURCE EMPTY_DESTINATION` in a separate process,
+binds it to the source displayed in the sheet, holds the launcher's POSIX
+locks, stages a private sibling copy, and verifies every file with SHA-256
+before atomic publication. Structured stderr records report copy phases and
+actual hashed-byte verification progress. The sheet remains open, disables
+Done and selection while busy, and displays errors or the final selected and
+recovery paths inline. The original is retained; the preference changes only
+on success. APFS clones are used on the same volume, and sparse copying across
+volumes. Both locations must be local APFS folders. Symlinks, hard links,
+special files, occupied destinations, and changes during copying are refused.
 
 The choice is stored in `UserDefaults` and published to the launcher as
 `OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value still wins and disables
-location changes in the menu. Reset composes its environment exactly as launch
+location changes in the launcher. Reset composes its environment exactly as launch
 does, so it always erases the workspace the user is actually running.
 
 **Skip launcher** is stored in the versioned `launcher-settings.json` file at

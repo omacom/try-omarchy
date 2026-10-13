@@ -193,7 +193,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let storageLocationStatus: () -> StorageLocationMenuState
     private let validateStorageLocation: (String) -> String?
     private let chooseStorageLocation: (String) -> String?
-    private let moveStorageLocation: (String, @escaping (String?) -> Void) -> Void
+    private let moveStorageLocation: VMStorageEditor.Move
     private let useDefaultStorageLocation: () -> Void
 
     private var microphoneRequestInFlight = false
@@ -211,7 +211,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var requestSettingsAction: ((VMRunLifecycle.SettingsAction) -> Void)?
     private var automaticStartupConfirmationInProgress = false
     private var controlsBusy: Bool {
-        launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress || storageMoveInProgress
+        launchInProgress || shutdownInProgress || automaticStartupConfirmationInProgress || storageMoveInProgress || storageEditor != nil
     }
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
@@ -232,6 +232,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
     private(set) var usbDeviceEditor: USBDeviceEditor?
+    private(set) var storageEditor: VMStorageEditor?
     private weak var immersiveCaption: NSTextField?
     private var accessibilityRow: StartMenuPermissionRow?
     private var microphoneRow: StartMenuPermissionRow?
@@ -256,7 +257,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         chooseStorageLocation: @escaping (String) -> String?,
         useDefaultStorageLocation: @escaping () -> Void,
         resetStorage: @escaping () -> Void,
-        moveStorageLocation: @escaping (String, @escaping (String?) -> Void) -> Void = { _, completion in completion("VM relocation is unavailable.") },
+        moveStorageLocation: @escaping VMStorageEditor.Move = { _, _, _, completion in completion("VM relocation is unavailable.") },
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
         chooseSharedFolder: @escaping (String) -> String?,
         setSharedFolderEnabled: @escaping (Bool) -> Void,
@@ -536,6 +537,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         portForwardingEditor = nil
         resourceEditor?.dismiss()
         resourceEditor = nil
+        storageEditor?.dismiss()
+        storageEditor = nil
         window.orderOut(nil)
     }
 
@@ -857,7 +860,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
             storageRow = permissionRow(
                 symbolName: "externaldrive",
-                title: "VM Location",
+                title: "Selected VM",
                 detail: storageMoveInProgress ? "Copying and verifying your VM… Original retained." : storageDetail,
                 compactDetailLines: storageMoveInProgress ? nil : storageDetailLines,
                 detailAction: storageStatus.problem == nil && storageLocationURL() != nil
@@ -963,7 +966,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
         launchActionButton = launchButton
         launchButton.keyEquivalent = launchInProgress || storageMoveInProgress ? "" : "\r"
-        launchButton.isEnabled = !storageMoveInProgress && (virtualMachineRunning || (!launchInProgress
+        launchButton.isEnabled = storageEditor == nil && !storageMoveInProgress && (virtualMachineRunning || (!launchInProgress
             && !resetInProgress))
         launchButton.identifier = NSUserInterfaceItemIdentifier("launch-button")
         launchButton.setAccessibilityLabel(launchButtonTitle)
@@ -1576,100 +1579,29 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc private func showStorageActions(_ sender: NSButton) {
         guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
-              !storageLocationStatus().isEnvironmentOverride else { return }
-        let menu = NSMenu()
-        for (title, action) in [
-            ("Boot Existing VM from Folder…", #selector(beginExistingVMSelection)),
-            ("Start New VM in New Folder…", #selector(beginStorageLocationSelection)),
-            ("Move Current VM to New Folder…", #selector(beginVMMove)),
-            ("Use Default Folder", #selector(useDefaultStorageLocationAction))
-        ] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
-    }
-
-    private func storageFolderPanel(title: String, message: String, prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.title = title
-        panel.message = message
-        panel.prompt = prompt
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.resolvesAliases = true
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
-    }
-
-    private func storageError(_ message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "VM location could not be changed"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
-    }
-
-    @objc private func beginStorageLocationSelection() { selectStorageLocation(existing: false) }
-    @objc private func beginExistingVMSelection() { selectStorageLocation(existing: true) }
-
-    private func selectStorageLocation(existing: Bool) {
-        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
-              !storageLocationStatus().isEnvironmentOverride else { return }
-        guard let url = storageFolderPanel(
-            title: existing ? "Boot an Existing VM from a Folder" : "Start a New VM in a New Folder",
-            message: existing
-                ? "Select the complete VM folder containing boot, disks, and locks. This becomes the current VM, used on the next launch. Your previously selected VM stays where it is."
-                : "Choose or create an empty folder on an APFS drive. This becomes the current VM location. The next launch creates a new VM there; your previously selected VM stays where it is.",
-            prompt: existing ? "Use This VM" : "Use Folder"
-        ) else { return }
-        if let problem = validateStorageLocation(url.path) { storageError(problem); return }
-        do {
-            if existing {
-                try VMWorkspaceTransfer.requireExistingVM(url.path)
-            } else if try !FileManager.default.contentsOfDirectory(atPath: url.path).allSatisfy({ [".DS_Store", ".localized", "Icon\r"].contains($0) }) {
-                throw HelperError.io("Choose an empty folder for a new VM. Use Boot Existing VM from Folder to select a saved VM.")
+              !storageLocationStatus().isEnvironmentOverride, storageEditor == nil else { return }
+        let editor = VMStorageEditor(
+            selectedRoot: storageLocationURL,
+            isDefault: { [weak self] in self?.storageLocationStatus().isDefault ?? true },
+            validate: validateStorageLocation,
+            select: chooseStorageLocation,
+            useDefault: useDefaultStorageLocation,
+            move: { [weak self] source, destination, progress, completion in
+                guard let self else { completion("The launcher was closed."); return }
+                self.storageMoveInProgress = true
+                self.moveStorageLocation(source, destination, progress) { [weak self] error in
+                    self?.storageMoveInProgress = false
+                    completion(error)
+                }
+            },
+            didClose: { [weak self] in
+                self?.storageEditor = nil
+                self?.render()
             }
-        } catch { storageError(error.localizedDescription); return }
-        if let problem = chooseStorageLocation(url.path) { storageError(problem) }
+        )
+        storageEditor = editor
         render()
-    }
-
-    @objc private func beginVMMove() {
-        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress,
-              !storageLocationStatus().isEnvironmentOverride,
-              let source = storageLocationURL() else { return }
-        do { try VMWorkspaceTransfer.requireExistingVM(source.path) }
-        catch { storageError(error.localizedDescription); return }
-        guard let destination = storageFolderPanel(
-            title: "Move the Current VM to a New Folder",
-            message: "Current VM: \(source.path)\n\nChoose or create a completely empty folder on an APFS drive. Omarchy copies and verifies this VM, then selects the new folder for the next launch. The original stays where it is as a recovery copy.",
-            prompt: "Copy and Switch"
-        ) else { return }
-        storageMoveInProgress = true
-        render()
-        moveStorageLocation(destination.path) { [weak self] problem in
-            guard let self else { return }
-            self.storageMoveInProgress = false
-            self.render()
-            if let problem { self.storageError(problem); return }
-            let alert = NSAlert()
-            alert.messageText = "VM copied and verified"
-            alert.informativeText = "The next launch uses \(destination.path). Your original VM remains at \(source.path). Use Boot Existing VM from Folder to switch back. The two copies evolve independently after booting."
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: self.window)
-        }
-    }
-
-    @objc private func useDefaultStorageLocationAction() {
-        guard canResetStorage, !prelaunchControlsLocked, !resetInProgress else { return }
-        useDefaultStorageLocation()
-        render()
+        editor.beginSheet(for: window)
     }
 
     @objc private func beginSharedFolderSelection() {

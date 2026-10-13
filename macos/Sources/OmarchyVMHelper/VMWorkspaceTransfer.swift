@@ -9,6 +9,7 @@ enum VMWorkspaceTransfer {
         let isDirectory: Bool
         let identity: String
         let signature: String
+        let logicalBytes: Int64
         let allocatedBytes: Int64
     }
 
@@ -23,8 +24,10 @@ enum VMWorkspaceTransfer {
         from sourcePath: String,
         to destinationPath: String,
         probe: VolumeProbing = URLVolumeProbe(),
+        progress: @escaping (VMTransferProgress) -> Void = { _ in },
         copyFile: (String, String) throws -> Void = { try copyRegularFile($0, $1) }
     ) throws -> String {
+        progress(VMTransferProgress(phase: .checking))
         let source = try StorageLocationPolicy.validate(sourcePath, metrics: nil, probe: probe).stateRoot
         let destination = try StorageLocationPolicy.validate(destinationPath, metrics: nil, probe: probe).stateRoot
         guard source != destination,
@@ -68,6 +71,16 @@ enum VMWorkspaceTransfer {
         // locks are released by *any* close of that inode. Lock files are
         // recreated in the copy and omitted from content hashing.
         let before = try manifest(root: source)
+        var totalBytes: Int64 = 0
+        for item in before {
+            let addition = totalBytes.addingReportingOverflow(item.logicalBytes)
+            guard !addition.overflow, addition.partialValue <= Int64.max / 2 else {
+                throw HelperError.io("The VM is too large to verify safely.")
+            }
+            totalBytes = addition.partialValue
+        }
+        totalBytes *= 2 // Both the source and the copied bytes are hashed.
+        var verifiedBytes: Int64 = 0
         let capabilities = try probe.capabilities(at: URL(fileURLWithPath: destination))
         let needed = before.reduce(Int64(0)) { $0 + $1.allocatedBytes } + StorageSpaceRequirement.headroomBytes
         guard capabilities.availableBytes >= needed else {
@@ -86,13 +99,23 @@ enum VMWorkspaceTransfer {
             if item.isDirectory {
                 try manager.createDirectory(atPath: output, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             } else {
+                progress(VMTransferProgress(phase: .copying))
                 try copyFile(source + "/" + item.relativePath, output)
-                guard try StorageIO.sha256(path: source + "/" + item.relativePath) == StorageIO.sha256(path: output) else {
+                let sourceDigest = try StorageIO.sha256(path: source + "/" + item.relativePath) { bytes in
+                    progress(VMTransferProgress(phase: .verifying, completedBytes: verifiedBytes + bytes, totalBytes: totalBytes))
+                }
+                verifiedBytes += item.logicalBytes
+                let copiedDigest = try StorageIO.sha256(path: output) { bytes in
+                    progress(VMTransferProgress(phase: .verifying, completedBytes: verifiedBytes + bytes, totalBytes: totalBytes))
+                }
+                verifiedBytes += item.logicalBytes
+                guard sourceDigest == copiedDigest else {
                     throw HelperError.io("The copied VM failed checksum verification. The original VM and selected location were retained.")
                 }
                 try StorageIO.sync(paths: [output])
             }
         }
+        progress(VMTransferProgress(phase: .finishing))
         for name in lockNames {
             let path = staging.appendingPathComponent("locks/" + name).path
             let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
@@ -134,6 +157,7 @@ enum VMWorkspaceTransfer {
         return Entry(relativePath: relativePath, isDirectory: info.st_mode & S_IFMT == S_IFDIR,
                      identity: "\(info.st_dev):\(info.st_ino)",
                      signature: "\(info.st_dev):\(info.st_ino):\(info.st_mode):\(info.st_nlink):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec):\(info.st_ctimespec.tv_sec):\(info.st_ctimespec.tv_nsec)",
+                     logicalBytes: info.st_mode & S_IFMT == S_IFREG ? Int64(info.st_size) : 0,
                      allocatedBytes: info.st_mode & S_IFMT == S_IFREG ? Int64(info.st_blocks) * 512 : 0)
     }
 

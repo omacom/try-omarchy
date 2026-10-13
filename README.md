@@ -780,25 +780,31 @@ reinstall, or change to the factory image is needed.
 
 ### Choosing where the VM lives
 
-Open **Manage…** on the start menu's **VM Location** row after shutting down
-Omarchy:
+Open **Manage…** on the launcher's **Selected VM** row after shutting down
+Omarchy. The dialog shows the selected VM folder and explains what the next
+launch will do:
 
-- **Boot Existing VM from Folder…** selects a saved workspace for the next
-  launch. Choose the complete folder containing `boot`, `disks`, and `locks`, rather than the
-  `rootfs.ext4` disk or its parent. Its saved disk and paired boot files are used.
-- **Start New VM in New Folder…** selects an empty folder; the next launch
-  creates a new VM there. Your current VM stays where it is.
-- **Move Current VM to New Folder…** copies the complete workspace to a
-  completely empty folder, verifies every file's SHA-256, and switches the next launch to the copy only
-  after success. The original remains a recovery copy. Copies evolve
-  independently after booting; select either with **Boot Existing VM from Folder…**.
+- **Switch to another VM → Choose Existing VM…** selects a saved VM in another
+  folder. Choose the complete folder containing `boot`, `disks`, and `locks`.
+  Files stay where they are; this changes which VM the app will launch.
+- **Move the selected VM → Choose Destination…** copies that VM into a completely
+  empty APFS folder, verifies every file, and selects the copy only after
+  success. The dialog shows copy and verification progress, then the new
+  selected folder and the original recovery-copy path. The original is kept.
+- **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
+  fresh VM, created on the next launch. The previously selected VM is kept.
 - **Use Default Folder** selects
   `~/Library/Application Support/Try Omarchy/VM/v1` again. If that VM has been
   deleted, the next launch creates a fresh VM there.
 
-Each selection becomes the current VM location. **Move Current VM** always
-operates on the location shown in the row: select a different existing VM
-first to move that VM instead. Selecting a VM does not boot it immediately.
+Choices are saved immediately. **Done** returns to the launcher; press
+**Launch** there to start the selected VM. During copying and verification,
+**Done** and the other choices are disabled. Errors stay in the dialog and
+leave the original VM and selected folder unchanged.
+
+Moving always acts on the VM selected in the dialog. To move a different saved
+VM, switch to it first. Copies evolve independently after booting; switch
+between them with **Choose Existing VM…**.
 
 For example, create `~/Try Omarchy` in the folder picker to relocate the VM
 into your home directory. Omarchy uses exactly the selected folder. A drive's
