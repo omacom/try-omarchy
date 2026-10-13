@@ -14,6 +14,23 @@ The Omarchy mark in the app icon is sourced from the
 [official Omarchy brand kit](https://omarchy.org/brand/) and remains subject to
 Omarchy's trademark rights.
 
+## Quick start
+
+1. Open [Releases](https://github.com/omacom/try-omarchy/releases) and download the latest signed and notarized `.dmg`.
+2. Open the DMG and drag **Try Omarchy** to **Applications**.
+3. Launch **Try Omarchy** from Applications.
+
+By default, every launch begins at the launcher. Enable **Skip launcher** to start Omarchy using your saved settings on subsequent launches. A confirmation explains how to return to the launcher; choose **OK** to enable **Skip launcher** or **Cancel** to leave it off. Hold **Option** while opening the app to show the launcher again and change settings or turn **Skip launcher** off. You can also open **Setup → Try Omarchy Settings** inside Omarchy. Skip launcher is saved with the VM workspace; deleting that workspace clears the choice. A missing VM disk always shows the launcher, even if its settings file remains. Reset requests still show the confirmation flow. Startup checks still show any required recovery or error dialogs.
+
+While that menu is open, Try Omarchy behaves like a regular Mac app. **Try Omarchy → Settings…** (**Command-comma**) brings the launcher or its open editor forward without discarding drafts. The menus also provide standard text editing, Services, Hide Others, Show All, and window commands, including Bring All to Front. **Help** opens the user guide, maintenance and recovery notes, or the issue tracker in your browser. After the VM starts, that native app chrome steps aside for Omarchy. **Immersive** is on by default, so Omarchy opens Full Screen with the Mac menu bar and Dock hidden. Turn it off to open a resizable window; if you later enter Full Screen, the Mac menu bar and Dock remain available at the screen edges. Whenever the Omarchy window is focused, Command belongs to the guest as Super in either mode; Accessibility permission lets system shortcuts such as Command-Space reach it before macOS. Microphone and camera access are optional. The first launch takes longer while the app prepares Linux and starts Omarchy's account provisioning.
+
+Inside Omarchy, choose **Setup → Try Omarchy Settings**, search for **Try Omarchy Settings**, or run `omarchy-native-settings` to reopen the Mac settings window. You can change **Skip launcher**, permissions, CPU, memory, sharing, port forwarding, and immersive mode here. CPU, memory, sharing, ports, and immersive mode are saved for the next launch; **Restart Omarchy** shuts down Linux and starts a new VM process to apply them. Save your work first. A disposable VM keeps its disk across this restart until you close the app.
+
+For VM location and reset, choose **Shut Down**. The settings window stays open even with **Skip launcher** enabled; reset still asks for confirmation. **Done** or closing the running settings window returns to Omarchy without stopping it. Existing VMs [receive settings access automatically](guest/README.md#settings-access-from-an-existing-vm) when launched with the updated app, without a reset or manual installation.
+
+Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
+Shutting down Omarchy closes the app and leaves it closed.
+
 ## Highlights
 
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
@@ -131,23 +148,6 @@ Mesa's Vulkan-to-Metal driver, is not part of this path.
 Window resize across a HiDPI boundary, Mac output-device switching mid-session,
 the shared folder, and clipboard sharing have not been exercised since the
 port. The `dtc` mirror should be reverted once kernel.org returns.
-
-## Quick start
-
-1. Open [Releases](https://github.com/omacom/try-omarchy/releases) and download the latest signed and notarized `.dmg`.
-2. Open the DMG and drag **Try Omarchy** to **Applications**.
-3. Launch **Try Omarchy** from Applications.
-
-By default, every launch begins at the launcher. Enable **Skip launcher** to start Omarchy using your saved settings on subsequent launches. A confirmation explains how to return to the launcher; choose **OK** to enable **Skip launcher** or **Cancel** to leave it off. Hold **Option** while opening the app to show the launcher again and change settings or turn **Skip launcher** off. You can also open **Setup → Try Omarchy Settings** inside Omarchy. Skip launcher is saved with the VM workspace; deleting that workspace clears the choice. A missing VM disk always shows the launcher, even if its settings file remains. Reset requests still show the confirmation flow. Startup checks still show any required recovery or error dialogs.
-
-While that menu is open, Try Omarchy behaves like a regular Mac app. **Try Omarchy → Settings…** (**Command-comma**) brings the launcher or its open editor forward without discarding drafts. The menus also provide standard text editing, Services, Hide Others, Show All, and window commands, including Bring All to Front. **Help** opens the user guide, maintenance and recovery notes, or the issue tracker in your browser. After the VM starts, that native app chrome steps aside for Omarchy. **Immersive** is on by default, so Omarchy opens Full Screen with the Mac menu bar and Dock hidden. Turn it off to open a resizable window; if you later enter Full Screen, the Mac menu bar and Dock remain available at the screen edges. Whenever the Omarchy window is focused, Command belongs to the guest as Super in either mode; Accessibility permission lets system shortcuts such as Command-Space reach it before macOS. Microphone and camera access are optional. The first launch takes longer while the app prepares Linux and starts Omarchy's account provisioning.
-
-Inside Omarchy, choose **Setup → Try Omarchy Settings**, search for **Try Omarchy Settings**, or run `omarchy-native-settings` to reopen the Mac settings window. You can change **Skip launcher**, permissions, CPU, memory, sharing, port forwarding, and immersive mode here. CPU, memory, sharing, ports, and immersive mode are saved for the next launch; **Restart Omarchy** shuts down Linux and starts a new VM process to apply them. Save your work first. A disposable VM keeps its disk across this restart until you close the app.
-
-For VM location and reset, choose **Shut Down**. The settings window stays open even with **Skip launcher** enabled; reset still asks for confirmation. **Done** or closing the running settings window returns to Omarchy without stopping it. Existing VMs [receive settings access automatically](guest/README.md#settings-access-from-an-existing-vm) when launched with the updated app, without a reset or manual installation.
-
-Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
-Shutting down Omarchy closes the app and leaves it closed.
 
 ## Virtual machine resources
 
