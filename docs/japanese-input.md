@@ -51,10 +51,31 @@ fails.
 ## Existing guests
 
 Installing a new Mac app does not replace the saved guest's packages or home
-configuration. Enable Japanese input inside that guest without a factory reset:
+configuration. **Update and Launch** now includes **Japanese keyboard & input**.
+When Fcitx5 and Mozc are installed, it installs the reviewed Apple keyboard
+overlay and migrates recognized stock Fcitx profiles, including profiles saved
+by Fcitx after first login. Mozc becomes the first conversion engine on JIS Macs
+or for a Japanese guest language; other guests gain Mozc after Chewing. Korean
+group selection and the direct-input keyboard are preserved.
+
+On a JIS Mac, the migration adds the overlay to an existing Hyprland input file
+unless it already loads it or has an explicit keyboard model. It seeds native
+英数/かな shortcuts only when the Fcitx global config is missing. Personal
+profiles, existing shortcuts, explicit models, and unsafe paths are preserved
+and reported. Skipping the update leaves these files untouched; interrupted
+changes are recovered before the next review. Guest language and packages are
+not changed.
+
+VMs missing Fcitx5 or Mozc report this component as unavailable. Install the
+dependencies inside that guest, then shut it down and retry **Update and Launch**:
 
 ```sh
 sudo pacman -Syu fcitx5 fcitx5-mozc fcitx5-configtool fcitx5-gtk fcitx5-qt noto-fonts-cjk
+```
+
+For preserved personal settings, use the configuration tool to finish setup:
+
+```sh
 fcitx5-configtool
 ```
 

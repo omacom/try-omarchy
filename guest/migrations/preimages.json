@@ -401,6 +401,9 @@
     "4a4b7694e5b9e0bd952ce0efa2d6dc2cea44cdfa98cc2f442e40fe41cbc1beab",
     "9e39e81551ae99bd5e2e9e33721075f7c91caf95dbe8af0e5a36e8eb9150e087"
   ],
+  "usr/share/try-omarchy/apple-keyboard-input.lua": [
+    "49c546d7a51785994f4f52a8ac875d3c03eb24d2971c9a6c1ce468320f115fa7"
+  ],
   "usr/src/try-omarchy-battery-1.2.0/Makefile": [
     "710a6269ca6dcad2b83608660a1f948347e34bd39ddac4ca614a2bd115ee43ae"
   ],

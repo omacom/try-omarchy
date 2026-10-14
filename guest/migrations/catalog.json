@@ -12,6 +12,13 @@
   },
   "migrations": [
     {
+      "id": "japanese-input",
+      "revision": 1,
+      "title": "Japanese keyboard & input",
+      "icon": "keyboard",
+      "note": "Requires Fcitx5 and Mozc already in the VM. Personal keyboard layouts and input shortcuts are preserved."
+    },
+    {
       "id": "battery",
       "revision": 1,
       "title": "Battery widget",

@@ -70,8 +70,9 @@ input contract, existing-guest setup, and integration validation.
 
 Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch and
 given to Cocoa. New and reset factory users also load an overlay that sets
-`kb_model=applealu_*`. App upgrade applies the Cocoa swap only; existing
-homes keep their current Hyprland input. See
+`kb_model=applealu_*`. App upgrade applies the Cocoa swap immediately; the
+reviewed Japanese-input migration can add the JIS overlay to existing homes
+without explicit keyboard models. Other existing input settings are preserved. See
 [Mac keyboard](mac-keyboard.md).
 
 New guest setup defaults to an explicit **Same as macOS** option.

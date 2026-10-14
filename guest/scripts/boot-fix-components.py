@@ -12,6 +12,9 @@ import tempfile
 import sys
 
 GROUPS = {
+    'japanese-input': {
+        'apple-keyboard-input.lua': ('usr/share/try-omarchy/apple-keyboard-input.lua', 0o644),
+    },
     'onepassword-installer': {
         'omarchy-install-service-1password': ('usr/bin/omarchy-install-service-1password', 0o755),
     },
@@ -59,7 +62,9 @@ LINKS = {
     'var/lib/dkms/try-omarchy-battery/1.3.0/source': '/usr/src/try-omarchy-battery-1.3.0',
 }
 EXTRA_FILES = {'omarchy-lock-password', 'repair-update-holds.py', 'components.py',
-               'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json', 'catalog.json'}
+               'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json', 'catalog.json',
+               'japanese-input.py', 'profile-chewing.ini', 'profile-korean.ini',
+               'fcitx5-profile.ini', 'fcitx5-jis-config.ini'}
 HANDLED_COMPONENTS = frozenset(GROUPS) | {'clipboard', 'screensaver', 'alacritty',
                                         'power', 'holds', 'lock', 'integrations', 'desktop', 'shell-qtquick'}
 SHELL_TARGETS = frozenset({
@@ -306,6 +311,10 @@ def plan(fixes, payload, root, uid):
     for name, files in GROUPS.items():
         group = []
         try:
+            if name == 'japanese-input' and not all((root / p).is_file() for p in (
+                    'usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf')):
+                outcomes[name] = 'unavailable'
+                continue
             if name == 'onepassword-installer' and fixes.snapshot(
                     root / 'usr/bin/omarchy-install-service-1password', root, uid) is None:
                 outcomes[name] = 'unavailable'
@@ -601,6 +610,11 @@ def package(guest, payload):
         'catalog.json': guest / 'migrations/catalog.json',
         'omarchy-lock-password': guest / 'migrations/omarchy-lock-password',
         'pinch-input.lua': guest / 'native-overlay/usr/share/try-omarchy/pinch-input.lua',
+        'japanese-input.py': guest / 'scripts/migrate-japanese-input.py',
+        'profile-chewing.ini': guest / 'migrations/japanese-input/profile-chewing.ini',
+        'profile-korean.ini': guest / 'migrations/japanese-input/profile-korean.ini',
+        'fcitx5-profile.ini': guest / 'fragments/fcitx5-profile.ini',
+        'fcitx5-jis-config.ini': guest / 'fragments/fcitx5-jis-config.ini',
     }.items():
         shutil.copy2(source, payload / name)
     builder = load('integration_builder', guest.parent / 'integrations/build-bundle.py')

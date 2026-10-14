@@ -83,6 +83,7 @@ an unconfirmed approved update leaves a manual retry available through **Update 
 | Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
 | 1Password installer desktop-entry fix | Update the recognized stock installer to support current and legacy desktop filenames, independently of Touch ID setup. After an interrupted installation, rerun **Install → Service → 1Password**. |
 | Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
+| Japanese keyboard/input setup | Install the reviewed Apple keyboard overlay when Fcitx5/Mozc are present. Run user profile and JIS hotkey repairs in the user journal, preserving personal settings and Korean group selection. Missing packages require the [guest installation step](japanese-input.md#existing-guests). |
 
 Battery builds are bounded to three minutes with two compiler jobs. The boot
 service allows five minutes; an approved host check waits up to six minutes

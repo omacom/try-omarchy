@@ -50,6 +50,11 @@ hl.config({
 
 Save, then run `hyprctl reload` and `hyprctl configerrors`.
 
+For JIS Macs, **Update and Launch** can install and load the reviewed overlay
+on existing VMs with Fcitx5/Mozc. Explicit keyboard models are preserved.
+See [Japanese input](japanese-input.md#existing-guests) for dependency and
+personal-configuration handling.
+
 ## Validation
 
 `make test` checksums the Cocoa patch, compiles the ISO swap helper, and

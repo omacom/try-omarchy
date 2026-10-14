@@ -221,6 +221,8 @@ does not apply these launch settings.
 The factory includes Fcitx5/Mozc, configuration tools, and CJK fonts. JIS Macs
 preselect Japanese during owner setup and seed native 英数/かな mode keys.
 Japanese initial language also selects Mozc on ANSI/ISO keyboards while keeping
-the owner's keyboard layout. Existing guests keep their packages and personal
-input settings; see [Japanese input](../docs/japanese-input.md) for setup and
-runtime validation.
+the owner's keyboard layout. Existing guests can receive reviewed keyboard and
+stock-profile repairs through **Update and Launch** when Fcitx5/Mozc are already
+installed. Packages and personal input settings are preserved; see
+[Japanese input](../docs/japanese-input.md) for dependencies, setup, and runtime
+validation.

@@ -326,20 +326,27 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
                     continue
                 try:
                     process = subprocess.run(['runuser', '-u', user.pw_name, '--', '/usr/bin/python3', '-I',
-                        str(payload / 'user-fixes.py'), '--apply' if approved and state == 'complete' else '--check'],
+                        str(payload / 'user-fixes.py'), '--apply' if approved and state == 'complete' else '--check',
+                        *(['--japanese'] if outcomes.get('japanese-input') in ('current', 'applied', 'pending') else [])],
                         check=True, capture_output=True, text=True, timeout=20)
                     result = json.loads(process.stdout.splitlines()[-1])
-                    if (set(result) != {'state', 'outcome'} or result['state'] not in states
-                            or result['outcome'] not in outcomes_order):
+                    if (set(result) != {'state', 'outcome', 'japanese-input'} or result['state'] not in states
+                            or result['outcome'] not in outcomes_order or result['japanese-input'] not in outcomes_order):
                         raise ValueError('Invalid user fix result')
                     if states[result['state']] > states[state]:
                         state = result['state']
                     if outcomes_order[result['outcome']] > outcomes_order[outcomes.get('desktop', 'current')]:
                         outcomes['desktop'] = result['outcome']
+                    if outcomes.get('japanese-input') not in ('preserved', 'unavailable'):
+                        previous = outcomes.get('japanese-input', 'current')
+                        if outcomes_order[result['japanese-input']] > outcomes_order[previous]:
+                            outcomes['japanese-input'] = result['japanese-input']
                 except (OSError, ValueError, KeyError, subprocess.SubprocessError):
                     if states[state] < states['unconfirmed']:
                         state = 'unconfirmed'
                     outcomes['desktop'] = 'pending'
+                    if outcomes.get('japanese-input') not in ('preserved', 'unavailable'):
+                        outcomes['japanese-input'] = 'pending'
         value = {"schema": 1, "type": "boot-fixes", "identity": identity,
                  "state": state, "components": {name: outcomes[name] for name in component_ids}}
         emit(value)

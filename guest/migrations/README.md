@@ -50,6 +50,19 @@ reviewed preimages, destination allowlist, dependencies, journal recovery, and
 per-component result. Package/kernel updates and biometric enablement are
 separate workflows.
 
+`japanese-input` installs the Apple keyboard overlay only with existing
+Fcitx5/Mozc dependencies. Its older overlay preimage is from `fc108341`.
+`japanese-input/profile-chewing.ini` and `profile-korean.ini` are the exact
+factory seeds from `c6c2cc0` and `3e9f720`. The user planner recognizes their INI
+values and the current seed, including Fcitx's saved DefaultIM and Korean-first
+GroupOrder, while rejecting additional settings and custom engine lists.
+It adds Mozc without changing the direct-input keyboard or selected group.
+JIS hotkeys are seeded only when global config is missing; explicit Hyprland
+models and existing shortcuts are preserved. All home changes run as the owner
+and share the user transaction journal, including one entry when pinch and
+keyboard overlays both extend `input.lua`. It does not install packages, change
+locale, or enable a disabled input-method service.
+
 The `shell-qtquick` migration pins stock shell QML imports to `QtQuick 6.11`.
 Qt 6.12 adds a `Color` singleton that shadows Omarchy's palette.
 This ports the import workaround from [upstream PR #14845](https://github.com/omacom/omarchy/pull/14845)
