@@ -114,6 +114,11 @@ for relative in etc/xdg/kitty/kitty.conf usr/lib/tmpfiles.d/omarchy-nopasswd-sud
   install -Dm0644 "$root/$relative" "$stage/$relative"
 done
 
+# Keep the selected SDDM login theme package-owned.
+install -Dm0644 "$root/etc/sddm.conf.d/10-theme.conf" "$stage/etc/sddm.conf.d/10-theme.conf"
+mkdir -p "$stage/usr/share/sddm/themes"
+cp -a "$root/usr/share/sddm/themes/omarchy" "$stage/usr/share/sddm/themes/omarchy"
+
 # Keep the upstream menu helpers' scoped passwordless grants package-owned.
 for name in omarchy-dns omarchy-theme-browser; do
   install -Dm0440 "$root/etc/sudoers.d/$name" "$stage/etc/sudoers.d/$name"

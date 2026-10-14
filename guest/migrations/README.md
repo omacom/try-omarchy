@@ -37,6 +37,13 @@ customized, or unsafe installers are skipped. It does not install 1Password or
 enable its optional Touch ID integration. After an interrupted installation,
 rerun **Install → Service → 1Password** to complete application setup.
 
+The `ghostty` migration recognizes the generated installer pins first shipped
+in commit `d56a3c0`, alongside the stock recipes. The
+`tests/fixtures/ghostty-build-spec-before-system-fontconfig.json` fixture is the
+sorted JSON `supplyChain.ghostty` subset from that commit's `spec.json`, with a
+trailing newline, as written by the payload builder. This lets revision 2 update
+VMs that already received revision 1 while preserving customized pins.
+
 The app's fix manifest covers these inputs, the runner, component planners,
 user planner, and exact integration bundle. Add future repairs only with their
 reviewed preimages, destination allowlist, dependencies, journal recovery, and

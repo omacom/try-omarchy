@@ -128,7 +128,6 @@ class StateLineTests(unittest.TestCase):
         decoded = bridge.decode_message(state(percentage=42, chargeLimit=95))
         self.assertIn(b"capacity=42", bridge.format_state_line(decoded))
         self.assertIn(b"charge_limit=95", bridge.format_state_line(decoded))
-        self.assertIn(b"charge_limit=-1", bridge.unknown_state_line(decoded))
 
     def test_charging_snapshot_line(self) -> None:
         decoded = bridge.decode_message(
@@ -149,17 +148,10 @@ class StateLineTests(unittest.TestCase):
         )
         self.assertEqual(bridge.format_state_line(decoded), b"present=0 ac=1\n")
 
-    def test_unknown_line_preserves_last_snapshot(self) -> None:
-        decoded = bridge.decode_message(state())
-        self.assertEqual(
-            bridge.unknown_state_line(decoded),
-            b"present=1 status=unknown capacity=57 ac=0 "
-            b"time_to_empty=-1 time_to_full=-1 charge_limit=-1 "
-            b"charge_now=-1 charge_full=-1 charge_full_design=-1 voltage_now=-1 cycle_count=-1 current_now=-1\n",
-        )
-
-    def test_unknown_line_without_history_reports_absent(self) -> None:
-        self.assertEqual(bridge.unknown_state_line(None), b"present=0 ac=1\n")
+    def test_disconnect_drops_the_battery(self) -> None:
+        # Not the last snapshot as status unknown: UPower reads unknown
+        # without AC as Discharging, which kept a stale low level warning.
+        self.assertEqual(bridge.DISCONNECTED_LINE, b"present=0 ac=1\n")
 
 
 class RefreshTests(unittest.TestCase):
@@ -202,8 +194,7 @@ class LiveStreamTests(unittest.TestCase):
             self.assertIn(b"capacity=57 ", line)
             self.assertIn(f"ac={ac} ".encode(), line)
             self.assertIn(f"current_now={current}\n".encode(), line)
-        self.assertIn(b"status=unknown ", writes[-1])
-        self.assertIn(b"current_now=-1\n", writes[-1])
+        self.assertEqual(writes[-1], b"present=0 ac=1\n")
 
 
 if __name__ == "__main__":

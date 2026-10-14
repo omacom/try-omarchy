@@ -73,6 +73,7 @@ memory_reclaim_patch="$native_dir/patches/qemu-hvf-free-page-reclaim.patch"
 mapped_sections_patch="$native_dir/patches/qemu-hvf-mapped-sections.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
+minimum_guest_size_patch="$native_dir/patches/qemu-cocoa-minimum-guest-size.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
@@ -107,6 +108,7 @@ fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a2
 virgl_native_patch_sha256=692ed73cf88780b4c0e04c56e3cfb21cec761768dea909d755624e07d82fc60c
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
+minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
 slirp_source_root=libslirp-v4.9.4
@@ -238,6 +240,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Darwin strchrnul compatibility patch: $strchrnul_patch"
 [[ -f $usb_exact_bus_patch && ! -L $usb_exact_bus_patch ]] || \
   die "missing USB exact-bus patch: $usb_exact_bus_patch"
+[[ -f $minimum_guest_size_patch && ! -L $minimum_guest_size_patch ]] || \
+  die "missing Cocoa minimum guest size patch: $minimum_guest_size_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -463,8 +467,10 @@ verify_file_sha "Try Omarchy Darwin strchrnul compatibility patch" \
   "$strchrnul_patch" "$strchrnul_patch_sha256"
 verify_file_sha "Try Omarchy USB exact-bus patch" \
   "$usb_exact_bus_patch" "$usb_exact_bus_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa minimum guest size patch" \
+  "$minimum_guest_size_patch" "$minimum_guest_size_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, and USB exact-bus patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, and minimum guest size patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -487,6 +493,7 @@ patch -d "$source_dir" -p1 -f -i "$precise_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$iso_swap_patch"
 patch -d "$source_dir" -p1 -f -i "$injected_text_patch"
 patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
+patch -d "$source_dir" -p1 -f -i "$minimum_guest_size_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

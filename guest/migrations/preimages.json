@@ -34,6 +34,7 @@
     "6aa7f49942a1ce8c2ea81901738137ad59b0b33f2c3ded2f53308d32bc0ab419"
   ],
   "usr/local/bin/omarchy-native-battery-bridge": [
+    "737a210438a0c4a870acd1078d4d8d8d5e1d1ca4bfd16c8e2d24e79f10f1ee79",
     "29afcee3a828efc22909064465d30739929db437993a4705ddeece2b7fc6f3a2",
     "7ad0ac11639b4753f6eb439bbd2faa822a1406e0317ea0c1217d1f0b98ff52de",
     "48d10e10f5393c4066386aed38ca930d4fc2585d3257bf2e459874fb3662ff0a"
@@ -82,6 +83,9 @@
   "usr/local/share/try-omarchy/ghostty/PKGBUILD": [
     "fe333bdccba74a4817d2b8e7180f4f37f8455bbb9019cb7db81481c3f64bbf9c",
     "039101852ca314042c7a28892554418ca7f067a174c4dea3bdc453182bbde28c"
+  ],
+  "usr/local/share/try-omarchy/ghostty/build-spec.json": [
+    "65d6f593ec27e3173a19d151943620c575d8ea767b5b16a98db13f3a71ccb264"
   ],
   "usr/src/try-omarchy-battery-1.2.0/Makefile": [
     "710a6269ca6dcad2b83608660a1f948347e34bd39ddac4ca614a2bd115ee43ae"

@@ -109,17 +109,13 @@ def format_state_line(message: dict[str, Any]) -> bytes:
     ).encode()
 
 
-def unknown_state_line(last: dict[str, Any] | None) -> bytes:
-    """The honest line for a dead host bridge: keep presence, drop claims."""
-    if last is None or not last["present"]:
-        ac = 1 if last is None or last["acConnected"] else 0
-        return f"present=0 ac={ac}\n".encode()
-    ac = 1 if last["acConnected"] else 0
-    return (
-        f"present=1 status=unknown capacity={last['percentage']} "
-        f"ac={ac} time_to_empty=-1 time_to_full=-1 charge_limit=-1 "
-        + " ".join(f"{field}=-1" for field in READING_FIELDS.values()) + "\n"
-    ).encode()
+# The line for a dead host bridge. The Mac's battery is unknown from then on,
+# so the guest shows none rather than the last snapshot: kept as status
+# unknown beside the last AC state, UPower's display device turns unknown
+# without AC into Discharging, and a stale low level raised Omarchy's
+# low-battery warning while the Mac charged. A launcher bridge that never
+# comes back would keep that claim for the rest of the session.
+DISCONNECTED_LINE = b"present=0 ac=1\n"
 
 
 def write_state(line: bytes) -> None:
@@ -130,7 +126,6 @@ def run() -> int:
     if not STATE_FILE.exists():
         log("try-omarchy-battery module is not loaded; nothing to feed")
         return 1
-    last: dict[str, Any] | None = None
     try:
         with PORT.open("r+b", buffering=0) as port:
             port.write(REFRESH_LINE)
@@ -150,16 +145,15 @@ def run() -> int:
                         log(f"rejected host line: {error}")
                         continue
                     write_state(format_state_line(message))
-                    last = message
                 if len(buffer) > MAX_LINE_BYTES:
                     log("host line exceeds the size limit")
                     break
     except OSError as error:
         log(f"battery channel failed: {error}")
     try:
-        write_state(unknown_state_line(last))
+        write_state(DISCONNECTED_LINE)
     except OSError as error:
-        log(f"could not mark the battery unknown: {error}")
+        log(f"could not drop the battery: {error}")
     log("host battery bridge disconnected")
     return 1
 

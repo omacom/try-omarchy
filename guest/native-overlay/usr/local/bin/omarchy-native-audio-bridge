@@ -16,6 +16,8 @@ from typing import Any
 
 PORT = Path("/dev/virtio-ports/dev.tryomarchy.audio")
 PREFIX = "omarchy_host_"
+REMAP_MODULES = {"module-remap-sink", "module-remap-source"}
+RETRY_DELAY_MAX = 30
 
 
 def log(message: str) -> None:
@@ -23,15 +25,19 @@ def log(message: str) -> None:
 
 
 def run_pactl(*arguments: str, check: bool = True) -> str:
-    result = subprocess.run(
-        ["pactl", *arguments],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=10,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["pactl", *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # A slow pipewire-pulse is transient; callers retry RuntimeError.
+        raise RuntimeError(f"pactl {' '.join(arguments[:2])}: timed out") from None
     if check and result.returncode != 0:
         detail = result.stderr.strip() or f"status {result.returncode}"
         raise RuntimeError(f"pactl {' '.join(arguments[:2])}: {detail}")
@@ -81,6 +87,22 @@ def loaded_module_ids() -> set[str]:
     return {record.split("\t", 1)[0] for record in records if record}
 
 
+def stale_module_ids() -> list[str]:
+    """Remap modules left behind by an earlier bridge process."""
+    stale: list[str] = []
+    for record in run_pactl("list", "short", "modules").splitlines():
+        fields = record.split("\t")
+        if len(fields) < 3 or fields[1] not in REMAP_MODULES:
+            continue
+        arguments = fields[2].split()
+        if any(
+            argument.startswith((f"sink_name={PREFIX}", f"source_name={PREFIX}"))
+            for argument in arguments
+        ):
+            stale.append(fields[0])
+    return stale
+
+
 class PipeWireMirror:
     def __init__(self, send: Any) -> None:
         self.send = send
@@ -96,7 +118,10 @@ class PipeWireMirror:
 
     def close(self) -> None:
         for module_id in reversed(self.module_ids):
-            run_pactl("unload-module", module_id, check=False)
+            try:
+                run_pactl("unload-module", module_id, check=False)
+            except RuntimeError as error:
+                log(str(error))
         self.module_ids.clear()
 
     def apply(self, message: dict[str, Any]) -> None:
@@ -109,7 +134,9 @@ class PipeWireMirror:
             tuple((record["deviceUID"], record["name"]) for record in inputs),
         )
 
-        if inventory != self.inventory:
+        # Catalog retries bypass poll_selection(), so check the cached graph
+        # here too: PipeWire may have restarted during a selection timeout.
+        if inventory != self.inventory or not set(self.module_ids).issubset(loaded_module_ids()):
             self._rebuild(outputs, inputs)
             self.inventory = inventory
         self._set_selected("output", selected_output)
@@ -179,6 +206,8 @@ class PipeWireMirror:
         inputs: list[dict[str, str]],
     ) -> None:
         self.close()
+        for module_id in stale_module_ids():
+            run_pactl("unload-module", module_id, check=False)
         sinks = [name for name in short_names("sinks") if not name.startswith(PREFIX)]
         sources = [
             name
@@ -274,14 +303,15 @@ def main() -> int:
                     message = json.loads(line)
                     if not isinstance(message, dict) or message.get("type") != "catalog":
                         raise ValueError("host sent an invalid audio message")
-                    applied = False
-                    while not applied:
+                    delay = 1
+                    while True:
                         try:
                             mirror.apply(message)
-                            applied = True
+                            break
                         except RuntimeError as error:
                             log(str(error))
-                            time.sleep(1)
+                            time.sleep(delay)
+                            delay = min(delay * 2, RETRY_DELAY_MAX)
             try:
                 mirror.poll_selection()
             except RuntimeError as error:
