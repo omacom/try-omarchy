@@ -29,7 +29,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow!
     private let pathLabel = NSTextField(wrappingLabelWithString: "")
     private let selectionLabel = NSTextField(wrappingLabelWithString: "")
-    private let statusLabel = NSTextField(wrappingLabelWithString: "Choose an action below. Your VM starts only when you return to the launcher and press Launch.")
+    private let statusLabel = NSTextField(wrappingLabelWithString: "Your VM starts only when you return to the launcher and press Launch.")
     private let progressBar = NSProgressIndicator()
     private var existingButton: NSButton!
     private var moveButton: NSButton!
