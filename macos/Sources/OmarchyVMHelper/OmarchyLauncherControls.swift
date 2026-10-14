@@ -47,15 +47,6 @@ final class OmarchyActionButton: NSButton {
         return NSSize(width: ceil(titleSize.width) + 32, height: ceil(titleSize.height) + 16)
     }
 
-    override var focusRingMaskBounds: NSRect { bounds }
-
-    override func drawFocusRingMask() {
-        // The inherited cell uses its inset bezel, while the custom background
-        // fills the entire button. Keep keyboard focus on the same rounded edge.
-        NSColor.black.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
-    }
-
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverTrackingArea {
@@ -101,7 +92,7 @@ final class OmarchyActionButton: NSButton {
     private func configure() {
         setButtonType(.momentaryPushIn)
         isBordered = false
-        focusRingType = .exterior
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
@@ -261,7 +252,7 @@ final class OmarchyToggleButton: NSButton {
 
     private func configure() {
         isBordered = false
-        focusRingType = .exterior
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
