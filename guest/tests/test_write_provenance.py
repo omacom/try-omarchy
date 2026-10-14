@@ -79,6 +79,64 @@ class WriteProvenanceTests(unittest.TestCase):
             check=False,
         )
 
+    def add_followup_backport(self, spec: Path, target: Path) -> None:
+        patch = spec.parent / "followup.patch"
+        patch.write_bytes(b"reviewed followup patch\n")
+        payload = json.loads(spec.read_text(encoding="utf-8"))
+        payload["authenticity"]["backports"].append(
+            {
+                "id": "followup",
+                "description": "Followup to the fixture backport",
+                "reference": "https://example.test/followup",
+                "patch": patch.name,
+                "patchSha256": digest(patch.read_bytes()),
+                "targets": [
+                    {
+                        "path": "shell/example.qml",
+                        "beforeSha256": digest(target.read_bytes()),
+                        "afterSha256": digest(b"patched again\n"),
+                    }
+                ],
+            }
+        )
+        spec.write_text(json.dumps(payload), encoding="utf-8")
+        target.write_bytes(b"patched again\n")
+
+    def test_verifies_the_final_postimage_of_sequential_backports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.add_followup_backport(spec, target)
+
+            result = self.run_writer(root, spec, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            provenance = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(
+                provenance["backports"],
+                json.loads(spec.read_text(encoding="utf-8"))["authenticity"]["backports"],
+            )
+
+    def test_rejects_an_intermediate_postimage_when_a_later_backport_is_declared(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.add_followup_backport(spec, target)
+            target.write_bytes(b"patched\n")
+
+            result = self.run_writer(root, spec, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backport target digest mismatch: followup shell/example.qml", result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_checks_patch_integrity_even_when_a_later_backport_replaces_its_postimage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root, spec, target, output = self.fixture(temporary)
+            self.add_followup_backport(spec, target)
+            (spec.parent / "example.patch").write_bytes(b"unexpected patch\n")
+
+            result = self.run_writer(root, spec, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backport patch digest mismatch: fixture", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_records_verbatim_trees_and_reviewed_backports_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root, spec, _, output = self.fixture(temporary)

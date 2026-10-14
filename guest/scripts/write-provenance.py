@@ -86,15 +86,21 @@ def main() -> None:
     trees["themes"] = digest_path(omarchy / "themes")
 
     backports = authenticity.get("backports", [])
+    final_targets = {}
     for backport in backports:
         patch = args.spec.parent / backport["patch"]
         patch_digest = digest_file(patch)
         if patch_digest != backport["patchSha256"]:
             raise SystemExit(f"backport patch digest mismatch: {backport['id']}")
         for target in backport["targets"]:
-            installed = installed_target_file(root, omarchy, target["path"])
-            if digest_file(installed) != target["afterSha256"]:
-                raise SystemExit(f"backport target digest mismatch: {backport['id']} {target['path']}")
+            # Application verifies every intermediate preimage and postimage.
+            # The installed file must match the last backport touching it.
+            final_targets[target["path"]] = (backport["id"], target)
+
+    for relative, (backport_id, target) in final_targets.items():
+        installed = installed_target_file(root, omarchy, relative)
+        if digest_file(installed) != target["afterSha256"]:
+            raise SystemExit(f"backport target digest mismatch: {backport_id} {relative}")
 
     payload = {
         "schemaVersion": 1,
