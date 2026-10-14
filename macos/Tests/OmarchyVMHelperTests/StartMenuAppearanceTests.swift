@@ -38,7 +38,7 @@ struct StartMenuAppearanceTests {
         #expect(action.keyEquivalent == "\r")
         #expect(action.accessibilityLabel() == "Launch Omarchy")
         #expect(action.attributedTitle.string == "LAUNCH OMARCHY")
-        #expect(action.focusRingType == .exterior)
+        #expect(action.focusRingType == .none)
         #expect(!action.isBordered)
 
         let toggle = OmarchyToggleButton(isOn: true, target: nil, action: nil)

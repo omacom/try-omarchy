@@ -92,7 +92,7 @@ final class OmarchyActionButton: NSButton {
     private func configure() {
         setButtonType(.momentaryPushIn)
         isBordered = false
-        focusRingType = .exterior
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
@@ -252,7 +252,7 @@ final class OmarchyToggleButton: NSButton {
 
     private func configure() {
         isBordered = false
-        focusRingType = .exterior
+        focusRingType = .none
         wantsLayer = true
         layer?.cornerRadius = 6
         layer?.borderWidth = 1
