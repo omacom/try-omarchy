@@ -793,7 +793,8 @@ launch will do:
   selected folder and the original recovery-copy path. The original is kept.
 - **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
   fresh VM, created on the next launch. The previously selected VM is kept.
-- **Delete the selected VM → Delete VM…** asks you to confirm the exact folder,
+- **Delete the selected VM → Delete VM…** shows the exact folder and asks you to
+  type `Try Omarchy` to confirm,
   then moves the whole VM to macOS Trash. Other VM copies are kept. Recover
   it from Trash before emptying Trash, or choose another VM or an empty folder
   to continue. A running VM cannot be deleted.

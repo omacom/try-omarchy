@@ -17,6 +17,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private let move: Move
     private let delete: Delete
     private let confirmation: ((URL) -> Bool)?
+    private(set) var deletionPrompt: VMDestructiveConfirmationPrompt?
     private var deletedRoot: String?
     private var confirmingDeletion = false
     private(set) var deleting = false
@@ -201,18 +202,21 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         catch { showStatus(error.localizedDescription, error: true); return }
         confirmingDeletion = true
         refreshSelection()
-        let confirmed: Bool
-        if let confirmation { confirmed = confirmation(source) }
-        else {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = "Delete the selected VM?"
-            alert.informativeText = "Move this entire VM folder to macOS Trash:\n\n\(source.path)\n\nIt contains this VM's apps, files, accounts, and settings. Other VM copies are kept. You can recover it from Trash until you empty Trash."
-            alert.addButton(withTitle: "Cancel")
-            let delete = alert.addButton(withTitle: "Move to Trash")
-            delete.hasDestructiveAction = true
-            confirmed = alert.runModal() == .alertSecondButtonReturn
+        if let confirmation {
+            finishDeletionConfirmation(confirmation(source), source: source, identity: identity)
+        } else {
+            let detail = "Move this entire VM folder to macOS Trash:\n\n\(source.path)\n\nIt contains this VM's apps, files, accounts, and settings. Other VM copies are kept. You can recover it from Trash until you empty Trash."
+            let prompt = VMDestructiveConfirmationPrompt(detail: detail, action: .delete)
+            deletionPrompt = prompt
+            prompt.present(for: window) { [weak self, weak prompt] confirmed in
+                guard let self, let prompt, self.deletionPrompt === prompt else { return }
+                self.deletionPrompt = nil
+                self.finishDeletionConfirmation(confirmed, source: source, identity: identity)
+            }
         }
+    }
+
+    private func finishDeletionConfirmation(_ confirmed: Bool, source: URL, identity: String) {
         confirmingDeletion = false
         guard confirmed, selectedRoot()?.path == source.path else { refreshSelection(); return }
         deleting = true
@@ -258,8 +262,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         return field
     }
 
-    private func button(_ title: String, action: Selector, id: String, primary: Bool = false) -> NSButton {
-        let control = OmarchyActionButton(title: title, style: primary ? .primary : .secondary, target: self, action: action)
+    private func button(_ title: String, action: Selector, id: String, primary: Bool = false, danger: Bool = false) -> NSButton {
+        let control = OmarchyActionButton(title: title, style: danger ? .danger : (primary ? .primary : .secondary), target: self, action: action)
         control.identifier = NSUserInterfaceItemIdentifier("vm-storage-" + id)
         control.widthAnchor.constraint(equalToConstant: primary ? 86 : 178).isActive = true
         control.heightAnchor.constraint(equalToConstant: 32).isActive = true
@@ -312,7 +316,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         existingButton = button("Choose Existing VM…", action: #selector(chooseExistingVM), id: "existing")
         moveButton = button("Choose Destination…", action: #selector(moveSelectedVM), id: "move")
         newButton = button("Choose Empty Folder…", action: #selector(chooseNewVM), id: "new")
-        deleteButton = button("Delete VM…", action: #selector(deleteSelectedVM), id: "delete")
+        deleteButton = button("Delete VM…", action: #selector(deleteSelectedVM), id: "delete", danger: true)
         deleteButton.hasDestructiveAction = true
         defaultButton = button("Use Default Folder", action: #selector(selectDefault), id: "default")
         doneButton = button("Done", action: #selector(done), id: "done", primary: true)

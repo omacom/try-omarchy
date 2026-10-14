@@ -25,43 +25,45 @@ enum OmarchyStartMenuTheme {
     }
 }
 
-enum ResetConfirmationPolicy {
+enum VMDestructiveConfirmationPolicy {
     static let requiredText = "Try Omarchy"
 
-    static func allowsReset(_ text: String) -> Bool {
+    static func allowsAction(_ text: String) -> Bool {
         text == requiredText
     }
 }
 
 @MainActor
-final class ResetConfirmationPrompt {
+final class VMDestructiveConfirmationPrompt {
     let alert: NSAlert
     let confirmationField: NSTextField
-    let resetButton: NSButton
+    let actionButton: NSButton
 
     private var textChangeObserver: NSObjectProtocol?
 
-    init(detail: String) {
+    enum Action: String { case reset, delete }
+
+    init(detail: String, action: Action = .reset) {
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "Reset Omarchy to factory settings?"
+        alert.messageText = action == .reset ? "Reset Omarchy to factory settings?" : "Delete the selected VM?"
         alert.informativeText = detail
         alert.addButton(withTitle: "Cancel")
-        let resetButton = alert.addButton(withTitle: "Reset")
-        resetButton.hasDestructiveAction = true
-        resetButton.isEnabled = false
+        let actionButton = alert.addButton(withTitle: action == .reset ? "Reset" : "Move to Trash")
+        actionButton.hasDestructiveAction = true
+        actionButton.isEnabled = false
 
         let instruction = NSTextField(
-            labelWithString: "Type \(ResetConfirmationPolicy.requiredText) to confirm"
+            labelWithString: "Type \(VMDestructiveConfirmationPolicy.requiredText) to confirm"
         )
         instruction.font = .systemFont(ofSize: 12, weight: .medium)
         instruction.translatesAutoresizingMaskIntoConstraints = false
 
         let confirmationField = NSTextField(string: "")
-        confirmationField.placeholderString = ResetConfirmationPolicy.requiredText
-        confirmationField.identifier = NSUserInterfaceItemIdentifier("reset-confirmation-field")
+        confirmationField.placeholderString = VMDestructiveConfirmationPolicy.requiredText
+        confirmationField.identifier = NSUserInterfaceItemIdentifier("\(action.rawValue)-confirmation-field")
         confirmationField.setAccessibilityLabel(
-            "Type \(ResetConfirmationPolicy.requiredText) to confirm reset"
+            "Type \(VMDestructiveConfirmationPolicy.requiredText) to confirm \(action.rawValue)"
         )
         confirmationField.translatesAutoresizingMaskIntoConstraints = false
 
@@ -81,13 +83,13 @@ final class ResetConfirmationPrompt {
 
         self.alert = alert
         self.confirmationField = confirmationField
-        self.resetButton = resetButton
+        self.actionButton = actionButton
         textChangeObserver = NotificationCenter.default.addObserver(
             forName: NSControl.textDidChangeNotification,
             object: confirmationField,
             queue: .main
-        ) { [weak confirmationField, weak resetButton] _ in
-            resetButton?.isEnabled = ResetConfirmationPolicy.allowsReset(
+        ) { [weak confirmationField, weak actionButton] _ in
+            actionButton?.isEnabled = VMDestructiveConfirmationPolicy.allowsAction(
                 confirmationField?.stringValue ?? ""
             )
         }
@@ -106,7 +108,7 @@ final class ResetConfirmationPrompt {
                 return
             }
             let confirmed = response == .alertSecondButtonReturn
-                && ResetConfirmationPolicy.allowsReset(confirmationField.stringValue)
+                && VMDestructiveConfirmationPolicy.allowsAction(confirmationField.stringValue)
             completion(confirmed)
         }
         DispatchQueue.main.async { [weak window, weak confirmationField] in
@@ -227,7 +229,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
     private var prelaunchControlsLocked: Bool { controlsBusy || virtualMachineRunning }
     private var pendingResetSpaceEstimate: String?
-    private var resetConfirmationPrompt: ResetConfirmationPrompt?
+    private var resetConfirmationPrompt: VMDestructiveConfirmationPrompt?
     private weak var startMenuScrollView: NSScrollView?
     private var preferredContentHeight: CGFloat = 832
     private(set) var portForwardingEditor: PortForwardingEditor?
@@ -947,7 +949,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             && !prelaunchControlsLocked
             && !resetInProgress
         reset.toolTip = canResetStorage
-            ? "Erase this VM and return it to factory settings"
+            ? "Permanently erase this VM and create a fresh one in the same folder"
             : "Reset is unavailable for a disposable VM"
         reset.heightAnchor.constraint(equalToConstant: 30).isActive = true
         reset.widthAnchor.constraint(greaterThanOrEqualToConstant: 154).isActive = true
@@ -1005,7 +1007,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resetTitle.textColor = OmarchyStartMenuTheme.foreground
         let resetDetail = NSTextField(wrappingLabelWithString: virtualMachineRunning
             ? "Shut down Omarchy to change the VM location or reset it to factory settings."
-            : "Erase this VM and return it to factory settings.")
+            : "Permanently erase this VM. The next launch creates a fresh one in the same folder.")
         resetDetail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         resetDetail.textColor = OmarchyStartMenuTheme.muted
         resetDetail.maximumNumberOfLines = 3
@@ -1789,7 +1791,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let estimate {
             detail += " Resetting may free up to \(estimate) of disk space."
         }
-        let prompt = ResetConfirmationPrompt(detail: detail)
+        let prompt = VMDestructiveConfirmationPrompt(detail: detail)
         resetConfirmationPrompt = prompt
         prompt.present(for: window) { [weak self, weak prompt] confirmed in
             guard let self,

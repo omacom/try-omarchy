@@ -8,11 +8,11 @@ import Testing
 @Suite("Start menu layout", .serialized)
 @MainActor
 struct StartMenuWindowWidthTests {
-    @Test("reset confirmation requires the exact application name")
-    func resetConfirmationIsTypedAndExact() {
-        let prompt = ResetConfirmationPrompt(detail: "This cannot be undone.")
-        #expect(prompt.confirmationField.identifier?.rawValue == "reset-confirmation-field")
-        #expect(!prompt.resetButton.isEnabled)
+    @Test("Reset and deletion require the exact application name", arguments: [VMDestructiveConfirmationPrompt.Action.reset, .delete])
+    func destructiveConfirmationIsTypedAndExact(action: VMDestructiveConfirmationPrompt.Action) {
+        let prompt = VMDestructiveConfirmationPrompt(detail: "Selected VM details", action: action)
+        #expect(prompt.confirmationField.identifier?.rawValue == "\(action.rawValue)-confirmation-field")
+        #expect(!prompt.actionButton.isEnabled)
 
         for invalidValue in [
             "try omarchy",
@@ -25,7 +25,7 @@ struct StartMenuWindowWidthTests {
                 name: NSControl.textDidChangeNotification,
                 object: prompt.confirmationField
             )
-            #expect(!prompt.resetButton.isEnabled)
+            #expect(!prompt.actionButton.isEnabled)
         }
 
         prompt.confirmationField.stringValue = "Try Omarchy"
@@ -33,7 +33,7 @@ struct StartMenuWindowWidthTests {
             name: NSControl.textDidChangeNotification,
             object: prompt.confirmationField
         )
-        #expect(prompt.resetButton.isEnabled)
+        #expect(prompt.actionButton.isEnabled)
     }
 
     @Test("dynamic storage details cannot widen or escape the start menu")

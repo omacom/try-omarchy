@@ -146,7 +146,8 @@ on success. APFS clones are used on the same volume, and sparse copying across
 volumes. Both locations must be local APFS folders. Symlinks, hard links,
 special files, occupied destinations, and changes during copying are refused.
 
-**Delete VM…** confirms the exact selected folder and moves its complete workspace
+**Delete VM…** uses the same danger styling and typed `Try Omarchy` confirmation
+as Reset, and confirms the exact selected folder and moves its complete workspace
 into macOS Trash under the same launcher locks. It keeps other VM copies and
 refuses a running or changed VM. The folder remains selected, so choose another
 VM or an empty folder afterward. Trash errors never trigger permanent removal.
