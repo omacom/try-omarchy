@@ -283,6 +283,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             resetStorage: { [weak self] in
                 self?.resetVirtualMachine()
             },
+            deleteStorageLocation: { [weak self] source, identity, completion in
+                self?.deleteStorageLocation(source, identity: identity, completion: completion)
+            },
             moveStorageLocation: { [weak self] source, path, progress, completion in
                 self?.moveStorageLocation(from: source, to: path, progress: progress, completion: completion)
             },
@@ -1021,6 +1024,34 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                     return
                 }
                 completion(self.chooseStorageLocation(path))
+            }
+        }
+    }
+
+    private func deleteStorageLocation(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
+        guard !childRunning, workspaceTransferProcess == nil, storageEnvironmentOverride == nil,
+              startupPreferenceRoot()?.path == source, let executable = Bundle.main.executableURL else {
+            completion("Shut down Omarchy before deleting its VM. The selected VM must match the confirmed folder.")
+            return
+        }
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["--trash-vm", source, identity]
+        let errors = Pipe()
+        process.standardError = errors
+        process.standardOutput = FileHandle.nullDevice
+        do { try process.run() }
+        catch { completion(error.localizedDescription); return }
+        workspaceTransferProcess = process
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let message: String
+            do { message = try VMTransferOutput.read(from: errors.fileHandleForReading) { _ in } }
+            catch { message = error.localizedDescription; if process.isRunning { process.terminate() } }
+            process.waitUntilExit()
+            DispatchQueue.main.async { [weak self] in
+                self?.workspaceTransferProcess = nil
+                completion(process.terminationStatus == 0 ? nil :
+                    (message.isEmpty ? "Could not move this VM to Trash. The selected folder was retained." : message))
             }
         }
     }

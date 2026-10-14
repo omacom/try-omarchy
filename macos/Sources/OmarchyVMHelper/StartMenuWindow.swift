@@ -193,6 +193,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let storageLocationStatus: () -> StorageLocationMenuState
     private let validateStorageLocation: (String) -> String?
     private let chooseStorageLocation: (String) -> String?
+    private let deleteStorageLocation: VMStorageEditor.Delete
     private let moveStorageLocation: VMStorageEditor.Move
     private let useDefaultStorageLocation: () -> Void
 
@@ -257,6 +258,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         chooseStorageLocation: @escaping (String) -> String?,
         useDefaultStorageLocation: @escaping () -> Void,
         resetStorage: @escaping () -> Void,
+        deleteStorageLocation: @escaping VMStorageEditor.Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         moveStorageLocation: @escaping VMStorageEditor.Move = { _, _, _, completion in completion("VM relocation is unavailable.") },
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
         chooseSharedFolder: @escaping (String) -> String?,
@@ -300,6 +302,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.storageLocationStatus = storageLocationStatus
         self.validateStorageLocation = validateStorageLocation
         self.chooseStorageLocation = chooseStorageLocation
+        self.deleteStorageLocation = deleteStorageLocation
         self.moveStorageLocation = moveStorageLocation
         self.useDefaultStorageLocation = useDefaultStorageLocation
         self.resetStorage = resetStorage
@@ -1590,6 +1593,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 guard let self else { completion("The launcher was closed."); return }
                 self.storageMoveInProgress = true
                 self.moveStorageLocation(source, destination, progress) { [weak self] error in
+                    self?.storageMoveInProgress = false
+                    completion(error)
+                }
+            },
+            delete: { [weak self] source, identity, completion in
+                guard let self else { completion("The launcher was closed."); return }
+                self.storageMoveInProgress = true
+                self.deleteStorageLocation(source, identity) { [weak self] error in
                     self?.storageMoveInProgress = false
                     completion(error)
                 }

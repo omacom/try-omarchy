@@ -793,14 +793,17 @@ launch will do:
   selected folder and the original recovery-copy path. The original is kept.
 - **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
   fresh VM, created on the next launch. The previously selected VM is kept.
+- **Delete the selected VM → Delete VM…** asks you to confirm the exact folder,
+  then moves the whole VM to macOS Trash. Other VM copies are kept. Recover
+  it from Trash before emptying Trash, or choose another VM or an empty folder
+  to continue. A running VM cannot be deleted.
 - **Use Default Folder** selects
   `~/Library/Application Support/Try Omarchy/VM/v1` again. If that VM has been
   deleted, the next launch creates a fresh VM there.
 
 Choices are saved immediately. **Done** returns to the launcher; press
-**Launch** there to start the selected VM. During copying and verification,
-**Done** and the other choices are disabled. Errors stay in the dialog and
-leave the original VM and selected folder unchanged.
+**Launch** there to start the selected VM. During copying, verification, or deletion,
+**Done** and the other choices are disabled. Errors stay in the dialog. Failed operations keep the selected VM intact.
 
 Moving always acts on the VM selected in the dialog. To move a different saved
 VM, switch to it first. Copies evolve independently after booting; switch

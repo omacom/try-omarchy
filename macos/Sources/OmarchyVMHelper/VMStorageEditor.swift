@@ -7,12 +7,20 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     enum Choice { case existing, new, move }
     typealias Move = (String, String, @escaping (VMTransferProgress) -> Void, @escaping (String?) -> Void) -> Void
 
+    typealias Delete = (String, String, @escaping (String?) -> Void) -> Void
+
     private let selectedRoot: () -> URL?
     private let isDefault: () -> Bool
     private let validate: (String) -> String?
     private let select: (String) -> String?
     private let useDefault: () -> Void
     private let move: Move
+    private let delete: Delete
+    private let confirmation: ((URL) -> Bool)?
+    private var deletedRoot: String?
+    private var confirmingDeletion = false
+    private(set) var deleting = false
+    private var busy: Bool { moving || deleting || confirmingDeletion }
     private let closeHandler: () -> Void
     private let picker: ((Choice, URL?) -> URL?)?
     private var closed = false
@@ -25,6 +33,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private var existingButton: NSButton!
     private var moveButton: NSButton!
     private var newButton: NSButton!
+    private var deleteButton: NSButton!
     private var defaultButton: NSButton!
     private var doneButton: NSButton!
 
@@ -36,6 +45,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         useDefault: @escaping () -> Void,
         move: @escaping Move,
         chooseFolder: ((Choice, URL?) -> URL?)? = nil,
+        delete: @escaping Delete = { _, _, completion in completion("VM deletion is unavailable.") },
+        confirmDeletion: ((URL) -> Bool)? = nil,
         didClose: @escaping () -> Void
     ) {
         self.selectedRoot = selectedRoot
@@ -44,6 +55,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         self.select = select
         self.useDefault = useDefault
         self.move = move
+        self.delete = delete
+        confirmation = confirmDeletion
         picker = chooseFolder
         closeHandler = didClose
         super.init()
@@ -57,7 +70,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     }
 
     func dismiss() {
-        guard !closed, !moving else { return }
+        guard !closed, !busy else { return }
         closed = true
         window.sheetParent?.endSheet(window)
         window.orderOut(nil)
@@ -82,6 +95,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         } ?? []
         if hasVM {
             selectionLabel.stringValue = "Your next launch will boot the VM in this folder."
+        } else if let root, deletedRoot == root.path, !FileManager.default.fileExists(atPath: root.path) {
+            selectionLabel.stringValue = "The selected VM was moved to Trash. Choose another VM or an empty folder."
         } else if let root, !isDefault(), !FileManager.default.fileExists(atPath: root.path) {
             selectionLabel.stringValue = "This folder is unavailable. Reconnect its drive or choose another VM."
         } else if diskEntries.contains(where: { $0 == "current" || ($0.count == 64 && $0.allSatisfy { "0123456789abcdef".contains($0) }) }) {
@@ -89,12 +104,13 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         } else {
             selectionLabel.stringValue = "No saved VM in this folder. Your next launch will create a new one here."
         }
-        existingButton.isEnabled = !moving
-        newButton.isEnabled = !moving
-        moveButton.isEnabled = !moving && hasVM
-        defaultButton.isEnabled = !moving && !isDefault()
-        doneButton.isEnabled = !moving
-        doneButton.keyEquivalent = moving ? "" : "\r"
+        existingButton.isEnabled = !busy
+        newButton.isEnabled = !busy
+        moveButton.isEnabled = !busy && hasVM
+        deleteButton.isEnabled = !busy && hasVM
+        defaultButton.isEnabled = !busy && !isDefault()
+        doneButton.isEnabled = !busy
+        doneButton.keyEquivalent = busy ? "" : "\r"
     }
 
     private func showStatus(_ text: String, error: Bool = false) {
@@ -134,7 +150,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     @objc func chooseNewVM() { changeSelection(.new) }
 
     private func changeSelection(_ choice: Choice) {
-        guard !moving, let destination = chooseFolder(choice, source: selectedRoot()) else { return }
+        guard !busy, let destination = chooseFolder(choice, source: selectedRoot()) else { return }
         if let error = validate(destination.path) { showStatus(error, error: true); return }
         do {
             if choice == .existing {
@@ -151,14 +167,14 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     }
 
     @objc func selectDefault() {
-        guard !moving else { return }
+        guard !busy else { return }
         useDefault()
         refreshSelection()
         showStatus("Default folder selected for the next launch. Your previously selected VM stays where it is.")
     }
 
     @objc func moveSelectedVM() {
-        guard !moving, let source = selectedRoot() else { return }
+        guard !busy, let source = selectedRoot() else { return }
         do { try VMWorkspaceTransfer.requireExistingVM(source.path) }
         catch { showStatus(error.localizedDescription, error: true); return }
         guard let destination = chooseFolder(.move, source: source) else { return }
@@ -176,6 +192,45 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             if let error { self.showStatus(error, error: true); return }
             self.showStatus("Copied and verified. The next launch uses \(self.display(destination)). Recovery copy: \(self.display(source)). These copies now evolve independently.")
         })
+    }
+
+    @objc func deleteSelectedVM() {
+        guard !busy, let source = selectedRoot() else { return }
+        let identity: String
+        do { identity = try VMWorkspaceTransfer.deletionIdentity(source.path) }
+        catch { showStatus(error.localizedDescription, error: true); return }
+        confirmingDeletion = true
+        refreshSelection()
+        let confirmed: Bool
+        if let confirmation { confirmed = confirmation(source) }
+        else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Delete the selected VM?"
+            alert.informativeText = "Move this entire VM folder to macOS Trash:\n\n\(source.path)\n\nIt contains this VM's apps, files, accounts, and settings. Other VM copies are kept. You can recover it from Trash until you empty Trash."
+            alert.addButton(withTitle: "Cancel")
+            let delete = alert.addButton(withTitle: "Move to Trash")
+            delete.hasDestructiveAction = true
+            confirmed = alert.runModal() == .alertSecondButtonReturn
+        }
+        confirmingDeletion = false
+        guard confirmed, selectedRoot()?.path == source.path else { refreshSelection(); return }
+        deleting = true
+        refreshSelection()
+        showStatus("Moving the selected VM to Trash…")
+        progressBar.isHidden = false
+        progressBar.isIndeterminate = true
+        progressBar.startAnimation(nil)
+        delete(source.path, identity) { [weak self] error in
+            guard let self else { return }
+            self.deleting = false
+            self.progressBar.stopAnimation(nil)
+            self.progressBar.isHidden = true
+            if error == nil { self.deletedRoot = source.path }
+            self.refreshSelection()
+            if let error { self.showStatus(error, error: true); return }
+            self.showStatus("VM moved to Trash from \(self.display(source)). Choose another VM or an empty folder to continue. Other VM copies are kept.")
+        }
     }
 
     func receiveProgress(_ update: VMTransferProgress) {
@@ -228,7 +283,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     }
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 624),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 688),
             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Manage virtual machines"
         window.titleVisibility = .hidden
@@ -257,6 +312,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         existingButton = button("Choose Existing VM…", action: #selector(chooseExistingVM), id: "existing")
         moveButton = button("Choose Destination…", action: #selector(moveSelectedVM), id: "move")
         newButton = button("Choose Empty Folder…", action: #selector(chooseNewVM), id: "new")
+        deleteButton = button("Delete VM…", action: #selector(deleteSelectedVM), id: "delete")
+        deleteButton.hasDestructiveAction = true
         defaultButton = button("Use Default Folder", action: #selector(selectDefault), id: "default")
         doneButton = button("Done", action: #selector(done), id: "done", primary: true)
         let spacer = NSView()
@@ -269,8 +326,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             row("Switch to another VM", detail: "Choose a saved VM in another folder. This changes which VM the app will launch; files stay where they are.", control: existingButton),
             row("Move the selected VM", detail: "Copy this VM to a new folder, verify it, and switch to the copy. The original remains a recovery copy.", control: moveButton),
             row("Create a separate VM", detail: "Choose an empty folder. A new VM is created on the next launch; the selected VM is kept.", control: newButton),
-            statusLabel, progressBar,
-            label("Choices are saved immediately. Done returns to the launcher; it does not start a VM.", size: 11, muted: true), footer
+            row("Delete the selected VM", detail: "Move this VM folder to macOS Trash. Other VM copies are kept. You can recover it until Trash is emptied.", control: deleteButton),
+            statusLabel, progressBar, footer
         ]
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical

@@ -40,33 +40,9 @@ enum VMWorkspaceTransfer {
             throw HelperError.io("The destination must be completely empty. Existing files and VMs are never replaced.")
         }
         let destinationIdentity = try entry(at: destination, relativePath: "").identity
-        let lockDirectory = source + "/locks"
-        let lockNames = try manager.contentsOfDirectory(atPath: lockDirectory).sorted()
-        guard lockNames.contains("current.lock") else {
-            throw HelperError.io("Launch this VM and shut it down once before relocating it, so its workspace lock exists.")
-        }
-        var lockDescriptors: [Int32] = []
+        let lockDescriptors = try acquireWorkspaceLocks(source)
         defer { lockDescriptors.forEach { close($0) } }
-        for name in lockNames {
-            let stem = String(name.dropLast(5))
-            guard name.hasSuffix(".lock"), stem == "current" ||
-                (stem.count == 64 && stem.allSatisfy { "0123456789abcdef".contains($0) }) else {
-                throw HelperError.io("Unrecognized file in the VM lock folder; relocation was cancelled.")
-            }
-            let path = lockDirectory + "/" + name
-            let fd = open(path, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-            guard fd >= 0 else { throw HelperError.io("Cannot open the VM workspace lock.") }
-            lockDescriptors.append(fd)
-            var info = stat()
-            var lock = flock()
-            lock.l_type = Int16(F_WRLCK)
-            lock.l_whence = Int16(SEEK_SET)
-            guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-                  info.st_uid == getuid(), info.st_nlink == 1, info.st_mode & 0o7777 == 0o600,
-                  fcntl(fd, F_SETLK, &lock) == 0 else {
-                throw HelperError.io("This VM is open or its lock is unsafe. Shut down Omarchy normally before relocating it.")
-            }
-        }
+        let lockNames = try manager.contentsOfDirectory(atPath: source + "/locks").sorted()
         // Never open/close a locked file again in this process: POSIX record
         // locks are released by *any* close of that inode. Lock files are
         // recreated in the copy and omitted from content hashing.
@@ -146,6 +122,66 @@ enum VMWorkspaceTransfer {
         defer { close(parentFD) }
         guard fsync(parentFD) == 0 else { throw HelperError.io("The VM copy exists, but publication could not be flushed. The selected location was retained.") }
         return destination
+    }
+
+    /// Bind confirmation to both the folder and the recorded disk. A replaced
+    /// workspace or a disk changed after confirmation requires a new review.
+    static func deletionIdentity(_ path: String) throws -> String {
+        try requireExistingVM(path)
+        guard let disk = QEMUGPUStorageSpaceEstimate.recordedPersistentDiskURL(stateRoot: path, bundleIdentity: nil) else {
+            throw HelperError.io("The selected VM disk could not be identified.")
+        }
+        return try entry(at: path, relativePath: "").identity + ":" + entry(at: disk.path, relativePath: "").signature
+    }
+
+    /// Run in a separate helper process, so AppKit reads cannot release POSIX
+    /// locks. Trash moves the complete workspace; never erase its contents.
+    static func trash(_ path: String, expectedIdentity: String,
+        recycle: (URL) throws -> Void = { url in
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        }) throws {
+        let source = try StorageLocationPolicy.validate(path, metrics: nil, probe: URLVolumeProbe()).stateRoot
+        let locks = try acquireWorkspaceLocks(source)
+        defer { locks.forEach { close($0) } }
+        _ = try manifest(root: source)
+        guard try deletionIdentity(source) == expectedIdentity else {
+            throw HelperError.io("The selected VM changed after confirmation. Nothing was deleted. Review it and try again.")
+        }
+        try recycle(URL(fileURLWithPath: source, isDirectory: true))
+    }
+
+    private static func acquireWorkspaceLocks(_ source: String) throws -> [Int32] {
+        let manager = FileManager.default
+        let lockDirectory = source + "/locks"
+        let lockNames = try manager.contentsOfDirectory(atPath: lockDirectory).sorted()
+        guard lockNames.contains("current.lock") else {
+            throw HelperError.io("Launch this VM and shut it down once before changing its files, so its workspace lock exists.")
+        }
+        var lockDescriptors: [Int32] = []
+        var acquired = false
+        defer { if !acquired { lockDescriptors.forEach { close($0) } } }
+        for name in lockNames {
+            let stem = String(name.dropLast(5))
+            guard name.hasSuffix(".lock"), stem == "current" ||
+                (stem.count == 64 && stem.allSatisfy { "0123456789abcdef".contains($0) }) else {
+                throw HelperError.io("Unrecognized file in the VM lock folder; the operation was cancelled.")
+            }
+            let path = lockDirectory + "/" + name
+            let fd = open(path, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+            guard fd >= 0 else { throw HelperError.io("Cannot open the VM workspace lock.") }
+            lockDescriptors.append(fd)
+            var info = stat()
+            var lock = flock()
+            lock.l_type = Int16(F_WRLCK)
+            lock.l_whence = Int16(SEEK_SET)
+            guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+                  info.st_uid == getuid(), info.st_nlink == 1, info.st_mode & 0o7777 == 0o600,
+                  fcntl(fd, F_SETLK, &lock) == 0 else {
+                throw HelperError.io("This VM is open or its lock is unsafe. Shut down Omarchy normally before changing its files.")
+            }
+        }
+        acquired = true
+        return lockDescriptors
     }
 
     private static func entry(at path: String, relativePath: String) throws -> Entry {

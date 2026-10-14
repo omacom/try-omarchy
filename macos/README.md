@@ -130,7 +130,7 @@ showing checking, image preparation, verification, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
 The launcher's **Selected VM → Manage…** sheet shows the current selection,
-explains switching, moving, and creating a separate VM, and returns to the
+explains switching, moving, creating a separate VM, and deletion, and returns to the
 launcher with **Done**. Selection is saved immediately but does not start a
 VM. New selection requires an empty folder; existing selection requires a
 recognized persistent disk and workspace marker.
@@ -145,6 +145,11 @@ recovery paths inline. The original is retained; the preference changes only
 on success. APFS clones are used on the same volume, and sparse copying across
 volumes. Both locations must be local APFS folders. Symlinks, hard links,
 special files, occupied destinations, and changes during copying are refused.
+
+**Delete VM…** confirms the exact selected folder and moves its complete workspace
+into macOS Trash under the same launcher locks. It keeps other VM copies and
+refuses a running or changed VM. The folder remains selected, so choose another
+VM or an empty folder afterward. Trash errors never trigger permanent removal.
 
 The choice is stored in `UserDefaults` and published to the launcher as
 `OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value still wins and disables

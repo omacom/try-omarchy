@@ -342,6 +342,12 @@ unrecognized host files are never replaced. Lock files are recreated rather
 than opened for copying, because closing any descriptor for a locked inode
 would release the helper process's POSIX locks.
 
+Deletion runs a separate `--trash-vm` helper process. Confirmation captures the
+selected folder and disk identity. The helper validates the workspace, holds all
+launcher locks, rejects a changed disk or unsafe tree, and moves the complete
+folder to macOS Trash. Preferences and other VM copies are kept; failures never
+fall back to permanent removal.
+
 ## Build layout
 
 - `guest/` reproducibly assembles the unprovisioned ARM64 image in a privileged

@@ -256,4 +256,73 @@ struct VMWorkspaceTransferTests {
         #expect(throws: (any Error).self) { try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path) }
         try fixture.expectOriginalAndEmptyDestination()
     }
+    @Test("Deletion recycles exactly the confirmed workspace with launcher locks held")
+    func recycleSelectedWorkspace() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let identity = try VMWorkspaceTransfer.deletionIdentity(fixture.source.path)
+        let recovery = fixture.root.appendingPathComponent("recovery")
+        try VMWorkspaceTransfer.trash(fixture.source.path, expectedIdentity: identity) { url in
+            #expect(url.path == fixture.source.path)
+            let contender = Process()
+            contender.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
+            contender.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/usr/bin/true"]
+            contender.standardError = FileHandle.nullDevice
+            try contender.run()
+            contender.waitUntilExit()
+            #expect(contender.terminationStatus != 0)
+            try FileManager.default.moveItem(at: url, to: recovery)
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.source.path))
+        try VMWorkspaceTransfer.requireExistingVM(recovery.path)
+        #expect(try String(contentsOf: recovery.appendingPathComponent("launcher-settings.json"), encoding: .utf8) == "saved startup settings")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).isEmpty)
+    }
+
+    @Test("Deletion refuses a changed confirmed disk or an unsafe workspace", arguments: [false, true])
+    func refuseUnsafeDeletion(unsafe: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let identity = try VMWorkspaceTransfer.deletionIdentity(fixture.source.path)
+        if unsafe {
+            try FileManager.default.createSymbolicLink(at: fixture.source.appendingPathComponent("unsafe"), withDestinationURL: fixture.disk)
+        } else {
+            let handle = try FileHandle(forWritingTo: fixture.disk)
+            try handle.write(contentsOf: Data("changed after confirmation".utf8))
+            try handle.close()
+        }
+        var recycled = false
+        #expect(throws: (any Error).self) {
+            try VMWorkspaceTransfer.trash(fixture.source.path, expectedIdentity: identity) { _ in recycled = true }
+        }
+        #expect(!recycled)
+        try fixture.expectOriginalAndEmptyDestination()
+    }
+
+    @Test("Running VM locks and Trash failures retain the selected VM", arguments: [false, true])
+    func refuseRunningOrFailedTrash(running: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let identity = try VMWorkspaceTransfer.deletionIdentity(fixture.source.path)
+        let holder = Process()
+        if running {
+            holder.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
+            holder.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/bin/sh", "-c", "printf ready; exec /bin/sleep 30"]
+            let ready = Pipe()
+            holder.standardOutput = ready
+            try holder.run()
+            #expect(ready.fileHandleForReading.readData(ofLength: 5) == Data("ready".utf8))
+        }
+        defer { if holder.isRunning { holder.terminate(); holder.waitUntilExit() } }
+        var attempted = false
+        #expect(throws: (any Error).self) {
+            try VMWorkspaceTransfer.trash(fixture.source.path, expectedIdentity: identity) { _ in
+                attempted = true
+                throw HelperError.io("Trash is unavailable")
+            }
+        }
+        #expect(attempted == !running)
+        try fixture.expectOriginalAndEmptyDestination()
+    }
+
 }
