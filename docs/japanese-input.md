@@ -69,8 +69,14 @@ already have every package make no package changes.
 
 After installation, it migrates recognized stock Fcitx profiles, including
 profiles saved after first login. Mozc becomes the first conversion engine on
-JIS Macs or for a Japanese guest language; other guests gain Mozc after Chewing.
-Korean group selection and the direct-input keyboard are preserved. Native
+JIS Macs, for a Japanese guest language, or when the Mac's primary language is
+Japanese. Older guests keep an English locale, so the app reports the Mac's
+language separately as `tryomarchy.mac_language=`; it never changes `LANG`.
+Other guests gain Mozc after Chewing. When Mozc becomes first, the Fcitx keyboard
+item follows the guest's layout (`XKBLAYOUT` in `/etc/vconsole.conf`, which
+Omarchy's Hyprland config also reads), as on new guests. Mozc chooses its kana
+table from that layout, so a `jp` layout keeps ろ and ¥ correct in kana input.
+Korean group selection is preserved. Native
 英数/かな shortcuts are seeded only when global Fcitx config is missing.
 Personal profiles, shortcuts, and unsafe paths are preserved and reported.
 

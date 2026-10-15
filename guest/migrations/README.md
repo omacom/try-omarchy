@@ -77,7 +77,10 @@ so interrupted revision 1 journals can be restored before automatic installation
 factory seeds from `c6c2cc0` and `3e9f720`. The user planner recognizes their INI
 values and the current seed, including Fcitx's saved DefaultIM and Korean-first
 GroupOrder, while rejecting additional settings and custom engine lists.
-It adds Mozc without changing the direct-input keyboard or selected group.
+It adds Mozc without changing the selected group. When Mozc becomes first (JIS,
+Japanese `LANG`, or `tryomarchy.mac_language=ja` from the launcher), the Default
+group's keyboard follows `XKBLAYOUT` from `/etc/vconsole.conf`, like the factory
+initializer; otherwise the direct-input keyboard is unchanged.
 JIS hotkeys are seeded only when global config is missing; existing shortcuts
 are preserved. Home changes run as the owner in the user transaction journal.
 The migration does not change locale or enable a disabled input-method service.

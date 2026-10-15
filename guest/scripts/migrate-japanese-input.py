@@ -19,13 +19,25 @@ def parse(data):
     return {section: dict(parser[section]) for section in parser.sections()}
 
 
-def profile_update(data, payload, japanese):
+def keyboard_layout(vconsole):
+    """The XKB layout Omarchy's Hyprland config reads from /etc/vconsole.conf."""
+    layout = 'us'
+    for line in vconsole.splitlines():
+        key, separator, value = line.partition('=')
+        if separator and key.strip() == 'XKBLAYOUT':
+            candidate = value.split('#', 1)[0].strip().strip('"\'')
+            if candidate and all(c.isascii() and (c.isalnum() or c in '_-') for c in candidate):
+                layout = candidate
+    return layout
+
+
+def profile_update(data, payload, japanese, layout='us'):
     """Recognize historical seeds and their Fcitx-saved forms, not arbitrary INI."""
     existing = parse(data)
-    # Current factories seed the owner's Japanese layout before first login.
+    # Current factories seed the owner's layout with Mozc first before first login.
     initialized = parse((payload / 'fcitx5-profile.ini').read_bytes())
-    initialized['Groups/0'].update({'Default Layout': 'jp', 'DefaultIM': 'mozc'})
-    initialized['Groups/0/Items/0']['Name'] = 'keyboard-jp'
+    initialized['Groups/0'].update({'Default Layout': layout, 'DefaultIM': 'mozc'})
+    initialized['Groups/0/Items/0']['Name'] = f'keyboard-{layout}'
     initialized['Groups/0/Items/1']['Name'] = 'mozc'
     initialized['Groups/0/Items/2']['Name'] = 'chewing'
     if existing == initialized:
@@ -48,7 +60,10 @@ def profile_update(data, payload, japanese):
                 updated['Groups/0/Items/1'] = {'Name': methods[0], 'Layout': ''}
                 updated['Groups/0/Items/2'] = {'Name': methods[1], 'Layout': ''}
                 if prefer:
-                    updated['Groups/0']['DefaultIM'] = 'mozc'
+                    # Mozc chooses its kana table from the Fcitx layout, so it
+                    # must match the compositor's layout, as on new factories.
+                    updated['Groups/0'].update({'Default Layout': layout, 'DefaultIM': 'mozc'})
+                    updated['Groups/0/Items/0'] = {'Name': f'keyboard-{layout}', 'Layout': ''}
                 if updated == existing:
                     return data
                 if existing != candidate:
@@ -62,10 +77,13 @@ def profile_update(data, payload, japanese):
     raise ValueError('Personal Fcitx profile')
 
 
-def plan(fixes, payload, home, uid, cmdline, language):
+def plan(fixes, payload, home, uid, cmdline, language, layout='us'):
     changes = []
     preserved = False
-    jis = 'tryomarchy.keyboard=jis' in cmdline.split()
+    tokens = cmdline.split()
+    jis = 'tryomarchy.keyboard=jis' in tokens
+    # Older guests keep an English LANG; the launcher reports the Mac's language.
+    japanese = jis or language.startswith('ja') or 'tryomarchy.mac_language=ja' in tokens
 
     def add(relative, before, data):
         after = fixes.replacement(data, uid, before['gid'] if before else os.getgid())
@@ -77,7 +95,7 @@ def plan(fixes, payload, home, uid, cmdline, language):
         before = fixes.snapshot(home / PROFILE, home, uid)
         if before:
             add(PROFILE, before, profile_update(base64.b64decode(before['data']), payload,
-                                              jis or language.startswith('ja')))
+                                              japanese, layout))
         else:
             preserved = True
     except (OSError, RuntimeError, ValueError, configparser.Error):

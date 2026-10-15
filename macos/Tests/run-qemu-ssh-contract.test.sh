@@ -942,6 +942,14 @@ run_scenario locale-invalid 1 '' OMARCHY_QEMU_GPU_LOCALE=fr_FR.UTF-8
 assert_contains "$(<"$test_root/locale-invalid/stderr")" 'unsupported guest locale'
 run_scenario locale-default 0 '' OMARCHY_QEMU_GPU_LOCALE=
 assert_not_contains "$(<"$test_root/locale-default/qemu.log")" 'tryomarchy.locale='
+# The Mac language is a repair hint for every guest and never sets the locale.
+run_scenario mac-language 0 '' OMARCHY_QEMU_GPU_MAC_LANGUAGE=ja OMARCHY_QEMU_GPU_LOCALE=
+assert_contains "$(<"$test_root/mac-language/qemu.log")" 'tryomarchy.mac_language=ja'
+assert_not_contains "$(<"$test_root/mac-language/qemu.log")" 'tryomarchy.locale='
+run_scenario mac-language-absent 0 '' OMARCHY_QEMU_GPU_MAC_LANGUAGE=
+assert_not_contains "$(<"$test_root/mac-language-absent/qemu.log")" 'tryomarchy.mac_language='
+run_scenario mac-language-invalid 1 '' 'OMARCHY_QEMU_GPU_MAC_LANGUAGE=ja quiet'
+assert_contains "$(<"$test_root/mac-language-invalid/stderr")" 'invalid Mac language'
 printf '%s\n' "$saved_command_line" >"$persistent_root/boot/command-line"
 
 # Simulate installing a newer app build after the first VM was created. The

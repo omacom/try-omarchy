@@ -62,6 +62,22 @@ struct LanguageLaunchConfigurationTests {
         }
     }
 
+    @Test("the primary Mac language is passed for repairs, even when the locale is not")
+    func macLanguage() {
+        for (languages, version, expected) in [
+            (["ja-JP"], 2, "ja"), (["ja"], 4, "ja"), (["en-US", "ja-JP"], 3, "en"), (["zh-Hant"], 0, "zh"),
+        ] {
+            let commandLine = "root=/dev/vda rw tryomarchy.locale_support=\(version)\n"
+            let configuration = LanguageLaunchConfiguration.make(
+                baseEnvironment: [LanguageLaunchConfiguration.macLanguageKey: "untrusted"],
+                preferredLanguages: languages,
+                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
+                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
+            )
+            #expect(configuration.environment[LanguageLaunchConfiguration.macLanguageKey] == expected)
+        }
+    }
+
     @Test("older saved guests cannot receive an inherited or host locale", arguments: [
         "", "tryomarchy.locale_support=1", "tryomarchy.locale_support=20", "tryomarchy.locale_support=30", "tryomarchy.locale_support=40",
     ])

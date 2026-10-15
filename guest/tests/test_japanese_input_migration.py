@@ -36,8 +36,8 @@ class JapaneseMigrationTests(unittest.TestCase):
             path.chmod(0o600)
         return payload, home
 
-    def run_user(self, payload, home, approved=True, cmdline='tryomarchy.keyboard=jis', language='en_US.UTF-8'):
-        return users.migrate(payload, home, approved, japanese=True, cmdline=cmdline, language=language)
+    def run_user(self, payload, home, approved=True, cmdline='tryomarchy.keyboard=jis', language='en_US.UTF-8', layout='us'):
+        return users.migrate(payload, home, approved, japanese=True, cmdline=cmdline, language=language, layout=layout)
 
     def test_skip_then_apply_and_repeat_preserve_layout_and_metadata(self):
         for seed in ('profile-chewing.ini', 'profile-korean.ini', 'fcitx5-profile.ini'):
@@ -88,9 +88,61 @@ class JapaneseMigrationTests(unittest.TestCase):
             initializer.initialize(profile, payload / 'fcitx5-profile.ini',
                                    'tryomarchy.keyboard=jis', 'ja_JP.UTF-8', 'jp')
             original = profile.read_bytes()
-            self.assertEqual('current', self.run_user(payload, home)['japanese-input'])
+            self.assertEqual('current', self.run_user(payload, home, layout='jp')['japanese-input'])
             self.assertEqual(original, profile.read_bytes())
-            self.assertEqual('current', self.run_user(payload, home)['japanese-input'])
+            self.assertEqual('current', self.run_user(payload, home, layout='jp')['japanese-input'])
+
+    def test_japanese_layout_is_matched_so_mozc_uses_its_jis_kana_table(self):
+        for seed in ('profile-chewing.ini', 'profile-korean.ini'):
+            with self.subTest(seed=seed), tempfile.TemporaryDirectory() as directory:
+                payload, home = self.prepare(directory, seed)
+                profile = home / japanese.PROFILE
+                self.assertEqual('applied', self.run_user(payload, home, layout='jp')['japanese-input'])
+                updated = japanese.parse(profile.read_bytes())
+                self.assertEqual('jp', updated['Groups/0']['Default Layout'])
+                self.assertEqual(['keyboard-jp', 'mozc', 'chewing'],
+                                 [updated[f'Groups/0/Items/{i}']['Name'] for i in range(3)])
+                if 'Groups/1' in updated:
+                    # The separate Korean group keeps its own keyboard.
+                    self.assertEqual('keyboard-us', updated['Groups/1/Items/0']['Name'])
+                migrated = profile.read_bytes()
+                self.assertEqual('current', self.run_user(payload, home, layout='jp')['japanese-input'])
+                self.assertEqual(migrated, profile.read_bytes())
+
+    def test_layout_is_kept_when_japanese_is_not_preferred(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload, home = self.prepare(directory, 'profile-chewing.ini')
+            self.run_user(payload, home, cmdline='tryomarchy.keyboard=ansi', layout='jp')
+            updated = japanese.parse((home / japanese.PROFILE).read_bytes())
+            self.assertEqual('us', updated['Groups/0']['Default Layout'])
+            self.assertEqual(['keyboard-us', 'chewing', 'mozc'],
+                             [updated[f'Groups/0/Items/{i}']['Name'] for i in range(3)])
+
+    def test_japanese_mac_language_prefers_mozc_on_older_english_guests(self):
+        for geometry in ('ansi', 'iso'):
+            with self.subTest(geometry=geometry), tempfile.TemporaryDirectory() as directory:
+                payload, home = self.prepare(directory, 'profile-chewing.ini')
+                cmdline = f'tryomarchy.keyboard={geometry} tryomarchy.mac_language=ja'
+                self.assertEqual('applied', self.run_user(payload, home, cmdline=cmdline)['japanese-input'])
+                updated = japanese.parse((home / japanese.PROFILE).read_bytes())
+                self.assertEqual('mozc', updated['Groups/0']['DefaultIM'])
+                self.assertEqual(['keyboard-us', 'mozc', 'chewing'],
+                                 [updated[f'Groups/0/Items/{i}']['Name'] for i in range(3)])
+                # JIS mode keys are seeded only for JIS hardware.
+                self.assertFalse((home / japanese.CONFIG).exists())
+
+    def test_vconsole_layout_matches_the_factory_initializer(self):
+        for text, expected in (
+            ('KEYMAP=jp106\nXKBLAYOUT=jp\n', 'jp'),
+            ('XKBLAYOUT="de" # German\n', 'de'),
+            ("XKBLAYOUT='jp'\n", 'jp'),
+            ('KEYMAP=us\n', 'us'),
+            ('XKBLAYOUT=us,jp\n', 'us'),
+            ('XKBLAYOUT=\n', 'us'),
+            ('', 'us'),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(expected, japanese.keyboard_layout(text))
 
     def test_japanese_work_has_its_own_component_result(self):
         with tempfile.TemporaryDirectory() as directory:

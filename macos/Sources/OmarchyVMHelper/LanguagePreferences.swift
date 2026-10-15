@@ -27,6 +27,9 @@ enum GuestLocaleCatalog {
 
 struct LanguageLaunchConfiguration: Equatable {
     static let environmentKey = "OMARCHY_QEMU_GPU_LOCALE"
+    /// The primary Mac language for boot repairs, even when the saved guest
+    /// cannot take its locale. It never changes the guest's LANG.
+    static let macLanguageKey = "OMARCHY_QEMU_GPU_MAC_LANGUAGE"
 
     let environment: [String: String]
 
@@ -39,6 +42,11 @@ struct LanguageLaunchConfiguration: Equatable {
     ) -> Self {
         var environment = baseEnvironment
         environment.removeValue(forKey: environmentKey)
+        environment.removeValue(forKey: macLanguageKey)
+        if let code = Locale.Language(identifier: preferredLanguages.first ?? "en").languageCode?.identifier,
+           (2...3).contains(code.count), code.allSatisfy({ ("a"..."z").contains($0) }) {
+            environment[macLanguageKey] = code
+        }
         if supportsSelection {
             environment[environmentKey] = GuestLocaleCatalog.initialLocale(
                 preferredLanguages: preferredLanguages, supportsKorean: supportsKorean, supportsJapanese: supportsJapanese

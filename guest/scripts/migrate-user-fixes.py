@@ -28,7 +28,7 @@ def transaction(payload):
     return fixes
 
 
-def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', language=''):
+def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', language='', layout='us'):
     uid = os.getuid() if uid is None else uid
     fixes = transaction(payload)
     input_path = '.config/hypr/input.lua'
@@ -87,7 +87,7 @@ def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', langu
         preserved = True
     desktop_changed = bool(changes)
     if japanese:
-        japanese_changes, japanese_outcome = input_fixes.plan(fixes, payload, home, uid, cmdline, language)
+        japanese_changes, japanese_outcome = input_fixes.plan(fixes, payload, home, uid, cmdline, language, layout)
         changes.extend(japanese_changes)
     if changes and not approved:
         return {'state': 'skipped', 'outcome': 'pending' if desktop_changed else 'preserved' if preserved else 'current', 'japanese-input': japanese_outcome}
@@ -105,6 +105,11 @@ if __name__ == '__main__':
     locale = Path('/etc/locale.conf')
     language = next((line.partition('=')[2].strip().strip('\"\'') for line in
                      (locale.read_text() if locale.is_file() else '').splitlines() if line.startswith('LANG=')), '')
-    result = migrate(Path(__file__).resolve().parent, Path.home(), args[0] == '--apply',
-                     japanese='--japanese' in args, cmdline=Path('/proc/cmdline').read_text(), language=language)
+    vconsole = Path('/etc/vconsole.conf')
+    payload = Path(__file__).resolve().parent
+    layout = load('japanese_layout', payload / 'japanese-input.py').keyboard_layout(
+        vconsole.read_text() if vconsole.is_file() else '')
+    result = migrate(payload, Path.home(), args[0] == '--apply',
+                     japanese='--japanese' in args, cmdline=Path('/proc/cmdline').read_text(), language=language,
+                     layout=layout)
     print(json.dumps(result))

@@ -861,6 +861,8 @@ if any(argument.startswith("tryomarchy.ssh_access=") for argument in arguments):
     fail("kernel command line contains a launcher-owned SSH activation argument")
 if any(argument.startswith("tryomarchy.keyboard=") for argument in arguments):
     fail("kernel command line contains a launcher-owned keyboard geometry argument")
+if any(argument.startswith("tryomarchy.mac_language=") for argument in arguments):
+    fail("kernel command line contains a launcher-owned Mac language argument")
 
 records = manifest.get("artifacts")
 if not isinstance(records, list) or len(records) != len(expected_artifacts):
@@ -973,6 +975,9 @@ case " $kernel_command_line " in
   *' tryomarchy.keyboard='*)
     fail "validated kernel command line contains a launcher-owned keyboard geometry argument"
     ;;
+  *' tryomarchy.mac_language='*)
+    fail "validated kernel command line contains a launcher-owned Mac language argument"
+    ;;
 esac
 if [[ ${OMARCHY_QEMU_GPU_INSPECT_ONLY:-0} == 1 ]]; then
   printf '%s\n' "$bundle_validation"
@@ -1030,6 +1035,14 @@ else
   esac
   keyboard_kernel_argument=" tryomarchy.keyboard=$host_keyboard_geometry"
   export TRYOMARCHY_KEYBOARD=$host_keyboard_geometry
+fi
+
+# The primary Mac language lets boot repairs on older guests, whose locale
+# stays English, choose the matching input method. It never sets LANG.
+mac_language_kernel_argument=""
+if ((!reset_only)) && [[ -n ${OMARCHY_QEMU_GPU_MAC_LANGUAGE:-} ]]; then
+  [[ $OMARCHY_QEMU_GPU_MAC_LANGUAGE =~ ^[a-z]{2,3}$ ]] || fail "invalid Mac language: $OMARCHY_QEMU_GPU_MAC_LANGUAGE"
+  mac_language_kernel_argument=" tryomarchy.mac_language=$OMARCHY_QEMU_GPU_MAC_LANGUAGE"
 fi
 
 host_cpu_count=$(
@@ -1735,7 +1748,7 @@ if [[ $QEMU_NETWORK_MODE == bridged ]]; then
   fi
 fi
 
-launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$locale_kernel_argument$timezone_kernel_argument"
+launch_append="$launch_kernel_command_line omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1$shared_folder_kernel_argument$ssh_kernel_argument$settings_kernel_argument$mac_share_kernel_argument$keyboard_kernel_argument$mac_language_kernel_argument$locale_kernel_argument$timezone_kernel_argument"
 # ARM64 truncates boot arguments at 2048 bytes. Losing the mask or credential
 # could restore the older guest's writeback mount, so refuse that launch.
 launch_append_bytes=$(printf '%s' "$launch_append" | wc -c | tr -d ' ')
