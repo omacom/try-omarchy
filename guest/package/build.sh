@@ -27,27 +27,38 @@ while (($#)); do
 done
 
 command -v docker >/dev/null || fail "docker is required"
+command -v git >/dev/null || fail "git is required"
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
 builder_image=try-omarchy-upstream-builder
 docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/upstream/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
 
-# makepkg refuses root: build as an unprivileged user from a copy of the
-# recipe, with the battery module and license beside it as the PKGBUILD expects.
-docker run --rm --platform linux/arm64 --entrypoint /bin/bash \
-  -v "$repo_dir:/workspace:ro" -v "$output:/output" "$builder_image" -c '
+# The recipe goes in as an archive of the files git knows about (tracked, or
+# new and not ignored), so caches and other local files never reach the
+# package. The repository license sits beside the PKGBUILD.
+recipe=$(mktemp -d "${TMPDIR:-/tmp}/try-omarchy-package.XXXXXX")
+trap 'rm -rf "$recipe"' EXIT
+(
+  cd "$package_dir/try-omarchy"
+  git ls-files -z --cached --others --exclude-standard -- . |
+    while IFS= read -r -d '' file; do if [[ -e $file ]]; then printf '%s\0' "$file"; fi; done |
+    COPYFILE_DISABLE=1 tar -c --no-mac-metadata --no-xattrs --null -T - -f "$recipe/recipe.tar"
+)
+COPYFILE_DISABLE=1 tar -r --no-mac-metadata --no-xattrs -f "$recipe/recipe.tar" -C "$repo_dir" LICENSE
+
+# makepkg refuses root: build as an unprivileged user from a copy of the recipe.
+docker run --rm -i --platform linux/arm64 --entrypoint /bin/bash \
+  -v "$output:/output" "$builder_image" -c '
     set -euo pipefail
     useradd -m builder
-    install -d -o builder /build/guest/package /build/guest/native-module
-    cp -r --preserve=mode,timestamps /workspace/guest/package/try-omarchy /build/guest/package/
-    cp -r --preserve=mode,timestamps /workspace/guest/native-module/try-omarchy-battery /build/guest/native-module/
-    cp /workspace/LICENSE /build/LICENSE
+    install -d -o builder /build/try-omarchy
+    tar -x -C /build/try-omarchy --no-same-owner
     chown -R builder /build
-    cd /build/guest/package/try-omarchy
+    cd /build/try-omarchy
     # libfakeroot reports "payload not recognized" for the xattr calls some
     # container filesystems make; the package contents are unaffected.
     runuser -u builder -- env PKGEXT=.pkg.tar.zst makepkg --nodeps --force --noconfirm 2>&1 | grep -v "libfakeroot internal error" >&2
     rm -f /output/try-omarchy-*.pkg.tar.zst
     install -m 0644 try-omarchy-*.pkg.tar.zst /output/
     ls try-omarchy-*.pkg.tar.zst
-  '
+  ' <"$recipe/recipe.tar"
