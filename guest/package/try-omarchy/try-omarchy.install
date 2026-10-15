@@ -7,7 +7,6 @@ _user_units='omarchy-native-audio-bridge.service omarchy-native-camera-bridge.se
 omarchy-native-clipboard-bridge.service omarchy-native-mac-share-link.service try-omarchy-session.service'
 
 post_install() {
-  post_install_locale
   systemctl preset $_units >/dev/null 2>&1 || true
   systemctl --global preset $_user_units >/dev/null 2>&1 || true
 }
@@ -16,13 +15,4 @@ post_upgrade() {
   # A unit added in a later release is enabled here, by name, the first time
   # an upgrade brings it (systemctl preset <unit>). None yet.
   :
-}
-
-# A first install before owner provisioning (the factory image) seeds the
-# guest language from the Mac once, on the first boot.
-post_install_locale() {
-  if [[ -e /var/lib/omarchy/provisioning/pending ]]; then
-    install -d -m 0755 /var/lib/try-omarchy
-    : >/var/lib/try-omarchy/locale-pending
-  fi
 }

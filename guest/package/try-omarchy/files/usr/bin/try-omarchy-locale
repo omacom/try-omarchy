@@ -1,16 +1,15 @@
 #!/bin/sh
 
-# Seed LANG from the Mac on a fresh factory's first boot, before login or
-# owner provisioning. Once consumed, the factory marker is never recreated;
-# subsequent boots preserve language choices made inside Omarchy.
+# Seed LANG from the Mac while Omarchy's owner provisioning is pending: on a
+# fresh factory's first boot, or after Omarchy's own factory reset. Once an
+# owner exists, language choices made inside Omarchy are left alone.
 
 set -eu
 
 cmdline_path=${TRY_OMARCHY_LOCALE_CMDLINE_PATH:-/run/try-omarchy/cmdline}
 locale_conf=${TRY_OMARCHY_LOCALE_CONF_PATH:-/etc/locale.conf}
-pending=${TRY_OMARCHY_LOCALE_PENDING_PATH:-/var/lib/try-omarchy/locale-pending}
+pending=${TRY_OMARCHY_LOCALE_PENDING_PATH:-/var/lib/omarchy/provisioning/pending}
 [ -f "$pending" ] || exit 0
-[ ! -L "$pending" ] || exit 1
 
 # Refuse to write through a symlink (dangling or not). This runs as root on
 # every boot, and locale_conf's target would otherwise be unchecked.
@@ -140,6 +139,3 @@ finally:
         os.unlink(temporary)
 PY
 fi
-
-# Keep the marker on failure so the next boot can retry.
-rm -- "$pending"

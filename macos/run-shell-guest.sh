@@ -140,6 +140,7 @@ prepare_factory_disk() {
   [[ $actual == "$compressed_sha" ]] || fail "the bundled factory disk is damaged"
   "$zstd_bin" -q -d --sparse -f "$compressed" -o "$factory_disk.partial" || fail "could not decompress the factory disk"
   [[ $(stat -f %z "$factory_disk.partial") == "$disk_bytes" ]] || fail "the factory disk has the wrong size"
+  chmod 600 "$factory_disk.partial"
   mv -f "$factory_disk.partial" "$factory_disk"
 }
 
@@ -316,10 +317,13 @@ credential() { # name value
 qemu_machine='virt,gic-version=3'
 qemu_accel=(-accel hvf)
 host_macos_major=$(sw_vers -productVersion | cut -d. -f1)
-if ((host_macos_major >= 26)) &&
+# On Macs without EL2 support the probe aborts; a subshell keeps the shell's
+# job report about that out of the launch log.
+if ((host_macos_major >= 26)) && (
   printf '%s\n' '{"execute":"qmp_capabilities"}' '{"execute":"quit"}' |
-  "$qemu_bin" -machine 'virt,gic-version=3,virtualization=on' -accel 'hvf,kernel-irqchip=on' \
-    -cpu 'host,pmu=off' -smp 1 -m 128M -nodefaults -display none -S -qmp stdio >/dev/null 2>&1; then
+    "$qemu_bin" -machine 'virt,gic-version=3,virtualization=on' -accel 'hvf,kernel-irqchip=on' \
+      -cpu 'host,pmu=off' -smp 1 -m 128M -nodefaults -display none -S -qmp stdio
+) >/dev/null 2>&1; then
   qemu_machine='virt,gic-version=3,virtualization=on'
   qemu_accel=(-accel 'hvf,kernel-irqchip=on')
   echo '[qemu-gpu] Nested virtualization is enabled.' >&2

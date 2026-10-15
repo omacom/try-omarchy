@@ -174,6 +174,24 @@ class MenuEntries(unittest.TestCase):
         self.assertIn("setup.try-omarchy", self.parse(created.read_text()))
 
 
+class Locale(unittest.TestCase):
+    def seed(self, pending):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "cmdline").write_text("tryomarchy.keyboard=jis tryomarchy.locale=ja_JP.UTF-8\n")
+        (tmp / "locale.conf").write_text("LANG=en_US.UTF-8\nLC_TIME=en_GB.UTF-8\n")
+        if pending:
+            (tmp / "pending").touch()
+        subprocess.run(["/bin/sh", str(FILES / "usr/bin/try-omarchy-locale")], check=True, env={**os.environ,
+            "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(tmp / "cmdline"), "TRY_OMARCHY_LOCALE_CONF_PATH": str(tmp / "locale.conf"),
+            "TRY_OMARCHY_LOCALE_PENDING_PATH": str(tmp / "pending"), "TRY_OMARCHY_LOCALE_SKIP_GENERATE": "1",
+            "TRY_OMARCHY_LOCALE_FCITX5_PROFILE_PATH": str(tmp / "profile")})
+        return (tmp / "locale.conf").read_text(), (tmp / "pending").exists()
+
+    def test_seeds_only_while_owner_provisioning_is_pending(self):
+        self.assertEqual(self.seed(True), ("LC_TIME=en_GB.UTF-8\nLANG=ja_JP.UTF-8\n", True))
+        self.assertEqual(self.seed(False), ("LANG=en_US.UTF-8\nLC_TIME=en_GB.UTF-8\n", False))
+
+
 class GuestStatus(unittest.TestCase):
     def load(self):
         loader = importlib.machinery.SourceFileLoader("guest_status", str(LIB / "guest-status"))

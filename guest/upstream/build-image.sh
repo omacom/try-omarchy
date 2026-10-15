@@ -413,8 +413,11 @@ btrfs -q subvolume snapshot -r "$top/@" "$top/@factory"
 # Discard freed blocks (the package downloads and build churn) so the loop
 # file is sparse where the filesystems are empty: the compressed image is
 # smaller and a VM disk cloned from it allocates only what is in use.
-fstrim "$target/boot" || true
-fstrim "$top" || true
+# A balance first packs the data into as few block groups as possible, so
+# the free space becomes long zero runs instead of scattered small extents.
+btrfs balance start --full-balance "$top" >/dev/null
+fstrim -v "$target/boot" || true
+fstrim -v "$top" || true
 sync
 for ((index = ${#mounted[@]} - 1; index >= 0; index--)); do
   umount -R "${mounted[index]}"
