@@ -88,7 +88,17 @@ state_root=${OMARCHY_QEMU_GPU_STATE_ROOT:-"$HOME/Library/Application Support/Try
 [[ $state_root == /* && $state_root != *$'\n'* ]] || fail "invalid VM storage location"
 umask 077
 mkdir -p "$state_root"
+chmod 700 "$state_root"
 state_root=$(cd "$state_root" && pwd -P)
+# The same storage-root marker the direct-boot launcher writes
+# (qemu-persistent-storage.sh), which the app checks before it stores its
+# per-workspace settings in this folder.
+root_marker="$state_root/.omarchy-qemu-storage"
+if [[ ! -e $root_marker && ! -L $root_marker ]]; then
+  (set -o noclobber; printf '%s\n' omarchy-qemu-storage-root-v1 >"$root_marker") 2>/dev/null || true
+fi
+[[ -f $root_marker && ! -L $root_marker && $(<"$root_marker") == omarchy-qemu-storage-root-v1 ]] ||
+  fail "the VM storage folder has an invalid marker: $root_marker"
 vm_dir="$state_root/shell"
 factory_cache="$state_root/shell-factory"
 mkdir -p "$vm_dir" "$factory_cache"
