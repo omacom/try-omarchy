@@ -39,7 +39,8 @@ struct SettingsLifecycleTests {
         let workspace = DisposableVMWorkspace()
         defer { workspace.remove() }
         let first = try workspace.prepare()
-        let disk = first.appendingPathComponent("rootfs.ext4")
+        let disk = first.appendingPathComponent("shell/disk.img")
+        try FileManager.default.createDirectory(at: disk.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("saved work".utf8).write(to: disk)
         #expect(try workspace.prepare() == first)
         #expect(try Data(contentsOf: disk) == Data("saved work".utf8))
