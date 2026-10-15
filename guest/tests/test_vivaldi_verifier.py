@@ -63,5 +63,49 @@ echo "verification may proceed"
         self.assertNotIn("verification may proceed", result.stdout)
 
 
+class VivaldiDiscoveryTests(unittest.TestCase):
+    def run_discovery(self, listing, curl_status=0):
+        functions = INSTALLER.read_text().split('follow_stable=0', 1)[0]
+        script = functions + r'''
+curl() {
+  cat "$LISTING"
+  return "$CURL_STATUS"
+}
+discover_latest_stable
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            listing_path = Path(directory) / "listing.html"
+            listing_path.write_text(listing)
+            return subprocess.run(
+                ["bash", "-c", script],
+                text=True,
+                capture_output=True,
+                env=dict(
+                    os.environ,
+                    LISTING=str(listing_path),
+                    CURL_STATUS=str(curl_status),
+                ),
+            )
+
+    def test_discovers_newest_stable_and_ignores_snapshot(self):
+        listing = """
+href="vivaldi-snapshot-8.3.4161.3-1.aarch64.rpm"
+href="vivaldi-stable-8.2.4133.64-1.aarch64.rpm"
+href="vivaldi-stable-8.2.4133.76-1.aarch64.rpm"
+href="vivaldi-stable-8.2.4133.68-1.aarch64.rpm"
+"""
+        result = self.run_discovery(listing)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "8.2.4133.76 1")
+
+    def test_empty_index_fails(self):
+        result = self.run_discovery("href=\"../\"\nhref=\"repodata/\"\n")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_curl_failure_fails(self):
+        result = self.run_discovery("vivaldi-stable-8.2.4133.76-1.aarch64.rpm", curl_status=22)
+        self.assertNotEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
