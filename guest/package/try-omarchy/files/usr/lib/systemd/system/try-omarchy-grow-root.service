@@ -1,0 +1,11 @@
+[Unit]
+Description=Grow the root filesystem into added VM disk space
+ConditionVirtualization=vm
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/try-omarchy/grow-root
+
+[Install]
+WantedBy=multi-user.target

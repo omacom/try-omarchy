@@ -110,6 +110,18 @@ generated_icon="$macos_dir/.build/TryOmarchy.icns"
   exit 1
 }
 guest_dir=$(cd "$guest_dir" && pwd -P)
+# An upstream-shell factory (guest/upstream) boots through UEFI and is
+# launched by run-shell-guest.sh; see docs/shell-plan.md.
+shell_guest=0
+[[ -f $guest_dir/factory.json ]] && shell_guest=1
+firmware_source="$macos_dir/.build/firmware"
+shell_packages=${OMARCHY_SHELL_PACKAGES:-"$guest_dir/packages"}
+if ((shell_guest)); then
+  [[ -f $firmware_source/edk2-aarch64-code.fd && -f $firmware_source/edk2-licenses.txt ]] || {
+    echo "build-app: missing UEFI firmware; run macos/stage-uefi-firmware.sh" >&2
+    exit 1
+  }
+fi
 [[ -x $dependency_bundler && ! -L $dependency_bundler ]] || {
   echo "build-app: dependency bundler is missing or unsafe" >&2
   exit 1
@@ -273,6 +285,31 @@ python3 "$repo_dir/guest/scripts/boot-fix-components.py" --payload "$repo_dir/gu
 python3 "$repo_dir/guest/scripts/migrate-boot-fixes.py" --manifest "$settings_payload"
 install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
 python3 "$repo_dir/integrations/build-bundle.py" "$contents/Resources/integrations"
+if ((shell_guest)); then
+  compressed_name=$(/usr/bin/plutil -extract compressed.path raw -o - "$guest_dir/factory.json")
+  for guest_resource in factory.json packages.txt SHA256SUMS "$compressed_name"; do
+    [[ -f $guest_dir/$guest_resource && ! -L $guest_dir/$guest_resource ]] || {
+      echo "build-app: factory guest resource is missing or unsafe: $guest_resource" >&2
+      exit 1
+    }
+    cp -c "$guest_dir/$guest_resource" "$contents/Resources/guest/$guest_resource"
+    chmod 0644 "$contents/Resources/guest/$guest_resource"
+  done
+  # The try-omarchy package this app offers through Update integrations.
+  mkdir -p "$contents/Resources/guest-packages"
+  shopt -s nullglob
+  packages=("$shell_packages"/try-omarchy-*.pkg.tar.zst)
+  shopt -u nullglob
+  ((${#packages[@]} == 1)) || {
+    echo "build-app: expected exactly one try-omarchy package in $shell_packages" >&2
+    exit 1
+  }
+  install -m 0644 "${packages[0]}" "$contents/Resources/guest-packages/"
+  mkdir -p "$contents/Resources/firmware"
+  install -m 0644 "$firmware_source/edk2-aarch64-code.fd" "$firmware_source/edk2-licenses.txt" \
+    "$contents/Resources/firmware/"
+  install -m 0755 "$macos_dir/run-shell-guest.sh" "$contents/Resources/scripts/run-qemu-gpu.sh"
+else
 for guest_resource in \
   LICENSE.omarchy \
   SHA256SUMS \
@@ -294,6 +331,7 @@ for guest_resource in \
   fi
   chmod 0644 "$contents/Resources/guest/$guest_resource"
 done
+fi
 
 mv "$contents/Resources/runtime/bin/qemu-system-aarch64" "$bundled_qemu"
 "$dependency_bundler" --verify-only "$contents/Resources/runtime"
@@ -331,8 +369,19 @@ codesign "${app_sign_options[@]}" \
 
 launch_record=$(OMARCHY_QEMU_GPU_INSPECT_ONLY=1 \
   "$contents/Resources/scripts/run-qemu-gpu.sh")
+if ((shell_guest)); then
+  # The same launch record shape, so the app's free-space and language
+  # checks work unchanged. The guest owns its kernel command line; the
+  # locale capability marks the languages try-omarchy can seed.
+  IFS=$'\t' read -r bundle_identity source_disk_bytes <<<"$launch_record"
+  source_disk_sha=$bundle_identity
+  compressed_disk_bytes=$(stat -f %z "$contents/Resources/guest/$compressed_name")
+  working_disk_bytes=$source_disk_bytes
+  kernel_command_line='tryomarchy.locale_support=4'
+else
 IFS=$'\t' read -r bundle_identity source_disk_sha source_disk_bytes \
   compressed_disk_bytes working_disk_bytes kernel_command_line <<<"$launch_record"
+fi
 launch_configuration="$contents/Resources/guest/launch.plist"
 /usr/bin/plutil -create xml1 "$launch_configuration"
 /usr/bin/plutil -insert bundleIdentity -string "$bundle_identity" "$launch_configuration"

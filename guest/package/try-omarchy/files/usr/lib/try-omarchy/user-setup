@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# Per-user Try Omarchy setup. Idempotent; runs as the user at every graphical
+# login (try-omarchy-session.service) and once for the owner right after
+# Omarchy's first-boot provisioning creates the account.
+#
+#   user-setup [--reload]
+#
+# It places one loader in Omarchy's Hyprland toggles directory, which Omarchy
+# loads after the user's own configuration. Nothing the user edits is changed.
+
+set -euo pipefail
+
+state_home=${XDG_STATE_HOME:-$HOME/.local/state}
+toggles=$state_home/omarchy/toggles/hypr
+loader=$toggles/zz-try-omarchy.lua
+expected='-- Try Omarchy: Mac VM display, cursor and input additions (package-owned).
+pcall(dofile, "/usr/share/try-omarchy/hyprland.lua")'
+
+changed=0
+if [[ ! -f $loader || $(<"$loader") != "$expected" ]]; then
+  mkdir -p "$toggles"
+  printf '%s\n' "$expected" >"$loader.tmp"
+  mv -f "$loader.tmp" "$loader"
+  changed=1
+fi
+
+if ((changed)) && [[ ${1:-} == --reload && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  hyprctl reload >/dev/null 2>&1 || true
+fi

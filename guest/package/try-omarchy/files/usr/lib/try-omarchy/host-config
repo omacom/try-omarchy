@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Publish the Try Omarchy launcher's settings for this boot. The Mac app passes
+# them as the systemd credential tryomarchy.host (SMBIOS type 11): one line of
+# space-separated tokens, the same vocabulary the kernel command line carried
+# before the guest owned its boot (tryomarchy.keyboard=jis,
+# omarchy.shared_folder_name=Work, ...). Readers use /run/try-omarchy/cmdline.
+#
+# Without the credential (another hypervisor, or a manual boot) nothing is
+# written, and every unit conditioned on the file stays inactive.
+
+set -euo pipefail
+
+credential=${CREDENTIALS_DIRECTORY:-}/tryomarchy.host
+output=${TRY_OMARCHY_HOST_CONFIG_OUTPUT:-/run/try-omarchy/cmdline}
+
+[[ -n ${CREDENTIALS_DIRECTORY:-} && -f $credential ]] || exit 0
+
+# One printable line, bounded, no control characters.
+size=$(wc -c <"$credential" | tr -d " ")
+((size <= 16384)) || { echo "try-omarchy-host-config: oversized host settings" >&2; exit 1; }
+value=$(tr -d '\n' <"$credential")
+if [[ $value == *[![:print:]]* ]]; then
+  echo "try-omarchy-host-config: host settings contain control characters" >&2
+  exit 1
+fi
+
+install -d -m 0755 "${output%/*}"
+printf '%s\n' "$value" >"$output.tmp"
+chmod 0644 "$output.tmp"
+mv -f "$output.tmp" "$output"

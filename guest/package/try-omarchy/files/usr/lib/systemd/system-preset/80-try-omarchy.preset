@@ -1,0 +1,10 @@
+enable try-omarchy-host-config.service
+enable try-omarchy-ssh-access.service
+enable try-omarchy-guest-status.service
+enable try-omarchy-package-install.service
+enable omarchy-native-battery-bridge.service
+enable omarchy-native-mac-share.service
+enable try-omarchy-locale.service
+enable try-omarchy-timezone.service
+enable try-omarchy-clock-recovery.timer
+enable try-omarchy-grow-root.service

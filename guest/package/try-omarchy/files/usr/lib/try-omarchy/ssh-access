@@ -1,0 +1,10 @@
+#!/bin/bash
+# Start sshd for this boot only when the launcher forwarded a loopback port to
+# guest port 22 (tryomarchy.ssh_access=1). Nothing is enabled persistently.
+set -euo pipefail
+read -r -a options <"${TRY_OMARCHY_HOST_CMDLINE:-/run/try-omarchy/cmdline}" || true
+for option in ${options[@]+"${options[@]}"}; do
+  if [[ $option == tryomarchy.ssh_access=1 ]]; then
+    exec ${TRY_OMARCHY_SYSTEMCTL:-systemctl} start --no-block sshd.service
+  fi
+done

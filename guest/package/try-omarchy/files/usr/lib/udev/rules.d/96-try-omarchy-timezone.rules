@@ -1,0 +1,1 @@
+SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.timezone", OWNER="root", GROUP="root", MODE="0600"

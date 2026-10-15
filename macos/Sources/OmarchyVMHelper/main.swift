@@ -113,6 +113,11 @@ do {
         }
         dispatchMain()
     }
+    if arguments.first == "--bridge-guest-status" {
+        guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        try ShellGuestStatusBridge.run(targetPID: pid, socketPath: arguments[2], statusPath: arguments[3])
+        exit(0)
+    }
     if arguments.first == "--bridge-integrations" {
         guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
         NSApplication.shared.setActivationPolicy(.accessory)

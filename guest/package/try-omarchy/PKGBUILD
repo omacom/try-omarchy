@@ -1,0 +1,42 @@
+# Maintainer: Try Omarchy <https://github.com/omacom/try-omarchy>
+#
+# Everything Try Omarchy adds to a stock aarch64 Omarchy install running in
+# the Mac app's VM: the host bridges (clipboard, audio, camera, battery, time
+# zone, Touch ID, settings), the Mac shared folder, the launcher's per-boot
+# settings, and the Hyprland display and input profile for the VM. It never
+# edits a file another package owns; see guest/package/README.md.
+
+pkgname=try-omarchy
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
+arch=('aarch64')
+url='https://github.com/omacom/try-omarchy'
+license=('MIT')
+depends=(
+  'bash'
+  'dkms'
+  'linux-omarchy-headers'
+  'openssl'
+  'python'
+  'systemd'
+  'v4l2loopback-dkms'
+)
+install=try-omarchy.install
+options=('!debug' '!strip')
+_battery=try-omarchy-battery
+_battery_version=1.3.0
+
+package() {
+  cp -r --preserve=mode "$startdir/files/." "$pkgdir/"
+  install -Dm0644 "$startdir/../../native-module/$_battery/dkms.conf" \
+    "$pkgdir/usr/src/$_battery-$_battery_version/dkms.conf"
+  install -Dm0644 "$startdir/../../native-module/$_battery/Makefile" \
+    "$pkgdir/usr/src/$_battery-$_battery_version/Makefile"
+  install -Dm0644 "$startdir/../../native-module/$_battery/$_battery.c" \
+    "$pkgdir/usr/src/$_battery-$_battery_version/$_battery.c"
+  install -d "$pkgdir/etc/fonts/conf.d"
+  ln -s /usr/share/fontconfig/conf.default/30-try-omarchy.conf "$pkgdir/etc/fonts/conf.d/30-try-omarchy.conf"
+  install -Dm0644 "$startdir/../../../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  printf '%s\n' "$pkgver-$pkgrel" >"$pkgdir/usr/share/try-omarchy/version"
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Read the Try Omarchy launcher settings for this boot
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ImportCredential=tryomarchy.host
+ExecStart=/usr/lib/try-omarchy/host-config
+
+[Install]
+WantedBy=sysinit.target

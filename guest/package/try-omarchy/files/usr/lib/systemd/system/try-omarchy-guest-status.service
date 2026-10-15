@@ -1,0 +1,16 @@
+[Unit]
+Description=Report Try Omarchy guest versions to the Mac app
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.guest
+After=try-omarchy-package-install.service
+
+[Service]
+ExecStart=/usr/lib/try-omarchy/guest-status
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

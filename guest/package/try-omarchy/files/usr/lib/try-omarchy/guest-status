@@ -1,0 +1,74 @@
+#!/usr/bin/python3 -I
+"""Report this guest's Try Omarchy state to the Mac app.
+
+Writes one JSON object per line to the dev.tryomarchy.guest virtio port every
+ten seconds and whenever the port reopens. The report is advisory: the app
+uses it to show versions and offer Update integrations. Nothing read from the
+port is acted on.
+
+Protocol 1 fields: protocol, package (try-omarchy version), omarchy (package
+version), channel, kernel {running, installed}, install (last package install
+requested by the app, if any).
+"""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+
+PORT = Path("/dev/virtio-ports/dev.tryomarchy.guest")
+INSTALL_STATE = Path("/var/lib/try-omarchy/package-install.json")
+PROTOCOL = 1
+
+
+def package_version(name):
+    try:
+        output = subprocess.run(["pacman", "-Q", name], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    parts = output.stdout.split()
+    return parts[1] if output.returncode == 0 and len(parts) == 2 else None
+
+
+def channel():
+    try:
+        text = Path("/etc/pacman.conf").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("Server") and "pkgs.omarchy.org/" in line:
+            return line.split("pkgs.omarchy.org/", 1)[1].split("/", 1)[0] or None
+    return None
+
+
+def report():
+    value = {
+        "protocol": PROTOCOL,
+        "package": package_version("try-omarchy"),
+        "omarchy": package_version("omarchy") or package_version("omarchy-dev"),
+        "channel": channel(),
+        "kernel": {"running": os.uname().release, "installed": package_version("linux-omarchy")},
+    }
+    try:
+        value["install"] = json.loads(INSTALL_STATE.read_text())
+    except (OSError, ValueError):
+        pass
+    return json.dumps(value, separators=(",", ":"), sort_keys=True) + "\n"
+
+
+def main():
+    while True:
+        try:
+            with PORT.open("w") as port:
+                while True:
+                    port.write(report())
+                    port.flush()
+                    time.sleep(10)
+        except OSError:
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

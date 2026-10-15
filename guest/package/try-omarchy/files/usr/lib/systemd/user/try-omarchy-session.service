@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply Try Omarchy's per-user Mac VM setup
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/try-omarchy/user-setup --reload
+
+[Install]
+WantedBy=graphical-session.target

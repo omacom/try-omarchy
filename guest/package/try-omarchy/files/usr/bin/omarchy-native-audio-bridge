@@ -1,0 +1,329 @@
+#!/usr/bin/python3
+"""Mirror macOS audio endpoints into the Omarchy PipeWire graph."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import select
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+PORT = Path("/dev/virtio-ports/dev.tryomarchy.audio")
+PREFIX = "omarchy_host_"
+REMAP_MODULES = {"module-remap-sink", "module-remap-source"}
+RETRY_DELAY_MAX = 30
+
+
+def log(message: str) -> None:
+    print(f"omarchy-native-audio-bridge: {message}", file=sys.stderr, flush=True)
+
+
+def run_pactl(*arguments: str, check: bool = True) -> str:
+    try:
+        result = subprocess.run(
+            ["pactl", *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        # A slow pipewire-pulse is transient; callers retry RuntimeError.
+        raise RuntimeError(f"pactl {' '.join(arguments[:2])}: timed out") from None
+    if check and result.returncode != 0:
+        detail = result.stderr.strip() or f"status {result.returncode}"
+        raise RuntimeError(f"pactl {' '.join(arguments[:2])}: {detail}")
+    return result.stdout.strip()
+
+
+def pulse_property(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def pulse_proplist(*properties: tuple[str, str | bool]) -> str:
+    values: list[str] = []
+    for name, value in properties:
+        if isinstance(value, bool):
+            encoded = "true" if value else "false"
+        else:
+            encoded = f'"{pulse_property(value)}"'
+        values.append(f"{name}={encoded}")
+    return " ".join(values)
+
+
+def pulse_module_proplist(name: str, properties: str) -> str:
+    # pactl joins load-module argv with spaces before PipeWire parses them. The
+    # nested proplist therefore needs its own escaped quotes to remain one
+    # module argument.
+    return f'{name}="{pulse_property(properties)}"'
+
+
+def endpoint_name(direction: str, uid: str | None) -> str:
+    identity = uid if uid is not None else "system-default"
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
+    return f"{PREFIX}{direction}_{digest}"
+
+
+def short_names(kind: str) -> list[str]:
+    records = run_pactl("list", "short", kind).splitlines()
+    names: list[str] = []
+    for record in records:
+        fields = record.split("\t")
+        if len(fields) >= 2:
+            names.append(fields[1])
+    return names
+
+
+def loaded_module_ids() -> set[str]:
+    records = run_pactl("list", "short", "modules").splitlines()
+    return {record.split("\t", 1)[0] for record in records if record}
+
+
+def stale_module_ids() -> list[str]:
+    """Remap modules left behind by an earlier bridge process."""
+    stale: list[str] = []
+    for record in run_pactl("list", "short", "modules").splitlines():
+        fields = record.split("\t")
+        if len(fields) < 3 or fields[1] not in REMAP_MODULES:
+            continue
+        arguments = fields[2].split()
+        if any(
+            argument.startswith((f"sink_name={PREFIX}", f"source_name={PREFIX}"))
+            for argument in arguments
+        ):
+            stale.append(fields[0])
+    return stale
+
+
+class PipeWireMirror:
+    def __init__(self, send: Any) -> None:
+        self.send = send
+        self.module_ids: list[str] = []
+        self.inventory: tuple[Any, ...] | None = None
+        self.output_uids: dict[str, str | None] = {}
+        self.input_uids: dict[str, str | None] = {}
+        self.last_sent: dict[str, str | None | object] = {
+            "output": object(),
+            "input": object(),
+        }
+        self.last_health_check = 0.0
+
+    def close(self) -> None:
+        for module_id in reversed(self.module_ids):
+            try:
+                run_pactl("unload-module", module_id, check=False)
+            except RuntimeError as error:
+                log(str(error))
+        self.module_ids.clear()
+
+    def apply(self, message: dict[str, Any]) -> None:
+        outputs = self._validated_devices(message.get("outputs"))
+        inputs = self._validated_devices(message.get("inputs"))
+        selected_output = self._selected_uid(message.get("selectedOutputUID"), outputs)
+        selected_input = self._selected_uid(message.get("selectedInputUID"), inputs)
+        inventory = (
+            tuple((record["deviceUID"], record["name"]) for record in outputs),
+            tuple((record["deviceUID"], record["name"]) for record in inputs),
+        )
+
+        # Catalog retries bypass poll_selection(), so check the cached graph
+        # here too: PipeWire may have restarted during a selection timeout.
+        if inventory != self.inventory or not set(self.module_ids).issubset(loaded_module_ids()):
+            self._rebuild(outputs, inputs)
+            self.inventory = inventory
+        self._set_selected("output", selected_output)
+        self._set_selected("input", selected_input)
+        self.last_sent["output"] = selected_output
+        self.last_sent["input"] = selected_input
+
+    def poll_selection(self) -> None:
+        now = time.monotonic()
+        if now - self.last_health_check >= 2:
+            self.last_health_check = now
+            loaded = loaded_module_ids()
+            if self.module_ids and not set(self.module_ids).issubset(loaded):
+                self.inventory = None
+                self.send({"type": "get-catalog"})
+                return
+
+        for direction, command, mapping in (
+            ("output", "get-default-sink", self.output_uids),
+            ("input", "get-default-source", self.input_uids),
+        ):
+            current = run_pactl(command, check=False).strip()
+            if current not in mapping:
+                continue
+            uid = mapping[current]
+            if self.last_sent[direction] != uid:
+                self.last_sent[direction] = uid
+                self.send({"type": "select", "direction": direction, "deviceUID": uid})
+
+    @staticmethod
+    def _validated_devices(value: Any) -> list[dict[str, str]]:
+        if not isinstance(value, list):
+            raise ValueError("catalog device list is invalid")
+        devices: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for record in value:
+            if not isinstance(record, dict) or set(record) != {"deviceUID", "name"}:
+                raise ValueError("catalog device record is invalid")
+            uid = record.get("deviceUID")
+            name = record.get("name")
+            if not isinstance(uid, str) or not uid or uid in seen:
+                raise ValueError("catalog device UID is invalid")
+            if not isinstance(name, str) or not name:
+                raise ValueError("catalog device name is invalid")
+            seen.add(uid)
+            devices.append({"deviceUID": uid, "name": name})
+        return devices
+
+    @staticmethod
+    def _selected_uid(value: Any, devices: list[dict[str, str]]) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and value in {record["deviceUID"] for record in devices}:
+            return value
+        return None
+
+    def _load(self, module: str, *arguments: str) -> str:
+        module_id = run_pactl("load-module", module, *arguments)
+        if not module_id.isdecimal():
+            raise RuntimeError(f"pactl returned an invalid module id: {module_id!r}")
+        self.module_ids.append(module_id)
+        return module_id
+
+    def _rebuild(
+        self,
+        outputs: list[dict[str, str]],
+        inputs: list[dict[str, str]],
+    ) -> None:
+        self.close()
+        for module_id in stale_module_ids():
+            run_pactl("unload-module", module_id, check=False)
+        sinks = [name for name in short_names("sinks") if not name.startswith(PREFIX)]
+        sources = [
+            name
+            for name in short_names("sources")
+            if not name.startswith(PREFIX) and not name.endswith(".monitor")
+        ]
+        if not sinks or not sources:
+            raise RuntimeError("the QEMU HDA transport is not ready")
+        transport_sink = next((name for name in sinks if name.startswith("alsa_output.")), sinks[0])
+        transport_source = next((name for name in sources if name.startswith("alsa_input.")), sources[0])
+
+        output_records = [{"deviceUID": None, "name": "Mac System Default"}, *outputs]
+        input_records = [{"deviceUID": None, "name": "Mac System Default"}, *inputs]
+        self.output_uids = {}
+        self.input_uids = {}
+
+        for record in output_records:
+            uid = record["deviceUID"]
+            name = endpoint_name("output", uid)
+            properties = pulse_proplist(
+                ("node.virtual", True),
+                ("node.description", record["name"]),
+                ("device.description", record["name"]),
+                ("device.icon_name", "audio-card"),
+            )
+            self._load(
+                "module-remap-sink",
+                f"master={transport_sink}",
+                f"sink_name={name}",
+                pulse_module_proplist("sink_properties", properties),
+            )
+            self.output_uids[name] = uid
+
+        for record in input_records:
+            uid = record["deviceUID"]
+            name = endpoint_name("input", uid)
+            properties = pulse_proplist(
+                ("node.virtual", True),
+                ("node.description", record["name"]),
+                ("device.description", record["name"]),
+                ("device.icon_name", "audio-input-microphone"),
+            )
+            self._load(
+                "module-remap-source",
+                f"master={transport_source}",
+                f"source_name={name}",
+                pulse_module_proplist("source_properties", properties),
+            )
+            self.input_uids[name] = uid
+
+    def _set_selected(self, direction: str, uid: str | None) -> None:
+        mapping = self.output_uids if direction == "output" else self.input_uids
+        endpoint = next((name for name, candidate in mapping.items() if candidate == uid), None)
+        if endpoint is None:
+            return
+        command = "set-default-sink" if direction == "output" else "set-default-source"
+        run_pactl(command, endpoint)
+
+
+def open_port() -> int:
+    while True:
+        try:
+            return os.open(PORT, os.O_RDWR | os.O_CLOEXEC | os.O_NOCTTY)
+        except FileNotFoundError:
+            time.sleep(1)
+
+
+def main() -> int:
+    descriptor = open_port()
+
+    def send(message: dict[str, Any]) -> None:
+        payload = json.dumps(message, separators=(",", ":"), sort_keys=True).encode() + b"\n"
+        offset = 0
+        while offset < len(payload):
+            offset += os.write(descriptor, payload[offset:])
+
+    mirror = PipeWireMirror(send)
+    buffer = bytearray()
+    send({"type": "get-catalog"})
+    try:
+        while True:
+            ready, _, _ = select.select([descriptor], [], [], 0.25)
+            if ready:
+                chunk = os.read(descriptor, 65536)
+                if not chunk:
+                    return 0
+                buffer.extend(chunk)
+                if len(buffer) > 1_048_576:
+                    raise RuntimeError("host audio catalog exceeds one MiB")
+                while b"\n" in buffer:
+                    line, _, remainder = buffer.partition(b"\n")
+                    buffer = bytearray(remainder)
+                    message = json.loads(line)
+                    if not isinstance(message, dict) or message.get("type") != "catalog":
+                        raise ValueError("host sent an invalid audio message")
+                    delay = 1
+                    while True:
+                        try:
+                            mirror.apply(message)
+                            break
+                        except RuntimeError as error:
+                            log(str(error))
+                            time.sleep(delay)
+                            delay = min(delay * 2, RETRY_DELAY_MAX)
+            try:
+                mirror.poll_selection()
+            except RuntimeError as error:
+                log(str(error))
+    finally:
+        mirror.close()
+        os.close(descriptor)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        log(str(error))
+        raise SystemExit(1)

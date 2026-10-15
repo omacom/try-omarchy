@@ -196,6 +196,17 @@ enum QEMUGPUStorageSpaceEstimate {
         fileManager: FileManager = .default
     ) -> Bool {
         recordedPersistentDiskURL(stateRoot: stateRoot, bundleIdentity: bundleIdentity, fileManager: fileManager) != nil
+            || shellVMDiskURL(stateRoot: stateRoot, fileManager: fileManager) != nil
+    }
+
+    /// An upstream-shell VM (run-shell-guest.sh) keeps one disk at
+    /// `shell/disk.img`, beside the direct-boot VM's `disks/` directory. It
+    /// has no boot kit or migration catalog, so the direct-boot checks never
+    /// select it.
+    static func shellVMDiskURL(stateRoot: String, fileManager: FileManager = .default) -> URL? {
+        let disk = URL(fileURLWithPath: stateRoot, isDirectory: true)
+            .appendingPathComponent("shell/disk.img", isDirectory: false)
+        return hasAttributes(disk, type: .typeRegular, permissions: 0o600, fileManager: fileManager) ? disk : nil
     }
 
     /// Selects the disk before legacy-directory migration so first-launch

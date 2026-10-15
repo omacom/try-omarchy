@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run the per-user setup for the account owner provisioning created: the
+# first regular user (uid 1000, the uid QEMU maps the Mac's shared files to).
+set -euo pipefail
+owner=$(getent passwd 1000 | cut -d: -f1) || exit 0
+[[ -n $owner ]] || exit 0
+exec runuser -u "$owner" -- env HOME="$(getent passwd 1000 | cut -d: -f6)" /usr/lib/try-omarchy/user-setup

@@ -1,0 +1,5 @@
+enable omarchy-native-audio-bridge.service
+enable omarchy-native-camera-bridge.service
+enable omarchy-native-clipboard-bridge.service
+enable omarchy-native-mac-share-link.service
+enable try-omarchy-session.service

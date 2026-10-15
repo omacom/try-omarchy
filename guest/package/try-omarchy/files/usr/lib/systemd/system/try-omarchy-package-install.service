@@ -1,0 +1,14 @@
+[Unit]
+Description=Install the Try Omarchy package offered by the Mac app
+After=local-fs.target network-online.target
+Before=display-manager.service omarchy-provision-owner.service getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ImportCredential=tryomarchy.package
+ExecStart=/usr/lib/try-omarchy/package-install
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target

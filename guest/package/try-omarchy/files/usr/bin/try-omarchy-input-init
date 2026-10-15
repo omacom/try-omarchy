@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Choose the first Japanese IME profile, preserving later user edits."""
+
+import os
+from pathlib import Path
+import tempfile
+
+
+def initialize(profile: Path, factory: Path, cmdline: str, language: str, layout: str = "us") -> None:
+    # Only replace the untouched factory seed. Fcitx saves its own profile,
+    # after which the user's selection and configuration belong to them.
+    if profile.is_symlink() or not profile.is_file() or not factory.is_file():
+        return
+    original = factory.read_text()
+    if profile.read_text() != original:
+        return
+    jis = "tryomarchy.keyboard=jis" in cmdline.split()
+    if not jis and not language.startswith("ja"):
+        return
+    # Use the owner's selected layout, including an explicit US choice on JIS.
+    # Fcitx's keyboard item must agree with the compositor's layout.
+    default, separator, other_groups = original.partition("[Groups/1]")
+    updated = default.replace("Default Layout=us", f"Default Layout={layout}")
+    updated = updated.replace("DefaultIM=keyboard-us", "DefaultIM=mozc")
+    updated = updated.replace("Name=keyboard-us", f"Name=keyboard-{layout}")
+    updated = updated.replace("Name=chewing", "Name=mozc", 1)
+    # Keep Chewing available after Mozc without changing the direct-input slot.
+    updated = updated.replace("[Groups/0/Items/2]\nName=mozc", "[Groups/0/Items/2]\nName=chewing")
+    updated += separator + other_groups
+    if jis:
+        config = profile.parent / "config"
+        template = factory.parent / "fcitx5-jis-config.ini"
+        if not config.exists() and not config.is_symlink():
+            atomic_write(config, template.read_text())
+    atomic_write(profile, updated)
+
+
+def atomic_write(path: Path, contents: str) -> None:
+    descriptor, temporary = tempfile.mkstemp(prefix=".input.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(contents)
+            output.flush()
+            os.fchmod(output.fileno(), (path.stat().st_mode & 0o777) if path.exists() else 0o600)
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+if __name__ == "__main__":
+    layout = "us"
+    vconsole = Path("/etc/vconsole.conf")
+    for line in (vconsole.read_text() if vconsole.is_file() else "").splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip() == "XKBLAYOUT":
+            candidate = value.split("#", 1)[0].strip().strip("\"'")
+            if candidate and all(c.isascii() and (c.isalnum() or c in "_-") for c in candidate):
+                layout = candidate
+    initialize(
+        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "fcitx5/profile",
+        Path("/usr/share/try-omarchy/fcitx5-profile.ini"),
+        Path("/run/try-omarchy/cmdline").read_text(),
+        os.environ.get("LANG", ""),
+        layout,
+    )

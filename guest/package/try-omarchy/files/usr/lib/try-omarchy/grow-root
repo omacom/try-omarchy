@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# Grow the root partition and its btrfs filesystem into space the Mac app
+# added to the end of the VM disk (Settings → disk size). The factory root is
+# the disk's last partition. Does nothing when there is under 64 MiB to gain.
+
+set -euo pipefail
+
+source=$(findmnt -no SOURCE / | sed 's/\[.*//')
+[[ $(findmnt -no FSTYPE /) == btrfs && $source == /dev/* ]] || exit 0
+partition=${source##*/}
+[[ -r /sys/class/block/$partition/partition ]] || exit 0
+number=$(</sys/class/block/$partition/partition)
+disk=$(lsblk -no PKNAME "$source" | head -n 1)
+[[ -n $disk ]] || exit 0
+
+disk_sectors=$(</sys/class/block/$disk/size)
+start=$(</sys/class/block/$partition/start)
+size=$(</sys/class/block/$partition/size)
+# 33 sectors hold the backup GPT at the end of the disk.
+spare=$((disk_sectors - 33 - start - size))
+((spare > 131072)) || exit 0
+
+echo "Growing $source by $((spare / 2048)) MiB"
+sfdisk --quiet --relocate gpt-bak-std "/dev/$disk"
+echo ', +' | sfdisk --quiet --no-reread --no-tell-kernel -N "$number" "/dev/$disk"
+partx -u -n "$number" "/dev/$disk"
+btrfs filesystem resize max /

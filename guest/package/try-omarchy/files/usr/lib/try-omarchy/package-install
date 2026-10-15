@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# Install the try-omarchy package the Mac app offers (Update integrations).
+# The app names the archive in the tryomarchy.package credential and exposes
+# it on the read-only 9p share tagged tryomarchy-packages. Runs before any
+# login. The outcome goes to /var/lib/try-omarchy/package-install.json, which
+# the status reporter sends back to the app.
+
+set -euo pipefail
+
+credential=${CREDENTIALS_DIRECTORY:-}/tryomarchy.package
+mount_point=/run/try-omarchy/packages
+state=/var/lib/try-omarchy/package-install.json
+
+[[ -n ${CREDENTIALS_DIRECTORY:-} && -f $credential ]] || exit 0
+name=$(<"$credential")
+
+record() { # result message
+  install -d -m 0755 /var/lib/try-omarchy
+  python3 -I -c 'import json, sys; print(json.dumps({"requested": sys.argv[1], "result": sys.argv[2], "message": sys.argv[3]}))' \
+    "$name" "$1" "$2" >"$state.tmp"
+  mv -f "$state.tmp" "$state"
+}
+
+if [[ ! $name =~ ^try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst$ ]]; then
+  record failed "invalid package name"
+  exit 1
+fi
+
+installed=$(pacman -Q try-omarchy 2>/dev/null | awk '{ print $2 }' || true)
+offered=${name#try-omarchy-}
+offered=${offered%-*.pkg.tar.zst}
+if [[ -n $installed ]] && (($(vercmp "$installed" "$offered") >= 0)); then
+  record current "try-omarchy $installed is installed"
+  exit 0
+fi
+
+install -d -m 0755 "$mount_point"
+mountpoint -q "$mount_point" || mount -t 9p -o trans=virtio,version=9p2000.L,ro tryomarchy-packages "$mount_point"
+trap 'umount "$mount_point" 2>/dev/null || true' EXIT
+[[ -f $mount_point/$name ]] || { record failed "the app did not share $name"; exit 1; }
+
+if output=$(pacman -U --noconfirm --needed "$mount_point/$name" 2>&1); then
+  record installed "try-omarchy $offered"
+  systemctl daemon-reload
+else
+  record failed "$(tail -n 1 <<<"$output")"
+  echo "$output" >&2
+  exit 1
+fi
