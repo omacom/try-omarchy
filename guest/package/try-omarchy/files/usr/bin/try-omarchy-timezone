@@ -38,6 +38,13 @@ def fingerprint(localtime=LOCALTIME):
             os.readlink(localtime) if localtime.is_symlink() else "file"]
 
 
+def resolves_to(localtime, target):
+    try:
+        return localtime.resolve(strict=True) == target.resolve()
+    except OSError:
+        return False
+
+
 def save_state(state, path=STATE):
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".timezone-", dir=path.parent)
@@ -59,20 +66,31 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
         state = json.loads(state_path.read_text())
     except FileNotFoundError:
         state = None
-    if state is None and preserve_existing and not force:
-        save_state({"mode": "manual"}, state_path)
-        return False
     current = fingerprint(localtime)
+    if state is None and preserve_existing and not force:
+        # First start after Omarchy's setup (this unit orders after it). The
+        # setup form offers the Mac zone first (the tzupdate shim): keeping it
+        # means following the Mac; choosing another zone is a manual choice.
+        if resolves_to(localtime, target):
+            save_state({"mode": "auto", "zone": zone, "fingerprint": current}, state_path)
+        else:
+            save_state({"mode": "manual"}, state_path)
+        return False
     if force:
         state = None
     if state is not None:
         if state["mode"] == "manual":
             return False
         if current != state["fingerprint"]:
-            save_state({"mode": "manual"}, state_path)
-            print("Guest time zone changed manually; keeping the guest selection.", flush=True)
-            return False
-    if localtime.is_symlink() and localtime.resolve() == target.resolve():
+            followed = zone_path(state["zone"], zoneinfo)
+            if not resolves_to(localtime, followed):
+                save_state({"mode": "manual"}, state_path)
+                print("Guest time zone changed manually; keeping the guest selection.", flush=True)
+                return False
+            # Relinked to the same zone (Omarchy's setup does this): still following.
+            state = {"mode": "auto", "zone": state["zone"], "fingerprint": current}
+            save_state(state, state_path)
+    if localtime.is_symlink() and resolves_to(localtime, target):
         if state is None or state["zone"] != zone:
             save_state({"mode": "auto", "zone": zone, "fingerprint": current}, state_path)
         return False

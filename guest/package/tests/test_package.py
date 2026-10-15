@@ -41,7 +41,7 @@ class PackageLayout(unittest.TestCase):
                 self.assertFalse(relative.startswith(forbidden), relative)
 
     def test_executables(self):
-        for directory in ("usr/bin", "usr/lib/try-omarchy"):
+        for directory in ("usr/bin", "usr/lib/try-omarchy", "usr/lib/try-omarchy/shims"):
             for path in (FILES / directory).iterdir():
                 if path.suffix in ("", ".py") and path.is_file():
                     self.assertTrue(path.stat().st_mode & stat.S_IXUSR, path)
@@ -157,10 +157,23 @@ class MenuEntries(unittest.TestCase):
         self.menu.write_text('{\n  // Extend the menu.\n  // "personal": {"label":"Personal"},\n}\n')
         self.entries()
         parsed = self.parse(self.menu.read_text())
-        self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id"})
+        self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id",
+                                       "setup.security.onepassword-touch-id"})
+        self.assertEqual(parsed["setup.try-omarchy"]["icon"], "\ue900")
+        self.assertEqual(parsed["setup.try-omarchy"]["iconFont"], "omarchy")
         self.menu.write_text("{}\n")  # the user removed them
         self.entries()
         self.assertEqual(self.menu.read_text(), "{}\n")
+
+    def test_a_later_release_adds_only_its_new_rows(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text("{\n}\n")  # the user removed the first release's rows
+        (self.home / ".local/state/try-omarchy").mkdir(parents=True)
+        (self.home / ".local/state/try-omarchy/menu-entries-v1").touch()
+        self.entries()
+        self.assertEqual(set(self.parse(self.menu.read_text())), {"setup.security.onepassword-touch-id"})
+        self.entries()
+        self.assertEqual(len(self.parse(self.menu.read_text())), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
         self.menu.parent.mkdir(parents=True)
@@ -183,8 +196,7 @@ class Locale(unittest.TestCase):
             (tmp / "pending").touch()
         subprocess.run(["/bin/sh", str(FILES / "usr/bin/try-omarchy-locale")], check=True, env={**os.environ,
             "TRY_OMARCHY_LOCALE_CMDLINE_PATH": str(tmp / "cmdline"), "TRY_OMARCHY_LOCALE_CONF_PATH": str(tmp / "locale.conf"),
-            "TRY_OMARCHY_LOCALE_PENDING_PATH": str(tmp / "pending"), "TRY_OMARCHY_LOCALE_SKIP_GENERATE": "1",
-            "TRY_OMARCHY_LOCALE_FCITX5_PROFILE_PATH": str(tmp / "profile")})
+            "TRY_OMARCHY_LOCALE_PENDING_PATH": str(tmp / "pending"), "TRY_OMARCHY_LOCALE_SKIP_GENERATE": "1"})
         return (tmp / "locale.conf").read_text(), (tmp / "pending").exists()
 
     def test_seeds_only_while_owner_provisioning_is_pending(self):
@@ -226,6 +238,166 @@ class PackageInstall(unittest.TestCase):
                          ("try-omarchy-0.1.0-1-aarch64.pkg.tar.zst/../x", False),
                          ("other-0.1-1-aarch64.pkg.tar.zst", False)):
             self.assertEqual(bool(re.fullmatch(pattern, name)), ok, name)
+
+
+def load(path, name):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class Recipe(unittest.TestCase):
+    def test_battery_sources_and_backups_exist(self):
+        recipe = (PACKAGE / "PKGBUILD").read_text()
+        for name in ("dkms.conf", "Makefile", "try-omarchy-battery.c"):
+            self.assertTrue((PACKAGE / "battery" / name).is_file(), name)
+        for backup in re.findall(r"'(etc/[^']+)'", recipe):
+            self.assertTrue((FILES / backup).is_file(), backup)
+        self.assertNotIn("native-module", recipe)
+
+    def test_build_copies_only_files_git_knows(self):
+        build = (PACKAGE.parent / "build.sh").read_text()
+        self.assertIn("git ls-files -z --cached --others --exclude-standard", build)
+        self.assertNotIn("cp -r", build)
+
+    def test_console_drop_in_keeps_the_screen_primary(self):
+        text = (FILES / "etc/limine-entry-tool.d/50-try-omarchy-console.conf").read_text()
+        line = next(line for line in text.splitlines() if line.startswith("KERNEL_CMDLINE[default]+="))
+        consoles = re.findall(r"console=(\w+)", line)
+        self.assertEqual(consoles, ["hvc0", "tty0"])
+
+    def test_chromium_takes_input_methods(self):
+        self.assertIn("--enable-wayland-ime", (FILES / "etc/chromium-flags.conf").read_text().split())
+
+
+class InputInit(unittest.TestCase):
+    STOCK = ("# Omarchy binds Super+I.\n[Hotkey/TriggerKeys]\n0=Zenkaku_Hankaku\n1=Hangul\n\n"
+             "[Hotkey/ActivateKeys]\n0=Henkan\n\n[Hotkey/DeactivateKeys]\n0=Muhenkan\n\n"
+             "[Behavior]\nActiveByDefault=False\n")
+
+    def setUp(self):
+        self.module = load(FILES / "usr/bin/try-omarchy-input-init", "input_init")
+        self.tmp = Path(tempfile.mkdtemp())
+        self.config = self.tmp / "fcitx5/config"
+        self.marker = self.tmp / "state/try-omarchy/fcitx-jis-v1"
+        self.stock = self.tmp / "stock"
+        self.stock.write_text(self.STOCK)
+
+    def init(self, cmdline="omarchy.qemu_virgl=1 tryomarchy.keyboard=jis"):
+        return self.module.initialize(self.config, self.marker, cmdline, self.stock)
+
+    def test_maps_kana_and_eisu_once(self):
+        self.config.parent.mkdir()
+        self.config.write_text(self.STOCK)
+        self.assertTrue(self.init())
+        sections = {name: self.module.section_values(self.config.read_text(), name)
+                    for name in ("Hotkey/TriggerKeys", "Hotkey/ActivateKeys", "Hotkey/DeactivateKeys")}
+        self.assertEqual(sections, {"Hotkey/TriggerKeys": ["Zenkaku_Hankaku"],
+                                    "Hotkey/ActivateKeys": ["Henkan", "Hangul"],
+                                    "Hotkey/DeactivateKeys": ["Muhenkan", "Hangul_Hanja"]})
+        self.assertIn("ConsumeRedundantActivateKeys=True", self.config.read_text())
+        self.assertIn("ActiveByDefault=False", self.config.read_text())
+        self.config.write_text("edited\n")
+        self.assertFalse(self.init())
+        self.assertEqual(self.config.read_text(), "edited\n")
+
+    def test_seeds_from_omarchy_when_missing_and_ignores_other_keyboards(self):
+        self.assertFalse(self.init("tryomarchy.keyboard=ansi"))
+        self.assertFalse(self.config.exists())
+        self.assertTrue(self.init())
+        self.assertIn("0=Henkan\n1=Hangul\n", self.config.read_text())
+
+
+class TimeZone(unittest.TestCase):
+    def setUp(self):
+        self.module = load(FILES / "usr/bin/try-omarchy-timezone", "timezone")
+        self.tmp = Path(tempfile.mkdtemp())
+        self.zoneinfo = self.tmp / "zoneinfo"
+        for zone in ("Asia/Tokyo", "Europe/Lisbon", "UTC"):
+            (self.zoneinfo / zone).parent.mkdir(parents=True, exist_ok=True)
+            (self.zoneinfo / zone).write_text(zone)
+        self.localtime = self.tmp / "localtime"
+        self.state = self.tmp / "timezone.json"
+
+    def link(self, zone):
+        self.localtime.unlink(missing_ok=True)
+        self.localtime.symlink_to(self.zoneinfo / zone)
+
+    def sync(self, zone, preserve=True):
+        return self.module.synchronize(zone, state_path=self.state, localtime=self.localtime,
+                                       zoneinfo=self.zoneinfo, apply=lambda target: self.link(
+                                           target.relative_to(self.zoneinfo).as_posix()),
+                                       preserve_existing=preserve)
+
+    def mode(self):
+        return json.loads(self.state.read_text())["mode"]
+
+    def test_keeping_the_mac_zone_in_setup_follows_the_mac(self):
+        self.link("Asia/Tokyo")  # the setup form's default, from the tzupdate shim
+        self.assertFalse(self.sync("Asia/Tokyo"))
+        self.assertEqual(self.mode(), "auto")
+        self.assertTrue(self.sync("Europe/Lisbon"))  # the Mac moved
+        self.assertEqual(self.localtime.resolve(), (self.zoneinfo / "Europe/Lisbon").resolve())
+
+    def test_another_zone_in_setup_is_manual(self):
+        self.link("UTC")
+        self.sync("Asia/Tokyo")
+        self.assertEqual(self.mode(), "manual")
+        self.assertFalse(self.sync("Europe/Lisbon"))
+        self.assertEqual(self.localtime.resolve(), (self.zoneinfo / "UTC").resolve())
+
+    def test_relinking_the_same_zone_keeps_following(self):
+        self.link("Asia/Tokyo")
+        self.sync("Asia/Tokyo")
+        self.link("Asia/Tokyo")  # a new inode, same zone
+        self.sync("Asia/Tokyo")
+        self.assertEqual(self.mode(), "auto")
+        self.link("UTC")  # chosen in Omarchy's time zone menu
+        self.assertFalse(self.sync("Europe/Lisbon"))
+        self.assertEqual(self.mode(), "manual")
+
+
+class TzupdateShim(unittest.TestCase):
+    def run_shim(self, state=None, cmdline="tryomarchy.timezone=Asia/Tokyo"):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "cmdline").write_text(cmdline + "\n")
+        if state is not None:
+            (tmp / "state").write_text(json.dumps(state))
+        real = tmp / "tzupdate"
+        real.write_text("#!/bin/sh\necho real \"$@\"\n")
+        real.chmod(0o755)
+        return subprocess.run([str(LIB / "shims/tzupdate"), "-p"], capture_output=True, text=True, check=True,
+                              env={**os.environ, "TRY_OMARCHY_TIMEZONE_STATE": str(tmp / "state"),
+                                   "TRY_OMARCHY_HOST_CMDLINE": str(tmp / "cmdline"),
+                                   "TRY_OMARCHY_TZUPDATE": str(real)}).stdout.strip()
+
+    def test_offers_the_mac_zone_until_the_guest_chooses(self):
+        self.assertEqual(self.run_shim(), "Asia/Tokyo")
+        self.assertEqual(self.run_shim({"mode": "auto", "zone": "Europe/Lisbon", "fingerprint": []}), "Europe/Lisbon")
+        self.assertEqual(self.run_shim({"mode": "manual"}), "real -p")
+        self.assertEqual(self.run_shim(cmdline="omarchy.qemu_virgl=1"), "real -p")
+
+    def test_only_owner_setup_sees_it(self):
+        drop_in = (FILES / "usr/lib/systemd/system/omarchy-provision-owner.service.d"
+                   / "10-try-omarchy-native.conf").read_text()
+        self.assertIn("Environment=PATH=/usr/lib/try-omarchy/shims:", drop_in)
+
+
+class Hyprland(unittest.TestCase):
+    def test_cursor_is_hidden_again_after_the_screensaver(self):
+        profile = (FILES / "usr/share/try-omarchy/hyprland.lua").read_text()
+        handler = profile[profile.index('hl.on("window.destroy"'):]
+        self.assertIn("invisible = true", handler[:200])
+
+
+class OnePassword(unittest.TestCase):
+    def test_enables_the_shipped_unit(self):
+        command = (FILES / "usr/bin/try-omarchy-onepassword-touch-id").read_text()
+        self.assertIn('unit="try-omarchy-onepassword-touch-id@$user.service"', command)
+        self.assertTrue((FILES / "usr/lib/systemd/system/try-omarchy-onepassword-touch-id@.service").is_file())
+        self.assertIn("sudo systemctl enable --now", command)
 
 
 if __name__ == "__main__":

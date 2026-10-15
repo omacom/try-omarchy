@@ -374,6 +374,11 @@ done
 masked_hooks=()
 arch-chroot "$target" limine-update
 grep -q Omarchy "$target/boot/limine.conf" || fail "limine.conf has no Omarchy entry"
+# try-omarchy's limine-entry-tool drop-in adds the virtio console that the Mac
+# app keeps as console.log.
+if [[ -f $target/etc/limine-entry-tool.d/50-try-omarchy-console.conf ]]; then
+  grep -rqa 'console=hvc0' "$target/boot" || fail "the kernel image lacks try-omarchy's console=hvc0"
+fi
 btrfs quota disable "$target" 2>/dev/null || true
 
 # --- installed configuration -----------------------------------------------------

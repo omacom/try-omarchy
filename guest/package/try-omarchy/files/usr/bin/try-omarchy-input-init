@@ -1,47 +1,98 @@
-#!/usr/bin/env python3
-"""Choose the first Japanese IME profile, preserving later user edits."""
+#!/usr/bin/python3 -I
+"""Give a Mac JIS keyboard its 英数 and かな keys in Fcitx, once per user.
+
+Omarchy chooses the input method and writes ~/.config/fcitx5 itself
+(omarchy-input-method). Its hotkeys suit a PC JIS keyboard: 変換/無変換 and
+半角/全角. Through QEMU, the Mac's かな key arrives as Hangul and 英数 as
+Hangul_Hanja. On a Mac JIS keyboard this makes かな turn the input method on
+and 英数 turn it off, like macOS, leaving Omarchy's other keys alone.
+
+Runs before Fcitx starts (omarchy-fcitx5.service drop-in). A marker in
+~/.local/state/try-omarchy records that it was done, so later edits stay.
+"""
 
 import os
 from pathlib import Path
+import re
+import sys
 import tempfile
 
-
-def initialize(profile: Path, factory: Path, cmdline: str, language: str, layout: str = "us") -> None:
-    # Only replace the untouched factory seed. Fcitx saves its own profile,
-    # after which the user's selection and configuration belong to them.
-    if profile.is_symlink() or not profile.is_file() or not factory.is_file():
-        return
-    original = factory.read_text()
-    if profile.read_text() != original:
-        return
-    jis = "tryomarchy.keyboard=jis" in cmdline.split()
-    if not jis and not language.startswith("ja"):
-        return
-    # Use the owner's selected layout, including an explicit US choice on JIS.
-    # Fcitx's keyboard item must agree with the compositor's layout.
-    default, separator, other_groups = original.partition("[Groups/1]")
-    updated = default.replace("Default Layout=us", f"Default Layout={layout}")
-    updated = updated.replace("DefaultIM=keyboard-us", "DefaultIM=mozc")
-    updated = updated.replace("Name=keyboard-us", f"Name=keyboard-{layout}")
-    updated = updated.replace("Name=chewing", "Name=mozc", 1)
-    # Keep Chewing available after Mozc without changing the direct-input slot.
-    updated = updated.replace("[Groups/0/Items/2]\nName=mozc", "[Groups/0/Items/2]\nName=chewing")
-    updated += separator + other_groups
-    if jis:
-        config = profile.parent / "config"
-        template = factory.parent / "fcitx5-jis-config.ini"
-        if not config.exists() and not config.is_symlink():
-            atomic_write(config, template.read_text())
-    atomic_write(profile, updated)
+STOCK_CONFIG = Path("/usr/share/omarchy/config/fcitx5/config")
+MARKER = "try-omarchy/fcitx-jis-v1"
 
 
-def atomic_write(path: Path, contents: str) -> None:
+def section_values(text, name):
+    match = re.search(r"(?ms)^\[" + re.escape(name) + r"\][ \t]*\n(.*?)(?=^\[|\Z)", text)
+    if not match:
+        return None
+    keys = []
+    for line in match.group(1).splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip().isdigit():
+            keys.append(value.strip())
+    return keys
+
+
+def set_section(text, name, body):
+    pattern = r"(?ms)^\[" + re.escape(name) + r"\][ \t]*\n.*?(?=^\[|\Z)"
+    replacement = f"[{name}]\n{body}\n"
+    if re.search(pattern, text):
+        return re.sub(pattern, lambda _: replacement, text, count=1)
+    return text.rstrip("\n") + ("\n\n" if text.strip() else "") + replacement
+
+
+def key_list(keys):
+    return "".join(f"{index}={key}\n" for index, key in enumerate(keys))
+
+
+def jis_config(text):
+    """Return text with かな (Hangul) activating and 英数 (Hangul_Hanja) deactivating."""
+    triggers = section_values(text, "Hotkey/TriggerKeys")
+    if triggers is not None:
+        # A trigger toggles; かな should only turn the input method on.
+        text = set_section(text, "Hotkey/TriggerKeys", key_list([k for k in triggers if k != "Hangul"]))
+    for name, key in (("Hotkey/ActivateKeys", "Hangul"), ("Hotkey/DeactivateKeys", "Hangul_Hanja")):
+        keys = section_values(text, name) or []
+        if key not in keys:
+            text = set_section(text, name, key_list(keys + [key]))
+    # Handle the mode keys in Fcitx's ordered key stream, so the character
+    # typed right after 英数 cannot race the switch.
+    hotkey = re.search(r"(?ms)^\[Hotkey\][ \t]*\n(.*?)(?=^\[|\Z)", text)
+    if hotkey is None:
+        text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + "[Hotkey]\nConsumeRedundantActivateKeys=True\n"
+    elif not re.search(r"(?m)^ConsumeRedundantActivateKeys=", hotkey.group(1)):
+        text = text[:hotkey.start(1)] + "ConsumeRedundantActivateKeys=True\n" + text[hotkey.start(1):]
+    return text
+
+
+def initialize(config, marker, cmdline, stock=STOCK_CONFIG):
+    if marker.exists() or "tryomarchy.keyboard=jis" not in cmdline.split():
+        return False
+    if config.is_symlink():
+        return False
+    if config.exists():
+        original = config.read_text()
+    elif stock.is_file():
+        original = stock.read_text()  # what Omarchy would seed
+    else:
+        original = ""
+    updated = jis_config(original)
+    if updated != original or not config.exists():
+        atomic_write(config, updated)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    return True
+
+
+def atomic_write(path, contents):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = (path.stat().st_mode & 0o777) if path.exists() else 0o644
     descriptor, temporary = tempfile.mkstemp(prefix=".input.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w") as output:
             output.write(contents)
             output.flush()
-            os.fchmod(output.fileno(), (path.stat().st_mode & 0o777) if path.exists() else 0o600)
+            os.fchmod(output.fileno(), mode)
             os.fsync(output.fileno())
         os.replace(temporary, path)
     finally:
@@ -49,19 +100,17 @@ def atomic_write(path: Path, contents: str) -> None:
             os.unlink(temporary)
 
 
+def main():
+    home = Path(os.environ["HOME"])
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    state_home = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state")
+    try:
+        cmdline = Path(os.environ.get("TRY_OMARCHY_HOST_CMDLINE", "/run/try-omarchy/cmdline")).read_text()
+    except FileNotFoundError:
+        return 0
+    initialize(config_home / "fcitx5/config", state_home / MARKER, cmdline)
+    return 0
+
+
 if __name__ == "__main__":
-    layout = "us"
-    vconsole = Path("/etc/vconsole.conf")
-    for line in (vconsole.read_text() if vconsole.is_file() else "").splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key.strip() == "XKBLAYOUT":
-            candidate = value.split("#", 1)[0].strip().strip("\"'")
-            if candidate and all(c.isascii() and (c.isalnum() or c in "_-") for c in candidate):
-                layout = candidate
-    initialize(
-        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "fcitx5/profile",
-        Path("/usr/share/try-omarchy/fcitx5-profile.ini"),
-        Path("/run/try-omarchy/cmdline").read_text(),
-        os.environ.get("LANG", ""),
-        layout,
-    )
+    sys.exit(main())

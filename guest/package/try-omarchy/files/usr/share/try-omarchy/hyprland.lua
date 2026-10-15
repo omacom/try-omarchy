@@ -38,6 +38,12 @@ if host_option("omarchy.qemu_virgl=1") then
     end, { timeout = 16000, type = "oneshot" })
     hl.exec_cmd("/usr/bin/omarchy-native-display-sync --once")
   end)
+  -- Omarchy's screensaver shows the cursor again as it exits, right before
+  -- its window closes. Hide it whenever a window goes away; it is already
+  -- hidden, so for any other window this changes nothing.
+  hl.on("window.destroy", function()
+    hl.config({ cursor = { invisible = true } })
+  end)
 end
 
 pcall(dofile, "/usr/share/try-omarchy/pinch-input.lua")

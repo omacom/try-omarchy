@@ -1,0 +1,46 @@
+#!/usr/bin/python3 -I
+"""Offer the Mac's time zone to Omarchy's setup form.
+
+Omarchy's first-boot setup preselects `tzupdate -p` (a network lookup). Only
+omarchy-provision-owner.service has this directory on its PATH (drop-in
+10-try-omarchy-native.conf). While the guest follows the Mac, or before the
+time-zone service has run, the Mac's zone is printed; everything else is the
+real tzupdate.
+"""
+
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+STATE = Path(os.environ.get("TRY_OMARCHY_TIMEZONE_STATE", "/var/lib/try-omarchy/timezone.json"))
+CMDLINE = Path(os.environ.get("TRY_OMARCHY_HOST_CMDLINE", "/run/try-omarchy/cmdline"))
+REAL = os.environ.get("TRY_OMARCHY_TZUPDATE", "/usr/bin/tzupdate")
+
+
+def mac_zone():
+    try:
+        state = json.loads(STATE.read_text())
+    except FileNotFoundError:
+        state = None
+    except (OSError, ValueError):
+        return None
+    if state is not None:
+        return state.get("zone") if state.get("mode") == "auto" else None
+    try:
+        tokens = CMDLINE.read_text().split()
+    except OSError:
+        return None
+    zones = [token.split("=", 1)[1] for token in tokens if token.startswith("tryomarchy.timezone=")]
+    if len(zones) == 1 and re.fullmatch(r"[A-Za-z0-9_+/-]{1,128}", zones[0]):
+        return zones[0]
+    return None
+
+
+if sys.argv[1:] == ["-p"]:
+    zone = mac_zone()
+    if zone:
+        print(zone)
+        sys.exit(0)
+os.execv(REAL, ["tzupdate", *sys.argv[1:]])

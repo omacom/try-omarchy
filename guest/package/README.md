@@ -4,32 +4,37 @@
 install running in the Mac app (see [the shell plan](../../docs/shell-plan.md)):
 
 - the host bridges: clipboard, audio, camera, battery (including the DKMS
-  `try-omarchy-battery` module), time zone, Touch ID for sudo, and the
-  settings port;
+  `try-omarchy-battery` module, whose source is in `try-omarchy/battery`),
+  time zone, Touch ID for sudo and 1Password, and the settings port;
 - the Mac shared folder mount and the home-folder link;
 - the launcher's per-boot settings;
-- first-boot language seeding;
+- first-boot language seeding and the Mac JIS 英数/かな keys;
 - SSH on demand;
 - root filesystem growth;
 - the Hyprland display and input profile for the VM;
-- the guest status reporter and the **Update integrations** installer.
+- the guest status reporter and the integration package installer.
 
 ```sh
 make upstream-package   # dist/upstream-guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
 make test-upstream      # contract tests for the package's scripts and layout
 ```
 
+`build.sh` packs only the files the repository tracks, or new files it does
+not ignore, so caches and other local files never reach the package.
+
 ## Rules
 
 - **No file another package owns is edited.** The package installs under
-  `/usr`, plus `/etc/UPower/UPower.conf.d` and a fontconfig link. Nothing
-  goes under `/usr/local`, `/usr/share/omarchy` or `/etc/skel`.
-  Customisation uses systemd drop-ins, presets and udev rules, plus one
-  loader in the user's Omarchy toggles directory.
-- **No kernel command line.** The guest owns its boot. The app passes its
-  settings as the systemd credential `tryomarchy.host` (SMBIOS type 11), one
-  line of the same tokens the direct-boot launcher put on the kernel command
-  line. `try-omarchy-host-config.service` publishes them at
+  `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
+  `/etc/chromium-flags.conf` and
+  `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` (both pacman
+  `backup` files). Nothing goes under `/usr/local`, `/usr/share/omarchy` or
+  `/etc/skel`. Customisation uses systemd drop-ins, presets and udev rules,
+  plus one loader in the user's Omarchy toggles directory.
+- **No kernel command line from the host.** The guest owns its boot. The app
+  passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
+  type 11), one line of the same tokens the direct-boot launcher put on the
+  kernel command line. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
 - **Units are enabled by preset.** They are enabled on first install. A unit
   added in a later release is enabled by name in `post_upgrade`.
@@ -39,7 +44,7 @@ make test-upstream      # contract tests for the package's scripts and layout
 | Port or share | Direction | Use |
 | --- | --- | --- |
 | credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags |
-| credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | One package for **Update integrations**, installed before login |
+| credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | The app's bundled package, installed before login when newer |
 | `dev.tryomarchy.guest` | guest → host | Status reports (protocol 1, JSON lines every 10 s) |
 | `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The same bridges and protocols as the direct-boot guest |
 
@@ -53,7 +58,7 @@ A status report looks like this:
 The app reads only the fields it knows. A guest ignores any port it does not
 know about. Either side can therefore be updated first.
 
-## Device access, SSH and language
+## Device access, SSH, language and input
 
 - The user-facing ports (audio, clipboard, camera, settings) and the camera
   loopback device carry `TAG+="uaccess"`. logind grants them to whoever holds
@@ -67,6 +72,27 @@ know about. Either side can therefore be updated first.
 - `try-omarchy-locale` sets `LANG` from the Mac's language while Omarchy's
   owner provisioning is pending, on first boot or after Omarchy's factory
   reset. It generates the locale first.
+- Omarchy chooses the input method itself. On a Mac JIS keyboard,
+  `try-omarchy-input-init` maps かな/英数 to input method on/off once per
+  user; see [Japanese input](../../docs/japanese-input.md).
+
+## Time zone
+
+`try-omarchy-timezone.service` follows the Mac's time zone. Omarchy's setup
+form preselects the zone from `tzupdate -p`; the package's shim in
+`/usr/lib/try-omarchy/shims`, which is on the setup service's `PATH` only,
+answers with the Mac's zone. Keeping that zone means following the Mac.
+Choosing another zone, there or later in Omarchy's time zone menu, stops
+following. The **Follow Mac Time Zone** launcher entry
+(`try-omarchy-timezone --follow-mac`) turns following back on.
+
+## Boot console
+
+`/etc/limine-entry-tool.d/50-try-omarchy-console.conf` adds `console=hvc0`
+and repeats `console=tty0`, so the screen stays `/dev/console`. Kernel and
+boot messages then also reach the VM's virtio console, which the app keeps as
+`console.log`. It takes effect when Limine's entries are next rebuilt, which
+the factory build does and every kernel update does.
 
 ## Hyprland
 
@@ -75,6 +101,7 @@ provisioning and at every graphical login, `user-setup` places one loader at
 `~/.local/state/omarchy/toggles/hypr/zz-try-omarchy.lua`. Omarchy loads that
 directory after the user's own configuration on every reload. The loader runs
 `/usr/share/try-omarchy/hyprland.lua`, which the package owns. That file
-hides the guest cursor (Cocoa draws the Mac's), keeps the mode in sync with
-the window through EDID, and applies the pinch and Apple keyboard input
-rules.
+hides the guest cursor (Cocoa draws the Mac's) and hides it again whenever a
+window closes, since Omarchy's screensaver shows it as it exits. It also keeps
+the mode in sync with the window through EDID, and applies the pinch and Apple
+keyboard input rules.

@@ -6,21 +6,25 @@ forward credentials to the Mac or create a separate passkey store.
 
 ## Requirements and setup
 
-Use a host helper with the `onepassword-unlock` operation, an already paired
-Touch ID guest, and 1Password installed at `/opt/1Password/1password`. The guest
-needs Python GObject bindings, GTK 3, and PolkitAgent introspection. The installer
-checks these dependencies and does not install packages automatically.
+The `try-omarchy` package ships the agent, its password dialog and the
+`try-omarchy-onepassword-touch-id@.service` unit, and depends on the Python
+GObject bindings, GTK 3 and polkit (PolkitAgent introspection). The unit stays
+off until you enable it.
 
-Sign in to 1Password in the guest, enable **Unlock using system authentication**,
-then lock and unlock once with the account password. Keep the app running.
-1Password's own policy still requires the account password after app restart and
-when its password-confirmation interval expires.
+1. Pair Touch ID: enable **Touch ID for sudo** in the Omarchy menu
+   (**Setup > Security**).
+2. Install 1Password (**Install > Service > 1Password**), sign in, and turn on
+   **Settings > Security > Unlock using system authentication**. Lock and
+   unlock once with the account password, and keep the app running.
+3. Choose **Setup > Security > Touch ID for 1Password** in the Omarchy menu, or
+   run:
 
-From this checkout in the guest, run:
+   ```sh
+   try-omarchy-onepassword-touch-id enable
+   ```
 
-```sh
-sudo guest/scripts/install-onepassword-touch-id.sh "$USER"
-```
+1Password's own policy still requires the account password after an app
+restart and when its password-confirmation interval expires.
 
 Then lock 1Password and use its fingerprint button. Focus the VM while approving
 the Mac's **Unlock 1Password in the focused Try Omarchy guest** prompt.
@@ -34,15 +38,15 @@ abandoned authentication attempts can temporarily block this path even while the
 and `faillock --user "$USER"` before retrying repeatedly; this integration does
 not disable or bypass password lockouts.
 
-Disable the integration without changing PAM or deleting enrollment:
+Disable it from the same menu row, or without changing PAM or deleting the
+Touch ID enrollment:
 
 ```sh
-sudo systemctl disable --now "try-omarchy-onepassword-touch-id@$USER.service"
+try-omarchy-onepassword-touch-id disable
 ```
 
-The installer retains replaced files in a root-private directory under
-`/var/lib/try-omarchy/onepassword-backup.*`. A host update and guest installation
-are both required. Updating only the host does not update an existing guest.
+Package updates replace the agent like any other file in the package; the
+enabled unit stays enabled.
 
 ## Authorization boundary
 

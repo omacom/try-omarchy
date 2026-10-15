@@ -1,157 +1,55 @@
 # Japanese keyboard and input
 
-Japanese input runs inside Omarchy through Fcitx5 and Mozc. The factory includes
-Mozc, its configuration tools, GTK/Qt integration, and Noto CJK fonts. macOS IME
+Japanese, Chinese and Korean input run inside Omarchy through Fcitx5. macOS IME
 composition is not forwarded into Linux; use the guest's input method while the
 VM is focused.
 
-## New guests
+Omarchy owns the input-method setup. Its first-boot form asks for the keyboard
+layout. Choosing **Japanese** selects the `jp` layout and Mozc, and Omarchy
+writes the Fcitx profile, hotkeys and CJK font preference
+(`omarchy-input-method`). Change it later with **Super+I** (switch input method)
+or **Setup > Input** in the Omarchy menu. Try Omarchy does not seed or migrate
+Fcitx profiles.
 
-On a JIS Mac, owner setup preselects **Japanese**. You can choose another layout;
-that explicit choice is preserved. The host geometry selects `applealu_jis`, and
-the selected layout determines the punctuation and direct-input keyboard. With
-the default Japanese layout, `apple:jp_oadg109a` supplies backslash on ろ and
-underscore on Shift+ろ, while ¥ remains a distinct yen sign. Existing keyboard
-options are preserved; custom layouts, variants, keymaps, and explicit Apple
-JIS backslash options are left alone.
+The `try-omarchy` package adds only what the Mac and the VM need:
 
-Before Fcitx first starts, an untouched factory profile on a JIS Mac puts Mozc
-before Chewing. The same Japanese default applies when the guest's initial
-language is Japanese, including on ANSI/ISO keyboards. A Japanese language does
-not change an ANSI/ISO keyboard into a JIS layout. Other guests keep their
-existing US/Chewing order, with Mozc also available.
+- **Packages:** it depends on `fcitx5-mozc`, `fcitx5-chewing`, `fcitx5-hangul`
+  and `noto-fonts-cjk`, so the engines Omarchy offers stay installed.
+- **Mac keyboard model:** the host geometry selects `applealu_jis` (or the ANSI
+  or ISO model) in Hyprland; see [Mac keyboard](mac-keyboard.md).
+- **英数 and かな:** QEMU delivers かな as Linux `KEY_HANGEUL` and 英数 as
+  `KEY_HANJA`, whose XKB symbols are `Hangul` and `Hangul_Hanja`. On a Mac JIS
+  keyboard, `try-omarchy-input-init` runs once per user before Fcitx starts
+  (an `omarchy-fcitx5.service` drop-in). It adds `Hangul` to **Activate Input
+  Method** and `Hangul_Hanja` to **Deactivate Input Method**, removes `Hangul`
+  from the toggle keys, and turns on **Consume redundant Activate/Deactivate
+  key**. Omarchy's other keys (変換, 無変換, 半角/全角, Super+I) stay as they
+  are. A marker in `~/.local/state/try-omarchy/fcitx-jis-v1` keeps later edits.
+- **Chromium:** `/etc/chromium-flags.conf` adds `--enable-wayland-ime`, which
+  Chromium's launcher reads before `~/.config/chromium-flags.conf`.
+- **XWayland:** `XMODIFIERS=@im=fcitx` comes from the package's
+  `environment.d` file. Native GTK4 and Qt6 applications use Wayland
+  text-input-v3; do not force `GTK_IM_MODULE` or `QT_IM_MODULE` onto them.
 
-For JIS keyboards:
+With JIS keys:
 
-- **かな** activates the input method, which defaults to Mozc.
-- **英数** deactivates it and returns to direct input.
+- **かな** turns the input method on (Mozc when it is the selected engine).
+- **英数** turns it off and returns to direct input.
 - Repeated presses request the same state; they do not toggle it.
-- Type romaji, use **Space** to convert, and **Enter** to commit. Mozc also offers
-  kana input, katakana conversion, dictionaries, and other preferences through
-  its configuration tools.
-
-QEMU's pinned keymap delivers かな as Linux `KEY_HANGEUL` and 英数 as
-`KEY_HANJA`. With the Mac JIS model their XKB symbols are `Hangul` and
-`Hangul_Hanja`. The first-session Fcitx config binds these to activation and
-deactivation and removes `Hangul` from the toggle keys. Fcitx handles the
-switches in its key-event stream, avoiding subprocess races with the next
-character. These keys activate the currently selected engine if you later
-choose another input method.
-
-On ANSI/ISO keyboards, use **Ctrl+Space** to toggle the selected input method.
-Open **Fcitx 5 Configuration**, or run `fcitx5-configtool`, to select Mozc
-and edit the input-method order, shortcuts, or Mozc's preferences. Holding Ctrl
-and pressing Space again enumerates the configured methods.
-
-The initializer only changes an exact factory profile and only creates JIS
-hotkeys if no Fcitx config exists. It preserves personal profiles and shortcuts.
-The optional service preflight cannot prevent Fcitx from starting if seeding
-fails.
-
-## Existing guests
-
-Physical ANSI/ISO/JIS keyboard support is installed automatically at boot,
-including when migrations are skipped. It does not require Mozc. See
-[Mac keyboard](mac-keyboard.md#existing-vms).
-
-**Update and Launch** includes the Japanese input migration; it is not a separate
-choice. When any of the factory's Japanese input packages are missing
-(`fcitx5`, `fcitx5-mozc`, `fcitx5-gtk`, `fcitx5-qt`, `fcitx5-configtool`,
-`noto-fonts-cjk`), the approved migration installs only those packages with
-`pacman -S --needed --noconfirm`, using the guest's existing repository databases
-and signature policy. It does not refresh those databases or run a system
-upgrade. If the databases show ordinary installed packages awaiting an update,
-installation stays pending. The result dialog tells you to run `omarchy update`
-inside the VM and let it finish successfully, then shut down Omarchy, reopen
-Try Omarchy, and choose **Update and Launch**. Hold **Option** while opening the
-app if **Skip launcher** is enabled. No separate guest reboot is needed first;
-the next **Update and Launch** retries the missing package
-installation and recognized stock-profile setup. Project-held
-packages are excluded from this check. If a mirror no longer has the recorded
-package versions, installation fails without refreshing and retrying.
-The command holds the project's kernel, headers, runtime, and validated Hyprland
-stack, in addition to the guest's existing holds. The migration waits briefly
-for networking and bounds the package operation to five minutes. Guests that
-already have every package make no package changes.
-
-After installation, it migrates recognized stock Fcitx profiles, including
-profiles saved after first login. Mozc becomes the first conversion engine on
-JIS Macs, for a Japanese guest language, or when the Mac's primary language is
-Japanese. Older guests keep an English locale, so the app reports the Mac's
-language separately as `tryomarchy.mac_language=`; it never changes `LANG`.
-Other guests gain Mozc after Chewing. When Mozc becomes first, the Fcitx keyboard
-item follows the guest's layout (`XKBLAYOUT` in `/etc/vconsole.conf`, which
-Omarchy's Hyprland config also reads), as on new guests. Mozc chooses its kana
-table from that layout, so a `jp` layout keeps ろ and ¥ correct in kana input.
-Korean group selection is preserved. Native
-英数/かな shortcuts are seeded only when global Fcitx config is missing.
-Personal profiles, shortcuts, and unsafe paths are preserved and reported.
-
-Skipping performs no package installation or Japanese-profile edits. Interrupted
-file changes are recovered before a retry. Package installation is a separate
-pacman transaction: installed packages remain if a later file repair fails.
-An active package-manager lock is preserved. Download or verification failures
-are reported and normal VM boot continues; check connectivity, then retry **Update and Launch**.
-Guest language, kernel, and paired boot files are retained.
-
-For preserved personal settings, use the configuration tool to finish setup:
-
-```sh
-fcitx5-configtool
-```
-
-Add Mozc and the keyboard layout matching your physical keyboard. Keep the
-keyboard item first and put Mozc before other conversion engines if Japanese
-should be the default. For JIS punctuation, select the Japanese layout and set
-`kb_model = "applealu_jis"` in your Hyprland input overrides, and append
-`apple:jp_oadg109a` to `kb_options` for backslash/underscore on ろ, as described in
-[Mac keyboard](mac-keyboard.md).
-
-For JIS keys, configure the Fcitx global options:
-
-- **Activate Input Method:** `Hangul` (press かな).
-- **Deactivate Input Method:** `Hangul_Hanja` (press 英数).
-- **Toggle Input Method:** keep Ctrl+Space; remove `Hangul`.
-- Enable **Consume redundant Activate/Deactivate key** in the advanced options.
-
-Restart the input method or log out and back in. If Chromium has no composition,
-check that `~/.config/chromium-flags.conf` includes `--enable-wayland-ime` alongside
-its existing flags. Native GTK4/Qt6 applications use Wayland text-input-v3; do not
-force global `GTK_IM_MODULE` or `QT_IM_MODULE` overrides onto them. XWayland
-applications still require `XMODIFIERS=@im=fcitx`, supplied by the factory.
-
-### Qt library errors in the configuration tool
-
-An error such as `version Qt_6.12 not found` means the installed Qt and KDE
-libraries are from different package versions. Older Japanese-input migrations
-could cause this by refreshing repositories with `pacman -Sy` and installing
-selected packages without updating the rest of the system. Arch does not support
-[partial upgrades](https://wiki.archlinux.org/title/System_maintenance#Partial_upgrades_are_unsupported).
-
-Inside Omarchy, run `omarchy update` and let it finish successfully, then reopen
-`fcitx5-configtool`. The normal updater retains Try Omarchy's package holds.
-If the update fails, resolve that error before installing more packages; keep
-the holds in place. A migration result based on installed package records alone
-does not verify that the configuration tool can start.
 
 ## Verification
 
-Run `make test` and `guest/test --source <pinned Omarchy checkout>`. These cover
-JIS setup selection, explicit owner choices, first-session engine order, Korean
-group preservation, native
-hotkey configuration, preservation of user edits, locale capability handling,
-and strict source/backport/package metadata.
+`make test-upstream` covers the hotkey edit, its once-only marker and the
+Chromium flag file.
 
 For runtime verification, use a disposable guest. The QMP `input-send-event`
-command can send `lang1` and `lang2`, which reach virtio-keyboard as Linux 122 and
-123, matching the pinned Cocoa JIS keymap. This checks the real guest keyboard,
-compositor, Fcitx, and application path without a physical Japanese keyboard.
-It does not test physical Mac hardware or Cocoa event delivery.
+command can send `lang1` and `lang2`, which reach virtio-keyboard as Linux 122
+and 123, matching the Cocoa JIS keymap. This checks the guest keyboard,
+compositor, Fcitx and application path without a physical Japanese keyboard.
 
-Test Chromium's Wayland textarea, GTK4 and Qt6 entries, and a native Wayland terminal:
-activate Japanese, type `nihongo`, convert to 日本語, commit, deactivate, and type
-`abc`. Repeat each mode key to verify idempotence and type immediately after
-英数 to check ordering. Check a candidate popup and capture it with guest `grim`;
-QEMU OpenGL screendumps can be black. Confirm JIS `@`, `¥`, `ろ`/backslash,
-Shift+ろ/underscore, and Shift+2/quote separately. Finally test real 英数/かな
-presses on a physical JIS Mac and confirm the same behavior.
+Test Chromium's Wayland text area, GTK4 and Qt6 entries, and a native Wayland
+terminal: turn Japanese on, type `nihongo`, convert to 日本語, commit, turn it
+off and type `abc`. Repeat each mode key to check it does not toggle, and type
+right after 英数 to check ordering. Capture candidate popups with guest `grim`;
+QEMU OpenGL screendumps can be black. Finally press the real 英数 and かな keys
+on a physical JIS Mac.
