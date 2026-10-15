@@ -1222,7 +1222,7 @@ diff --color -urN pristine/src/ui/cocoa.m trim/src/ui/cocoa.m
  
 +    dcl.con = qemu_console_lookup_default();
 +    kbd = qkbd_state_init(dcl.con);
-+    surface = qemu_console_surface(dcl.con);
++    surface = dcl.con ? qemu_console_surface(dcl.con) : NULL;
 +
      // Create an Application controller
 -    QemuCocoaAppController *controller = [[QemuCocoaAppController alloc] init];
