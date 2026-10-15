@@ -54,7 +54,10 @@ VirGL replaying commands in an Apple OpenGL 4.1 core context. Its local
 multisample patch preserves real samples and mutable texture allocation,
 allowing default browser ES 3 contexts without browser-specific overrides.
 Native Apple drivers select integer vertex attributes automatically, and alpha
-and BGRA texture paths avoid duplicate channel conversions. The guest runs
+and BGRA texture paths avoid duplicate channel conversions. The kernel's text
+console, where Omarchy's first-boot setup runs, reaches the host as 2D uploads
+in VirGL's context 0. Apple GL shows one context's texture writes to another
+only after a flush, so VirGL flushes context 0 after each upload. The guest runs
 Omarchy's own aarch64 Hyprland package unpatched.
 Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.

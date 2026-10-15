@@ -1,0 +1,21 @@
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -10251,8 +10251,16 @@
+    }
+ 
+    switch (transfer_mode) {
+-   case VIRGL_TRANSFER_TO_HOST:
+-      return vrend_renderer_transfer_write_iov(ctx, res, iov, num_iovs, info);
++   case VIRGL_TRANSFER_TO_HOST: {
++      int ret = vrend_renderer_transfer_write_iov(ctx, res, iov, num_iovs, info);
++      /* Context 0 carries the host's 2D uploads, such as the guest's text
++       * console. Nothing else flushes it, and Apple GL shows another
++       * context's writes to a shared texture only after a flush, so the
++       * display would keep sampling stale or undefined texels. */
++      if (ctx == vrend_state.ctx0)
++         glFlush();
++      return ret;
++   }
+    case VIRGL_TRANSFER_FROM_HOST:
+       return vrend_renderer_transfer_send_iov(ctx, res, iov, num_iovs, info);
+ 
