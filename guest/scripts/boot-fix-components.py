@@ -278,14 +278,29 @@ def run(args, check=True, timeout=20):
                           env={**os.environ, 'PATH': '/usr/local/sbin:/usr/local/bin:/usr/bin:/bin'})
 
 
+# The factory's Japanese input stack: engine, GTK/Qt modules, settings, and fonts.
+JAPANESE_PACKAGES = ('fcitx5', 'fcitx5-mozc', 'fcitx5-gtk', 'fcitx5-qt', 'fcitx5-configtool', 'noto-fonts-cjk')
+
+
+def missing_japanese(root):
+    """Japanese input packages absent from pacman's local database."""
+    installed = set()
+    local = root / 'var/lib/pacman/local'
+    for desc in local.glob('*/desc') if local.is_dir() else ():
+        lines = desc.read_text(errors='replace').splitlines()
+        if '%NAME%' in lines[:-1]:
+            installed.add(lines[lines.index('%NAME%') + 1])
+    return [name for name in JAPANESE_PACKAGES if name not in installed]
+
+
 def japanese_available(root):
-    return all((root / p).is_file() for p in (
-        'usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'))
+    return not missing_japanese(root)
 
 
 def install_japanese(root):
-    """Update supported packages and install missing Mozc in one pacman transaction."""
-    if japanese_available(root):
+    """Install only the missing Japanese input packages, without a system upgrade."""
+    missing = missing_japanese(root)
+    if not missing:
         return 'current'
     if root != Path('/') or not (root / 'usr/bin/pacman').is_file():
         return 'unavailable'
@@ -297,9 +312,12 @@ def install_japanese(root):
     run(['nm-online', '-q', '-t', '15'], timeout=20)
     holds = load('japanese_update_holds', Path(__file__).with_name('repair-update-holds.py')).HOLDS
     ignored = ','.join((*holds, 'try-omarchy-runtime'))
-    run(['pacman', '-Syu', '--needed', '--noconfirm', '--ignore', ignored, 'fcitx5-mozc'], timeout=300)
+    # Refresh without -u: mirrors drop superseded packages, so a stale database
+    # cannot download them. Installed packages are upgraded only when pacman's
+    # dependency resolution requires it.
+    run(['pacman', '-Sy', '--needed', '--noconfirm', '--ignore', ignored, *missing], timeout=300)
     if not japanese_available(root):
-        raise RuntimeError('Mozc installation could not be verified')
+        raise RuntimeError('Japanese input installation could not be verified')
     return 'applied'
 
 

@@ -50,17 +50,21 @@ reviewed preimages, destination allowlist, dependencies, journal recovery, and
 per-component result. Kernel replacement and biometric enablement are separate
 workflows. The Japanese-input package transaction below is outside file recovery.
 
-`japanese-input` revision 2 installs missing Mozc after approval, through a
-five-minute `pacman -Syu --needed --noconfirm` transaction with Mozc as its
-target. It refreshes databases and updates supported packages, using the existing
-guest repositories and signature policy. `--ignore` includes the canonical
+`japanese-input` revision 3 installs only the missing factory Japanese input
+packages after approval (`JAPANESE_PACKAGES` in `boot-fix-components.py`,
+checked against pacman's local database), through a five-minute
+`pacman -Sy --needed --noconfirm` transaction. Revision 2 ran a full `-Syu`
+system upgrade instead. The database refresh is required because mirrors drop
+superseded packages; without `-u`, other installed packages change only when
+dependency resolution requires it. It uses the existing guest repositories and
+signature policy. `--ignore` includes the canonical
 compatibility holds from `repair-update-holds.py` and `try-omarchy-runtime`. The
 file planners run after pacman so their preimages match the updated guest.
 The boot installer re-executes the installed Python after the package attempt,
 carrying its advisory result in process environment so the transaction is not
 repeated that boot. Bundle and boot-token consent are verified again after exec.
 Pacman manages dependencies and package recovery; installed packages are not
-rolled back by the file journal. Existing Mozc and
+rolled back by the file journal. Installed packages and
 active package locks are preserved. Failures are reported for manual retry.
 
 Physical ANSI/ISO/JIS support is now delivered automatically by the settings

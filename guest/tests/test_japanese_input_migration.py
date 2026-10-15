@@ -14,6 +14,14 @@ japanese = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(japanese)
 
 
+def register(root, *names):
+    """Record packages in a fake pacman local database."""
+    for name in names:
+        entry = root / 'var/lib/pacman/local' / f'{name}-1.0-1'
+        entry.mkdir(parents=True, exist_ok=True)
+        (entry / 'desc').write_text(f'%NAME%\n{name}\n\n%VERSION%\n1.0-1\n\n')
+
+
 class JapaneseMigrationTests(unittest.TestCase):
     def prepare(self, directory, profile='profile-korean.ini'):
         payload = support.SettingsInstallTests().make_payload(directory)
@@ -167,10 +175,7 @@ class JapaneseMigrationTests(unittest.TestCase):
             self.assertEqual('unavailable', result['components']['japanese-input'])
             helper = root / 'usr/share/try-omarchy/apple-keyboard-input.lua'
             self.assertFalse(helper.exists())
-            for relative in ('usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'):
-                path = root / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
+            register(root, *extras.JAPANESE_PACKAGES)
             result = support.fixes.migrate(payload, root, True, '')
             self.assertEqual('current', result['components']['japanese-input'])
             helper.parent.mkdir(parents=True, exist_ok=True)
@@ -187,11 +192,10 @@ class JapaneseMigrationTests(unittest.TestCase):
             original = (support.GUEST / 'tests/fixtures/apple-keyboard-before-japanese.lua').read_bytes()
             preimages = json.loads((payload / 'preimages.json').read_text())
             self.assertIn(support.fixes.digest(original), preimages[relative])
-            for path, data in {relative: original, 'usr/bin/fcitx5': b'',
-                               'usr/share/fcitx5/inputmethod/mozc.conf': b''}.items():
-                target = root / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
+            register(root, *extras.JAPANESE_PACKAGES)
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(original)
             self.assertTrue(support.installer.install_keyboard_system(payload, root))
             self.assertEqual((payload / 'apple-keyboard-input.lua').read_bytes(), (root / relative).read_bytes())
 
@@ -201,10 +205,7 @@ class JapaneseMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             payload, home = self.prepare(directory)
             root = Path(directory) / 'root'
-            for relative in ('usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'):
-                path = root / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
+            register(root, *extras.JAPANESE_PACKAGES)
             account = SimpleNamespace(pw_uid=1000, pw_name='owner', pw_dir=str(home))
             calls = []
             def run(args, **kwargs):
@@ -227,10 +228,7 @@ class JapaneseMigrationTests(unittest.TestCase):
             pacman.touch()
             module = support.fixes.components(payload)
             def install(root):
-                for relative in ('usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'):
-                    p = root / relative
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    p.touch()
+                register(root, *extras.JAPANESE_PACKAGES)
                 return 'applied'
             with patch.object(support.fixes, 'components', return_value=module), patch.object(module, 'install_japanese', side_effect=install) as installer:
                 skipped = support.fixes.migrate(payload, root, False, '')
@@ -290,10 +288,7 @@ class JapaneseMigrationTests(unittest.TestCase):
                 def install(root):
                     if failed:
                         raise RuntimeError('update interrupted after replacing Python')
-                    for relative in ('usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'):
-                        p = root / relative
-                        p.parent.mkdir(parents=True, exist_ok=True)
-                        p.touch()
+                    register(root, *extras.JAPANESE_PACKAGES)
                     return 'applied'
                 continuation = 'failed' if failed else 'applied'
                 with patch.object(support.fixes, 'components', return_value=module), patch.object(module, 'install_japanese', side_effect=install) as installer, patch.object(support.fixes, 'plan', wraps=support.fixes.plan) as planner:
@@ -305,28 +300,46 @@ class JapaneseMigrationTests(unittest.TestCase):
                 self.assertEqual('failed' if failed else 'complete', result['state'])
                 self.assertEqual(continuation, result['components']['japanese-input'])
 
-    def test_supported_package_update_keeps_kernel_runtime_and_graphics_held(self):
-        with patch.object(extras, 'japanese_available', side_effect=[False, True]), \
+    def test_only_missing_japanese_packages_are_detected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(list(extras.JAPANESE_PACKAGES), extras.missing_japanese(root))
+            # A v0.5 guest: Fcitx, its GTK/Qt modules, and CJK fonts, without Mozc.
+            register(root, 'fcitx5', 'fcitx5-chewing', 'fcitx5-gtk', 'fcitx5-qt', 'noto-fonts-cjk')
+            self.assertEqual(['fcitx5-mozc', 'fcitx5-configtool'], extras.missing_japanese(root))
+            self.assertFalse(extras.japanese_available(root))
+            register(root, 'fcitx5-mozc', 'fcitx5-configtool')
+            self.assertEqual([], extras.missing_japanese(root))
+            self.assertTrue(extras.japanese_available(root))
+
+    def test_installs_only_missing_packages_without_a_system_upgrade(self):
+        with patch.object(extras, 'missing_japanese', side_effect=[['fcitx5-mozc', 'fcitx5-configtool'], []]), \
                 patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'exists', return_value=False), patch.object(extras, 'run') as run:
             self.assertEqual('applied', extras.install_japanese(Path('/')))
         self.assertEqual(['systemctl', 'start', 'NetworkManager.service'], run.call_args_list[0].args[0])
         self.assertEqual(['nm-online', '-q', '-t', '15'], run.call_args_list[1].args[0])
-        self.assertEqual(['pacman', '-Syu', '--needed', '--noconfirm', '--ignore',
+        self.assertEqual(['pacman', '-Sy', '--needed', '--noconfirm', '--ignore',
                           'linux-aarch64,linux-aarch64-headers,hyprland,aquamarine,hyprtoolkit,hyprland-guiutils,try-omarchy-runtime',
-                          'fcitx5-mozc'], run.call_args_list[2].args[0])
+                          'fcitx5-mozc', 'fcitx5-configtool'], run.call_args_list[2].args[0])
         self.assertLessEqual(run.call_args_list[2].kwargs['timeout'], 300)
 
-    def test_active_package_lock_is_preserved_and_installed_mozc_is_not_upgraded(self):
-        with patch.object(extras, 'japanese_available', return_value=False), \
+    def test_unverified_installation_is_reported_as_a_failure(self):
+        with patch.object(extras, 'missing_japanese', return_value=['fcitx5-mozc']), \
+                patch.object(Path, 'is_file', return_value=True), \
+                patch.object(Path, 'exists', return_value=False), patch.object(extras, 'run'):
+            with self.assertRaises(RuntimeError):
+                extras.install_japanese(Path('/'))
+
+    def test_active_package_lock_is_preserved_and_installed_packages_are_not_upgraded(self):
+        with patch.object(extras, 'missing_japanese', return_value=['fcitx5-mozc']), \
                 patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'exists', return_value=True), patch.object(extras, 'run') as run:
             self.assertEqual('unavailable', extras.install_japanese(Path('/')))
             run.assert_not_called()
-        with patch.object(extras, 'japanese_available', return_value=True), patch.object(extras, 'run') as run:
+        with patch.object(extras, 'missing_japanese', return_value=[]), patch.object(extras, 'run') as run:
             self.assertEqual('current', extras.install_japanese(Path('/')))
             run.assert_not_called()
-
 
 if __name__ == '__main__':
     unittest.main()

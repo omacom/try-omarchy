@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consent-gated guest repairs and missing Mozc installation."""
+"""Consent-gated guest repairs and missing Japanese input package installation."""
 
 import base64
 import hashlib

@@ -87,7 +87,7 @@ an unconfirmed approved update leaves a manual retry available through **Update 
 | Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
 | 1Password installer desktop-entry fix | Update the recognized stock installer to support current and legacy desktop filenames, independently of Touch ID setup. After an interrupted installation, rerun **Install → Service → 1Password**. |
 | Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
-| Japanese input setup | Install missing Mozc through pacman after approval, then run stock-profile and JIS hotkey repairs in the user journal. Preserve personal settings and Korean group selection. [Details](japanese-input.md#existing-guests). |
+| Japanese input setup | Install missing Japanese input packages through pacman after approval, then run stock-profile and JIS hotkey repairs in the user journal. Preserve personal settings and Korean group selection. [Details](japanese-input.md#existing-guests). |
 
 Battery builds are bounded to three minutes with two compiler jobs. The boot
 service allows ten minutes; an approved host check waits up to eleven minutes
@@ -98,10 +98,12 @@ unchanged. The battery source, build receipt, and active DKMS link are published
 with the verified module, so normal DKMS status and future explicit maintenance
 continue to recognize it.
 
-The Japanese-input migration installs missing Mozc and its required dependencies
-from the guest's configured package repositories. When Mozc is missing, repository databases are refreshed and supported Linux
-packages are updated. Kernel, headers, runtime, and the validated Hyprland stack
-are explicitly held. Existing Mozc installations do not trigger a package update.
+The Japanese-input migration installs only missing Japanese input packages
+(Mozc, Fcitx5 and its GTK/Qt modules, its configuration tool, and CJK fonts) and
+their required dependencies from the guest's configured package repositories.
+Repository databases are refreshed, but other packages are not upgraded. Kernel,
+headers, runtime, and the validated Hyprland stack are explicitly held. Guests
+that already have every package make no package changes.
 The package operation is bounded to five minutes. Package installations are kept when later file changes are restored.
 Other components do not download dependencies. This flow does not replace the
 kernel, update the graphics stack, enable biometrics, or reproduce every factory

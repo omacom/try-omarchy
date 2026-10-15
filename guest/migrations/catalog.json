@@ -13,10 +13,10 @@
   "migrations": [
     {
       "id": "japanese-input",
-      "revision": 2,
+      "revision": 3,
       "title": "Japanese input",
       "icon": "keyboard",
-      "note": "When Mozc is missing, updates supported Linux packages and installs it. Downloads need internet; installed packages are kept if another fix fails."
+      "note": "Installs missing Japanese input packages without upgrading other packages. Downloads need internet; installed packages are kept if another fix fails."
     },
     {
       "id": "battery",

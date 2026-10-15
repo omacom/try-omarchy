@@ -391,8 +391,8 @@ applies, and verifies the [reviewed manual-command migrations](integration-updat
 before graphical login; it restores originals on failure
 and recovers interrupted file transactions even when the next launch skips
 updates. Results return through the settings port and remain advisory. The Japanese-input
-migration can install missing Mozc through the guest's normal pacman repositories
-after approval, updating supported Linux packages when Mozc is missing. The
+migration can install missing Japanese input packages through the guest's normal
+pacman repositories after approval, without a full system upgrade. The
 kernel, headers, runtime, and validated Hyprland stack are explicitly held.
 Package installations are not part of the file rollback, and the paired boot
 kit is retained. Battery modules

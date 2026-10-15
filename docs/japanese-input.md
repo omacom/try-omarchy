@@ -54,15 +54,18 @@ Physical ANSI/ISO/JIS keyboard support is installed automatically at boot,
 including when migrations are skipped. It does not require Mozc. See
 [Mac keyboard](mac-keyboard.md#existing-vms).
 
-Choose **Update and Launch → Japanese input** to add Japanese composition.
-When Mozc is missing, the approved migration runs
-`pacman -Syu --needed --noconfirm` with Mozc as the installation target, using
-the guest's existing package repositories and signature policy. This refreshes
-repository data and updates supported Linux packages, avoiding stale-download
-failures. The command explicitly holds the project's kernel, headers, runtime,
-and validated Hyprland stack, in addition to the guest's existing holds. The
-migration waits briefly for networking and bounds the package operation to five
-minutes. Existing Mozc installations are kept without a package update.
+**Update and Launch** includes the Japanese input migration; it is not a separate
+choice. When any of the factory's Japanese input packages are missing
+(`fcitx5`, `fcitx5-mozc`, `fcitx5-gtk`, `fcitx5-qt`, `fcitx5-configtool`,
+`noto-fonts-cjk`), the approved migration installs only those packages with
+`pacman -Sy --needed --noconfirm`, using the guest's existing package
+repositories and signature policy. It refreshes repository data so current
+packages can be downloaded, but does not upgrade the rest of the system;
+installed packages change only when pacman's dependency resolution requires it.
+The command holds the project's kernel, headers, runtime, and validated Hyprland
+stack, in addition to the guest's existing holds. The migration waits briefly
+for networking and bounds the package operation to five minutes. Guests that
+already have every package make no package changes.
 
 After installation, it migrates recognized stock Fcitx profiles, including
 profiles saved after first login. Mozc becomes the first conversion engine on

@@ -38,7 +38,7 @@ Keyboard layout, variants, and options are retained; explicit keyboard models
 and custom or unsafe overlay paths are preserved. Repeat boots are a no-op.
 
 Japanese composition is separate: **Update and Launch → Japanese input** installs
-missing Mozc and configures eligible input profiles and mode-key shortcuts.
+missing Japanese input packages and configures eligible input profiles and mode-key shortcuts.
 See [Japanese input](japanese-input.md#existing-guests).
 
 ## Validation
