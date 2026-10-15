@@ -97,6 +97,9 @@ assert_contains "$output" "io.systemd.credential.binary:tryomarchy.package=$pack
 assert_contains "$output" "mount_tag=tryomarchy-packages"
 assert_contains "$output" "name=dev.tryomarchy.guest"
 assert_contains "$output" "Nested virtualization is unavailable"
+assert_contains "$output" "[qemu-gpu] Launch phase: preparing"
+# The app accepts only this QMP path shape (QEMUGPULauncher.qmpSocketPath).
+[[ $output =~ unix:/tmp/omarchy-qemu-gpu\.[A-Za-z0-9]{6}/qmp\.sock, ]] || fail "the QMP socket path is not one the app accepts"
 [[ -f $test_root/state/shell/disk.img && -f $test_root/state/shell/efi-vars.fd && -f $test_root/state/shell/vm.json ]] ||
   fail "the persistent VM was not created"
 [[ $(stat -f %z "$test_root/state/shell/disk.img") == 1073741824 ]] || fail "the disk was not grown to 1 GiB"
@@ -121,7 +124,7 @@ assert_contains "$output" "Reset complete"
 launch_env=()
 output=$(launch --ephemeral)
 [[ ! -e $test_root/state/shell/disk.img ]] || fail "an ephemeral launch created the persistent disk"
-assert_contains "$output" "/private/tmp/omarchy-shell."
+assert_contains "$output" "/private/tmp/omarchy-qemu-gpu."
 
 # Invalid inputs are refused before anything starts.
 launch_env=(OMARCHY_SHELL_INSTALL_PACKAGE=/etc/hosts)

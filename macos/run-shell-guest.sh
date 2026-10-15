@@ -135,6 +135,7 @@ prepare_factory_disk() {
   for stale in "$factory_cache"/*.img; do
     [[ -e $stale ]] && rm -f "$stale"
   done
+  echo '[qemu-gpu] Launch phase: preparing' >&2
   local actual
   actual=$(/usr/bin/shasum -a 256 "$compressed" | cut -d' ' -f1)
   [[ $actual == "$compressed_sha" ]] || fail "the bundled factory disk is damaged"
@@ -143,6 +144,7 @@ prepare_factory_disk() {
   chmod 600 "$factory_disk.partial"
   # zstd leaves much of the filesystem's free space allocated on APFS where
   # data and zeros alternate; return those blocks (about half the disk).
+  echo '[qemu-gpu] Launch phase: finishing' >&2
   "$native_bridge" --sparsify "$factory_disk.partial" >/dev/null || true
   mv -f "$factory_disk.partial" "$factory_disk"
 }
@@ -161,7 +163,7 @@ new_vars() { # destination
   chmod 600 "$1"
 }
 
-work_dir=$(mktemp -d '/private/tmp/omarchy-shell.XXXXXX') || fail "could not create a private temporary directory"
+work_dir=$(mktemp -d '/private/tmp/omarchy-qemu-gpu.XXXXXX') || fail "could not create a private temporary directory"
 # Every exit from here on stops QEMU and the bridges and removes the work directory.
 qemu_pid=""
 bridge_pids=()
@@ -187,7 +189,7 @@ cleanup() {
     terminate "$pid" 20
   done
   ! declare -F qemu_network_stop >/dev/null || qemu_network_stop
-  case $work_dir in /private/tmp/omarchy-shell.??????) rm -rf "$work_dir" ;; esac
+  case $work_dir in /private/tmp/omarchy-qemu-gpu.??????) rm -rf "$work_dir" ;; esac
   exit "$status"
 }
 trap cleanup EXIT

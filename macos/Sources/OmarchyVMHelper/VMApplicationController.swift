@@ -69,6 +69,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private var controlSocketPath: String?
     private let disposableWorkspace = DisposableVMWorkspace()
     private var isDisposable: Bool { initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue }
+    private let isShellApp = ShellGuestPresentation.isShellApp()
     private var settingsReturnApplication: NSRunningApplication?
     private let appReleaseChecker: AppReleaseChecker
     private var appReleaseWindow: AppReleaseWindow?
@@ -388,7 +389,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func bootFixCacheURL() -> URL? {
-        guard !isDisposable else { return nil }
+        // Boot fixes and migrations belong to the direct-boot image; an
+        // upstream-shell guest updates itself with pacman.
+        guard !isDisposable, !isShellApp else { return nil }
         guard let root = QEMUGPUStorageSpaceEstimate.storageRootURL(
             environment: baseEnvironment, preference: storageLocationStore.load()),
               let disk = QEMUGPUStorageSpaceEstimate.recordedPersistentDiskURL(
@@ -427,7 +430,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             var approvedBootRecovery = allowBootRecovery
             if !approvedBootRecovery {
                 let preflight: BootRecoveryLaunchPreflight
-                if initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue {
+                if initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue || isShellApp {
                     preflight = .notRequired
                 } else {
                     preflight = QEMUGPUStorageSpaceEstimate.bootRecoveryPreflight(
@@ -988,7 +991,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func supportsLanguageSelection(requiresKorean: Bool = false, requiresJapanese: Bool = false) -> Bool {
-        if initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue {
+        // A shell VM's locales come from its factory, not a boot kit.
+        if initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue || isShellApp {
             if requiresJapanese { return bundledMetrics?.supportsJapanese ?? false }
             return (requiresKorean ? bundledMetrics?.supportsKorean : bundledMetrics?.supportsLanguageSelection) ?? false
         }
