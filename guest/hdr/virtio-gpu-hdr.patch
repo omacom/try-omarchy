@@ -1,0 +1,302 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -9,3 +9,5 @@
+ 	virtgpu_ioctl.o virtgpu_prime.o virtgpu_trace_points.o virtgpu_submit.o
+ 
+ obj-$(CONFIG_DRM_VIRTIO_GPU) += virtio-gpu.o
++
++ccflags-y += -I$(src)
+diff --git a/omarchy_hdr.h b/omarchy_hdr.h
+--- /dev/null
++++ b/omarchy_hdr.h
+@@ -0,0 +1,15 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef OMARCHY_VIRTIO_HDR_H
++#define OMARCHY_VIRTIO_HDR_H
++/* Private, opt-in Try Omarchy ABI v1. Not a standard virtio feature. */
++#define VIRTIO_GPU_F_OMARCHY_HDR 6
++#define VIRTIO_GPU_CMD_OMARCHY_HDR 0x0400
++#define OMARCHY_HDR_MAGIC 0x544f4844
++struct virtio_gpu_omarchy_hdr {
++ struct virtio_gpu_ctrl_hdr hdr;
++ __le32 magic, version, scanout_id, resource_id;
++ __le32 colorspace, eotf;
++ __le32 primaries[6], whitepoint[2];
++ __le32 min_luminance, max_luminance, max_cll, max_fall;
++};
++#endif
+diff --git a/virtgpu_display.c b/virtgpu_display.c
+--- a/virtgpu_display.c
++++ b/virtgpu_display.c
+@@ -94,6 +94,7 @@
+ 	struct virtio_gpu_device *vgdev = dev->dev_private;
+ 	struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+ 
++	output->hdr_initialized = false;
+ 	virtio_gpu_cmd_set_scanout(vgdev, output->index, 0,
+ 				   crtc->mode.hdisplay,
+ 				   crtc->mode.vdisplay, 0, 0);
+@@ -115,6 +116,7 @@
+ 
+ 	drm_crtc_vblank_off(crtc);
+ 
++	output->hdr_initialized = false;
+ 	virtio_gpu_cmd_set_scanout(vgdev, output->index, 0, 0, 0, 0, 0);
+ 	virtio_gpu_notify(vgdev);
+ }
+@@ -157,7 +159,47 @@
+ 	spin_unlock_irq(&dev->event_lock);
+ }
+ 
++static void virtio_gpu_crtc_atomic_begin(struct drm_crtc *crtc,
++                                         struct drm_atomic_commit *state)
++{
++ struct virtio_gpu_device *vgdev = crtc->dev->dev_private;
++ struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
++ struct drm_connector_state *conn = output->conn.state;
++ struct virtio_gpu_omarchy_hdr cmd = {};
++ const struct hdr_metadata_infoframe *m = NULL;
++ unsigned int i;
++ if (!vgdev->has_omarchy_hdr || !conn) return;
++ cmd.magic = cpu_to_le32(OMARCHY_HDR_MAGIC);
++ cmd.version = cpu_to_le32(1);
++ cmd.scanout_id = cpu_to_le32(output->index);
++ cmd.colorspace = cpu_to_le32(conn->colorspace);
++ if (conn->hdr_output_metadata)
++  m = &((struct hdr_output_metadata *)conn->hdr_output_metadata->data)->hdmi_metadata_type1;
++ if (m) {
++  cmd.eotf = cpu_to_le32(m->eotf);
++  for (i = 0; i < 3; ++i) {
++   cmd.primaries[i*2] = cpu_to_le32(m->display_primaries[i].x);
++   cmd.primaries[i*2+1] = cpu_to_le32(m->display_primaries[i].y);
++  }
++  cmd.whitepoint[0] = cpu_to_le32(m->white_point.x);
++  cmd.whitepoint[1] = cpu_to_le32(m->white_point.y);
++  cmd.min_luminance = cpu_to_le32(m->min_display_mastering_luminance);
++  cmd.max_luminance = cpu_to_le32(m->max_display_mastering_luminance);
++  cmd.max_cll = cpu_to_le32(m->max_cll);
++  cmd.max_fall = cpu_to_le32(m->max_fall);
++ }
++ /* Compare metadata before binding it to this commit's scanout resource. */
++ if (output->hdr_initialized && !memcmp(&cmd, &output->last_hdr, sizeof(cmd))) return;
++ output->last_hdr = cmd;
++ output->hdr_initialized = true;
++ if (crtc->primary->state->fb)
++  cmd.resource_id = cpu_to_le32(gem_to_virtio_gpu_obj(crtc->primary->state->fb->obj[0])->hw_res_handle);
++ virtio_gpu_cmd_omarchy_hdr(vgdev, &cmd);
++ virtio_gpu_notify(vgdev);
++}
++
+ static const struct drm_crtc_helper_funcs virtio_gpu_crtc_helper_funcs = {
++	.atomic_begin = virtio_gpu_crtc_atomic_begin,
+ 	.mode_set_nofb = virtio_gpu_crtc_mode_set_nofb,
+ 	.atomic_check  = virtio_gpu_crtc_atomic_check,
+ 	.atomic_flush  = virtio_gpu_crtc_atomic_flush,
+@@ -238,7 +280,32 @@
+ 	.disable    = virtio_gpu_enc_disable,
+ };
+ 
++static int virtio_gpu_conn_atomic_check(struct drm_connector *connector,
++                                       struct drm_atomic_commit *state)
++{
++ struct drm_connector_state *conn = drm_atomic_get_new_connector_state(state, connector);
++ struct drm_property_blob *blob = conn->hdr_output_metadata;
++ const struct hdr_output_metadata *m;
++ struct drm_crtc_state *crtc;
++ if (blob) {
++  if (blob->length != sizeof(*m)) return -EINVAL;
++  m = blob->data;
++  if (m->metadata_type || m->hdmi_metadata_type1.metadata_type ||
++      (m->hdmi_metadata_type1.eotf != 0 && m->hdmi_metadata_type1.eotf != 2)) return -EINVAL;
++  if (m->hdmi_metadata_type1.eotf == 2 && conn->colorspace != DRM_MODE_COLORIMETRY_BT2020_RGB) return -EINVAL;
++ }
++ if (conn->crtc && (!drm_connector_atomic_hdr_metadata_equal(connector->state, conn) ||
++                   connector->state->colorspace != conn->colorspace)) {
++  crtc = drm_atomic_get_crtc_state(state, conn->crtc);
++  if (IS_ERR(crtc)) return PTR_ERR(crtc);
++  crtc->color_mgmt_changed = true;
++  return drm_atomic_add_affected_planes(state, conn->crtc);
++ }
++ return 0;
++}
++
+ static const struct drm_connector_helper_funcs virtio_gpu_conn_helper_funcs = {
++	.atomic_check = virtio_gpu_conn_atomic_check,
+ 	.get_modes    = virtio_gpu_conn_get_modes,
+ 	.mode_valid   = virtio_gpu_conn_mode_valid,
+ };
+@@ -306,6 +373,17 @@
+ 	if (vgdev->has_edid)
+ 		drm_connector_attach_edid_property(connector);
+ 
++	if (vgdev->has_omarchy_hdr) {
++		drm_connector_attach_hdr_output_metadata_property(connector);
++		ret = drm_mode_create_hdmi_colorspace_property(connector,
++			BIT(DRM_MODE_COLORIMETRY_DEFAULT) | BIT(DRM_MODE_COLORIMETRY_BT2020_RGB));
++		if (ret)
++			return ret;
++		ret = drm_connector_attach_colorspace_property(connector);
++		if (ret)
++			return ret;
++	}
++
+ 	drm_simple_encoder_init(dev, encoder, DRM_MODE_ENCODER_VIRTUAL);
+ 	drm_encoder_helper_add(encoder, &virtio_gpu_enc_helper_funcs);
+ 	encoder->possible_crtcs = 1 << index;
+@@ -325,7 +403,12 @@
+ 	struct virtio_gpu_framebuffer *virtio_gpu_fb;
+ 	int ret;
+ 
+-	if (mode_cmd->pixel_format != DRM_FORMAT_HOST_XRGB8888 &&
++	struct virtio_gpu_device *vgdev = dev->dev_private;
++	bool hdr_format = vgdev->has_omarchy_hdr &&
++		(mode_cmd->pixel_format == DRM_FORMAT_XRGB2101010 ||
++		 mode_cmd->pixel_format == DRM_FORMAT_XBGR2101010);
++
++	if (!hdr_format && mode_cmd->pixel_format != DRM_FORMAT_HOST_XRGB8888 &&
+ 	    mode_cmd->pixel_format != DRM_FORMAT_HOST_ARGB8888)
+ 		return ERR_PTR(-ENOENT);
+ 
+@@ -333,6 +416,12 @@
+ 	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
+ 	if (!obj)
+ 		return ERR_PTR(-EINVAL);
++
++	/* 10-bit scanout requires a VirGL texture; 2D/dumb transport stays 8-bit. */
++	if (hdr_format && gem_to_virtio_gpu_obj(obj)->dumb) {
++		drm_gem_object_put(obj);
++		return ERR_PTR(-EINVAL);
++	}
+ 
+ 	virtio_gpu_fb = kzalloc_obj(*virtio_gpu_fb);
+ 	if (virtio_gpu_fb == NULL) {
+diff --git a/virtgpu_drv.c b/virtgpu_drv.c
+--- a/virtgpu_drv.c
++++ b/virtgpu_drv.c
+@@ -167,6 +167,7 @@
+ 	VIRTIO_GPU_F_RESOURCE_BLOB,
+ 	VIRTIO_GPU_F_CONTEXT_INIT,
+ 	VIRTIO_GPU_F_BLOB_ALIGNMENT,
++	VIRTIO_GPU_F_OMARCHY_HDR,
+ };
+ static struct virtio_driver virtio_gpu_driver = {
+ 	.feature_table = features,
+diff --git a/virtgpu_drv.h b/virtgpu_drv.h
+--- a/virtgpu_drv.h
++++ b/virtgpu_drv.h
+@@ -31,6 +31,7 @@
+ #include <linux/virtio_ids.h>
+ #include <linux/virtio_config.h>
+ #include <linux/virtio_gpu.h>
++#include "omarchy_hdr.h"
+ 
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_drv.h>
+@@ -175,6 +176,8 @@
+ };
+ 
+ struct virtio_gpu_output {
++	struct virtio_gpu_omarchy_hdr last_hdr;
++	bool hdr_initialized;
+ 	int index;
+ 	struct drm_crtc crtc;
+ 	struct drm_connector conn;
+@@ -252,6 +255,7 @@
+ 	struct ida	ctx_id_ida;
+ 
+ 	bool has_virgl_3d;
++	bool has_omarchy_hdr;
+ 	bool has_edid;
+ 	bool has_indirect;
+ 	bool has_resource_assign_uuid;
+@@ -330,6 +334,8 @@
+ void virtio_gpu_array_put_free_work(struct work_struct *work);
+ 
+ /* virtgpu_vq.c */
++void virtio_gpu_cmd_omarchy_hdr(struct virtio_gpu_device *vgdev,
++                              const struct virtio_gpu_omarchy_hdr *metadata);
+ int virtio_gpu_alloc_vbufs(struct virtio_gpu_device *vgdev);
+ void virtio_gpu_free_vbufs(struct virtio_gpu_device *vgdev);
+ void virtio_gpu_cmd_create_resource(struct virtio_gpu_device *vgdev,
+diff --git a/virtgpu_kms.c b/virtgpu_kms.c
+--- a/virtgpu_kms.c
++++ b/virtgpu_kms.c
+@@ -166,6 +166,8 @@
+ 	if (virtio_has_feature(vgdev->vdev, VIRTIO_GPU_F_VIRGL))
+ 		vgdev->has_virgl_3d = true;
+ #endif
++	vgdev->has_omarchy_hdr = vgdev->has_virgl_3d &&
++		virtio_has_feature(vgdev->vdev, VIRTIO_GPU_F_OMARCHY_HDR);
+ 	if (virtio_has_feature(vgdev->vdev, VIRTIO_GPU_F_EDID))
+ 		vgdev->has_edid = true;
+ 
+diff --git a/virtgpu_plane.c b/virtgpu_plane.c
+--- a/virtgpu_plane.c
++++ b/virtgpu_plane.c
+@@ -38,6 +38,10 @@
+ 	DRM_FORMAT_HOST_XRGB8888,
+ };
+ 
++static const uint32_t virtio_gpu_hdr_formats[] = {
++	DRM_FORMAT_XRGB8888, DRM_FORMAT_XRGB2101010, DRM_FORMAT_XBGR2101010,
++};
++
+ static const uint32_t virtio_gpu_cursor_formats[] = {
+ 	DRM_FORMAT_HOST_ARGB8888,
+ };
+@@ -260,8 +264,12 @@
+ 		return;
+ 	}
+ 
+-	if (!drm_atomic_helper_damage_merged(old_state, plane->state, &rect))
++	if (vgdev->has_omarchy_hdr && output->crtc.state->color_mgmt_changed) {
++		drm_rect_init(&rect, plane->state->src_x >> 16, plane->state->src_y >> 16,
++			      plane->state->src_w >> 16, plane->state->src_h >> 16);
++	} else if (!drm_atomic_helper_damage_merged(old_state, plane->state, &rect)) {
+ 		return;
++	}
+ 
+ 	bo = gem_to_virtio_gpu_obj(plane->state->fb->obj[0]);
+ 	if (bo->dumb)
+@@ -594,8 +602,8 @@
+ 		nformats = ARRAY_SIZE(virtio_gpu_cursor_formats);
+ 		funcs = &virtio_gpu_cursor_helper_funcs;
+ 	} else {
+-		formats = virtio_gpu_formats;
+-		nformats = ARRAY_SIZE(virtio_gpu_formats);
++		formats = vgdev->has_omarchy_hdr ? virtio_gpu_hdr_formats : virtio_gpu_formats;
++		nformats = vgdev->has_omarchy_hdr ? ARRAY_SIZE(virtio_gpu_hdr_formats) : ARRAY_SIZE(virtio_gpu_formats);
+ 		funcs = &virtio_gpu_primary_helper_funcs;
+ 	}
+ 
+diff --git a/virtgpu_trace.h b/virtgpu_trace.h
+--- a/virtgpu_trace.h
++++ b/virtgpu_trace.h
+@@ -52,5 +52,5 @@
+ #endif
+ 
+ #undef TRACE_INCLUDE_PATH
+-#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/virtio
++#define TRACE_INCLUDE_PATH .
+ #include <trace/define_trace.h>
+diff --git a/virtgpu_vq.c b/virtgpu_vq.c
+--- a/virtgpu_vq.c
++++ b/virtgpu_vq.c
+@@ -645,6 +645,16 @@
+ 		virtio_gpu_cleanup_object(bo);
+ }
+ 
++void virtio_gpu_cmd_omarchy_hdr(struct virtio_gpu_device *vgdev,
++                              const struct virtio_gpu_omarchy_hdr *metadata)
++{
++ struct virtio_gpu_vbuffer *vbuf;
++ struct virtio_gpu_omarchy_hdr *cmd = virtio_gpu_alloc_cmd(vgdev, &vbuf, sizeof(*cmd));
++ *cmd = *metadata;
++ cmd->hdr.type = cpu_to_le32(VIRTIO_GPU_CMD_OMARCHY_HDR);
++ virtio_gpu_queue_ctrl_buffer(vgdev, vbuf);
++}
++
+ void virtio_gpu_cmd_set_scanout(struct virtio_gpu_device *vgdev,
+ 				uint32_t scanout_id, uint32_t resource_id,
+ 				uint32_t width, uint32_t height,
