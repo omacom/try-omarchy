@@ -10,6 +10,9 @@ Three pieces update on their own schedules:
 
 Replacing the app never touches a VM's disk. The guest updates itself.
 
+See [runtime validation](runtime-validation.md) for the tested boot, upgrade,
+graphics and host-integration paths, plus the remaining interactive checks.
+
 ## The guest package
 
 Every Mac integration in the guest is the `try-omarchy` pacman package
