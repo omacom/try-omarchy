@@ -70,7 +70,7 @@ struct ShellGuestPresentationTests {
             record: try record(#"{"protocol":1,"omarchy":"4.0.0-1","channel":"edge","package":"0.1.0-1"}"#),
             bundledPackage: "0.2.0-1")
         #expect(!value.isCurrent)
-        #expect(value.detail == "Omarchy 4.0.0-1 · edge · integrations 0.1.0-1 · updates to 0.2.0-1 on next start")
+        #expect(value.lines == ["Omarchy 4.0.0-1 · edge", "Integrations 0.1.0-1 → 0.2.0-1 next launch"])
     }
 
     @Test("a current or newer guest is current; no report yet is neutral")
@@ -86,6 +86,6 @@ struct ShellGuestPresentationTests {
             record: try record(#"{"protocol":1,"package":"0.1.0-1","install":{"requested":"x","result":"failed","message":"offline"}}"#),
             bundledPackage: "0.1.0-1")
         #expect(!value.isCurrent)
-        #expect(value.detail.hasSuffix("last update failed: offline"))
+        #expect(value.lines.last == "Integration update failed: offline")
     }
 }

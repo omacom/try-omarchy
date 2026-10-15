@@ -131,8 +131,10 @@ enum ShellGuestStatusBridge {
 
 /// What the start menu says about an upstream-shell VM's guest.
 struct ShellGuestPresentation: Equatable {
-    let detail: String
+    let lines: [String]
     let isCurrent: Bool
+
+    var detail: String { lines.joined(separator: " · ") }
 
     /// True when this app was built around an upstream-shell factory.
     static func isShellApp(bundle: Bundle = .main) -> Bool {
@@ -158,22 +160,21 @@ struct ShellGuestPresentation: Equatable {
 
     static func make(record: ShellGuestStatusRecord?, bundledPackage: String?) -> Self {
         guard let report = record?.report else {
-            return Self(detail: "Versions appear after Omarchy starts", isCurrent: true)
+            return Self(lines: ["Versions appear after Omarchy starts"], isCurrent: true)
         }
-        var parts: [String] = []
-        if let omarchy = report.omarchy { parts.append("Omarchy \(omarchy)") }
-        if let channel = report.channel { parts.append(channel) }
-        if let package = report.package { parts.append("integrations \(package)") }
+        let system = [report.omarchy.map { "Omarchy \($0)" }, report.channel].compactMap { $0 }
+        var integrations = report.package.map { "Integrations \($0)" }
         var current = true
         if let bundledPackage, let package = report.package,
            PacmanVersion.compare(package, bundledPackage) == .orderedAscending {
             current = false
-            parts.append("updates to \(bundledPackage) on next start")
+            integrations = "Integrations \(package) → \(bundledPackage) next launch"
         }
         if let install = report.install, install.result == "failed" {
             current = false
-            parts.append("last update failed: \(install.message)")
+            integrations = "Integration update failed: \(install.message)"
         }
-        return Self(detail: parts.isEmpty ? "No version reported" : parts.joined(separator: " · "), isCurrent: current)
+        let lines = [system.isEmpty ? nil : system.joined(separator: " · "), integrations].compactMap { $0 }
+        return Self(lines: lines.isEmpty ? ["No version reported"] : lines, isCurrent: current)
     }
 }

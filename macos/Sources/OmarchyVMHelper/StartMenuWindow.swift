@@ -899,6 +899,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 symbolName: "arrow.triangle.2.circlepath",
                 title: "Omarchy",
                 detail: guest.detail,
+                compactDetailLines: guest.lines.count > 1 ? guest.lines : nil,
                 granted: guest.isCurrent,
                 statusLabels: ("\u{25cf}  Current", "\u{25cb}  Update pending"),
                 actions: [],
