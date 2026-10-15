@@ -389,7 +389,11 @@ ln -sfn ../run/systemd/resolve/stub-resolv.conf "$target/etc/resolv.conf"
 # --- provenance --------------------------------------------------------------
 log "Recording provenance"
 arch-chroot "$target" pacman -Q | LC_ALL=C sort >"$state/packages.txt"
-printf '%s\n' "${unavailable[@]}" >"$state/unavailable.txt"
+if ((${#unavailable[@]})); then
+  printf '%s\n' "${unavailable[@]}" >"$state/unavailable.txt"
+else
+  : >"$state/unavailable.txt"
+fi
 omarchy_version=$(awk -v p="$runtime_package" '$1 == p { print $2 }' "$state/packages.txt")
 kernel_version=$(awk -v k="$kernel" '$1 == k { print $2 }' "$state/packages.txt")
 
@@ -406,6 +410,11 @@ rm -rf "$target/root/.cache" "$target/var/tmp/"*
 # Omarchy's factory reset restores @factory (orchestrator create_factory_snapshot).
 btrfs -q subvolume snapshot -r "$top/@" "$top/@factory"
 
+# Discard freed blocks (the package downloads and build churn) so the loop
+# file is sparse where the filesystems are empty: the compressed image is
+# smaller and a VM disk cloned from it allocates only what is in use.
+fstrim "$target/boot" || true
+fstrim "$top" || true
 sync
 for ((index = ${#mounted[@]} - 1; index >= 0; index--)); do
   umount -R "${mounted[index]}"

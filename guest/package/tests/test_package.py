@@ -103,16 +103,22 @@ class SshAccess(unittest.TestCase):
         cmdline = tmp / "cmdline"
         cmdline.write_text(options + "\n")
         log = tmp / "log"
-        fake = tmp / "systemctl"
-        fake.write_text(f"#!/bin/sh\necho \"$@\" >>{log}\n")
-        fake.chmod(0o755)
-        run(LIB / "ssh-access", env={"TRY_OMARCHY_HOST_CMDLINE": str(cmdline), "TRY_OMARCHY_SYSTEMCTL": str(fake)})
-        return log.read_text() if log.exists() else ""
+        for name in ("systemctl", "ufw"):
+            fake = tmp / name
+            fake.write_text(f"#!/bin/sh\necho {name} \"$@\" >>{log}\n")
+            fake.chmod(0o755)
+        run(LIB / "ssh-access", env={"TRY_OMARCHY_HOST_CMDLINE": str(cmdline),
+                                     "TRY_OMARCHY_SYSTEMCTL": str(tmp / "systemctl"), "TRY_OMARCHY_UFW": str(tmp / "ufw")})
+        return [line for line in log.read_text().splitlines() if not line.startswith("ufw delete")] if log.exists() else []
 
-    def test_starts_sshd_only_when_forwarded(self):
-        self.assertEqual(self.check("omarchy.qemu_virgl=1 tryomarchy.ssh_access=1"), "start --no-block sshd.service\n")
-        self.assertEqual(self.check("omarchy.qemu_virgl=1"), "")
-        self.assertEqual(self.check(""), "")
+    def test_starts_sshd_and_opens_the_firewall_only_when_forwarded(self):
+        self.assertEqual(self.check("omarchy.qemu_virgl=1 tryomarchy.ssh_access=1"), [
+            "ufw allow in proto tcp from 10.0.2.2 to any port 22 comment try-omarchy-ssh",
+            "systemctl start --no-block sshd.service"])
+        self.assertEqual(self.check("tryomarchy.ssh_access=1 tryomarchy.ssh_from=any")[0],
+                         "ufw allow in proto tcp from any to any port 22 comment try-omarchy-ssh")
+        self.assertEqual(self.check("omarchy.qemu_virgl=1"), [])
+        self.assertEqual(self.check(""), [])
 
 
 class UserSetup(unittest.TestCase):

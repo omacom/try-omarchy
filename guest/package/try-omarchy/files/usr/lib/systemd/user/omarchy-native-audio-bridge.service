@@ -2,6 +2,9 @@
 Description=Expose macOS audio devices to Omarchy
 After=pipewire.service pipewire-pulse.service wireplumber.service
 Wants=pipewire.service pipewire-pulse.service wireplumber.service
+# The port is granted to the active session by logind (uaccess), which can
+# land after the user manager starts this unit: keep retrying.
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/usr/bin/omarchy-native-audio-bridge

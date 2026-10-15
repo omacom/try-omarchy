@@ -26,6 +26,16 @@ if host_option("omarchy.qemu_virgl=1") then
   hl.config({ cursor = { invisible = true } })
   o.exec_on_start("/usr/bin/omarchy-native-display-sync")
   hl.on("config.reloaded", function()
+    -- Omarchy hides the pointer while a session starts and then restores the
+    -- cursor settings it captured (default/hypr/startup-cursor.lua), which
+    -- can predate this file. Keep the guest cursor hidden in that capture,
+    -- and once more after its 15-second reveal fallback.
+    if type(omarchy_startup_cursor) == "table" and type(omarchy_startup_cursor.config) == "table" then
+      omarchy_startup_cursor.config.invisible = true
+    end
+    hl.timer(function()
+      hl.config({ cursor = { invisible = true } })
+    end, { timeout = 16000, type = "oneshot" })
     hl.exec_cmd("/usr/bin/omarchy-native-display-sync --once")
   end)
 end

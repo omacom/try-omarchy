@@ -143,7 +143,8 @@ new_vars() { # destination
   # edk2's variable store for the aarch64 virt machine is a zeroed 64 MiB
   # flash; the firmware formats it on first boot.
   rm -f "$1"
-  /usr/bin/mkfile -n 64m "$1" || fail "could not create the UEFI variable store"
+  /bin/dd if=/dev/null of="$1" bs=1 count=0 seek=67108864 2>/dev/null || fail "could not create the UEFI variable store"
+  chmod 600 "$1"
 }
 
 work_dir=$(mktemp -d '/private/tmp/omarchy-shell.XXXXXX') || fail "could not create a private temporary directory"
@@ -241,8 +242,10 @@ network_forwards=${OMARCHY_QEMU_GPU_PORT_FORWARDS:-}
 [[ $QEMU_NETWORK_MODE == nat ]] || network_forwards=
 qemu_port_forwarding_configure "$network_forwards" || fail "$QEMU_PORT_FORWARDING_ERROR"
 qemu_netdev=$QEMU_PORT_FORWARDING_NETDEV
-if ((QEMU_PORT_FORWARDING_ENABLES_SSH)) || [[ $QEMU_NETWORK_MODE == bridged && ${QEMU_NETWORK_SSH:-0} == 1 ]]; then
+if ((QEMU_PORT_FORWARDING_ENABLES_SSH)); then
   host_options+=" tryomarchy.ssh_access=1"
+elif [[ $QEMU_NETWORK_MODE == bridged && ${QEMU_NETWORK_SSH:-0} == 1 ]]; then
+  host_options+=" tryomarchy.ssh_access=1 tryomarchy.ssh_from=any"
 fi
 
 keyboard=$("$native_bridge" --host-keyboard-geometry) || fail "cannot detect the Mac keyboard geometry"

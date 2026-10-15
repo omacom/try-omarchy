@@ -1,7 +1,7 @@
 [Unit]
 Description=Start SSH when the Try Omarchy launcher forwards it
 ConditionPathExists=/run/try-omarchy/cmdline
-After=try-omarchy-host-config.service network.target
+After=try-omarchy-host-config.service network.target ufw.service
 
 [Service]
 Type=oneshot

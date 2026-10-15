@@ -1,10 +1,34 @@
 #!/bin/bash
-# Start sshd for this boot only when the launcher forwarded a loopback port to
-# guest port 22 (tryomarchy.ssh_access=1). Nothing is enabled persistently.
+# Start sshd for this boot only when the launcher forwards SSH
+# (tryomarchy.ssh_access=1), and open Omarchy's firewall for it: from the NAT
+# gateway QEMU forwards through (10.0.2.2), or from anywhere when the VM is
+# bridged onto the network (tryomarchy.ssh_from=any). Without the token the
+# rules are removed again; sshd is never enabled persistently.
 set -euo pipefail
+
+systemctl=${TRY_OMARCHY_SYSTEMCTL:-systemctl}
+ufw=${TRY_OMARCHY_UFW:-ufw}
+enabled=0 from=10.0.2.2
 read -r -a options <"${TRY_OMARCHY_HOST_CMDLINE:-/run/try-omarchy/cmdline}" || true
 for option in ${options[@]+"${options[@]}"}; do
-  if [[ $option == tryomarchy.ssh_access=1 ]]; then
-    exec ${TRY_OMARCHY_SYSTEMCTL:-systemctl} start --no-block sshd.service
-  fi
+  case $option in
+    tryomarchy.ssh_access=1) enabled=1 ;;
+    tryomarchy.ssh_from=any) from=any ;;
+  esac
 done
+
+nat_rule=(proto tcp from 10.0.2.2 to any port 22)
+any_rule=(proto tcp from any to any port 22)
+if command -v "$ufw" >/dev/null; then
+  "$ufw" delete allow in "${nat_rule[@]}" >/dev/null 2>&1 || true
+  "$ufw" delete allow in "${any_rule[@]}" >/dev/null 2>&1 || true
+  if ((enabled)); then
+    if [[ $from == any ]]; then
+      "$ufw" allow in "${any_rule[@]}" comment try-omarchy-ssh >/dev/null
+    else
+      "$ufw" allow in "${nat_rule[@]}" comment try-omarchy-ssh >/dev/null
+    fi
+  fi
+fi
+((enabled)) || exit 0
+exec $systemctl start --no-block sshd.service
