@@ -1,5 +1,7 @@
 [Unit]
 Description=Expose the macOS camera to Omarchy over virtio
+PartOf=graphical-session.target
+After=graphical-session.target
 # The camera devices are granted to the active session by logind (uaccess),
 # which can land after the user manager starts this unit: keep retrying.
 StartLimitIntervalSec=0
@@ -10,4 +12,4 @@ Restart=always
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

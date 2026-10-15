@@ -18,6 +18,15 @@ post_install() {
 }
 
 post_upgrade() {
+  # Earlier packages started these in every user manager, including SSH and
+  # owner provisioning, before logind granted the desktop's device access.
+  # Rebuild enabled global links for their new graphical-session target;
+  # leave disabled or masked units alone.
+  for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service; do
+    if [ "$(systemctl --global is-enabled "$unit" 2>/dev/null)" = enabled ]; then
+      systemctl --global reenable "$unit" >/dev/null 2>&1 || true
+    fi
+  done
   # A unit added in a later release is enabled here, by name, the first time
   # an upgrade brings it (systemctl preset <unit>). None yet.
   _reload_logind

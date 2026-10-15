@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Contract tests for the try-omarchy guest package (guest/package)."""
 
+import configparser
 import importlib.machinery
 import importlib.util
 import json
@@ -69,6 +70,44 @@ class PackageLayout(unittest.TestCase):
                 if program.startswith(("/usr/bin/rm", "/usr/bin/python3")):
                     continue
                 self.assertTrue((FILES / program.lstrip("/")).is_file(), f"{unit.name}: {program}")
+
+
+class GraphicalBridges(unittest.TestCase):
+    def test_desktop_bridges_start_and_stop_with_the_graphical_session(self):
+        for bridge in ("audio", "camera", "clipboard"):
+            unit = configparser.ConfigParser(interpolation=None, strict=False)
+            unit.read(FILES / f"usr/lib/systemd/user/omarchy-native-{bridge}-bridge.service")
+            self.assertIn("graphical-session.target", unit["Unit"]["PartOf"].split())
+            self.assertIn("graphical-session.target", unit["Unit"]["After"].split())
+            self.assertEqual(unit["Install"]["WantedBy"], "graphical-session.target")
+
+    def test_upgrade_moves_enabled_bridges_and_keeps_disabled_or_masked_choices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            log = tmp / "calls"
+            systemctl = tmp / "systemctl"
+            systemctl.write_text('''#!/bin/bash
+printf '%s\\n' "$*" >>"$TEST_LOG"
+if [[ $1 == --global && $2 == is-enabled ]]; then
+  case $3 in
+    *audio*) echo "$AUDIO_STATE" ;;
+    *camera*) echo "$CAMERA_STATE" ;;
+  esac
+fi
+''')
+            systemctl.chmod(0o755)
+            for audio, camera in (("enabled", "disabled"), ("masked", "enabled")):
+                log.write_text("")
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade', "bash",
+                                str(PACKAGE / "try-omarchy.install")], check=True, env={
+                    **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log),
+                    "AUDIO_STATE": audio, "CAMERA_STATE": camera,
+                })
+                migrated = [line for line in log.read_text().splitlines() if "reenable" in line]
+                expected = [f"--global reenable omarchy-native-{bridge}-bridge.service"
+                            for bridge, state in (("audio", audio), ("camera", camera))
+                            if state == "enabled"]
+                self.assertEqual(migrated, expected)
 
 
 class HostConfig(unittest.TestCase):

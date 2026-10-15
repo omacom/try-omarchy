@@ -62,7 +62,10 @@ know about. Either side can therefore be updated first.
 - The user-facing ports (audio, clipboard, camera, settings) and the camera
   loopback device carry `TAG+="uaccess"`. logind grants them to whoever holds
   the active session. Omarchy's owner provisioning does not add the owner to
-  `audio`, `video` or `users`.
+  `audio`, `video` or `users`. Audio, camera and clipboard bridges follow
+  `graphical-session.target`, so provisioning and SSH user managers do not
+  compete with the desktop for the host ports. Package upgrades move enabled
+  global audio and camera units to that target, preserving disabled units.
 - With SSH forwarded, `try-omarchy-ssh-access` starts sshd for that boot. It
   also allows port 22 through Omarchy's ufw firewall: from the NAT gateway
   `10.0.2.2`, or from anywhere when the VM is bridged
