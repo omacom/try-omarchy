@@ -43,7 +43,7 @@ struct StorageMarkerAgreementTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("qemu-persistent-storage.sh")
+            .appendingPathComponent("run-qemu-gpu.sh")
 
         for fixture in Self.fixtures {
             let container = try temporaryContainer()
@@ -85,7 +85,7 @@ struct StorageMarkerAgreementTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("qemu-persistent-storage.sh")
+            .appendingPathComponent("run-qemu-gpu.sh")
 
         let container = try temporaryContainer()
         defer { try? FileManager.default.removeItem(at: container) }
@@ -102,13 +102,13 @@ struct StorageMarkerAgreementTests {
         #expect(try launcherAccepts(marker: marker, library: library) == false)
     }
 
-    /// Sources the real library and asks it about this exact file.
+    /// Loads the launcher's own marker check and asks it about this exact file.
     private func launcherAccepts(marker: URL, library: URL) throws -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [
             "-c",
-            #"source "$1" >/dev/null 2>&1; _qps_validate_root_marker "$2" >/dev/null 2>&1"#,
+            #"eval "$(sed -n '/^valid_root_marker() {/,/^}/p' "$1")"; valid_root_marker "$2""#,
             "bash",
             library.path,
             marker.path,

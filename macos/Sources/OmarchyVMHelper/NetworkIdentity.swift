@@ -28,13 +28,9 @@ struct VMNetworkIdentityAccess {
         "02:" + (0..<5).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined(separator: ":")
     }
 
-    static func operation(_ arguments: [String], root: URL, resources: URL,
-                          environment: [String: String], bundleIdentity: String?) throws -> String {
-        guard let key = QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: environment, bundleIdentity: bundleIdentity
-        ) else {
-            throw HelperError.io("The VM workspace identity is unavailable.")
-        }
+    /// The storage folder holds one VM, whose identity is always `current`.
+    static func operation(_ arguments: [String], root: URL, resources: URL) throws -> String {
+        let key = "current"
         let process = Process()
         let output = Pipe()
         let errors = Pipe()

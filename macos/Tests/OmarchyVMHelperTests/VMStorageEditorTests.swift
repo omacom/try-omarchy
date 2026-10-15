@@ -22,12 +22,11 @@ struct VMStorageEditorTests {
     }
     private func savedVM() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("vm-management-\(UUID().uuidString)").resolvingSymlinksInPath()
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("disks/current"), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let identity = String(repeating: "a", count: 64)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("shell"), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let files = [
             StorageLocationPolicy.rootMarkerName: StorageLocationPolicy.rootMarkerContent,
-            "disks/current/rootfs.ext4": "data",
-            "disks/current/metadata.json": "{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":2,\"sourceRootfs\":{\"bytes\":4,\"sha256\":\"\(identity)\"}}"
+            "shell/disk.img": "data",
+            "shell/lock": "",
         ]
         for (name, content) in files {
             let file = root.appendingPathComponent(name)

@@ -16,18 +16,14 @@ enum VMResetPhase: String, CaseIterable, Sendable {
 
 enum VMLaunchPhase: String, CaseIterable, Sendable {
     case checking
-    case inspecting
     case preparing
-    case verifying
     case finishing
     case starting
 
     var buttonTitle: String {
         switch self {
         case .checking: "Checking VM…"
-        case .inspecting: "Checking migrations…"
         case .preparing: "Preparing image…"
-        case .verifying: "Verifying image…"
         case .finishing: "Finishing setup…"
         case .starting: "Starting Omarchy…"
         }

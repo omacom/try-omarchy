@@ -9,60 +9,27 @@ import Testing
 /// picker that accepts folders the launcher then refuses.
 @Suite("Storage location native contract")
 struct StorageLocationContractTests {
-    @Test("the marker filename matches the one the launcher writes")
-    func markerFilename() throws {
-        let library = try source(named: "qemu-persistent-storage.sh")
-        #expect(library.contains("qps_marker=\"$qps_root/\(StorageLocationPolicy.rootMarkerName)\""))
-    }
-
-    @Test("the marker token matches the one the launcher validates")
-    func markerToken() throws {
-        let library = try source(named: "qemu-persistent-storage.sh")
-        #expect(
-            library.contains(
-                "QEMU_PERSISTENT_STORAGE_ROOT_MARKER='\(StorageLocationPolicy.rootMarkerContent)'"
-            )
-        )
-    }
-
-    @Test("the launcher still enforces the marker rules the picker mirrors")
-    func markerRules() throws {
-        let library = try source(named: "qemu-persistent-storage.sh")
-
-        // Content equality, checked against the token variable.
-        #expect(library.contains("[[ $(<\"$qps_marker\") == \"$QEMU_PERSISTENT_STORAGE_ROOT_MARKER\" ]]"))
-        // Type, ownership, and mode, via the shared file assertion.
-        #expect(library.contains("_qps_assert_private_regular_file \"$qps_marker\" 'state-root marker'"))
-        #expect(library.contains("[[ $(_qps_permissions \"$qps_file\") == 600 ]]"))
-        #expect(library.contains("[[ $(_qps_owner \"$qps_file\") == $(id -u) ]]"))
+    @Test("the marker filename and token match the ones the launcher writes")
+    func markerFilenameAndToken() throws {
+        let launcher = try source(named: "run-qemu-gpu.sh")
+        #expect(launcher.contains("root_marker=\"$state_root/\(StorageLocationPolicy.rootMarkerName)\""))
+        #expect(launcher.contains("printf '%s\\n' \(StorageLocationPolicy.rootMarkerContent) >\"$root_marker\""))
+        #expect(launcher.contains("$(<\"$1\") == \(StorageLocationPolicy.rootMarkerContent) ]]"))
     }
 
     @Test("the default state root the launcher falls back to is still the documented one")
     func defaultStateRoot() throws {
-        let library = try source(named: "qemu-persistent-storage.sh")
-        #expect(
-            library.contains(
-                "qps_configured_root=\"$HOME/Library/Application Support/Try Omarchy/VM/v1\""
-            )
-        )
-        #expect(library.contains("if [[ -n ${\(StorageLocationPolicy.environmentKey):-} ]]; then"))
-    }
-
-    @Test("Swift and the launcher agree on the boot-recovery consent handshake")
-    func bootRecoveryConsentHandshake() throws {
         let launcher = try source(named: "run-qemu-gpu.sh")
         #expect(launcher.contains(
-            "boot_recovery_consent_required_status=\(VMExitPresentationDecision.bootRecoveryConsentRequiredStatus)"
+            "state_root=${\(StorageLocationPolicy.environmentKey):-\"$HOME/Library/Application Support/Try Omarchy/VM/v1\"}"
         ))
-        #expect(launcher.contains(
-            "boot_recovery_failed_status=\(VMExitPresentationDecision.bootRecoveryFailedStatus)"
-        ))
-        #expect(launcher.contains(
-            "case ${\(QEMUGPURuntimeEnvironment.bootRecoveryConsentKey):-0} in"
-        ))
-        #expect(launcher.contains(
-            "[[ ${\(QEMUGPURuntimeEnvironment.bootRecoveryConsentKey):-0} != 1 ]]"
-        ))
+    }
+
+    @Test("the launcher refuses the same broad storage roots as the picker")
+    func unsafeRoots() throws {
+        let launcher = try source(named: "run-qemu-gpu.sh")
+        let roots = StorageLocationPolicy.unsafeRoots.subtracting(["/"]).sorted().joined(separator: " | ")
+        #expect(launcher.contains("  '' | \(roots)) fail \"refusing an unsafe VM storage location"))
     }
 
     private func source(named relativePath: String) throws -> String {

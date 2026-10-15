@@ -94,7 +94,7 @@ def write_record(directory, name, record):
 
 
 def identity(action, root, key="current", expected=None, proposed=None):
-    if not re.fullmatch(r"current|[0-9a-f]{64}", key):
+    if key != "current":
         raise IdentityError("Invalid VM identity key.")
     if action not in ("show", "check", "ensure", "replace"):
         raise IdentityError("Invalid identity operation.")
@@ -105,11 +105,11 @@ def identity(action, root, key="current", expected=None, proposed=None):
             if action == "show":
                 return ""
             raise
-        # Regeneration shares the launcher's flock, excluding running VMs and
-        # concurrent launches. ensure is called with the launcher lock held.
+        # Regeneration shares the launcher's lock on shell/lock, excluding a
+        # running VM and concurrent launches. ensure is called with it held.
         if action in ("check", "replace"):
-            locks = private_fd(stack, "locks", root_fd, directory=True)
-            workspace = private_fd(stack, key + ".lock", locks)
+            vm = private_fd(stack, "shell", root_fd, directory=True)
+            workspace = private_fd(stack, "lock", vm)
             try:
                 fcntl.flock(workspace, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:

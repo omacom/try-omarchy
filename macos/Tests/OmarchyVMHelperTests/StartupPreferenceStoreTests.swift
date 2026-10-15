@@ -131,14 +131,10 @@ struct StartupPreferenceStoreTests {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         try initializeWorkspace(root)
-        let diskDirectory = root.appendingPathComponent("disks/current")
-        try FileManager.default.createDirectory(at: diskDirectory, withIntermediateDirectories: true,
+        let shell = root.appendingPathComponent("shell")
+        try FileManager.default.createDirectory(at: shell, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        let identity = String(repeating: "a", count: 64)
-        let metadata = diskDirectory.appendingPathComponent("metadata.json")
-        try Data("{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":2,\"sourceRootfs\":{\"bytes\":1,\"sha256\":\"\(identity)\"}}\n".utf8).write(to: metadata)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metadata.path)
-        let disk = diskDirectory.appendingPathComponent("rootfs.ext4")
+        let disk = shell.appendingPathComponent("disk.img")
         try Data([0]).write(to: disk)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: disk.path)
         let store = StartupPreferenceStore()

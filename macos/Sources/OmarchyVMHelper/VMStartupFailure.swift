@@ -14,7 +14,7 @@ enum VMStartupFailure {
         // Prefer the launcher's final explanation over those earlier lines.
         let lines = standardError.components(separatedBy: .newlines)
         let explanation = lines.last {
-            $0.hasPrefix("run-qemu-gpu: ") || $0.hasPrefix("qemu-persistent-storage: ")
+            $0.hasPrefix("run-qemu-gpu: ")
         }
         let diagnostic = String((explanation ?? standardError).suffix(1_800))
             .unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) || $0 == "\n" || $0 == "\t" }

@@ -129,11 +129,8 @@ int main(void)
     def test_runner_exports_helper_geometry(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn("--host-keyboard-geometry", runner)
-        self.assertIn(
-            'keyboard_kernel_argument=" tryomarchy.keyboard=$host_keyboard_geometry"',
-            runner,
-        )
-        self.assertIn("export TRYOMARCHY_KEYBOARD=$host_keyboard_geometry", runner)
+        self.assertIn('host_options+=" tryomarchy.keyboard=$keyboard"', runner)
+        self.assertIn("export TRYOMARCHY_KEYBOARD=$keyboard", runner)
         self.assertNotIn("/usr/bin/swift", runner)
 
 

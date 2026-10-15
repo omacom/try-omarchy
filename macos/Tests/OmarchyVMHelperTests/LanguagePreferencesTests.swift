@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Initial guest language")
 struct LanguageLaunchConfigurationTests {
-    @Test("the primary Mac language chooses a generated locale", arguments: [
+    @Test("the primary Mac language chooses a locale the guest seeds", arguments: [
         (["en-US"], "en_US.UTF-8"),
         (["en-TW", "zh-Hant"], "en_US.UTF-8"),
         (["en-KR", "ko"], "en_US.UTF-8"),
@@ -14,83 +14,31 @@ struct LanguageLaunchConfigurationTests {
         (["zh-Hans"], "zh_CN.UTF-8"),
         (["zh-CN"], "zh_CN.UTF-8"),
         (["zh-SG"], "zh_CN.UTF-8"),
+        (["ko"], "ko_KR.UTF-8"),
+        (["ko-Kore-KR"], "ko_KR.UTF-8"),
+        (["ja-JP"], "ja_JP.UTF-8"),
+        (["ja-Jpan-JP"], "ja_JP.UTF-8"),
         (["en-US", "ja-JP"], "en_US.UTF-8"),
+        (["fr-FR"], "en_US.UTF-8"),
         ([], "en_US.UTF-8"),
     ])
     func hostLanguage(languages: [String], expected: String) {
-        for version in [2, 3, 4] {
-            let commandLine = "root=/dev/vda rw tryomarchy.locale_support=\(version)\n"
-            let configuration = LanguageLaunchConfiguration.make(
-                baseEnvironment: [LanguageLaunchConfiguration.environmentKey: "untrusted", "PATH": "/usr/bin"],
-                preferredLanguages: languages,
-                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
-                supportsKorean: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresKorean: true),
-                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
-            )
-            #expect(configuration.environment[LanguageLaunchConfiguration.environmentKey] == expected)
-            #expect(configuration.environment["PATH"] == "/usr/bin")
-        }
+        let configuration = LanguageLaunchConfiguration.make(
+            baseEnvironment: [LanguageLaunchConfiguration.environmentKey: "untrusted", "PATH": "/usr/bin"],
+            preferredLanguages: languages
+        )
+        #expect(configuration.environment[LanguageLaunchConfiguration.environmentKey] == expected)
+        #expect(configuration.environment["PATH"] == "/usr/bin")
     }
 
-    @Test("Korean requires a guest that generates its locale", arguments: ["ko", "ko-KR", "ko-Kore-KR"])
-    func koreanLanguage(language: String) {
-        for (version, expected) in [(2, "en_US.UTF-8"), (3, "ko_KR.UTF-8"), (4, "ko_KR.UTF-8")] {
-            let commandLine = "root=/dev/vda rw tryomarchy.locale_support=\(version)\n"
-            let configuration = LanguageLaunchConfiguration.make(
-                baseEnvironment: [LanguageLaunchConfiguration.environmentKey: "untrusted"],
-                preferredLanguages: [language],
-                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
-                supportsKorean: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresKorean: true),
-                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
-            )
-            #expect(configuration.environment[LanguageLaunchConfiguration.environmentKey] == expected)
-        }
-    }
-
-    @Test("Japanese requires a guest that generates its locale", arguments: ["ja", "ja-JP", "ja-Jpan-JP"])
-    func japaneseLanguage(language: String) {
-        for (version, expected) in [(2, "en_US.UTF-8"), (3, "en_US.UTF-8"), (4, "ja_JP.UTF-8")] {
-            let commandLine = "root=/dev/vda rw tryomarchy.locale_support=\(version)\n"
-            let configuration = LanguageLaunchConfiguration.make(
-                baseEnvironment: [LanguageLaunchConfiguration.environmentKey: "untrusted"],
-                preferredLanguages: [language],
-                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
-                supportsKorean: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresKorean: true),
-                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
-            )
-            #expect(configuration.environment[LanguageLaunchConfiguration.environmentKey] == expected)
-        }
-    }
-
-    @Test("the primary Mac language is passed for repairs, even when the locale is not")
+    @Test("the primary Mac language is passed on its own")
     func macLanguage() {
-        for (languages, version, expected) in [
-            (["ja-JP"], 2, "ja"), (["ja"], 4, "ja"), (["en-US", "ja-JP"], 3, "en"), (["zh-Hant"], 0, "zh"),
-        ] {
-            let commandLine = "root=/dev/vda rw tryomarchy.locale_support=\(version)\n"
+        for (languages, expected) in [(["ja-JP"], "ja"), (["en-US", "ja-JP"], "en"), (["zh-Hant"], "zh")] {
             let configuration = LanguageLaunchConfiguration.make(
                 baseEnvironment: [LanguageLaunchConfiguration.macLanguageKey: "untrusted"],
-                preferredLanguages: languages,
-                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
-                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
+                preferredLanguages: languages
             )
             #expect(configuration.environment[LanguageLaunchConfiguration.macLanguageKey] == expected)
-        }
-    }
-
-    @Test("older saved guests cannot receive an inherited or host locale", arguments: [
-        "", "tryomarchy.locale_support=1", "tryomarchy.locale_support=20", "tryomarchy.locale_support=30", "tryomarchy.locale_support=40",
-    ])
-    func legacyGuest(commandLine: String) {
-        for language in ["zh-Hant", "ko", "ko-KR", "ko-Kore-KR", "ja", "ja-JP"] {
-            let configuration = LanguageLaunchConfiguration.make(
-                baseEnvironment: [LanguageLaunchConfiguration.environmentKey: "ko_KR.UTF-8"],
-                preferredLanguages: [language],
-                supportsSelection: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine),
-                supportsKorean: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresKorean: true),
-                supportsJapanese: GuestLocaleCatalog.supportsSelection(kernelCommandLine: commandLine, requiresJapanese: true)
-            )
-            #expect(configuration.environment[LanguageLaunchConfiguration.environmentKey] == nil)
         }
     }
 }

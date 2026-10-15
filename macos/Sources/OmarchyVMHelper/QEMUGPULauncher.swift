@@ -13,21 +13,14 @@ enum QEMUGPUStorageOption: String, Equatable {
 enum QEMUGPURuntimeEnvironment {
     static let inspectOnlyKey = "OMARCHY_QEMU_GPU_INSPECT_ONLY"
     static let dryRunKey = "OMARCHY_QEMU_GPU_DRY_RUN"
-    static let bootRecoveryConsentKey = "OMARCHY_QEMU_GPU_ALLOW_BOOT_RECOVERY"
-    static let guestFixesConsentKey = "OMARCHY_QEMU_GPU_GUEST_FIXES_CONSENT"
+    /// Where a session-only storage folder clones the decompressed factory from.
+    static let factoryCacheKey = "OMARCHY_QEMU_GPU_FACTORY_CACHE"
 
     static func sanitizedForLaunch(_ base: [String: String]) -> [String: String] {
         var environment = base
         environment.removeValue(forKey: inspectOnlyKey)
         environment.removeValue(forKey: dryRunKey)
-        environment.removeValue(forKey: bootRecoveryConsentKey)
-        environment.removeValue(forKey: guestFixesConsentKey)
-        return environment
-    }
-
-    static func withBootRecoveryConsent(_ base: [String: String]) -> [String: String] {
-        var environment = sanitizedForLaunch(base)
-        environment[bootRecoveryConsentKey] = "1"
+        environment.removeValue(forKey: factoryCacheKey)
         return environment
     }
 
@@ -53,12 +46,6 @@ enum QEMUGPURuntimeEnvironment {
 
 enum QEMUGPUStorageSpaceEstimate {
     private static let stateRootEnvironmentKey = "OMARCHY_QEMU_GPU_STATE_ROOT"
-
-    private struct RecordedPersistentDisk {
-        let disk: URL
-        let identity: String
-        let schemaVersion: Int
-    }
 
     /// Resolution order is the environment override, then the stored
     /// preference, then Application Support. The override stays first because
@@ -133,208 +120,54 @@ enum QEMUGPUStorageSpaceEstimate {
             return nil
         }
         let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-        let unsafeRoots = ["/", "/Users", "/private", "/private/tmp", "/tmp"]
+        let unsafeRoots = ["/", "/Users", "/private", "/private/tmp", "/tmp", "/Volumes"]
         guard !unsafeRoots.contains(root.path) else { return nil }
         return root
     }
 
     static func formattedReclaimableSpace(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleIdentity: String? = nil,
         preference: StorageLocationPreference = .default,
         fileManager: FileManager = .default
     ) -> String? {
         guard let bytes = reclaimableBytes(
             environment: environment,
-            bundleIdentity: bundleIdentity,
             preference: preference,
             fileManager: fileManager
         ) else { return nil }
         return format(bytes: bytes)
     }
 
+    /// The space a reset gives back: the VM's own disk and variable store.
+    /// The shared factory copy stays for the next VM.
     static func reclaimableBytes(
         environment: [String: String],
-        bundleIdentity: String?,
         preference: StorageLocationPreference = .default,
         fileManager: FileManager = .default
     ) -> Int64? {
-        guard let directories = resettableWorkspaceDirectories(
-            environment: environment,
-            bundleIdentity: bundleIdentity,
-            preference: preference,
-            fileManager: fileManager
-        ) else { return nil }
-
+        guard let root = storageRootURL(environment: environment, preference: preference, fileManager: fileManager),
+              let disk = persistentDiskURL(stateRoot: root.path, fileManager: fileManager) else { return nil }
         var total: Int64 = 0
-        for directory in directories {
-            guard let recordedDisk = recordedPersistentDisk(
-                in: directory,
-                fileManager: fileManager
-            ),
-                  let values = try? recordedDisk.disk.resourceValues(forKeys: [
-                    .totalFileAllocatedSizeKey,
-                    .fileAllocatedSizeKey,
-                  ]),
-                  let allocated = values.totalFileAllocatedSize ?? values.fileAllocatedSize,
-                  allocated > 0 else { continue }
-            let (sum, overflow) = total.addingReportingOverflow(Int64(allocated))
-            guard !overflow else { return nil }
-            total = sum
+        for file in [disk, disk.deletingLastPathComponent().appendingPathComponent("efi-vars.fd")] {
+            guard let values = try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]),
+                  let allocated = values.totalFileAllocatedSize ?? values.fileAllocatedSize else { continue }
+            total += Int64(allocated)
         }
         return total > 0 ? total : nil
     }
 
-    /// Whether this state root already contains a schema-2 persistent disk the
-    /// shell can launch. A launchable existing VM is selected before the
-    /// bundled factory image is materialized, including when its recorded
-    /// bundle identity belongs to an older app release. Unsupported schema-1
-    /// disks still require Reset and do not bypass new-VM space validation.
-    static func hasRecordedPersistentDisk(
-        stateRoot: String,
-        bundleIdentity: String? = nil,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        recordedPersistentDiskURL(stateRoot: stateRoot, bundleIdentity: bundleIdentity, fileManager: fileManager) != nil
-            || shellVMDiskURL(stateRoot: stateRoot, fileManager: fileManager) != nil
+    /// Whether this state root already holds the VM, so launching selects it
+    /// instead of creating one from the bundled factory.
+    static func hasRecordedPersistentDisk(stateRoot: String, fileManager: FileManager = .default) -> Bool {
+        persistentDiskURL(stateRoot: stateRoot, fileManager: fileManager) != nil
     }
 
-    /// An upstream-shell VM (run-shell-guest.sh) keeps one disk at
-    /// `shell/disk.img`, beside the direct-boot VM's `disks/` directory. It
-    /// has no boot kit or migration catalog, so the direct-boot checks never
-    /// select it.
-    static func shellVMDiskURL(stateRoot: String, fileManager: FileManager = .default) -> URL? {
+    /// The launcher keeps the VM's disk at `shell/disk.img`, beside its UEFI
+    /// variable store, with the decompressed factory in `shell-factory/`.
+    static func persistentDiskURL(stateRoot: String, fileManager: FileManager = .default) -> URL? {
         let disk = URL(fileURLWithPath: stateRoot, isDirectory: true)
             .appendingPathComponent("shell/disk.img", isDirectory: false)
         return hasAttributes(disk, type: .typeRegular, permissions: 0o600, fileManager: fileManager) ? disk : nil
-    }
-
-    /// Selects the disk before legacy-directory migration so first-launch
-    /// consent follows the same inode after the launcher renames its directory.
-    static func recordedPersistentDiskURL(
-        stateRoot: String,
-        bundleIdentity: String? = nil,
-        fileManager: FileManager = .default
-    ) -> URL? {
-        let disks = URL(fileURLWithPath: stateRoot, isDirectory: true)
-            .appendingPathComponent("disks", isDirectory: true)
-        guard hasAttributes(
-            disks,
-            type: .typeDirectory,
-            permissions: 0o700,
-            fileManager: fileManager
-        ),
-              let contents = try? fileManager.contentsOfDirectory(
-                at: disks,
-                includingPropertiesForKeys: nil,
-                options: []
-              )
-        else { return nil }
-
-        guard let selected = selectedSinglePersistentDisk(
-            from: contents,
-            bundleIdentity: bundleIdentity,
-            fileManager: fileManager
-        ), selected.schemaVersion == 2 else { return nil }
-        return selected.disk
-    }
-
-    /// Capability follows the selected disk's saved boot kit, not the current
-    /// app version. The launcher checks it again after locking the workspace.
-    static func supportsLanguageSelection(
-        environment: [String: String],
-        metrics: BundledGuestMetrics?,
-        preference: StorageLocationPreference = .default,
-        requiresKorean: Bool = false,
-        requiresJapanese: Bool = false,
-        fileManager: FileManager = .default
-    ) -> Bool {
-        guard let metrics,
-              let root = storageRootURL(environment: environment, preference: preference, fileManager: fileManager)
-        else { return false }
-        let factorySupportsSelection = requiresJapanese ? metrics.supportsJapanese
-            : (requiresKorean ? metrics.supportsKorean : metrics.supportsLanguageSelection)
-        let disks = root.appendingPathComponent("disks", isDirectory: true)
-        if !fileManager.fileExists(atPath: disks.path) {
-            return factorySupportsSelection
-        }
-        guard hasAttributes(disks, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
-              let entries = try? fileManager.contentsOfDirectory(at: disks, includingPropertiesForKeys: nil)
-        else { return false }
-        let selected: RecordedPersistentDisk?
-        if environment["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK"] == "1" {
-            let directory = disks.appendingPathComponent(metrics.identity)
-            if !fileManager.fileExists(atPath: directory.path) { return factorySupportsSelection }
-            selected = recordedPersistentDisk(in: directory, fileManager: fileManager)
-        } else {
-            if entries.isEmpty { return factorySupportsSelection }
-            selected = selectedSinglePersistentDisk(from: entries, bundleIdentity: metrics.identity, fileManager: fileManager)
-        }
-        guard let selected, selected.schemaVersion == 2 else { return false }
-        if selected.identity == metrics.identity { return factorySupportsSelection }
-        let boot = root.appendingPathComponent("boot", isDirectory: true)
-        let kit = boot.appendingPathComponent(selected.identity, isDirectory: true)
-        let commandLine = kit.appendingPathComponent("command-line")
-        guard hasAttributes(boot, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
-              hasAttributes(kit, type: .typeDirectory, permissions: 0o700, fileManager: fileManager),
-              hasAttributes(commandLine, type: .typeRegular, permissions: 0o600, fileManager: fileManager),
-              let size = try? commandLine.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              size <= 16385,
-              let contents = try? String(contentsOf: commandLine, encoding: .utf8)
-        else { return false }
-        return GuestLocaleCatalog.supportsSelection(kernelCommandLine: contents, requiresKorean: requiresKorean, requiresJapanese: requiresJapanese)
-    }
-
-    /// Read-only best-effort preflight for the one-time legacy boot-file
-    /// pairing. The shell repeats every check under its workspace lock and
-    /// requires an explicit one-shot consent variable, so a filesystem race or
-    /// a conservative false negative cannot perform recovery without consent.
-    static func bootRecoveryPreflight(
-        environment: [String: String],
-        bundleIdentity: String?,
-        preference: StorageLocationPreference = .default,
-        fileManager: FileManager = .default
-    ) -> BootRecoveryLaunchPreflight {
-        guard environment["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK"] ?? "0" == "0",
-              let bundleIdentity,
-              isIdentity(bundleIdentity),
-              let root = storageRootURL(
-                environment: environment,
-                preference: preference,
-                fileManager: fileManager
-              ),
-              StorageLocationPolicy.hasValidRootMarker(in: root)
-        else { return .notRequired }
-
-        let disks = root.appendingPathComponent("disks", isDirectory: true)
-        guard hasAttributes(
-            disks,
-            type: .typeDirectory,
-            permissions: 0o700,
-            fileManager: fileManager
-        ),
-              let entries = try? fileManager.contentsOfDirectory(
-                at: disks,
-                includingPropertiesForKeys: nil,
-                options: []
-              )
-        else { return .notRequired }
-
-        guard let selected = selectedSinglePersistentDisk(
-            from: entries,
-            bundleIdentity: bundleIdentity,
-            fileManager: fileManager
-        ) else { return .notRequired }
-
-        guard selected.schemaVersion == 2,
-              selected.identity != bundleIdentity,
-              bootKitEntryIsMissing(
-                stateRoot: root,
-                identity: selected.identity,
-                fileManager: fileManager
-              )
-        else { return .notRequired }
-        return .requiresConfirmation
     }
 
     static func format(bytes: Int64) -> String? {
@@ -350,207 +183,28 @@ enum QEMUGPUStorageSpaceEstimate {
         bundledMetrics(bundle: bundle)?.identity
     }
 
-    /// Reads the guest identity and disk sizes that `build-app.sh` signs into
-    /// `Resources/guest/launch.plist`. The sizes drive the free-space guard, so
-    /// a plist missing either one yields nil rather than a guess.
+    /// Reads the factory identity and disk size from `Resources/guest/factory.json`.
+    /// The sizes drive the free-space guard, so a manifest missing either one
+    /// yields nil rather than a guess.
     static func bundledMetrics(bundle: Bundle = .main) -> BundledGuestMetrics? {
         guard let resourceURL = bundle.resourceURL,
-              let data = try? Data(
-                contentsOf: resourceURL.appendingPathComponent("guest/launch.plist")
-              ),
-              let propertyList = try? PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-              ),
-              let dictionary = propertyList as? [String: Any],
-              let identity = dictionary["bundleIdentity"] as? String,
+              let data = try? Data(contentsOf: resourceURL.appendingPathComponent("guest/factory.json")) else { return nil }
+        return factoryMetrics(data)
+    }
+
+    static func factoryMetrics(_ data: Data) -> BundledGuestMetrics? {
+        guard data.count <= 65_536,
+              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              manifest["kind"] as? String == "upstream-shell-factory",
+              (manifest["format"] as? NSNumber)?.intValue == 1,
+              let disk = manifest["disk"] as? [String: Any],
+              let identity = disk["sha256"] as? String,
               isIdentity(identity),
-              let sourceBytes = dictionary["sourceDiskBytes"] as? Int,
-              let workingBytes = dictionary["workingDiskBytes"] as? Int,
-              sourceBytes > 0,
-              workingBytes >= sourceBytes else { return nil }
-        return BundledGuestMetrics(
-            identity: identity,
-            sourceDiskBytes: Int64(sourceBytes),
-            workingDiskBytes: Int64(workingBytes),
-            supportsLanguageSelection: GuestLocaleCatalog.supportsSelection(
-                kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? ""
-            ),
-            supportsKorean: GuestLocaleCatalog.supportsSelection(
-                kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? "", requiresKorean: true
-            ),
-            supportsJapanese: GuestLocaleCatalog.supportsSelection(
-                kernelCommandLine: dictionary["kernelCommandLine"] as? String ?? "", requiresJapanese: true
-            )
-        )
-    }
-
-    static func storageKey(
-        environment: [String: String],
-        bundleIdentity: String?
-    ) -> String? {
-        switch environment["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK"] ?? "0" {
-        case "0":
-            return "current"
-        case "1":
-            guard let bundleIdentity, isIdentity(bundleIdentity) else { return nil }
-            return bundleIdentity
-        default:
-            return nil
-        }
-    }
-
-    private static func resettableWorkspaceDirectories(
-        environment: [String: String],
-        bundleIdentity: String?,
-        preference: StorageLocationPreference,
-        fileManager: FileManager
-    ) -> [URL]? {
-        guard let storageKey = storageKey(
-            environment: environment,
-            bundleIdentity: bundleIdentity
-        ) else { return nil }
-        guard let root = storageRootURL(
-            environment: environment,
-            preference: preference,
-            fileManager: fileManager
-        ) else { return nil }
-        let disks = root.appendingPathComponent("disks", isDirectory: true)
-        if storageKey != "current" {
-            return [disks.appendingPathComponent(storageKey, isDirectory: true)]
-        }
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: disks,
-            includingPropertiesForKeys: nil,
-            options: []
-        ) else { return [] }
-        return contents.filter {
-            $0.lastPathComponent == "current" || isIdentity($0.lastPathComponent)
-        }
-    }
-
-    private static func recordedPersistentDisk(
-        in directory: URL,
-        fileManager: FileManager
-    ) -> RecordedPersistentDisk? {
-        guard hasAttributes(
-            directory,
-            type: .typeDirectory,
-            permissions: 0o700,
-            fileManager: fileManager
-        ),
-              let entries = try? fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: nil,
-                options: []
-              ),
-              Set(entries.map(\.lastPathComponent)) == ["metadata.json", "rootfs.ext4"]
-        else { return nil }
-
-        let metadataURL = directory.appendingPathComponent("metadata.json", isDirectory: false)
-        let diskURL = directory.appendingPathComponent("rootfs.ext4", isDirectory: false)
-        guard hasAttributes(
-            metadataURL,
-            type: .typeRegular,
-            permissions: 0o600,
-            fileManager: fileManager
-        ),
-              hasAttributes(
-                diskURL,
-                type: .typeRegular,
-                permissions: 0o600,
-                fileManager: fileManager
-              ),
-              let metadataData = try? Data(contentsOf: metadataURL),
-              metadataData.count <= 16_384,
-              var serializedMetadata = String(data: metadataData, encoding: .utf8),
-              let rawMetadata = try? JSONSerialization.jsonObject(with: metadataData),
-              let metadata = rawMetadata as? [String: Any],
-              Set(metadata.keys) == ["bundleIdentity", "kind", "schemaVersion", "sourceRootfs"],
-              metadata["kind"] as? String == "omarchy-qemu-persistent-disk",
-              let identity = metadata["bundleIdentity"] as? String,
-              isIdentity(identity),
-              let schemaNumber = metadata["schemaVersion"] as? NSNumber,
-              [1, 2].contains(schemaNumber.intValue),
-              let source = metadata["sourceRootfs"] as? [String: Any],
-              Set(source.keys) == ["bytes", "sha256"],
-              let sourceBytesNumber = source["bytes"] as? NSNumber,
-              sourceBytesNumber.int64Value > 0,
-              let sourceSHA = source["sha256"] as? String,
-              isIdentity(sourceSHA)
-        else { return nil }
-
-        while serializedMetadata.last == "\n" {
-            serializedMetadata.removeLast()
-        }
-        let canonicalMetadata = "{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":\(schemaNumber.intValue),\"sourceRootfs\":{\"bytes\":\(sourceBytesNumber.int64Value),\"sha256\":\"\(sourceSHA)\"}}"
-        guard serializedMetadata == canonicalMetadata,
-              directory.lastPathComponent == "current" || directory.lastPathComponent == identity,
-              let diskSize = try? diskURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              Int64(diskSize) >= sourceBytesNumber.int64Value
-        else { return nil }
-        return RecordedPersistentDisk(
-            disk: diskURL,
-            identity: identity,
-            schemaVersion: schemaNumber.intValue
-        )
-    }
-
-    /// Mirrors the launcher's normal single-disk selection closely enough for
-    /// read-only UI preflight: `current` wins only when no second recognized
-    /// legacy VM exists; otherwise exactly one recognized identity directory
-    /// can be migrated. The shell repeats this under its lock.
-    private static func selectedSinglePersistentDisk(
-        from entries: [URL],
-        bundleIdentity: String? = nil,
-        fileManager: FileManager
-    ) -> RecordedPersistentDisk? {
-        let currentEntry = entries.first { $0.lastPathComponent == "current" }
-        let validLegacyDisks = entries
-            .filter { isIdentity($0.lastPathComponent) }
-            .compactMap { recordedPersistentDisk(in: $0, fileManager: fileManager) }
-
-        if let currentEntry {
-            guard validLegacyDisks.isEmpty else { return nil }
-            return recordedPersistentDisk(in: currentEntry, fileManager: fileManager)
-        }
-        if let bundleIdentity,
-           let exactEntry = entries.first(where: { $0.lastPathComponent == bundleIdentity }),
-           recordedPersistentDisk(in: exactEntry, fileManager: fileManager) == nil {
-            // The shell refuses to select around an invalid legacy directory
-            // bearing the current bundle's exact identity.
-            return nil
-        }
-        guard validLegacyDisks.count == 1 else { return nil }
-        return validLegacyDisks.first
-    }
-
-    /// Missing is the only state in which recovery is meaningful. Any direct
-    /// entry, valid or not, suppresses the prompt: the shell owns full boot-kit
-    /// validation and must report an unsafe collision rather than overwrite it.
-    private static func bootKitEntryIsMissing(
-        stateRoot: URL,
-        identity: String,
-        fileManager: FileManager
-    ) -> Bool {
-        let bootRoot = stateRoot.appendingPathComponent("boot", isDirectory: true)
-        var information = stat()
-        if Darwin.lstat(bootRoot.path, &information) != 0 {
-            return errno == ENOENT
-        }
-        guard hasAttributes(
-            bootRoot,
-            type: .typeDirectory,
-            permissions: 0o700,
-            fileManager: fileManager
-        ) else { return false }
-
-        let bootKit = bootRoot.appendingPathComponent(identity, isDirectory: true)
-        if Darwin.lstat(bootKit.path, &information) == 0 {
-            return false
-        }
-        return errno == ENOENT
+              let bytes = (disk["bytes"] as? NSNumber)?.int64Value,
+              bytes > 0 else { return nil }
+        // The launcher writes about half of the sparse factory disk when it
+        // first decompresses it (run-qemu-gpu.sh prepare_factory_disk).
+        return BundledGuestMetrics(identity: identity, sourceDiskBytes: bytes / 2, workingDiskBytes: bytes)
     }
 
     private static func hasAttributes(

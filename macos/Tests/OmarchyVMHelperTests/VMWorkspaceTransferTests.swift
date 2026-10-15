@@ -16,20 +16,19 @@ struct VMWorkspaceTransferTests {
             root = FileManager.default.temporaryDirectory.appendingPathComponent("vm-transfer-\(UUID().uuidString)").resolvingSymlinksInPath()
             source = root.appendingPathComponent("original")
             destination = root.appendingPathComponent("destination")
-            disk = source.appendingPathComponent("disks/current/rootfs.ext4")
-            for relative in ["original", "destination", "original/boot", "original/boot/\(identity)", "original/disks", "original/disks/current", "original/locks"] {
+            disk = source.appendingPathComponent("shell/disk.img")
+            for relative in ["original", "destination", "original/shell", "original/shell-factory"] {
                 try FileManager.default.createDirectory(at: root.appendingPathComponent(relative), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             }
             try write(StorageLocationPolicy.rootMarkerContent + "\n", to: source.appendingPathComponent(StorageLocationPolicy.rootMarkerName))
-            try write("", to: source.appendingPathComponent("locks/current.lock"))
-            try write("{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":2,\"sourceRootfs\":{\"bytes\":4096,\"sha256\":\"\(identity)\"}}\n", to: source.appendingPathComponent("disks/current/metadata.json"))
+            try write("", to: source.appendingPathComponent("shell/lock"))
             try write("personal VM data", to: disk)
             let handle = try FileHandle(forWritingTo: disk)
             try handle.truncate(atOffset: 64 * 1024 * 1024)
             try handle.close()
-            for name in ["kernel", "initramfs", "command-line", "metadata.json"] {
-                try write("paired \(name)", to: source.appendingPathComponent("boot/\(identity)/\(name)"))
-            }
+            try write("uefi variables", to: source.appendingPathComponent("shell/efi-vars.fd"))
+            try write("{\"format\":1}", to: source.appendingPathComponent("shell/vm.json"))
+            try write("factory copy", to: source.appendingPathComponent("shell-factory/\(identity).img"))
             try write("saved startup settings", to: source.appendingPathComponent("launcher-settings.json"))
         }
 
@@ -45,7 +44,7 @@ struct VMWorkspaceTransferTests {
         }
     }
 
-    @Test("Relocation preserves the disk, boot pair, and settings and keeps the original")
+    @Test("Relocation preserves the disk, UEFI variables and settings, skips the factory copy and keeps the original")
     func success() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -53,11 +52,13 @@ struct VMWorkspaceTransferTests {
         #expect(try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path) == fixture.destination.path)
         try VMWorkspaceTransfer.requireExistingVM(fixture.destination.path)
         #expect(try StorageIO.sha256(path: fixture.disk.path) == digest)
-        #expect(try StorageIO.sha256(path: fixture.destination.appendingPathComponent("disks/current/rootfs.ext4").path) == digest)
-        for relative in ["boot/\(fixture.identity)/kernel", "boot/\(fixture.identity)/initramfs", "boot/\(fixture.identity)/command-line", "boot/\(fixture.identity)/metadata.json", "launcher-settings.json"] {
+        #expect(try StorageIO.sha256(path: fixture.destination.appendingPathComponent("shell/disk.img").path) == digest)
+        for relative in ["shell/efi-vars.fd", "shell/vm.json", "launcher-settings.json"] {
             #expect(try Data(contentsOf: fixture.source.appendingPathComponent(relative)) == Data(contentsOf: fixture.destination.appendingPathComponent(relative)))
         }
-        try fixture.write("new copy", to: fixture.destination.appendingPathComponent("disks/current/rootfs.ext4"))
+        #expect(FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("shell/lock").path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("shell-factory").path))
+        try fixture.write("new copy", to: fixture.destination.appendingPathComponent("shell/disk.img"))
         #expect(try StorageIO.sha256(path: fixture.disk.path) == digest)
     }
 
@@ -145,7 +146,7 @@ struct VMWorkspaceTransferTests {
                 }
             })
         }
-        #expect(!FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("disks").path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.destination.appendingPathComponent("shell").path))
         if changeDestination { #expect(try String(contentsOf: fixture.destination.appendingPathComponent("new-file"), encoding: .utf8) == "new file") }
     }
 
@@ -201,10 +202,10 @@ struct VMWorkspaceTransferTests {
         defer { fixture.remove() }
         var checked = false
         _ = try VMWorkspaceTransfer.copy(from: fixture.source.path, to: fixture.destination.path, copyFile: { source, destination in
-            if source.hasSuffix("rootfs.ext4") {
+            if source.hasSuffix("disk.img") {
                 let contender = Process()
                 contender.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
-                contender.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/usr/bin/true"]
+                contender.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("shell/lock").path, "/usr/bin/true"]
                 contender.standardError = FileHandle.nullDevice
                 try contender.run()
                 contender.waitUntilExit()
@@ -247,7 +248,7 @@ struct VMWorkspaceTransferTests {
         defer { fixture.remove() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
-        process.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/bin/sh", "-c", "printf ready; exec /bin/sleep 30"]
+        process.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("shell/lock").path, "/bin/sh", "-c", "printf ready; exec /bin/sleep 30"]
         let readiness = Pipe()
         process.standardOutput = readiness
         try process.run()
@@ -266,7 +267,7 @@ struct VMWorkspaceTransferTests {
             #expect(url.path == fixture.source.path)
             let contender = Process()
             contender.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
-            contender.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/usr/bin/true"]
+            contender.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("shell/lock").path, "/usr/bin/true"]
             contender.standardError = FileHandle.nullDevice
             try contender.run()
             contender.waitUntilExit()
@@ -307,7 +308,7 @@ struct VMWorkspaceTransferTests {
         let holder = Process()
         if running {
             holder.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
-            holder.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("locks/current.lock").path, "/bin/sh", "-c", "printf ready; exec /bin/sleep 30"]
+            holder.arguments = ["-k", "-t", "0", fixture.source.appendingPathComponent("shell/lock").path, "/bin/sh", "-c", "printf ready; exec /bin/sleep 30"]
             let ready = Pipe()
             holder.standardOutput = ready
             try holder.run()

@@ -8,12 +8,12 @@ struct VMProgressTests {
     func fragmentedPhases() {
         let output = "ordinary log\n[qemu-gpu] Launch phase: checking\n"
             + "[qemu-gpu] Launch phase: preparing\r\n"
-            + "[qemu-gpu] Launch phase: verifying\n[qemu-gpu] Launch phase: finishing\n"
+            + "[qemu-gpu] Launch phase: finishing\n"
         for boundary in 0...output.utf8.count {
             let data = Data(output.utf8)
             var stream = VMProgressStream<VMLaunchPhase>(operation: .launch)
             let phases = stream.append(data.prefix(boundary)) + stream.append(data.dropFirst(boundary))
-            #expect(phases == [.checking, .preparing, .verifying, .finishing])
+            #expect(phases == [.checking, .preparing, .finishing])
         }
     }
 
@@ -30,10 +30,10 @@ struct VMProgressTests {
     @Test("duplicate and delayed earlier phases cannot move progress backwards")
     func phasesAdvanceOnce() {
         var stream = VMProgressStream<VMLaunchPhase>(operation: .launch)
-        let output = "[qemu-gpu] Launch phase: verifying\n"
-            + "[qemu-gpu] Launch phase: verifying\n[qemu-gpu] Launch phase: checking\n"
+        let output = "[qemu-gpu] Launch phase: preparing\n"
+            + "[qemu-gpu] Launch phase: preparing\n[qemu-gpu] Launch phase: checking\n"
             + "[qemu-gpu] Launch phase: finishing\n"
-        #expect(stream.append(Data(output.utf8)) == [.verifying, .finishing])
+        #expect(stream.append(Data(output.utf8)) == [.preparing, .finishing])
         var nextLaunch = VMProgressStream<VMLaunchPhase>(operation: .launch)
         #expect(nextLaunch.append(Data("[qemu-gpu] Launch phase: checking\n".utf8)) == [.checking])
     }
@@ -51,7 +51,7 @@ struct VMProgressTests {
         #expect(VMResetPhase.checking.buttonTitle == "Checking VM…")
         #expect(VMResetPhase.deleting.buttonTitle == "Deleting VM…")
         #expect(VMLaunchPhase.preparing.buttonTitle == "Preparing image…")
-        #expect(VMLaunchPhase.verifying.buttonTitle == "Verifying image…")
+        #expect(VMLaunchPhase.finishing.buttonTitle == "Finishing setup…")
         #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy…")
         #expect(VMResetPhase.finishing.buttonTitle == "Finishing reset…")
     }

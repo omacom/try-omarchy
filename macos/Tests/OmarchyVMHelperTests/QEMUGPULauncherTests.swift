@@ -81,24 +81,10 @@ struct QEMUGPURuntimeEnvironmentTests {
             "KEEP_ME": "yes",
             QEMUGPURuntimeEnvironment.inspectOnlyKey: "1",
             QEMUGPURuntimeEnvironment.dryRunKey: "1",
-            QEMUGPURuntimeEnvironment.bootRecoveryConsentKey: "1",
-            QEMUGPURuntimeEnvironment.guestFixesConsentKey: "inherited consent",
+            QEMUGPURuntimeEnvironment.factoryCacheKey: "/private/tmp/inherited",
         ])
 
         #expect(environment == ["KEEP_ME": "yes"])
-    }
-
-    @Test("boot recovery consent is an explicit one-launch environment addition")
-    func addsBootRecoveryConsent() {
-        let ordinary = QEMUGPURuntimeEnvironment.sanitizedForLaunch(["KEEP_ME": "yes"])
-        let approved = QEMUGPURuntimeEnvironment.withBootRecoveryConsent(ordinary)
-
-        #expect(ordinary == ["KEEP_ME": "yes"])
-        #expect(approved == [
-            "KEEP_ME": "yes",
-            QEMUGPURuntimeEnvironment.bootRecoveryConsentKey: "1",
-        ])
-        #expect(QEMUGPURuntimeEnvironment.sanitizedForLaunch(approved) == ordinary)
     }
 
     @Test("storage reset ignores inherited integration settings")
@@ -114,8 +100,7 @@ struct QEMUGPURuntimeEnvironmentTests {
             VMResourceLaunchConfiguration.diskEnvironmentKey,
             QEMUGPURuntimeEnvironment.inspectOnlyKey,
             QEMUGPURuntimeEnvironment.dryRunKey,
-            QEMUGPURuntimeEnvironment.bootRecoveryConsentKey,
-            QEMUGPURuntimeEnvironment.guestFixesConsentKey,
+            QEMUGPURuntimeEnvironment.factoryCacheKey,
         ]
         var inherited = ["KEEP_ME": "yes"]
         for key in controlledKeys {
@@ -313,180 +298,55 @@ struct QEMUGPUStorageSpaceEstimateTests {
         #expect(QEMUGPUStorageSpaceEstimate.format(bytes: 3_250_000_000) == "3.2 GB")
     }
 
-    @Test("selects the same single or development workspace used by the launcher")
-    func selectsStorageKey() {
-        let identity = String(repeating: "a", count: 64)
-        #expect(QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: [:],
-            bundleIdentity: identity
-        ) == "current")
-        #expect(QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: ["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK": "0"],
-            bundleIdentity: identity
-        ) == "current")
-        #expect(QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: ["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK": "1"],
-            bundleIdentity: identity
-        ) == identity)
-        #expect(QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: ["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK": "1"],
-            bundleIdentity: nil
-        ) == nil)
-        #expect(QEMUGPUStorageSpaceEstimate.storageKey(
-            environment: ["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK": "invalid"],
-            bundleIdentity: identity
-        ) == nil)
-    }
-
-    @Test("counts every safely recognized disk removed by a single-disk reset")
-    func countsResettableLegacyDisks() throws {
+    @Test("a reset reclaims the VM's disk and UEFI variables, not the factory copy")
+    func countsTheVM() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "try-omarchy-space-estimate-\(UUID().uuidString)",
-            isDirectory: true
+            "try-omarchy-space-estimate-\(UUID().uuidString)", isDirectory: true
         )
         defer { try? fileManager.removeItem(at: root) }
-        let disks = root.appendingPathComponent("state/disks", isDirectory: true)
-        try fileManager.createDirectory(at: disks, withIntermediateDirectories: true)
+        let environment = ["OMARCHY_QEMU_GPU_STATE_ROOT": root.path]
+        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(environment: environment, fileManager: fileManager) == nil)
 
-        let identityA = String(repeating: "a", count: 64)
-        let identityB = String(repeating: "b", count: 64)
-        let identityC = String(repeating: "c", count: 64)
-        let current = try makeWorkspace(
-            in: disks,
-            name: "current",
-            identity: identityA,
-            payloadBytes: 8_192
-        )
-        let legacy = try makeWorkspace(
-            in: disks,
-            name: identityB,
-            identity: identityB,
-            payloadBytes: 12_288
-        )
-        _ = try makeWorkspace(
-            in: disks,
-            name: identityC,
-            identity: identityC,
-            payloadBytes: 16_384,
-            addUnknownFile: true
-        )
-
-        let allocated = try [current, legacy].reduce(Int64(0)) { total, disk in
-            let values = try disk.resourceValues(forKeys: [
-                .totalFileAllocatedSizeKey,
-                .fileAllocatedSizeKey,
-            ])
-            return total + Int64(try #require(
-                values.totalFileAllocatedSize ?? values.fileAllocatedSize
-            ))
-        }
-        let environment = ["OMARCHY_QEMU_GPU_STATE_ROOT": root.appendingPathComponent("state").path]
-        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(
-            environment: environment,
-            bundleIdentity: identityA,
-            fileManager: fileManager
-        ) == allocated)
-
-        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(
-            environment: environment.merging(
-                ["OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK": "1"],
-                uniquingKeysWith: { _, new in new }
-            ),
-            bundleIdentity: identityB,
-            fileManager: fileManager
-        ) == allocatedSize(of: legacy))
-    }
-
-    @Test("ignores semantically valid metadata with noncanonical whitespace or key order")
-    func ignoresNoncanonicalSerializedMetadata() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "try-omarchy-space-estimate-noncanonical-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: root) }
-        let disks = root.appendingPathComponent("state/disks", isDirectory: true)
-        try fileManager.createDirectory(at: disks, withIntermediateDirectories: true)
-
-        let identity = String(repeating: "a", count: 64)
-        let sourceSHA = String(repeating: "d", count: 64)
-        _ = try makeWorkspace(
-            in: disks,
-            name: "current",
-            identity: identity,
-            payloadBytes: 8_192,
-            metadataContents: """
-            { "kind": "omarchy-qemu-persistent-disk", "bundleIdentity": "\(identity)", "sourceRootfs": { "sha256": "\(sourceSHA)", "bytes": 1 }, "schemaVersion": 2 }
-            """
-        )
-
-        let environment = ["OMARCHY_QEMU_GPU_STATE_ROOT": root.appendingPathComponent("state").path]
-        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(
-            environment: environment,
-            bundleIdentity: identity,
-            fileManager: fileManager
-        ) == nil)
-    }
-
-    @Test("ignores fractional schema and source byte values")
-    func ignoresFractionalMetadataNumbers() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "try-omarchy-space-estimate-fractional-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: root) }
-        let disks = root.appendingPathComponent("state/disks", isDirectory: true)
-        try fileManager.createDirectory(at: disks, withIntermediateDirectories: true)
-
-        let identity = String(repeating: "b", count: 64)
-        let sourceSHA = String(repeating: "d", count: 64)
-        _ = try makeWorkspace(
-            in: disks,
-            name: identity,
-            identity: identity,
-            payloadBytes: 8_192,
-            metadataContents: "{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":2.5,\"sourceRootfs\":{\"bytes\":1.5,\"sha256\":\"\(sourceSHA)\"}}\n"
-        )
-
-        let environment = ["OMARCHY_QEMU_GPU_STATE_ROOT": root.appendingPathComponent("state").path]
-        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(
-            environment: environment,
-            bundleIdentity: identity,
-            fileManager: fileManager
-        ) == nil)
-    }
-
-    private func makeWorkspace(
-        in disks: URL,
-        name: String,
-        identity: String,
-        payloadBytes: Int,
-        addUnknownFile: Bool = false,
-        metadataContents: String? = nil
-    ) throws -> URL {
-        let fileManager = FileManager.default
-        let directory = disks.appendingPathComponent(name, isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: false)
-        #expect(Darwin.chmod(directory.path, 0o700) == 0)
-
-        let metadata = directory.appendingPathComponent("metadata.json")
-        let sourceSHA = String(repeating: "d", count: 64)
-        try Data(
-            (metadataContents ?? "{\"bundleIdentity\":\"\(identity)\",\"kind\":\"omarchy-qemu-persistent-disk\",\"schemaVersion\":2,\"sourceRootfs\":{\"bytes\":1,\"sha256\":\"\(sourceSHA)\"}}\n").utf8
-        ).write(to: metadata)
-        #expect(Darwin.chmod(metadata.path, 0o600) == 0)
-
-        let disk = directory.appendingPathComponent("rootfs.ext4")
-        try Data(repeating: 0x5a, count: payloadBytes).write(to: disk)
+        let shell = root.appendingPathComponent("shell", isDirectory: true)
+        let cache = root.appendingPathComponent("shell-factory", isDirectory: true)
+        try fileManager.createDirectory(at: shell, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: cache, withIntermediateDirectories: true)
+        let disk = shell.appendingPathComponent("disk.img")
+        let vars = shell.appendingPathComponent("efi-vars.fd")
+        try Data(repeating: 0x5a, count: 16_384).write(to: disk)
+        try Data(repeating: 0x5a, count: 8_192).write(to: vars)
+        try Data(repeating: 0x5a, count: 65_536).write(to: cache.appendingPathComponent("factory.img"))
         #expect(Darwin.chmod(disk.path, 0o600) == 0)
-        if addUnknownFile {
-            let unknown = directory.appendingPathComponent("unknown.txt")
-            try Data("preserve".utf8).write(to: unknown)
-            #expect(Darwin.chmod(unknown.path, 0o600) == 0)
+        let expected = try #require(allocatedSize(of: disk)) + (try #require(allocatedSize(of: vars)))
+        #expect(QEMUGPUStorageSpaceEstimate.reclaimableBytes(environment: environment, fileManager: fileManager) == expected)
+        #expect(QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: root.path))
+
+        // The launcher would refuse a disk others can read, so it is no VM.
+        #expect(Darwin.chmod(disk.path, 0o644) == 0)
+        #expect(!QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: root.path))
+    }
+
+    @Test("bundled metrics come from the factory manifest")
+    func factoryMetrics() {
+        let identity = String(repeating: "a", count: 64)
+        let manifest = """
+            {"format":1,"kind":"upstream-shell-factory","boot":"uefi-limine",
+             "disk":{"path":"omarchy.img","bytes":21474836480,"sha256":"\(identity)"},
+             "compressed":{"path":"omarchy.img.zst","sha256":"\(identity)"}}
+            """
+        let metrics = QEMUGPUStorageSpaceEstimate.factoryMetrics(Data(manifest.utf8))
+        #expect(metrics == BundledGuestMetrics(
+            identity: identity, sourceDiskBytes: 10_737_418_240, workingDiskBytes: 21_474_836_480
+        ))
+        for broken in [
+            manifest.replacingOccurrences(of: "upstream-shell-factory", with: "other"),
+            manifest.replacingOccurrences(of: "\"format\":1", with: "\"format\":2"),
+            manifest.replacingOccurrences(of: identity, with: "not-a-hash"),
+            "[]",
+        ] {
+            #expect(QEMUGPUStorageSpaceEstimate.factoryMetrics(Data(broken.utf8)) == nil)
         }
-        return disk
     }
 
     private func allocatedSize(of disk: URL) -> Int64? {

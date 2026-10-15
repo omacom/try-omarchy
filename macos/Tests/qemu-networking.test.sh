@@ -14,19 +14,18 @@ for invalid in unknown NAT ''; do
 done
 OMARCHY_NETWORK_MODE=bridged OMARCHY_NETWORK_INTERFACE=en0
 qemu_network_validate
-QEMU_SELECTED_STORAGE_MODE=ephemeral QEMU_SELECTED_DISK=''
+QEMU_SELECTED_STORAGE_MODE=ephemeral QEMU_NETWORK_STATE_ROOT=$test_root
 first=$(qemu_network_mac)
 [[ $first =~ ^02(:[0-9a-f]{2}){5}$ ]] || fail 'invalid bridge MAC'
 [[ $first != "$(qemu_network_mac)" ]] || fail 'ephemeral identities reused'
-mkdir -p "$test_root/disks/current"
-printf 'disk' >"$test_root/disks/current/rootfs.ext4"
-QEMU_PERSISTENT_STORAGE_DISKS_ROOT="$test_root/disks"
-QEMU_SELECTED_DISK="$test_root/disks/current/rootfs.ext4"
+mkdir -p "$test_root/shell"
+printf 'disk' >"$test_root/shell/disk.img"
 QEMU_SELECTED_STORAGE_MODE=persistent
 first=$(qemu_network_mac)
 [[ $first == "$(qemu_network_mac)" ]] || fail 'persistent identity changed'
-cp "$QEMU_SELECTED_DISK" "$QEMU_SELECTED_DISK.new"
-mv "$QEMU_SELECTED_DISK.new" "$QEMU_SELECTED_DISK"
+# A reset replaces the disk; the VM keeps its address.
+rm "$test_root/shell/disk.img"
+printf 'reset' >"$test_root/shell/disk.img"
 second=$(qemu_network_mac)
 [[ $first == "$second" ]] || fail 'replacement disk changed identity'
 [[ $second == "$(qemu_network_mac)" ]] || fail 'replacement identity not retained'

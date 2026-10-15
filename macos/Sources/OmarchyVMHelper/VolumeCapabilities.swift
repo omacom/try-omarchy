@@ -2,13 +2,12 @@ import Foundation
 
 /// The volume facts the persistent-disk layer depends on.
 ///
-/// `qemu-persistent-storage.sh` clones the factory image with `cp -c`, expands
-/// the working disk sparsely with `truncate`, and serializes launches with a
-/// `lockf` advisory lock.
+/// `run-qemu-gpu.sh` clones the factory image with `cp -c`, grows the VM disk
+/// sparsely, and serializes launches with a `lockf` advisory lock.
 ///
-/// Sparse files are the requirement that cannot be relaxed: on exFAT the same
-/// `truncate` allocates the whole working size up front, so a 24 GiB disk costs
-/// 24 GiB immediately instead of growing with use. Locking is why network
+/// Sparse files are the requirement that cannot be relaxed: on exFAT growing
+/// the disk allocates the whole working size up front, so a 64 GiB disk costs
+/// 64 GiB immediately instead of growing with use. Locking is why network
 /// volumes are refused. Only local APFS provides both, so the start menu turns
 /// anything else away before QEMU is ever started.
 struct VolumeCapabilities: Equatable {
@@ -85,7 +84,7 @@ struct URLVolumeProbe: VolumeProbing {
 
 /// Whether a path is the root directory of its own mounted volume — the one
 /// case a chosen storage folder is refused even when empty, since writing
-/// `boot/`, `disks/`, and `locks/` directly onto a drive's top level would
+/// `shell/` and `shell-factory/` directly onto a drive's top level would
 /// mean chmod-ing (or otherwise restructuring) the volume's mount point
 /// itself rather than a folder the user chose to dedicate to Omarchy.
 protocol VolumeRootDetecting {

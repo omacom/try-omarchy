@@ -18,8 +18,8 @@ class NetworkIdentityTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        (self.root / "locks").mkdir(mode=0o700)
-        self.lock = self.root / "locks/current.lock"
+        (self.root / "shell").mkdir(mode=0o700)
+        self.lock = self.root / "shell/lock"
         self.lock.touch(mode=0o600)
         self.records = self.root / "network-identities"
         self.record = self.records / "current.json"
@@ -72,7 +72,7 @@ class NetworkIdentityTests(unittest.TestCase):
 
     def test_running_vm_lock_prevents_regeneration(self):
         mac = self.run_identity()
-        # Exactly the lock acquisition used by qemu-persistent-storage.sh.
+        # Exactly the lock acquisition used by run-qemu-gpu.sh.
         process = subprocess.Popen(["/bin/bash", "-c",
             'exec 9>>"$1"; /usr/bin/lockf -s -t 0 9 || exit; echo ready; read answer',
             "lock-test", str(self.lock)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)

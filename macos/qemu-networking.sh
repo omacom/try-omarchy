@@ -26,8 +26,7 @@ qemu_network_mac() {
   fi
   local identity_script
   identity_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/network-identity.py"
-  python3 "$identity_script" ensure "$(dirname "$QEMU_PERSISTENT_STORAGE_DISKS_ROOT")" \
-    "$(basename "$(dirname "$QEMU_SELECTED_DISK")")"
+  python3 "$identity_script" ensure "$QEMU_NETWORK_STATE_ROOT" current
 }
 
 qemu_network_start() {

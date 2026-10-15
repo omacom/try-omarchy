@@ -91,16 +91,16 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         let root = selectedRoot()
         pathLabel.stringValue = root.map(display) ?? "No folder selected"
         let hasVM = root.map { QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: $0.path) } ?? false
-        let diskEntries = root.flatMap {
-            try? FileManager.default.contentsOfDirectory(atPath: $0.appendingPathComponent("disks").path)
-        } ?? []
+        let unsafeDisk = !hasVM && root.map {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent("shell/disk.img").path)
+        } ?? false
         if hasVM {
             selectionLabel.stringValue = "Your next launch will boot the VM in this folder."
         } else if let root, deletedRoot == root.path, !FileManager.default.fileExists(atPath: root.path) {
             selectionLabel.stringValue = "The selected VM was moved to Trash. Choose another VM or an empty folder."
         } else if let root, !isDefault(), !FileManager.default.fileExists(atPath: root.path) {
             selectionLabel.stringValue = "This folder is unavailable. Reconnect its drive or choose another VM."
-        } else if diskEntries.contains(where: { $0 == "current" || ($0.count == 64 && $0.allSatisfy { "0123456789abcdef".contains($0) }) }) {
+        } else if unsafeDisk {
             selectionLabel.stringValue = "A saved VM is present but cannot be opened safely. Choose another VM or repair this folder."
         } else {
             selectionLabel.stringValue = "No saved VM in this folder. Your next launch will create a new one here."
@@ -127,7 +127,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         switch choice {
         case .existing:
             panel.title = "Switch to another VM"
-            panel.message = "Choose an existing VM's complete folder, containing boot, disks, and locks. This changes which VM the app launches. Files stay where they are."
+            panel.message = "Choose an existing VM's complete folder, containing its shell folder. This changes which VM the app launches. Files stay where they are."
             panel.prompt = "Select This VM"
         case .new:
             panel.title = "Choose a folder for a new VM"

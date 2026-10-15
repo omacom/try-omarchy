@@ -136,12 +136,6 @@ struct ShellGuestPresentation: Equatable {
 
     var detail: String { lines.joined(separator: " · ") }
 
-    /// True when this app was built around an upstream-shell factory.
-    static func isShellApp(bundle: Bundle = .main) -> Bool {
-        guard let resources = bundle.resourceURL else { return false }
-        return FileManager.default.fileExists(atPath: resources.appendingPathComponent("guest/factory.json").path)
-    }
-
     /// The version of the try-omarchy package bundled in this app, from its file name.
     static func bundledPackageVersion(bundle: Bundle = .main) -> String? {
         guard let directory = bundle.resourceURL?.appendingPathComponent("guest-packages"),

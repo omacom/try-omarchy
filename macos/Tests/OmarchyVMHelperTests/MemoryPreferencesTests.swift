@@ -204,7 +204,7 @@ struct StartMenuMemoryPresentationTests {
 /// The memory contract is split across two languages: the app resolves and
 /// exports the value, the launcher re-validates it. Pin the shared constants
 /// to the shell source so neither side can drift silently; the launcher's
-/// semantics are exercised by qemu-memory-contract.test.sh.
+/// semantics are exercised by run-qemu-gpu.test.sh.
 @Suite("Memory cross-language contract")
 struct MemoryShellContractTests {
     @Test("the launcher uses the same key, default, and minimum")
@@ -219,9 +219,7 @@ struct MemoryShellContractTests {
         #expect(source.contains(
             "${\(MemoryPolicy.environmentKey):-$default_memory_mib}"
         ))
-        #expect(source.contains("default_memory_mib=4096"))
-        #expect(source.contains("host_memory_mib >= 16384"))
-        #expect(source.contains("default_memory_mib=8192"))
+        #expect(source.contains("default_memory_mib=$((host_memory_mib >= 16384 ? 8192 : 4096))"))
         #expect(source.contains("memory_mib + \(MemoryPolicy.hostHeadroomMiB) <= host_memory_mib"))
         #expect(source.contains(
             "memory_mib >= \(MemoryPolicy.minimumMemoryMiB)"

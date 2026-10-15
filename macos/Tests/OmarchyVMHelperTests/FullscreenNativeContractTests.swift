@@ -8,11 +8,11 @@ struct FullscreenNativeContractTests {
         let runner = try source(named: "run-qemu-gpu.sh")
 
         #expect(runner.contains("case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in"))
-        #expect(runner.contains("cocoa_full_screen=on\n    cocoa_immersive=on"))
-        #expect(runner.contains("cocoa_full_screen=off\n    cocoa_immersive=off"))
+        #expect(runner.contains("  1) full_screen=on immersive=on ;;"))
+        #expect(runner.contains("  0) full_screen=off immersive=off ;;"))
         #expect(runner.contains("OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1"))
         #expect(runner.contains(
-            "full-screen=$cocoa_full_screen,full-grab=on,immersive=$cocoa_immersive,swap-opt-cmd=off"
+            "full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
         ))
         #expect(!runner.contains("cocoa_full_grab"))
     }

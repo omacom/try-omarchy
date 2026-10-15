@@ -17,10 +17,8 @@ PACKAGE_NOTARY_PROFILE ?= $(RELEASE_NOTARY_PROFILE)
 FORCE ?= 0
 TEST_JOBS ?= 4
 
-SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding \
-  migration-inspection \
-  run-qemu-ssh-contract run-shell-guest qemu-memory-contract qemu-power-actions \
-  qemu-usb-passthrough qemu-monitor-ready qemu-persistent-storage
+SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding run-qemu-gpu \
+  qemu-usb-passthrough qemu-monitor-ready
 SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help

@@ -181,9 +181,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
-    private let bootFixCacheURL: () -> URL?
-    private let bootFixIdentity: () -> String?
-    private let retryBootFixes: () -> Void
     private let launch: () -> Void
     private let appVersionLabel: String
     private let appReleaseActionTitle: () -> String
@@ -286,9 +283,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
-        bootFixCacheURL: @escaping () -> URL? = { nil },
-        bootFixIdentity: @escaping () -> String? = { GuestBootFixCache.bundledIdentity },
-        retryBootFixes: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -329,9 +323,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
         self.confirmAutomaticStartup = confirmAutomaticStartup
-        self.bootFixCacheURL = bootFixCacheURL
-        self.bootFixIdentity = bootFixIdentity
-        self.retryBootFixes = retryBootFixes
         self.launch = launch
         self.appVersionLabel = appVersionLabel
         self.appReleaseActionTitle = appReleaseActionTitle
@@ -425,31 +416,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     func refreshAppReleaseStatus() {
         appReleaseButton?.title = appReleaseActionTitle()
-    }
-
-    func refreshBootFixStatus() { render() }
-
-    func confirmBootFixes() -> GuestBootFixChoice {
-        show()
-        guard let catalog = GuestBootFixCatalog.bundled else {
-            let alert = NSAlert()
-            alert.messageText = "VM update details are unavailable"
-            alert.informativeText = "The update catalog is missing or damaged. Reinstall Try Omarchy before updating this VM."
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return .cancel
-        }
-        guard let pending = GuestBootFixCache.pendingIDs(cacheURL: bootFixCacheURL(), catalog: catalog),
-              !pending.isEmpty else { return .cancel }
-        return GuestBootFixLaunchGate.decide(review: {
-            switch GuestBootFixPrompt.review(catalog: catalog.selecting(pending)).runModal() {
-            case .alertFirstButtonReturn: return .update
-            case .alertSecondButtonReturn: return .skip
-            default: return .cancel
-            }
-        }, confirmSkip: {
-            GuestBootFixPrompt.skip().runModal() == .alertSecondButtonReturn
-        })
     }
 
     @objc private func showAppUpdates() { checkForAppUpdates() }
@@ -619,34 +585,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         guard resetInProgress else { return }
         resetInProgress = false
         render()
-    }
-
-    func launchRequiresReset() {
-        guard launchInProgress else { return }
-        launchInProgress = false
-        show()
-
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Reset Omarchy to continue"
-        alert.informativeText = StartMenuPresentation.incompatibleWorkspaceDetail
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
-    }
-
-    /// Requests one-shot consent for legacy boot-file pairing. This remains a
-    /// synchronous application-modal decision so the launcher cannot start in
-    /// the gap between presenting the explanation and receiving the answer.
-    func confirmBootRecovery() -> Bool {
-        guard launchInProgress else { return false }
-        show()
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = StartMenuPresentation.bootRecoveryConfirmationTitle
-        alert.informativeText = StartMenuPresentation.bootRecoveryConfirmationDetail
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Continue")
-        return alert.runModal() == .alertSecondButtonReturn
     }
 
     func launchDidFail(errorMessage: String) {
@@ -886,26 +824,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
-        if ShellGuestPresentation.isShellApp() {
-            // Omarchy updates itself inside the VM (omarchy update); this row
-            // only reports what the guest last said about its versions.
-            let record = storageLocationURL().flatMap {
-                ShellGuestStatusRecord.read($0.appendingPathComponent("shell/guest-status.json"))
-            }
-            let guest = ShellGuestPresentation.make(
-                record: record, bundledPackage: ShellGuestPresentation.bundledPackageVersion()
-            )
-            integrationRowViews.append(permissionRow(
-                symbolName: "arrow.triangle.2.circlepath",
-                title: "Omarchy",
-                detail: guest.detail,
-                compactDetailLines: guest.lines.count > 1 ? guest.lines : nil,
-                granted: guest.isCurrent,
-                statusLabels: ("\u{25cf}  Current", "\u{25cb}  Update pending"),
-                actions: [],
-                minimumHeight: 72
-            ))
+        // Omarchy updates itself inside the VM (omarchy update); this row
+        // only reports what the guest last said about its versions.
+        let record = storageLocationURL().flatMap {
+            ShellGuestStatusRecord.read($0.appendingPathComponent("shell/guest-status.json"))
         }
+        let guest = ShellGuestPresentation.make(
+            record: record, bundledPackage: ShellGuestPresentation.bundledPackageVersion()
+        )
+        integrationRowViews.append(permissionRow(
+            symbolName: "arrow.triangle.2.circlepath",
+            title: "Omarchy",
+            detail: guest.detail,
+            compactDetailLines: guest.lines.count > 1 ? guest.lines : nil,
+            granted: guest.isCurrent,
+            statusLabels: ("\u{25cf}  Current", "\u{25cb}  Update pending"),
+            actions: [],
+            minimumHeight: 72
+        ))
         integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
 
         var permissionRowsAndSeparators: [NSView] = []
@@ -983,13 +919,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         manage.isEnabled = !controlsBusy
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
-        let fixesPending = GuestBootFixCache.needsUpdate(cacheURL: bootFixCacheURL(), expectedIdentity: bootFixIdentity())
-        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : (fixesPending ? "Update and Launch" : "Launch Omarchy"))
+        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : "Launch Omarchy")
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
             style: .primary,
             target: self,
-            action: virtualMachineRunning ? #selector(closeSettings) : (fixesPending ? #selector(reviewVMFixes) : #selector(launchOmarchy))
+            action: virtualMachineRunning ? #selector(closeSettings) : #selector(launchOmarchy)
         )
         launchActionButton = launchButton
         launchButton.keyEquivalent = launchInProgress || storageMoveInProgress ? "" : "\r"
@@ -1869,10 +1804,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc func launchOmarchy() {
         beginLaunch(action: launch)
-    }
-
-    @objc private func reviewVMFixes() {
-        beginLaunch(action: retryBootFixes)
     }
 
     private func beginLaunch(action: () -> Void) {
