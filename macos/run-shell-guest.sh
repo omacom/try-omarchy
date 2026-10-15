@@ -141,6 +141,9 @@ prepare_factory_disk() {
   "$zstd_bin" -q -d --sparse -f "$compressed" -o "$factory_disk.partial" || fail "could not decompress the factory disk"
   [[ $(stat -f %z "$factory_disk.partial") == "$disk_bytes" ]] || fail "the factory disk has the wrong size"
   chmod 600 "$factory_disk.partial"
+  # zstd leaves much of the filesystem's free space allocated on APFS where
+  # data and zeros alternate; return those blocks (about half the disk).
+  "$native_bridge" --sparsify "$factory_disk.partial" >/dev/null || true
   mv -f "$factory_disk.partial" "$factory_disk"
 }
 

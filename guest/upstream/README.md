@@ -47,7 +47,9 @@ Package downloads are cached in a Docker volume labeled
    stashed for offline user finalization.
 6. One UKI build with `limine-update`, and upstream's aarch64 `edge` pacman
    template and mirror list.
-7. Sealing: an empty machine ID, no random seed, no SSH host keys, no pacman
+7. A full btrfs balance, then `fstrim` of both filesystems, so the free
+   space is long zero runs.
+8. Sealing: an empty machine ID, no random seed, no SSH host keys, no pacman
    keyring, an empty package cache, and a read-only `@factory` snapshot for
    Omarchy's own factory reset.
 
@@ -65,3 +67,8 @@ digest the build resolved against, and `packages.txt` records every version.
 Two builds from the same database digest install the same `[omarchy]`
 packages. Arch Linux ARM has no frozen snapshot, so its packages can still
 differ.
+
+On first use the app decompresses the image once per factory into
+`<VM storage>/shell-factory/`. It then returns the zero blocks to APFS
+(`omarchy-vm-helper --sparsify`; about 9 GB stays allocated) and clones that
+file for each new VM.

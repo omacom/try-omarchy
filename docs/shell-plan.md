@@ -51,9 +51,61 @@ button. The guest installs the offered package only when it is newer than
 its own (`vercmp`), so the offer is a no-op for a current guest or one that
 took a newer package from `[omarchy]`.
 
-Not done yet: an in-guest menu entry for settings and Touch ID (Omarchy's
-menu extensions are per user), copying a shell VM to another storage
-location, the nightly CI job, and the upstream asks below.
+### Verified on 2026-10-15
+
+On an M2 Pro running macOS 27, using the app's own QEMU runtime and launcher
+(`Resources/scripts/run-qemu-gpu.sh` of a `make shell-app` build), windowed:
+
+- edk2 → Limine → the guest's own `linux-omarchy` 7.2.8 UKI boots. The VM
+  has no EL2 on this chip and takes the EL1 path.
+- Omarchy's own first-boot owner setup runs on tty1. Its time zone defaults
+  to the Mac's. The session then starts with autologin.
+- The stock omarchy-pkgs Hyprland 0.56.2 and Quickshell render through
+  VirGL. Rounded corners are clean at scale 1 and 2 (checked in `grim`
+  captures), so the `rounded-border-coverage` patch is not needed.
+- `omarchy-hw-platform` reports `aarch64` and `systemd-detect-virt` reports
+  `qemu`. Omarchy applies its own VM toggles (no animations, opaque windows).
+- The `tryomarchy.host` credential reaches the guest. The following work:
+  keyboard model, time zone, SSH on demand (sshd plus a ufw rule), clipboard
+  both ways, Mac audio devices, battery, camera device, guest status reports
+  to the app, the menu rows, and the start menu's version row.
+- Integration updates: a guest with `0.1.0-1` took `0.1.0-2` from the app at
+  boot, and later `0.1.0-3` → `0.1.0-4`. `pacman -U` of a newer package
+  inside the guest also works.
+- Disk growth: a 20 GiB factory disk opened at 64 GiB grew btrfs online to
+  62 GB.
+- A fresh VM from the final factory provisioned with Japanese seeded
+  (`LANG=ja_JP.UTF-8`). Every integration was up at the first login. The
+  factory cache took 9.0 GB on APFS after `--sparsify` (17 GB without it).
+- `omarchy update -y` inside the VM ran its whole flow and exited 0:
+  snapshot, keyrings, full upgrade, shell restart, mise, AUR. The snapshot
+  appears in Limine's Snapshots menu.
+
+Found and fixed along the way:
+
+- The owner is not in the `audio`, `video` or `users` groups, so the ports
+  are granted to the active session with `uaccess`.
+- Omarchy's firewall blocks port 22, so `ssh-access` opens it while SSH is
+  forwarded.
+- Omarchy's startup cursor reveal restored the guest cursor.
+- The first-boot language marker depended on build order. Seeding now
+  follows Omarchy's provisioning-pending marker.
+
+Not verified yet:
+
+- Immersive full-screen.
+- Display sync while resizing the Mac window: the windowed window shrank
+  once after a manual mode change.
+- The Mac shared folder.
+- Touch ID.
+- An M3+ host with nested virtualization.
+
+Not done yet:
+
+- Copying a shell VM to another storage location.
+- The nightly CI job.
+- **Boot previous snapshot** in the launcher. Limine's menu has it.
+- The upstream asks below.
 
 ## What upstream has today
 
@@ -343,5 +395,10 @@ deletes it. Details are deferred until the new system is stable.
 - Publish an ARM nightly VM image from the existing `vm-seal` pipeline.
 - Accept `try-omarchy` in `omarchy-pkgs`, and whether a virtual platform may
   provide `omarchy-platform`.
-- Take the Hyprland border-coverage patch into the aarch64 Hyprland recipe if
-  the spike shows it is still needed.
+- ~~Take the Hyprland border-coverage patch into the aarch64 Hyprland
+  recipe~~: not needed; stock Hyprland renders cleanly in the VM.
+- A sanctioned place for a package to add Hyprland configuration and menu
+  rows. `try-omarchy` uses the user's toggles directory and a one-time edit
+  of the menu extension file today. Alternatives would be a lifecycle
+  registration (`setup-user`) for a VM integration package, or system-wide
+  drop-in directories.

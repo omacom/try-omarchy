@@ -53,6 +53,21 @@ A status report looks like this:
 The app reads only the fields it knows. A guest ignores any port it does not
 know about. Either side can therefore be updated first.
 
+## Device access, SSH and language
+
+- The user-facing ports (audio, clipboard, camera, settings) and the camera
+  loopback device carry `TAG+="uaccess"`. logind grants them to whoever holds
+  the active session. Omarchy's owner provisioning does not add the owner to
+  `audio`, `video` or `users`.
+- With SSH forwarded, `try-omarchy-ssh-access` starts sshd for that boot. It
+  also allows port 22 through Omarchy's ufw firewall: from the NAT gateway
+  `10.0.2.2`, or from anywhere when the VM is bridged
+  (`tryomarchy.ssh_from=any`). It removes the rule again on boots without
+  SSH.
+- `try-omarchy-locale` sets `LANG` from the Mac's language while Omarchy's
+  owner provisioning is pending, on first boot or after Omarchy's factory
+  reset. It generates the locale first.
+
 ## Hyprland
 
 Omarchy has no system-wide Hyprland drop-in directory. At the owner's first

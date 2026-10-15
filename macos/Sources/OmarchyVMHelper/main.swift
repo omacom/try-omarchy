@@ -113,6 +113,12 @@ do {
         }
         dispatchMain()
     }
+    if arguments.first == "--sparsify" {
+        guard arguments.count == 2 else { usage() }
+        let punched = try SparseDiskZeroRanges.punch(path: arguments[1])
+        print(punched)
+        exit(0)
+    }
     if arguments.first == "--bridge-guest-status" {
         guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
         try ShellGuestStatusBridge.run(targetPID: pid, socketPath: arguments[2], statusPath: arguments[3])
