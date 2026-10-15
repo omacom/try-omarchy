@@ -47,28 +47,13 @@ operation ordering, neighboring data, repeated reuse, and failure handling.
 The launcher contract checks that reporting is enabled and stale runtimes are
 rejected.
 
-For an end-to-end test on Apple Silicon, build the runtime and use an existing
-factory artifact directory:
-
-```sh
-python3 macos/Tests/hvf-memory-reclaim-smoke.py \
-  --qemu macos/.build/qemu-gpu-runtime/bin/qemu-system-aarch64 \
-  --guest-dir dist/guest
-```
-
-The test uses a 3 GiB headless VM and QEMU's disposable disk snapshot mode. It
-boots a shell instead of the desktop, without networking or host shares, and
-never opens a persistent user VM. A guest Python process touches and verifies
-768 MiB, releases it, and repeats three times while retaining a live sentinel.
-The host measures `proc_pid_rusage` physical footprint and requires at least
-512 MiB returned after each burst within 20 seconds. Add `--reporting off` for
-a control run; the control prints measurements without requiring reclamation.
-On a Mac supporting nested virtualization, add `--nested` to exercise the
-production EL2 configuration as well.
-
-An Apple Silicon run on macOS 27.0 returned 728.3, 742.3, and 718.3 MiB across
-the three cycles with reporting enabled. The same runtime with reporting
-disabled returned 0.0, 0.0, and 0.2 MiB over the 20-second observation windows.
-All guest data checks passed. These measurements validate this host and workload;
-they are not a promise of a fixed reclaim ratio for desktop workloads.
-The test host does not support nested virtualization, so EL2 remains unverified.
+An end-to-end smoke test, `macos/Tests/hvf-memory-reclaim-smoke.py`, booted
+the earlier direct-boot factory into a shell, touched and released 768 MiB
+three times, and measured the QEMU process's physical footprint. An Apple
+Silicon run on macOS 27.0 returned 728.3, 742.3, and 718.3 MiB across the
+three cycles with reporting enabled; the same runtime with reporting disabled
+returned 0.0, 0.0, and 0.2 MiB. These measurements validate that host and
+workload; they are not a promise of a fixed reclaim ratio for desktop
+workloads. That test has not been ported to the UEFI factory yet. The current
+guest's `linux-omarchy` kernel enables balloon page reporting, but reclamation
+has not been measured with it. EL2 remains unverified.

@@ -1,8 +1,8 @@
 # Contributing
 
 Thanks for helping improve Try Omarchy. The project has one product target: a
-native Apple Silicon macOS app that runs pinned upstream Omarchy in a
-project-built ARM64 virtual machine image.
+native Apple Silicon macOS app that runs stock upstream Omarchy for `aarch64`
+in a virtual machine, with the Mac integrations in one guest package.
 
 ## Pull requests
 
@@ -40,12 +40,13 @@ issues. Coding agents should also read [AGENTS.md](AGENTS.md).
 
 ## Build inputs and local state
 
-The guest and QEMU supply chains are deliberately pinned. Do not update a URL,
-commit, package lock, archive, or checksum independently of its associated
-validation code.
+The QEMU supply chain and the builder's keys are deliberately pinned. Do not
+update a URL, commit, archive, or checksum independently of its associated
+validation code. The factory installs from Omarchy's live repositories; its
+`dist/guest/factory.json` records the database digest it resolved against.
 
-Generated files in `dist/` and build caches in `macos/.build/` and
-`guest/.work/` are not committed. Use `make clean` to remove project build
+Generated files in `dist/` and build caches in `macos/.build/` are not
+committed. Use `make clean` to remove project build
 artifacts and caches. `make clean-all` additionally destroys persistent local
 VM data and should only be used when a complete reset is intended.
 
@@ -54,40 +55,18 @@ published only after the build succeeds and its output passes validation. Use
 `FORCE=1` when reviewing reproducibility or when an intentionally unchanged
 input must be rebuilt; do not work around the cache by editing generated state.
 
-## Updating Omarchy
+## Updating Omarchy and the guest package
 
-Pin an official upstream release, refresh the complete ARM64 transaction lock,
-and verify the source contract with one command:
+The guest updates itself with `omarchy update`, so there is no Omarchy pin to
+move. To ship a newer Omarchy in the factory, run `make guest FORCE=1` and
+review `dist/guest/factory.json` and `dist/guest/packages.txt`.
 
-```sh
-make update-omarchy OMARCHY_RELEASE=4.0.4
-```
-
-The command keeps a complete shallow source checkout under `.build/upstream/`,
-verifies that its clean `HEAD` is the requested release tag, and derives the
-commit, Git tree, normalized source digest, source timestamp, source-reported
-version, and official release version. It then refreshes the package lock and
-runs the guest contract against that exact checkout.
-
-Before committing an update, review the upstream diff—especially changes to
-`install/omarchy-base.packages`—against the intentionally trimmed
-`guest/packages.txt`. Add runtime dependencies the native guest now needs, then
-review every entry in `authenticity.backports`: drop a backport that the new
-release contains, or refresh its strict preimage and postimage hashes after
-review. Run `make guest` and `make test`. The upstream source can report a development
-version even for an official tag, so never hand-edit the `version` or `release`
-fields to make them agree; they record different upstream identities.
-
-## Updating existing-VM migrations
-
-`guest/migrations/catalog.json` gives every migration a stable ID and revision.
-Increment the affected migration's revision whenever its repair behavior or
-managed payload changes. Keep the ID when revising an existing migration; use a
-new ID only for a new handler. The launcher compares these revisions against
-per-VM receipts, so changing only the complete bundle hash does not make an
-unchanged revision appear again. Review shared helper changes against every
-migration they affect. Tests should cover the revision delta and preserved,
-failed, and interrupted outcomes.
+Mac integrations in the guest live in the `try-omarchy` package
+([guest/package](guest/package/README.md)). Bump its `pkgrel` (or `pkgver`)
+whenever its contents change, so existing VMs take the new package at their
+next boot; the guest installs the app's package only when it is newer. Keep
+host-guest protocols compatible in both directions: a newer app must work with
+an older package, and the reverse. Run `make guest-package` and `make test`.
 
 ## Tests
 
@@ -95,8 +74,8 @@ failed, and interrupted outcomes.
 The Swift build and tests finish before any shell suite uses the native helper.
 Use `make test TEST_JOBS=1` for serial output when debugging, or set `TEST_JOBS`
 to another positive integer to bound concurrency. Individual groups are available
-as `make test-contracts`, `make test-guest`, `make test-swift`, and
-`make test-shell`; `make test-resize` runs the disk resize integration tests.
+as `make test-contracts`, `make test-guest` (the guest package), `make test-swift`,
+and `make test-shell`.
 
 PR checks run all tests and full runtime builds in separate, concurrent jobs on
 both macOS 15 and 26, labeled `Tests` and `Build`. No suites or runtime checks

@@ -6,13 +6,14 @@ coding agents.
 
 ## Project orientation
 
-- The product is a native Apple Silicon macOS app running pinned upstream
-  Omarchy in a project-built ARM64 guest with QEMU/HVF.
+- The product is a native Apple Silicon macOS app running stock upstream
+  `aarch64` Omarchy in a QEMU/HVF VM that boots through UEFI, with the Mac
+  integrations in the `try-omarchy` guest package.
 - Read [docs/architecture.md](docs/architecture.md) for component boundaries
   and the relevant component README before changing its behavior.
 - `macos/` owns the native app, runtime patches, and host integration; `guest/`
-  owns the image, package lock, and guest contracts. Use the root `Makefile`
-  for builds and tests.
+  owns the factory image, the `try-omarchy` package, and guest contracts. Use
+  the root `Makefile` for builds and tests.
 
 ## Preparing contributions
 

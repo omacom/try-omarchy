@@ -2,8 +2,9 @@
 
 The Mac app, its bundled factory image, and an existing guest have separate
 versions. Package updates inside the guest do not update the Mac app or QEMU.
-Replacing the app preserves the existing VM and its paired boot files; it does
-not migrate that VM to the newest factory image.
+Replacing the app preserves the existing VM; the guest keeps updating itself
+with `omarchy update`. The app offers its bundled `try-omarchy` package at the
+next boot (see [integration updates](integration-updates.md)).
 
 ## Release checks
 
@@ -58,8 +59,8 @@ Before enabling installation, maintainers need to:
 3. Sign and notarize the completed app, sign the distributable update archive,
    and publish the appcast only after the artifact is available. Encode the
    minimum macOS version and stable channel in the feed.
-4. Gate installation on the QEMU supervisor confirming that normal launches,
-   recovery boots, and storage operations have all finished. The current app
+4. Gate installation on the QEMU supervisor confirming that launches and
+   storage operations have all finished. The current app
    termination path forwards SIGTERM, so simply letting Sparkle terminate the
    app is not a clean-shutdown guarantee. Keep installation pending while the
    user shuts the guest down, and prevent a new VM launch during replacement.

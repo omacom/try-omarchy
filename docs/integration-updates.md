@@ -1,239 +1,78 @@
-# Integration updates for existing VMs
+# Integration updates
 
-App upgrades retain existing guest disks. The integration manager delivers
-reviewed guest features independently of the bundled factory image.
+Three pieces update on their own schedules:
 
-Physical [Mac keyboard support](mac-keyboard.md#existing-vms) is supplied
-automatically at boot, even when the reviewed updates are skipped. It does not
-require Mozc or any network download.
+| Piece | Ships through | Who triggers it |
+| --- | --- | --- |
+| Mac app | DMG ([app updates](app-updates.md)) | The user installs the app |
+| `try-omarchy` guest package | Bundled in the app, offered on every boot | Automatic, before login |
+| Omarchy, its Hyprland stack and kernel | Omarchy's repositories | `omarchy update` in the guest |
 
-The [shared-folder safety mitigation](shared-folder-safety.md) is supplied
-automatically by the app at boot, separately from this review workflow. It
-changes the mount policy for that boot without replacing the guest kernel or
-requiring installation of integration support.
+Replacing the app never touches a VM's disk. The guest updates itself.
 
-## Updates at launch
+## The guest package
 
-Compatible repairs have an **Update and Launch** action at the bottom of the
-Mac launcher when the selected disk has new or revised migrations or unfinished work.
-For an existing VM without revision history, the first launch runs one headless
-inspection using its saved kernel and initramfs. QEMU keeps all guest writes in a
-disposable overlay; the selected disk is unchanged. No network or host integration
-bridges are connected. The launcher shows **Checking migrations…**, then opens the
-review only when the check finds applicable work. A failed or incomplete check
-never establishes history and offers **Launch Without Updating** as a fallback.
+Every Mac integration in the guest is the `try-omarchy` pacman package
+([guest/package](../guest/package/README.md)). The app bundles the package it
+was built with, in `Contents/Resources/guest-packages/`.
 
-Automatic startup (Skip Launcher) shows the
-launcher when that bundle needs its first review, then resumes normally on
-later opens. A missing disk or a VM with a current result keeps **Launch Omarchy**.
+On every boot the launcher:
 
-**Update and Launch** opens a review of new, revised, or unfinished repairs. Choose
-**Update and Launch**, **Skip**, or **Cancel**. Skip requires a second
-**Skip and Launch** confirmation and leaves the fixes available for manual retry.
-The review appears automatically only once per disk and fix bundle, including
-after a skip, cancellation, failure, or interrupted update. Skip Launcher then
-continues to start normally. The launcher's **Update and Launch** action remains available
-while fixes are pending; click it while the VM is shut down to explicitly retry.
-That action still requires approval before applying changes. Older failed or
-unconfirmed attempts also stay manual. The existing settings, timezone integration, and shared-folder safety
-payload still run; Skip applies only to the reviewed repairs.
+1. names that archive in the systemd credential `tryomarchy.package`, and
+2. shares it on a read-only virtio-9p share tagged `tryomarchy-packages`.
 
-The review list comes from the shared [migration catalog](../guest/migrations/catalog.json).
-Each migration has an ID and revision. The host retains a per-disk baseline and
-shows only added IDs, higher revisions, and unfinished migrations. Rows, groups,
-and notes are all filtered to that selection. A successful check or update records
-steps that are current, applied, or explicitly preserved/unavailable; failed,
-pending, and system-update-required steps remain available. Later app upgrades compare these revisions without
-another inspection boot. The guest still checks compatibility before applying changes.
+Before any login, `try-omarchy-package-install.service` compares the offered
+version with the installed one (`vercmp`). It installs the archive with
+`pacman -U` only when it is newer. A guest that already has the same version,
+or a newer one installed in the guest, keeps it. Package
+installation uses pacman and the package's own install hooks; there is no
+host-side file journal, consent catalog or migration runner.
 
-Factory provenance records the revisions included in the image. A newly created
-or reset VM starts from that factory baseline, rather than inheriting the old
-VM's history or assuming every migration in a newer app was in an older image.
-History is bound to the disk's inode and creation time, so reset cannot reuse old
-receipts even when an inode is recycled. A copied disk without matching host history
-receives its own one-time check. Approval and review reminders remain tied to the
-complete bundle's content hash; revision receipts never authorize installation.
+The result goes to `/var/lib/try-omarchy/package-install.json`
+(`installed`, `current` or `failed`, with a message). The status reporter
+sends it to the app with the next report.
 
-Approval is limited to the reviewed bundle and selected disk's file identity,
-rechecked under the workspace lock. The existing temporary boot service runs
-the repairs before graphical login, without command pasting or a Linux
-password prompt. It does not require an integration agent in the old VM.
-
-Stock integrations are replaced only when their current or reviewed historical
-contents match. Customized files, unsafe paths, unsupported dependencies, and
-explicit service overrides are preserved and reported as skipped. Hold-list
-repair adds only missing compatibility names while preserving existing entries
-and comments; pinch setup appends its scoped device rule without replacing the
-user's other input settings. Existing lock-screen PAM policies are preserved.
-The runner saves a root-private journal before changing any file, verifies the
-entire change set, and restores original bytes, ownership, and permissions if
-an update or service activation fails. Service activity and the loaded battery
-module are restored along with their original files. An interrupted transaction is restored on the next boot,
-even if that launch skips updates. Successful backups remain under
-`/var/lib/try-omarchy/boot-fixes/backup-*.json`. This is recovery for the listed
-file changes and listed service/module activation, not a full-disk snapshot or
-rollback of arbitrary commands. User files have a separate journal under
-`~/.local/state/try-omarchy/boot-fixes`; these steps run as their desktop user.
-Earlier successful components can remain applied when a later user step fails.
-If recovery itself cannot finish, the result explicitly reports that recovery
-needs attention; it never claims the original files were restored.
-
-After an approved update, the Mac app shows one brief result message: the update
-finished, or it could not be completed or confirmed. Results do not add a
-persistent report or notice to the launcher. No report or no response establishes
-success.
-Results are scoped to that VM disk; another disk or reset does
-not inherit completion. A missing revision baseline triggers the one-time check before review;
-an unconfirmed approved update leaves a manual retry available through **Update and Launch**.
-
-<a id="manual-upgrade-commands-covered-by-update"></a>
-
-### Manual upgrade commands covered by Update and Launch
-
-| Previous manual step | Automatic migration |
-| --- | --- |
-| Clipboard/screensaver fixes and Alacritty wrapper retirement | Recognized stock scripts, verified and backed up. |
-| Power panel/menu plugin fixes | Exact reviewed QML and command patches, now included in the journal and result. |
-| `systemctl enable --now systemd-timesyncd` and clock-recovery installer | Install the recovery helper/units and enable time synchronization and the recovery timer. An explicitly disabled existing recovery timer is preserved. |
-| `repair-update-holds.py --apply` | Add compatibility holds to both pacman configurations under the pacman transaction lock; no package operation. |
-| `omarchy-apply-lock` | Seed only the missing pinned password policy; preserve existing PAM and fingerprint policies. |
-| Integration bootstrap/setup command | Install the verified support bundle, menu entry, setup command, and status service automatically. |
-| Ghostty installer from an updated checkout | Update recognized stock Ghostty installer files, verification pins, and the terminal-menu hook; Ghostty is installed later through **Install → Terminal → Ghostty**. |
-| Battery retrofit/update installer | Build privately against the running kernel with existing tools and headers; journal sources, module, DKMS receipts, service enablement, and bridge files before activation. |
-| Existing 1Password integration update | Update recognized installed helpers/unit without enabling a new integration or changing enrollment. |
-| 1Password installer desktop-entry fix | Update the recognized stock installer to support current and legacy desktop filenames, independently of Touch ID setup. After an interrupted installation, rerun **Install → Service → 1Password**. |
-| Pinch input snippet and Alacritty `--launcher` cleanup | Run as each desktop user; keep other input settings and remove only the exact stale launcher when Alacritty is absent. |
-| Japanese input setup | Install missing Japanese input packages through pacman after approval, then run stock-profile and JIS hotkey repairs in the user journal. Preserve personal settings and Korean group selection. [Details](japanese-input.md#existing-guests). |
-
-Battery builds are bounded to three minutes with two compiler jobs. The boot
-service allows ten minutes; an approved host check waits up to eleven minutes
-before reporting an unconfirmed result. Missing DKMS, build tools, matching
-headers, or an unsupported module location produce a skipped battery result;
-no dependency is downloaded or installed. The kernel and paired boot kit stay
-unchanged. The battery source, build receipt, and active DKMS link are published
-with the verified module, so normal DKMS status and future explicit maintenance
-continue to recognize it.
-
-The Japanese-input migration installs only missing Japanese input packages
-(Mozc, Fcitx5 and its GTK/Qt modules, its configuration tool, and CJK fonts) and
-their required dependencies from the guest's configured package repositories.
-Repository databases are not refreshed. If they show pending updates to ordinary
-installed packages, installation remains pending. The result dialog instructs
-the user to finish `omarchy update` inside the VM, shut down Omarchy, reopen
-Try Omarchy, and choose **Update and Launch**. Hold **Option** when opening the
-app to return to the launcher if needed. No separate guest reboot is needed
-first. Approval stays in the running VM's kernel command line, so an in-guest
-reboot can also retry within a session started with **Update and Launch**;
-a session started without approval only checks the fixes.
-Missing mirror files fail without a refresh/retry.
-This avoids selectively installing newer dependencies into an older system. Kernel,
-headers, runtime, and the validated Hyprland stack are explicitly held. Guests
-that already have every package make no package changes.
-The package operation is bounded to five minutes. Package installations are kept when later file changes are restored.
-Other components do not download dependencies. This flow does not replace the
-kernel, update the graphics stack, enable biometrics, or reproduce every factory
-change. Installing
-new optional applications and first-time 1Password enablement remain explicit
-setup choices. An enrolled older Touch ID protocol requiring enrollment/PAM
-migration is preserved for the guest review below; its password fallback is not
-changed by Update and Launch. Customized or unsupported steps are reported, not forced.
-
-## Optional guest review and manual fallback
-
-The normal supported setup is **Update and Launch**, without pasting a command.
-The guest review remains available for opt-in pairing and unsupported/custom
-repairs under **Omarchy Menu > Setup > Try Omarchy Integrations**. The Mac
-launcher uses the launch-time Update and Launch action and per-fix results for routine
-updates; it does not show a separate manual-install banner or menu-bar prompt.
-
-If the guest menu entry is missing and the launch-time update cannot install it,
-launch Omarchy and paste this fallback command into an Omarchy terminal:
-
-```sh
-sudo mkdir -p /mnt/try-omarchy-updates && (mountpoint -q /mnt/try-omarchy-updates || sudo mount -t 9p -o trans=virtio,version=9p2000.L,ro tryomarchy-updates /mnt/try-omarchy-updates) && bash /mnt/try-omarchy-updates/setup
-```
-
-It mounts the app's dedicated read-only 9p share and opens a review. The share is
-separate from the optional personal shared folder and needs no SSH connection.
-
-Choose **Manually install/repair integration support (fallback)** and review replacements before
-confirming. Installation asks for the Linux user's sudo authorization, retains
-backups, and verifies each component before recording it as complete. Biometric
-enrollment remains a separate action. Existing PAM enrollment is preserved.
-
-The guide is then available under **Omarchy Menu > Setup > Try Omarchy
-Integrations**, or with `try-omarchy-integrations` in the guest terminal.
-
-## Features and boundaries
-
-- sudo Touch ID: installs support; pairing is explicit and can be tested or repaired.
-- Mac battery: installs the [host battery](host-battery.md) module and bridge, so
-  the Mac's charge appears in the Omarchy bar. The guest builds the module with
-  DKMS. VMs with the current integration are left as they are; older installed
-  versions are upgraded by the launcher's **Update and Launch** flow on their next approved
-  boot. Manual installation remains available for skipped or unsupported repairs.
-
-The bundle contains upstream sudo Touch ID support and the Mac battery mirror.
-Additional integrations can be added after their own upstream review. The manager does not
-replace the kernel, upgrade the graphics stack, repair package holds, install
-1Password integration, or reproduce every change in a newer factory image. Ordinary package
-updates remain with Omarchy Update. No VM reset is required for these integrations.
+Developers can turn the offer off with `OMARCHY_SHELL_INSTALL_PACKAGE=` (an
+empty value) or name another archive with
+`OMARCHY_SHELL_INSTALL_PACKAGE=/path/to/try-omarchy-<version>-aarch64.pkg.tar.zst`.
+`make guest-package` rebuilds only the package; the next `make app` bundles
+it.
 
 ## Status
 
-A dedicated virtio port carries bounded status reports to the host every ten
-seconds. Every VM launch starts a new check. After 120 seconds without a valid
-report the host shows that setup or repair may be needed and continues listening.
-A component that cannot be installed in this VM reports `disabled` rather than
-needing repair: the battery module needs DKMS and headers for the running kernel,
-which images before v0.3.0 lack and which are missing after a kernel update until
-Omarchy restarts. The review names the reason, and installation skips the battery
-without failing the other integrations.
-An older, slow, or stopped guest agent cannot be distinguished by silence alone.
+`try-omarchy-guest-status.service` sends one JSON line every 10 seconds on
+`dev.tryomarchy.guest` (protocol 1):
 
-When setup, updates, or repairs may be needed, an attention icon appears in the
-Mac menu bar with the status and a review action. It disappears after a healthy
-report. The status bridge runs silently and does not show a separate review prompt.
-Checks still run on every launch.
-
-The launcher shows a compact attention notice only when the last check for the
-selected persistent disk needs attention. It stays hidden before the first check,
-while a check is incomplete, and for current integrations. Optional Touch ID
-pairing and an unsupported battery module do not trigger a notice; pairing remains
-available inside Omarchy. New VMs already include the integration manager.
-A report of current components means installed files, including the setup command
-and reporting service definition, passed inspection;
-it does not attest that Touch ID was successfully used. Status messages never
-execute commands or authorize host or guest installation.
-
-## Failure and retry
-
-An installed bundle with additional integrations is not replaced by this smaller
-bundle. Use an app that supports those integrations; their files and enrollment
-are left intact.
-
-The updater verifies the exact bundle inventory and hashes before installation,
-then stages a root-private copy. The app signature covers the bundle and manifest;
-hashes detect corruption and do not independently establish trust in an app.
-
-Previous files, the previous installed bundle, and progress are retained under
-`/var/lib/try-omarchy/integrations`. Before sudo support is installed, its backup
-also retains any existing sudo PAM policy, Touch ID enrollment state, and account
-default menu extension, with their file permissions. These backups remain private
-to root even if migration fails. A component is marked complete only after
-verification. Rerunning skips a previously completed step only when its managed
-files still match. This is resumable installation, not a transactional
-rollback of all PAM or systemd effects. A failed step prints its error and leaves
-progress and backups available for repair.
-
-Installation lists existing integration files that differ before asking to
-replace them. Unrelated menu entries and package-configuration settings are
-preserved. Unsupported or unsafe paths stop the operation. Close Omarchy Update
-before installing integrations. An active package transaction blocks installation.
-
-Guest status diagnostics:
-
-```sh
-systemctl status try-omarchy-integrations.service --no-pager
-sudo journalctl -u try-omarchy-integrations.service -b -n 40 --no-pager
+```json
+{"channel":"edge","kernel":{"installed":"7.2.8-11","running":"7.2.8-11-omarchy"},
+ "omarchy":"4.0.0.r7024.g246f33a-1","package":"0.1.0-1","protocol":1}
 ```
+
+The app keeps the last report in `<VM storage>/shell/guest-status.json`. The
+start menu's **Omarchy** row shows the Omarchy version and channel on one
+line and the integration package on the other:
+
+- **Current**: the guest has the bundled package or a newer one.
+- **Update pending**: the guest reported an older package. It shows
+  `Integrations <installed> → <bundled> next launch`.
+- A failed installation shows its message.
+
+Before the first report the row says that versions appear after Omarchy
+starts. Reports are advisory: they decide only what the start menu shows.
+
+## Omarchy itself
+
+Omarchy, the kernel and every other package update through `omarchy update`
+inside the guest. It takes a Snapper snapshot first; the snapshot appears in
+Limine's boot menu for rollback. `omarchy-channel-set` switches channels the
+platform has a template for. On ARM, Omarchy publishes only to `edge` for now.
+
+## Compatibility
+
+Every virtio port keeps its protocol. A guest ignores ports it does not know,
+and the app reads only the report fields it knows, so either the app or the
+guest can be updated first. A guest updated before the app may carry a package
+newer than the app's; the app then leaves it alone.
+
+VMs created by earlier direct-boot versions of the app are not launched or
+migrated by this version. Their disks stay in the storage folder untouched.

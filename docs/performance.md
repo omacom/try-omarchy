@@ -71,6 +71,11 @@ input latency. Do not infer hardware video decoding from an accelerated desktop.
 
 ## 2026-10-01 investigation
 
+This investigation ran on the earlier direct-boot guest (a pinned, patched
+Omarchy image). The host runtime findings still apply. Commands it lists that
+no longer exist, such as `make update-omarchy`, the old guest package lock and
+`hvf-memory-reclaim-smoke.py`, are kept as the record of what ran then.
+
 Host: M2 Pro, ten cores (six performance/four efficiency), 16 GiB, macOS 27.0.1.
 Source: `prepare-0.5.0`, initially `3cfee41`; optimization checkpoint `0bd5348`, Bash compatibility fix `3e24c17`.
 Guest: current factory pinned to Omarchy release 4.0.4 (source-reported

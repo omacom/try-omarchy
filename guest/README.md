@@ -1,231 +1,53 @@
-# ARM64 guest image
+# Guest
 
-This directory builds the single guest supported by Try Omarchy: our own
-unprovisioned ARM64 Arch Linux factory image containing pinned upstream Omarchy
-source. It is not a prebuilt image published by Basecamp.
+The guest is a stock generic-`aarch64` Omarchy install plus one package. This
+directory builds both:
+
+| Path | Contents |
+| --- | --- |
+| [`package/`](package/README.md) | The `try-omarchy` pacman package: every Mac integration in the guest |
+| [`factory/`](factory/README.md) | The factory disk the app ships, built with Omarchy's own install steps |
+| `build.sh` | Builds the package, then the factory with the package installed |
+| `keys/` | Omarchy's reviewed repository keys for the builder |
+| `vendor/omarchy-pkgs/pacstrap-docker` | A mount-free `pacstrap` for bootstrapping the builder |
 
 From the repository root:
 
 ```sh
-make guest
+make guest           # dist/guest: the factory disk, its manifest, and packages/
+make guest-package   # only dist/guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
+make test-guest      # the package's contract tests
 ```
 
-The privileged ARM64 Docker build writes verified artifacts to `dist/guest/`.
-Its persistent package/source cache lives in a project-scoped Docker volume, so
-repeat builds do not start from zero.
+Both builds run in a privileged ARM64 Docker container (the builder image is
+`guest/factory/Containerfile`). The build cache skips `make guest` while the
+inputs under `guest/` are unchanged; `make guest FORCE=1` rebuilds the factory
+against Omarchy's current `edge` repositories. `make guest-package` does not
+invalidate the factory: the next `make app` bundles the new package, and the
+app offers it to existing VMs at their next boot.
 
-Source checkouts are cached separately by pinned Omarchy commit, so updating
-the release preserves the previous checkout and reuses the package cache.
-Each checkout must still match its pinned commit and tree and have no local
-changes. Legacy `omarchy-source` caches are left untouched.
+## Repository keys
 
-Hyprland compilation limits parallel jobs using the CPU count and the smaller
-of Linux available memory and visible cgroup v1/v2 memory budgets (including
-ancestor limits). It reserves 1 GiB and budgets 1.5 GiB per job, with a minimum
-of one job. Inactive file cache is reclaimable; swap is not counted. If memory
-cannot be detected, it uses one job. The selected count and budget appear in
-the build log. This is a conservative heuristic, not a guarantee against OOM.
+The builder imports Omarchy's keyring from `keys/omarchy.gpg`,
+`keys/omarchy-trusted` and `keys/omarchy-revoked` without a keyserver lookup.
+They were copied from `pkgbuilds/omarchy-keyring/` at `omacom-io/omarchy-pkgs`
+commit `7e448b90313fea4fb78da9a78607287691d3b241`. The signing fingerprint is
+`40DFB630FF42BCFFB047046CF0134EE680CAC571`. Their SHA-256 digests are:
 
-For an explicit positive job count, use `OMARCHY_GUEST_BUILD_JOBS=2 make guest`.
-The override intentionally bypasses the automatic limit; it only controls
-Hyprland compilation, not package installation or image compression. Use
-`FORCE=1` as well when deliberately repeating an already-cached build.
-
-On a 16 GiB Mac, the issue #189 reporter completed a build with three Docker
-CPUs and about 5.8 GiB of Docker memory; this is a measured example, not a
-universal minimum. Leave memory for macOS and other applications. If a build
-is killed, inspect Docker's memory limit and host memory pressure before
-clearing caches: swap growth can make a memory failure look like a disk-space
-problem. Very small budgets can still fail outside the compiler phase.
-
-Useful lower-level commands:
-
-```sh
-guest/build-container.sh --dry-run
-guest/build-container.sh --output dist/guest
-guest/build-container.sh --refresh-package-lock /tmp/packages.lock.json
-guest/test
+```text
+15d6aac44df688165b2ea35fe0b23af239bbc66a6909c10a5c219e8d94b707de  omarchy.gpg
+ab0b688815444cffd48d15ca3597c77dbb364d59763c5784fca36691520f00fd  omarchy-trusted
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  omarchy-revoked
 ```
 
-`spec.json` is the authoritative image and runtime contract. `packages.txt` is
-the requested transaction and `packages.lock.json` pins the full resolved ARM64
-package set. Source repositories, commits, downloads, versions, and hashes are
-reviewed inputs rather than floating build dependencies.
+The Arch Linux ARM keyring is downloaded from a pinned
+`archlinuxarm/PKGBUILDs` commit and checked against fixed digests in the
+Containerfile. Package signatures remain required throughout. The factory keeps
+no keyring: every VM creates its own on first boot, as Omarchy's image-target
+manifest requests.
 
-Aquamarine 0.15.1-1, Hyprtoolkit 0.6.0-1, and hyprland-guiutils 0.2.2-4 use
-signed Arch Linux ARM packages from the transaction lock. Hyprland and
-Hyprtoolkit both require Aquamarine ABI 14; GUI utils requires Hyprtoolkit ABI 6.
-The installed guest holds these packages alongside the patched Hyprland on
-`IgnorePkg`. Update and validate the set together. The builder omits guest
-update holds so it can install every package into an empty root filesystem.
+## Supported guest
 
-`inputs.packageRepositoryMirrors` selects official HTTPS ARM mirrors for the
-builder, with the second tried when a download from the first fails. Package
-signatures remain required; mirror changes fail until the complete transaction
-lock is refreshed and reviewed. Installed guests keep their normal mirrors.
-
-The builder seeds Omarchy's keyring from `guest/keys/omarchy*`, copied from
-`pkgbuilds/omarchy-keyring/` at the pinned `omacom-io/omarchy-pkgs` commit
-`7e448b90313fea4fb78da9a78607287691d3b241`. Their SHA-256 digests are checked
-before import. The signing fingerprint is
-`40DFB630FF42BCFFB047046CF0134EE680CAC571`. Each fresh guest creates its own
-local keypair and imports the reviewed ARM and Omarchy repository keys before
-package installation, without a keyserver lookup to bootstrap `omarchy-keyring`.
-
-Hyprland is the one source-patched guest package. It is rebuilt from verified
-upstream source with the rounded-border VM-graphics compatibility patch declared
-under `supplyChain.hyprland` in `spec.json`, then held in the image's local
-repository. `scripts/register-patched-hyprland.sh` owns the reproducible package
-build, and `tests/test_rounded_border_coverage.py` owns its focused regression
-model.
-
-When updating Hyprland, first test the unpatched package through the same
-Virtio/VirGL guest path. Remove the local patch and package hold if upstream is
-clean; otherwise rebase the patch and update every source, patch, toolchain,
-binary, package, and launcher identity together. In either case, run the full
-tests and verify the newly built factory artifact. Installing a new app does
-not rewrite existing persistent VMs, so they are not evidence that the new
-factory contents are correct.
-
-The output includes the kernel, initramfs, raw and compressed ext4 image,
-provenance, package inventory, licenses, manifest, and SHA-256 sums. Generated
-output belongs under the repository's ignored `dist/` directory and must not be
-committed.
-
-The factory is a seed, not an update payload. A new or reset persistent VM and
-every ephemeral VM use the current output. An existing persistent VM keeps its
-writable disk and a validated copy of the kernel and initramfs originally paired
-with that disk, so a later app release does not replace its guest files. VMs
-from before paired boot kits are migrated once by a recovery initramfs that
-reads their `/boot` directory with the root disk mounted read-only.
-
-The Mac time-zone integration is delivered through the app's boot settings
-payload to new and existing guests. New setup defaults to **Same as macOS**;
-the timezone menu can switch between live mirroring and any fixed zone without
-a restart. Existing untracked guests keep their zone. Guest NTP stays enabled. See
-[Mac time zone and guest clock](../docs/host-timezone.md).
-
-Omarchy's built-in updater remains available for updates supported by this ARM
-guest, but it is not equivalent to installing a new Try Omarchy factory. The
-direct-boot kernel and matching headers are held, while the packaged
-`try-omarchy-runtime` and reviewed backports resolve from the immutable local
-repository. A separate migration channel is required before those
-Try-Omarchy-specific revisions can advance on an existing disk without reset.
-
-New guests show a normal-priority first-login **Update packages and finish setup**
-invitation: "Update supported Linux packages and discover optional features such
-as dictation." It launches the Omarchy updater once networking is ready, without
-claiming that updates are available or that the pinned runtime and boot files
-can advance. The reviewed `first-run-update-notification` patch changes only
-that invitation when the Try Omarchy build spec is present. Wi-Fi setup, welcome
-and other notifications, the update indicator, and user-initiated update commands
-remain available.
-
-The kernel reboot check recognizes package-owned `modules.builtin` metadata as
-well as `vmlinuz` under `/usr/lib/modules/<release>/`. Arch Linux ARM does not
-place `vmlinuz` there, so requiring that file alone produces a false kernel-update
-prompt after every no-op update. A matching release suppresses that prompt;
-unrecognized layouts report that kernel reboot status could not be determined
-instead of claiming either a match or an update. Other reboot and service-restart
-reasons still apply. This check ships as the `update-restart-arm-kernel` reviewed
-backport, with a fixture from the pinned upstream command for regression tests.
-
-The factory runs upstream `omarchy-apply-lock` to configure the password PAM
-service required by the Quickshell lock screen. Without it, the shell refuses
-to lock, and the menu, shortcut, and `omarchy system lock` appear to do nothing.
-The Mac launcher's **Update and Launch** seeds the same password policy only
-when it is missing, preserving existing authentication policies. Existing guests
-can also install it explicitly from a guest terminal:
-
-```sh
-sudo omarchy-apply-lock
-```
-
-This uses Omarchy's upstream authentication policy and the existing guest
-password; it does not reset the password. Quickshell notices the new policy
-without a reboot. Test `omarchy system lock`, then unlock with the guest
-password. The automatic migration does not install or replace the fingerprint
-policy.
-
-The factory includes the pinned upstream `omarchy-dns` and
-`omarchy-theme-browser` sudoers drop-ins, owned by `try-omarchy-runtime` with
-root ownership and mode `0440`. These grant wheel users passwordless access
-only to the upstream DNS presets and browser theme-color helper, so those menu
-actions do not fall back to a polkit password prompt. Other sudo operations
-retain their existing password or opt-in Touch ID authentication. As with other
-factory changes, replacing the Mac app does not add these files to an existing VM.
-
-The default Tokyo Night wallpaper is seeded as a per-user background at
-`native-overlay/etc/skel/.config/omarchy/backgrounds/tokyo-night/try-omarchy-wallpaper.jpg`.
-Omarchy checks that directory before the packaged theme backgrounds during
-first-time owner provisioning, so the project image becomes the default without
-changing the pinned upstream theme tree. The narrowly audited
-`omarchy-theme-bg-switcher` override passes the same directory to the picker
-first, making the project wallpaper its first option as well.
-
-OpenSSH is an explicit factory package. A systemd generator requests the vendor
-`sshd.service` only for a boot carrying the exact
-`tryomarchy.ssh_access=1` kernel token, which the Mac launcher derives from a
-validated generic TCP mapping to guest port 22. The generator writes only to
-systemd's runtime generator directory; it does not enable sshd persistently or
-change authentication policy under `/etc`.
-
-The vendor service generates missing host keys on the writable guest disk. A
-persistent VM therefore keeps its identity across restarts and app updates,
-while a Factory Reset or a fresh ephemeral VM gets a new identity. The factory
-image must never contain shared SSH host private keys.
-
-## Settings access from an existing VM
-
-New factory images include a branded **Setup → Try Omarchy Settings** entry,
-which also appears once in global search. It runs `omarchy-native-settings`, which sends
-`open-settings\n` through `/dev/virtio-ports/dev.tryomarchy.settings`. The Mac
-app replies `opened\n` after presenting its window, or `unavailable\n` if it
-cannot present settings. The command times out after three seconds and reports
-errors through a desktop notification and stderr. The channel only opens the
-settings UI; it does not accept preference values or other host commands.
-
-The updated Mac app installs these entry points on existing disks at boot. Its
-boot service first mounts any personal Mac share with `cache=readahead`, while
-the launcher masks the old guest's share-mount unit for that boot. This applies
-the [shared-folder safety mitigation](../docs/shared-folder-safety.md) without
-changing the guest kernel or on-disk share helper. A
-separate read-only 9p share contains only the bundled settings installer and its
-files. A systemd boot credential supplies a temporary service that installs
-those files, reloads the udev rule, and unmounts the share. This uses systemd's
-extra-unit credentials (available since version 256, included in the supported
-factory guest) and leaves the guest's default boot target unchanged. Failure is
-logged under `try-omarchy-settings.service` and does not prevent normal boot.
-The service has a ten-minute timeout to allow bounded package and battery-module
-operations and retries on the next launch.
-
-Automatic settings and physical-keyboard installation is idempotent. It needs
-no network or user `sudo` command. The separate, approved Japanese-input
-migration can download missing Japanese input packages through pacman; other boot repairs do not
-install packages. Custom menu content is
-preserved. The installer updates only an unchanged legacy settings entry to
-use the Omarchy logo. Users whose menu omits settings receive a branded,
-searchable application fallback; the application entry is hidden when the menu
-already supplies settings to avoid duplicate results. Accounts without an
-extension file receive **Setup → Try Omarchy Settings**. Home-directory
-operations run as that user.
-
-The settings window saves CPU, memory, sharing, port forwarding, and immersive mode for the
-next QEMU launch. **Restart Omarchy** requests a clean Linux shutdown and
-waits for QEMU to exit before starting a new process with the saved settings.
-It never forces a shutdown on a timer. **Shut Down** returns to the
-native settings window without automatic startup so location and reset remain
-accessible. A normal Linux reboot keeps the current QEMU process and therefore
-does not apply these launch settings.
-
-## Japanese input
-
-The factory includes Fcitx5/Mozc, configuration tools, and CJK fonts. JIS Macs
-preselect Japanese during owner setup and seed native 英数/かな mode keys.
-Japanese initial language also selects Mozc on ANSI/ISO keyboards while keeping
-the owner's keyboard layout. Physical ANSI/ISO/JIS support is installed
-automatically on existing guests, even when updates are skipped. The approved
-**Update and Launch → Japanese input** migration installs missing input packages and
-repairs eligible stock profiles; personal input settings are preserved. See
-[Japanese input](../docs/japanese-input.md) for dependencies, setup, and runtime
-validation.
+The app ships one factory and launches one VM per storage folder. VMs created
+by earlier direct-boot versions of the app (the pinned, patched image this
+directory used to build) are not launched; their disks are left untouched.

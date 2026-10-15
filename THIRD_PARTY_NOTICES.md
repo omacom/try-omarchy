@@ -4,60 +4,33 @@ Try Omarchy builds and redistributes third-party components under their own
 licenses. The repository's MIT license applies only to this project's original
 code.
 
-- **Omarchy** — pinned from `basecamp/omarchy`; MIT. Its license is copied into
-  every guest artifact as `LICENSE.omarchy`.
+- **Omarchy** — MIT. The factory disk installs Omarchy's own packages
+  (`omarchy-dev`, `omarchy-settings-dev` and their dependencies) from
+  `pkgs.omarchy.org`; each package carries its license under
+  `/usr/share/licenses`.
+- **Arch Linux ARM and Omarchy repository packages** — each package retains its
+  own license, including Omarchy's `linux-omarchy` kernel (GPL-2.0), Hyprland
+  and its libraries (BSD-3-Clause), and Quickshell. The factory's complete
+  package set and versions are recorded in `dist/guest/packages.txt`, and the
+  `[omarchy]` database digest in `dist/guest/factory.json`.
 - **QEMU** — GPL-2.0 and other component licenses. Release maintainers must
   provide the corresponding source and notices required by the exact bundled
   build.
-- **Arch Linux ARM packages** — each package retains its own license. The
-  generated package transaction is recorded in `packages.lock.txt`.
-- **Hyprland** — BSD-3-Clause; the reviewed v0.56.2 source and rounded-border
-  coverage backport are pinned in `guest/spec.json`. The guest package retains
-  Hyprland's upstream license and dependency metadata.
-- **Aquamarine, Hyprtoolkit, and hyprland-guiutils** — BSD-3-Clause; signed
-  Arch Linux ARM packages pinned in `guest/packages.lock.json`. The factory
-  retains their upstream licenses and holds the compatible set alongside
-  the patched Hyprland on `IgnorePkg`.
-- **Glaze** — MIT; the pinned v7.2.0 headers are used by the Hyprland build, and
-  their verified upstream license is retained in the rebuilt guest package.
+- **edk2 UEFI firmware** — BSD-2-Clause-Patent and the other licenses listed in
+  QEMU's `pc-bios/edk2-licenses.txt`, bundled beside the firmware as
+  `Contents/Resources/firmware/edk2-licenses.txt`. It is extracted unchanged
+  from the pinned QEMU source archive.
 - **ANGLE, VirGLRenderer, libepoxy, SDL, libslirp, GLib, Pixman, and other QEMU
   dependencies** — retain their respective upstream licenses.
-- **mise** — MIT; the reviewed ARM64 release is pinned in `guest/spec.json`.
-- **ttfx** — MIT; the reviewed source release and locked Rust dependencies are
-  pinned in `guest/spec.json` and built natively for ARM64. Its packaged
-  `LICENSE` and `NOTICE` retain attribution to TerminalTextEffects and
-  ChrisBuilds.
-- **yay** — GPL-3.0-or-later; the official ARM64 release and its versioned
-  license are pinned in `guest/spec.json` and packaged into the guest's local
-  repository.
-- **Voxtype** — MIT; the signed v1.0.1 ARM64 CPU, ONNX, and OSD release assets,
-  release key, source archive, and checksums are pinned in `guest/spec.json`.
-  They are packaged in the guest's local repository but remain uninstalled
-  until the user invokes Omarchy's optional dictation installer.
-- **Ghostty** — MIT; optional user-initiated source build. The installer pins
-  Ghostty 1.3.1, its Minisign signature and verification key, and the MIT-licensed
-  Zig 0.15.2 ARM64 compiler. Ghostty and its bundled dependencies retain their
-  upstream licenses; the source archives include the corresponding notices.
-  The guest factory image contains only the installer and recipe, not Ghostty
-  or the downloaded compiler. These post-build downloads are declared in
-  `guest/spec.json` and excluded from factory artifact provenance.
-- **1Password** — proprietary software not redistributed by Try Omarchy. When a
-  user explicitly invokes its optional ARM64 installer, the guest resolves the
-  current vendor release and AUR CLI recipe after the factory build. These
-  mutable post-build inputs are excluded from factory provenance and are
-  declared separately in `guest/spec.json`; the application archive is accepted
-  only when its signature validates to 1Password's pinned signing fingerprint.
-- **Vivaldi** — proprietary software not redistributed by Try Omarchy. When a
-  user explicitly selects Vivaldi, the guest downloads the exact official ARM64
-  RPM pinned in `guest/spec.json`, verifies its checksum and signature against
-  Vivaldi's pinned package-composer key, and repackages the verified payload as
-  a Pacman-owned local package. The factory image includes the `rpm-tools`
-  signature verifier and its locked dependencies; the Vivaldi browser payload
-  remains outside the factory image and factory provenance. Vivaldi permits
-  open-source Linux distributions to integrate its browser; see
-  <https://vivaldi.com/partners/linux/>.
+- **pacstrap-docker** (`guest/vendor/omarchy-pkgs/`) — from
+  [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs); used only inside the
+  build container.
+- **Software users install inside the VM** — packages installed through
+  Omarchy's menus or `pacman`, such as Ghostty or 1Password, come from their
+  own repositories under their own licenses and are not redistributed by Try
+  Omarchy.
 
-See `guest/spec.json`, `guest/packages.lock.json`, and
-`macos/build-qemu-gpu-runtime.sh` for exact source identities and checksums.
-Before distributing a release, follow `docs/releasing.md` and audit the assembled
-bundle's notices and corresponding-source obligations.
+See `macos/build-qemu-gpu-runtime.sh` and `macos/stage-uefi-firmware.sh` for
+exact host source identities and checksums. Before distributing a release,
+follow `docs/releasing.md` and audit the assembled bundle's notices and
+corresponding-source obligations.

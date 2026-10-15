@@ -39,7 +39,7 @@ With JIS keys:
 
 ## Verification
 
-`make test-upstream` covers the hotkey edit, its once-only marker and the
+`make test-guest` covers the hotkey edit, its once-only marker and the
 Chromium flag file.
 
 For runtime verification, use a disposable guest. The QMP `input-send-event`

@@ -11,15 +11,11 @@ replace the existing multitouch touchscreen device.
 
 ## Guest configuration
 
-New factory users load `/usr/share/try-omarchy/pinch-input.lua` from their
-`~/.config/hypr/input.lua`. This disables tapping and disable-while-typing for
-the gesture device. Its synthetic contacts must not become tap clicks or be
-suppressed after keyboard input.
-
-App updates retain existing persistent guest disks. **Update and Launch** adds
-this scoped rule to an existing input file when it has no pinch override, running
-as the desktop user and retaining a recoverable backup. Existing device overrides
-are kept. The manual equivalent in `~/.config/hypr/input.lua` is:
+The `try-omarchy` package's Hyprland profile loads
+`/usr/share/try-omarchy/pinch-input.lua` on every configuration reload. It
+disables tapping and disable-while-typing for the gesture device. Its
+synthetic contacts must not become tap clicks or be suppressed after keyboard
+input. The rule is equivalent to:
 
 ```lua
 hl.device({
@@ -29,9 +25,8 @@ hl.device({
 })
 ```
 
-Save, then run `hyprctl reload` and `hyprctl configerrors`. A factory reset is
-not needed. A later reset of the user's Hyprland configuration may require
-restoring this override.
+The profile loads after the user's own configuration, so no user file is
+edited and resetting the user's Hyprland configuration keeps the rule.
 
 ## Input behavior
 
@@ -82,8 +77,8 @@ Before marking the feature ready to merge, complete on Apple Silicon macOS:
 4. Test short pinches, inward/outward gestures, repeated gestures, focus loss,
    leaving the guest view, and windowed/fullscreen operation. Short or cancelled
    pinches must not click; ordinary scrolling, clicking, and modifiers must work.
-5. Test an existing persistent guest with the override above and a new factory
-   guest. Verify cancellation around VM suspend/resume and guest reboot.
+5. Test a persistent guest and a new factory guest. Verify cancellation
+   around VM suspend/resume and guest reboot.
 
 The Linux ABI and model tests do not validate AppKit event delivery or
 libinput's live gesture recognition. Those remain macOS integration checks.

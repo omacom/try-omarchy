@@ -3,13 +3,16 @@
 This directory contains the Apple Silicon application layer:
 
 - a Swift/AppKit lifecycle and permission helper;
-- a pinned, patched QEMU ARM64 runtime using HVF and Cocoa/VirGL;
-- persistent-disk, input, audio-device, camera, clipboard, shared-folder, signing, and DMG tooling.
+- a pinned, patched QEMU ARM64 runtime using HVF and Cocoa/VirGL, plus the edk2
+  UEFI firmware from the same QEMU source;
+- the VM launcher (`run-qemu-gpu.sh`) and the input, audio-device, camera,
+  clipboard, shared-folder, signing, and DMG tooling.
 
 Use the root Makefile for normal development:
 
 ```sh
 make runtime   # macos/.build/qemu-gpu-runtime
+make firmware  # macos/.build/firmware (edk2-aarch64-code.fd and its license)
 make app       # dist/app.noindex/Try Omarchy.app
 make run
 make package   # signed and notarized dist/TryOmarchy.dmg
@@ -18,8 +21,8 @@ make release VERSION=vX.Y.Z  # explicit version without prompting
 make test
 ```
 
-`make app` requires an existing `dist/guest/` and staged QEMU runtime. A full
-`make build` creates both first.
+`make app` ensures `dist/guest/` (the factory and the `try-omarchy` package),
+the staged QEMU runtime and the firmware are current first.
 
 The staged runtime is a complete, checksum-pinned Apple Silicon closure built
 for macOS 15.0. Runtime and app assembly do not resolve libraries or `zstd`
@@ -27,15 +30,14 @@ from the host Homebrew prefix, so building on a newer macOS release cannot
 silently raise the app's deployment target. VirGL 1.3.0 is built from source
 with the pinned startergo 1.0.42 patch set and its dual-source shader regression
 tests; ANGLE 1.0.16 and libepoxy 1.0.5 retain their Sequoia bottles. This keeps
-the accelerated Alacritty fix without bundling the Tahoe-only VirGL bottle.
+the dual-source shader fix for accelerated terminals without bundling the
+Tahoe-only VirGL bottle.
 The launcher selects native macOS OpenGL (`cocoa,gl=on`). The local VirGL
 OpenGL compatibility patch preserves real sample counts and falls back to mutable
 multisample textures when immutable multisample storage is unavailable. This
 restores default browser acceleration through the shared VM graphics device.
 It also selects integer attributes for native Apple GL and avoids duplicate
-alpha and BGRA channel conversions. Older verified factories that record
-`angle-metal` remain accepted because the guest virtio/VirGL ABI is unchanged.
-The build runs the actual format-probe regression with controlled GL entry
+alpha and BGRA channel conversions. The build runs the actual format-probe regression with controlled GL entry
 points, alongside the upstream shader and blend tests.
 VirGL uses `debugoptimized` (`-O2`) with assertions enabled, retaining diagnostics
 without shipping an unoptimized graphics command path.
@@ -96,48 +98,35 @@ Runtime caches are private to `macos/.build/`; user-facing output always goes
 to `dist/`. The generated app lives inside `dist/app.noindex/`, which keeps a
 development build from appearing beside an installed copy in Command-Space.
 
-Normal app launches and `make run` maintain one stable user VM disk under
-`~/Library/Application Support/Try Omarchy/VM/v1`, reused across factory builds.
-Use `make reset` to replace it with the current factory or `make run-ephemeral`
-to test that factory without retaining its disk. Storage integration tests and
-specialized direct-script runs can opt into identity-keyed parallel disks by
-setting `OMARCHY_QEMU_GPU_DEVELOPMENT_MULTI_DISK=1`; the development app wrapper
-explicitly disables this mode. Each persistent disk keeps the identity of the
-factory that created it and is paired with a private, validated boot kit containing that factory's
-kernel, initramfs, and base command line. App updates reuse the disk and its
-boot kit; the current bundled factory is selected only for a new, reset, or
-ephemeral VM. This keeps an older root filesystem on its matching kernel-module
-ABI and lets an existing VM launch without first materializing the new factory
-disk.
+Normal app launches and `make run` maintain one VM under
+`~/Library/Application Support/Try Omarchy/VM/v1`: its disk and UEFI variable
+store in `shell/`, and the decompressed factory, kept once per factory, in
+`shell-factory/` (see [VM storage](../docs/architecture.md#vm-storage)). The
+VM boots its own kernel through UEFI and Limine and updates itself, so app
+updates reuse the disk as it is. Use `make reset` to replace it with the
+current factory or `make run-ephemeral` to test that factory without retaining
+its disk. VMs left by earlier direct-boot versions (`disks/`, `boot/`) are
+ignored.
 
-Schema-2 disks created before boot kits use a one-time preserving migration.
-The first launcher pass reports that consent is required and exits before QEMU
-starts. The start menu then explains that the disk and data stay intact, the
-new factory is ignored for this VM, and the operation neither resets nor
-upgrades Omarchy. **Cancel** returns to the menu; **Continue** authorizes only
-that retry. The recovery-capable initramfs then attaches the old disk read-only,
-exports its installed `/boot/Image`, `/boot/initramfs-linux.img`, and recorded
-base command line over a private 9p share, and powers off without entering the
-old userspace. The launcher validates and atomically stages that boot kit before
-the normal launch. Unsupported storage or boot ABIs, and ambiguous multiple
-legacy disks, still use the user-facing, confirmed Reset Omarchy flow.
+Reset Omarchy is a confirmed, user-facing flow.
 That destructive flow keeps **Reset** disabled until the user types
 `Try Omarchy` exactly in a native sheet. Cancelling or dismissing the sheet
 returns control without invoking the storage reset. During reset, the disabled
 button names the current phase: checking the VM, deleting it, then finishing
 the reset. The next launch prepares a new disk if needed, with its button
-showing checking, image preparation, verification, setup, and startup phases.
+showing checking, image preparation, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
 The launcher's **Selected VM → Manage…** sheet shows the current selection,
 explains switching, moving, creating a separate VM, and deletion, and returns to the
 launcher with **Done**. Selection is saved immediately but does not start a
 VM. New selection requires an empty folder; existing selection requires a
-recognized persistent disk and workspace marker.
+VM disk (`shell/disk.img`) and workspace marker.
 
 Relocation runs `--copy-vm SOURCE EMPTY_DESTINATION` in a separate process,
-binds it to the source displayed in the sheet, holds the launcher's POSIX
-locks, stages a private sibling copy, and verifies every file with SHA-256
+binds it to the source displayed in the sheet, holds the launcher's lock on
+`shell/lock`, stages a private sibling copy without the rebuildable
+`shell-factory/` cache, and verifies every file with SHA-256
 before atomic publication. Structured stderr records report copy phases and
 actual hashed-byte verification progress. The sheet remains open, disables
 Done and selection while busy, and displays errors or the final selected and
@@ -148,7 +137,7 @@ special files, occupied destinations, and changes during copying are refused.
 
 **Delete VM…** uses the same danger styling and typed `Try Omarchy` confirmation
 as Reset, and confirms the exact selected folder and moves its complete workspace
-into macOS Trash under the same launcher locks. It keeps other VM copies and
+into macOS Trash under the same launcher lock. It keeps other VM copies and
 refuses a running or changed VM. The folder remains selected, so choose another
 VM or an empty folder afterward. Trash errors never trigger permanent removal.
 
@@ -169,20 +158,14 @@ storage backend initializes the workspace. Missing persistent disks and
 workspace setting, but the missing disk forces the next launch through the
 launcher; deleting the whole workspace removes the setting too.
 
-Reset deletes the VM without creating a replacement or requiring creation
-headroom. On the next launch, a missing VM decompresses the bundled factory
-directly into the staged writable disk; no expanded factory-image cache is
-retained. The validated native helper
-streams SHA-256 through CryptoKit, including the full expanded factory digest.
-Existing VMs launch without decompression. Confirmed reset also removes safely
-recognized disks left by older development launches; normal launch preserves
-those disks and requests reset if there are several. Each storage transaction
-flushes its written files before its staging directory, then flushes the parent after the
-atomic rename. This avoids repeated system-wide `sync` calls without dropping
-checksums, workspace locks, or interrupted-transaction recovery. A newly created
-workspace still uses one global sync to persist its marker and directory
-hierarchy; standalone storage-library callers without the native helper retain
-the system-tool fallback. App signature and runtime validation remain unchanged.
+Reset deletes the VM's disk, variable store and status without creating a
+replacement. On the first launch of a factory, the launcher verifies the
+compressed disk's SHA-256 digest, checks free space, decompresses it into
+`shell-factory/`, and returns its zero blocks to APFS
+(`omarchy-vm-helper --sparsify`). Every new VM is an APFS clone of that file.
+A disposable session clones the same file into its own temporary folder
+(`OMARCHY_QEMU_GPU_FACTORY_CACHE`). The launcher refuses storage folders that
+are not APFS, not owned by the user, or too broad, before it touches them.
 
 The Resources editor stores CPU count, RAM, and an optional maximum disk capacity in the versioned
 `vmResourcePreferences` UserDefaults value. Until the first save, it adopts the
@@ -200,21 +183,17 @@ script invocations retain the 2048 MiB minimum and the 4 GiB host floor for
 allocations above the default. The optional `OMARCHY_QEMU_GPU_DISK_GIB` selects up to 8192 GiB of sparse
 capacity. New resource settings default to 64 GiB; existing saved preferences
 without a disk maximum retain their capacity. Use Defaults selects at least
-64 GiB and never reduces a larger existing disk. Existing
-disks grow under their workspace lock after boot pairing, using a native
-helper that checks the original inode, owner, permissions, link count, and
-size through the open file descriptor before extending it. No Python runtime
-is needed for app-driven growth. Only boot/write headroom is required, not
-the whole configured capacity. The guest grows ext4 on the next boot.
-Storage-only resets strip all three resource keys; recovery
-keeps its small allocation. Changes apply on the next launch without rebuilding
+64 GiB and never reduces a larger existing disk. The launcher grows the disk
+file sparsely under the VM's lock and never shrinks it;
+`try-omarchy-grow-root.service` grows the root partition and btrfs to fill the
+disk at boot. Storage-only resets strip all three resource keys. Changes apply on the next launch without rebuilding
 or re-signing the app.
 
 Port forwarding is one versioned generic mapping list. The editor's **Add SSH**
 action only inserts the ordinary TCP `2222 → 22` preset; users may edit it like
 any other mapping. The signed shell parser remains the sole QEMU `hostfwd`
-builder and derives boot-scoped sshd intent only from a fully valid TCP mapping
-to guest port 22. No SSH-specific preference, port probe, status code, or
+builder and derives the boot's `tryomarchy.ssh_access=1` setting only from a
+fully valid TCP mapping to guest port 22. No SSH-specific preference, port probe, status code, or
 parallel forwarding path exists.
 
 Ad-hoc signing identifies one exact build, so macOS intentionally invalidates

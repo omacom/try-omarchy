@@ -12,7 +12,7 @@ one second of timer accuracy allowance. On a normally scheduled guest this gives
 recovery shortly after wake; it is not an instantaneous host wake notification.
 The service also runs shortly after guest boot.
 
-The helper only acts with the Try Omarchy kernel marker and the expected PL031
+The helper only acts with the Try Omarchy host marker and the expected PL031
 RTC. It reads the RTC through sysfs and advances system time only when it is more
 than five seconds behind. Whole-second RTC precision and slow samples are
 accounted for; samples taking over two seconds are rejected. It never writes to
@@ -26,23 +26,13 @@ network service, authentication approval, or guest application supplies the
 correction. The helper runs as root with only `CAP_SYS_TIME` retained. Signed
 approval verification and expiry windows are unchanged.
 
-## Existing guests
+## Installation
 
-Choose **Update and Launch** in the updated Mac app to install recovery and
-enable time synchronization automatically. Existing explicit recovery overrides
-and disabled timers are preserved. Results and verified backups are described in
-[integration updates](integration-updates.md#updates-at-launch).
-
-For manual setup, copy this checkout into the guest and run:
-
-```sh
-sudo guest/scripts/install-clock-recovery.sh
-```
-
-If clock drift is already preventing Touch ID sudo approval, use the guest
-password fallback for this installation. The installer immediately runs recovery,
-enables the timer for later boots, and retains replaced files under
-`/var/lib/try-omarchy/clock-recovery-backup.*`. It does not modify PAM or enrollment.
+The `try-omarchy` package installs the helper
+(`/usr/lib/try-omarchy/guest-clock-recover`) and enables
+`try-omarchy-clock-recovery.timer` through its systemd preset. Nothing needs
+to be set up by hand. The helper acts only when the host credential carries
+`omarchy.qemu_virgl=1`, which the launcher always sends.
 
 Check the result with:
 

@@ -1,7 +1,7 @@
 # try-omarchy guest package
 
 `try-omarchy` holds everything Try Omarchy adds to a stock aarch64 Omarchy
-install running in the Mac app (see [the shell plan](../../docs/shell-plan.md)):
+install running in the Mac app (see [the architecture](../../docs/architecture.md)):
 
 - the host bridges: clipboard, audio, camera, battery (including the DKMS
   `try-omarchy-battery` module, whose source is in `try-omarchy/battery`),
@@ -16,7 +16,7 @@ install running in the Mac app (see [the shell plan](../../docs/shell-plan.md)):
 
 ```sh
 make guest-package   # dist/guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
-make test-upstream      # contract tests for the package's scripts and layout
+make test-guest      # contract tests for the package's scripts and layout
 ```
 
 `build.sh` packs only the files the repository tracks, or new files it does
@@ -33,8 +33,7 @@ not ignore, so caches and other local files never reach the package.
   plus one loader in the user's Omarchy toggles directory.
 - **No kernel command line from the host.** The guest owns its boot. The app
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
-  type 11), one line of the same tokens the direct-boot launcher put on the
-  kernel command line. `try-omarchy-host-config.service` publishes them at
+  type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
 - **Units are enabled by preset.** They are enabled on first install. A unit
   added in a later release is enabled by name in `post_upgrade`.
@@ -46,7 +45,7 @@ not ignore, so caches and other local files never reach the package.
 | credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags |
 | credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | The app's bundled package, installed before login when newer |
 | `dev.tryomarchy.guest` | guest → host | Status reports (protocol 1, JSON lines every 10 s) |
-| `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The same bridges and protocols as the direct-boot guest |
+| `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The host bridges, one port per integration |
 
 A status report looks like this:
 

@@ -1,19 +1,19 @@
-# Upstream-shell factory image
+# Factory image
 
-This directory builds the factory disk for the upstream-shell system described
-in [the shell plan](../../docs/shell-plan.md). The direct-boot guest that the
-rest of `guest/` builds is unaffected.
+This directory builds the factory disk the app ships, as described in
+[the architecture](../../docs/architecture.md#the-factory-disk) and
+[the shell plan](../../docs/shell-plan.md).
 
 The image is a stock generic-`aarch64` Omarchy install, built from Omarchy's
 own package repositories with upstream's own install steps. Try Omarchy adds
 exactly one package to it, [`try-omarchy`](../package/README.md).
 
 ```sh
-make upstream-guest
+make guest
 ```
 
-This builds the `try-omarchy` package and then the image in a privileged ARM64
-container. The output goes to `dist/upstream-guest/`:
+This runs `guest/build.sh`, which builds the `try-omarchy` package and then the
+image in a privileged ARM64 container. The output goes to `dist/guest/`:
 
 | File | Contents |
 | --- | --- |
@@ -23,8 +23,17 @@ container. The output goes to `dist/upstream-guest/`:
 | `unavailable.txt` | Default-set names the aarch64 repositories do not carry |
 | `packages/try-omarchy-*.pkg.tar.zst` | The integration package installed in the image |
 
-Package downloads are cached in a Docker volume labeled
+The build cache skips the build while the inputs under `guest/` are
+unchanged. `make guest FORCE=1` rebuilds against the repositories' current
+state. Package downloads are cached in a Docker volume labeled
 `dev.tryomarchy.role=upstream-work`. `make clean` removes it.
+
+Lower-level commands:
+
+```sh
+guest/factory/build-container.sh --output dist/guest --package dist/guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
+guest/factory/build-container.sh --size-gib 24   # a larger virtual disk
+```
 
 ## What the build does
 
