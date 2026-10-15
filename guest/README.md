@@ -196,11 +196,13 @@ those files, reloads the udev rule, and unmounts the share. This uses systemd's
 extra-unit credentials (available since version 256, included in the supported
 factory guest) and leaves the guest's default boot target unchanged. Failure is
 logged under `try-omarchy-settings.service` and does not prevent normal boot.
-The service has a five-minute timeout to allow a bounded battery-module build
-and retries on the next launch.
+The service has a ten-minute timeout to allow bounded package and battery-module
+operations and retries on the next launch.
 
-Installation is idempotent. It does not reset the disk, upgrade Linux packages,
-or require network access or a user `sudo` command. Custom menu content is
+Automatic settings and physical-keyboard installation is idempotent. It needs
+no network or user `sudo` command. The separate, approved Japanese-input
+migration can download missing Mozc through pacman; other boot repairs do not
+install packages. Custom menu content is
 preserved. The installer updates only an unchanged legacy settings entry to
 use the Omarchy logo. Users whose menu omits settings receive a branded,
 searchable application fallback; the application entry is hidden when the menu
@@ -221,8 +223,9 @@ does not apply these launch settings.
 The factory includes Fcitx5/Mozc, configuration tools, and CJK fonts. JIS Macs
 preselect Japanese during owner setup and seed native 英数/かな mode keys.
 Japanese initial language also selects Mozc on ANSI/ISO keyboards while keeping
-the owner's keyboard layout. Existing guests can receive reviewed keyboard and
-stock-profile repairs through **Update and Launch** when Fcitx5/Mozc are already
-installed. Packages and personal input settings are preserved; see
+the owner's keyboard layout. Physical ANSI/ISO/JIS support is installed
+automatically on existing guests, even when updates are skipped. The approved
+**Update and Launch → Japanese input** migration installs missing Mozc and
+repairs eligible stock profiles; personal input settings are preserved. See
 [Japanese input](../docs/japanese-input.md) for dependencies, setup, and runtime
 validation.

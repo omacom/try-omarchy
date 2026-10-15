@@ -47,7 +47,7 @@ enum GuestBootFixPrompt {
         let divider = NSBox()
         divider.boxType = .separator
         let preservation = NSTextField(wrappingLabelWithString:
-            "Your files, settings, customizations, and kernel are kept. Unsupported fixes are skipped; failed changes are restored.")
+            "Your files, settings, customizations, and kernel are kept. Unsupported fixes are skipped; failed file changes are restored.")
         preservation.font = .systemFont(ofSize: 12)
         let requirements = NSTextField(wrappingLabelWithString: catalog.notes)
         requirements.font = .systemFont(ofSize: 11)

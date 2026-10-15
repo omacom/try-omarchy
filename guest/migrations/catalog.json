@@ -13,10 +13,10 @@
   "migrations": [
     {
       "id": "japanese-input",
-      "revision": 1,
-      "title": "Japanese keyboard & input",
+      "revision": 2,
+      "title": "Japanese input",
       "icon": "keyboard",
-      "note": "Requires Fcitx5 and Mozc already in the VM. Personal keyboard layouts and input shortcuts are preserved."
+      "note": "When Mozc is missing, updates supported Linux packages and installs it. Downloads need internet; installed packages are kept if another fix fails."
     },
     {
       "id": "battery",

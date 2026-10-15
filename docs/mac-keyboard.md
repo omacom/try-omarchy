@@ -30,30 +30,16 @@ App upgrade applies the Cocoa ISO keycode swap immediately. That uninverts
 `frmac` (or similar) TLDE/LSGT symbol swap first**, or those keys invert
 again.
 
-Macintosh legends still need `kb_model`. If a rebuilt guest image installed
-`/usr/share/try-omarchy/apple-keyboard-input.lua`, add this to
-`~/.config/hypr/input.lua`:
+The app's normal boot settings installer now installs the reviewed Apple
+keyboard overlay and adds its loader to existing `~/.config/hypr/input.lua`
+files. This applies to ANSI, ISO, and JIS Macs, even after **Skip and Launch**.
+It needs no input-method packages, internet access, or manual configuration.
+Keyboard layout, variants, and options are retained; explicit keyboard models
+and custom or unsafe overlay paths are preserved. Repeat boots are a no-op.
 
-```lua
-dofile("/usr/share/try-omarchy/apple-keyboard-input.lua")
-```
-
-Otherwise set the model yourself (do not `dofile` a missing path):
-
-```lua
-hl.config({
-  input = {
-    kb_model = "applealu_iso", -- or applealu_ansi / applealu_jis
-  },
-})
-```
-
-Save, then run `hyprctl reload` and `hyprctl configerrors`.
-
-For JIS Macs, **Update and Launch** can install and load the reviewed overlay
-on existing VMs with Fcitx5/Mozc. Explicit keyboard models are preserved.
-See [Japanese input](japanese-input.md#existing-guests) for dependency and
-personal-configuration handling.
+Japanese composition is separate: **Update and Launch → Japanese input** installs
+missing Mozc and configures eligible input profiles and mode-key shortcuts.
+See [Japanese input](japanese-input.md#existing-guests).
 
 ## Validation
 

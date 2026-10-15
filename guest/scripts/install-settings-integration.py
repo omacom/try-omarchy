@@ -2,6 +2,7 @@
 """Install settings and compatible stock-script fixes from the app's boot share."""
 
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
@@ -95,7 +96,59 @@ def install_menu(source, home):
         output.write(source.read_bytes())
 
 
-def install_user(payload, home):
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def install_keyboard_system(payload, root):
+    """Automatic hardware support, independent of IMEs and migration approval."""
+    fixes = load('keyboard_files', payload / 'migrate.py')
+    uid = os.getuid()
+    target = root / 'usr/share/try-omarchy/apple-keyboard-input.lua'
+    try:
+        before = fixes.snapshot(target, root, uid)
+        source = (payload / 'apple-keyboard-input.lua').read_bytes()
+        if before:
+            original = base64.b64decode(before['data'])
+            preimages = json.loads((payload / 'preimages.json').read_text())
+            if original != source and fixes.digest(original) not in preimages.get(str(target.relative_to(root)), []):
+                return False
+        after = fixes.replacement(source, uid, before['gid'] if before else os.getgid())
+        after['mode'] = 0o644
+        if before != after:
+            fixes.write_file(target, after, root, uid)
+        return fixes.snapshot(target, root, uid) == after
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def install_keyboard_user(payload, home):
+    users = load('keyboard_user_files', payload / 'user-fixes.py')
+    fixes = users.transaction(payload)
+    uid = os.getuid()
+    try:
+        # Do not create a conflict with an interrupted revision 1 input journal.
+        fixes.recover(home, uid)
+        target = home / '.config/hypr/input.lua'
+        before = fixes.snapshot(target, home, uid)
+        if not before:
+            return
+        original = base64.b64decode(before['data'])
+        if b'apple-keyboard-input.lua' in original or b'kb_model' in original:
+            return
+        data = original + b'\ndofile("/usr/share/try-omarchy/apple-keyboard-input.lua")\n'
+        after = {**before, 'data': base64.b64encode(data).decode()}
+        fixes.write_file(target, after, home, uid)
+    except (OSError, RuntimeError, ValueError, KeyError):
+        print('Try Omarchy preserved custom or unrecovered keyboard settings', flush=True)
+
+
+def install_user(payload, home, keyboard=False):
+    if keyboard:
+        install_keyboard_user(payload, home)
     install_menu(payload / "omarchy-menu.jsonc", home)
     menu = home / MENU
     entries = menu_entries(menu.read_text()) if menu.is_file() else {}
@@ -113,16 +166,17 @@ def install_user(payload, home):
     install_bytes(desktop if has_settings else visible_desktop, destination, 0o644)
 
 
-def install_system(payload, root):
+def install_system(payload, root, keyboard=True):
     for name, (relative, mode) in FILES.items():
         install_file(payload / name, root / relative, mode)
     install_menu(payload / "omarchy-menu.jsonc", root / "etc/skel")
+    return install_keyboard_system(payload, root) if keyboard else False
 
 
 def main():
     payload = Path(__file__).resolve().parent
-    if sys.argv[1:] == ["--user-menu"]:
-        install_user(payload, Path(pwd.getpwuid(os.getuid()).pw_dir))
+    if sys.argv[1:] in (["--user-menu"], ["--user-menu", "--keyboard"]):
+        install_user(payload, Path(pwd.getpwuid(os.getuid()).pw_dir), keyboard='--keyboard' in sys.argv[1:])
         return
     if sys.argv[1:] or os.geteuid() != 0:
         raise SystemExit("Run the bundled installer as root, without arguments")
@@ -131,8 +185,8 @@ def main():
     spec = importlib.util.spec_from_file_location("boot_fixes", payload / "migrate.py")
     fixes = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixes)
-    fixes.boot(payload)
-    install_system(payload, Path("/"))
+    result = fixes.boot(payload)
+    keyboard = install_system(payload, Path("/"), keyboard=result is not None and result['state'] != 'recovery-required')
     # Power/menu plugin changes now participate in the reviewed file journal.
     subprocess.run(["python3", "/usr/local/lib/try-omarchy/install-timezone-menus.py"], check=True)
     # Run before owner provisioning, including in older unprovisioned factories.
@@ -149,7 +203,8 @@ def main():
     for user in pwd.getpwall():
         if 1000 <= user.pw_uid < 65534 and Path(user.pw_dir).is_dir():
             subprocess.run([
-                "runuser", "-u", user.pw_name, "--", "python3", str(payload / "install.py"), "--user-menu"
+                "runuser", "-u", user.pw_name, "--", "python3", str(payload / "install.py"), "--user-menu",
+                *(['--keyboard'] if keyboard else [])
             ], check=False)
     print("Try Omarchy settings integration installed", flush=True)
 

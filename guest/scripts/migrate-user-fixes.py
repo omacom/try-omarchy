@@ -16,18 +16,26 @@ def load(name, path):
     return module
 
 
-def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', language=''):
-    uid = os.getuid() if uid is None else uid
+def transaction(payload):
     fixes = load('user_transaction', payload / 'migrate.py')
     fixes.STATE = '.local/state/try-omarchy/boot-fixes'
+    fixes.TARGETS = {'.config/hypr/input.lua', '.config/omarchy/extensions/omarchy-menu.jsonc',
+                     '.local/share/applications/Alacritty.desktop',
+                     '.local/share/applications/.Alacritty.desktop.try-omarchy-backup',
+                     '.config/fcitx5/profile', '.config/fcitx5/config'}
+    fixes.LINKS = {}
+    fixes.MAX_FILE = 262144
+    return fixes
+
+
+def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', language=''):
+    uid = os.getuid() if uid is None else uid
+    fixes = transaction(payload)
     input_path = '.config/hypr/input.lua'
     menu_path = '.config/omarchy/extensions/omarchy-menu.jsonc'
     app_path = '.local/share/applications/Alacritty.desktop'
     backup_path = '.local/share/applications/.Alacritty.desktop.try-omarchy-backup'
     input_fixes = load('japanese_input', payload / 'japanese-input.py')
-    fixes.TARGETS = {input_path, menu_path, app_path, backup_path} | input_fixes.TARGETS
-    fixes.LINKS = {}
-    fixes.MAX_FILE = 262144
     try:
         fixes.recover(home, uid)
     except (OSError, RuntimeError, ValueError, KeyError):
@@ -80,15 +88,7 @@ def migrate(payload, home, approved, uid=None, japanese=False, cmdline='', langu
     desktop_changed = bool(changes)
     if japanese:
         japanese_changes, japanese_outcome = input_fixes.plan(fixes, payload, home, uid, cmdline, language)
-        # Pinch and Apple input share a destination and one journal entry.
-        for change in japanese_changes:
-            existing = next((c for c in changes if c['path'] == change['path']), None)
-            if existing:
-                original = base64.b64decode(change['before']['data'])
-                addition = base64.b64decode(change['after']['data'])[len(original):]
-                existing['after']['data'] = base64.b64encode(base64.b64decode(existing['after']['data']) + addition).decode()
-            else:
-                changes.append(change)
+        changes.extend(japanese_changes)
     if changes and not approved:
         return {'state': 'skipped', 'outcome': 'pending' if desktop_changed else 'preserved' if preserved else 'current', 'japanese-input': japanese_outcome}
     if not changes:

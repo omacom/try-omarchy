@@ -47,21 +47,36 @@ VMs that already received revision 1 while preserving customized pins.
 The app's fix manifest covers these inputs, the runner, component planners,
 user planner, and exact integration bundle. Add future repairs only with their
 reviewed preimages, destination allowlist, dependencies, journal recovery, and
-per-component result. Package/kernel updates and biometric enablement are
-separate workflows.
+per-component result. Kernel replacement and biometric enablement are separate
+workflows. The Japanese-input package transaction below is outside file recovery.
 
-`japanese-input` installs the Apple keyboard overlay only with existing
-Fcitx5/Mozc dependencies. Its older overlay preimage is from `fc108341`.
+`japanese-input` revision 2 installs missing Mozc after approval, through a
+five-minute `pacman -Syu --needed --noconfirm` transaction with Mozc as its
+target. It refreshes databases and updates supported packages, using the existing
+guest repositories and signature policy. `--ignore` includes the canonical
+compatibility holds from `repair-update-holds.py` and `try-omarchy-runtime`. The
+file planners run after pacman so their preimages match the updated guest.
+The boot installer re-executes the installed Python after the package attempt,
+carrying its advisory result in process environment so the transaction is not
+repeated that boot. Bundle and boot-token consent are verified again after exec.
+Pacman manages dependencies and package recovery; installed packages are not
+rolled back by the file journal. Existing Mozc and
+active package locks are preserved. Failures are reported for manual retry.
+
+Physical ANSI/ISO/JIS support is now delivered automatically by the settings
+installer, independently of approval and packages. Its older overlay preimage
+is from `fc108341`; unknown overlays and explicit user keyboard models are
+preserved. The destination and user input path remain in recovery allowlists
+so interrupted revision 1 journals can be restored before automatic installation.
+
 `japanese-input/profile-chewing.ini` and `profile-korean.ini` are the exact
 factory seeds from `c6c2cc0` and `3e9f720`. The user planner recognizes their INI
 values and the current seed, including Fcitx's saved DefaultIM and Korean-first
 GroupOrder, while rejecting additional settings and custom engine lists.
 It adds Mozc without changing the direct-input keyboard or selected group.
-JIS hotkeys are seeded only when global config is missing; explicit Hyprland
-models and existing shortcuts are preserved. All home changes run as the owner
-and share the user transaction journal, including one entry when pinch and
-keyboard overlays both extend `input.lua`. It does not install packages, change
-locale, or enable a disabled input-method service.
+JIS hotkeys are seeded only when global config is missing; existing shortcuts
+are preserved. Home changes run as the owner in the user transaction journal.
+The migration does not change locale or enable a disabled input-method service.
 
 The `shell-qtquick` migration pins stock shell QML imports to `QtQuick 6.11`.
 Qt 6.12 adds a `Color` singleton that shadows Omarchy's palette.

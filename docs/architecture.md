@@ -70,9 +70,10 @@ input contract, existing-guest setup, and integration validation.
 
 Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch and
 given to Cocoa. New and reset factory users also load an overlay that sets
-`kb_model=applealu_*`. App upgrade applies the Cocoa swap immediately; the
-reviewed Japanese-input migration can add the JIS overlay to existing homes
-without explicit keyboard models. Other existing input settings are preserved. See
+`kb_model=applealu_*`. App upgrade applies the Cocoa swap immediately. The boot settings installer
+automatically adds the reviewed keyboard overlay to existing homes without
+explicit keyboard models, independently of IME packages and migration approval.
+Other input settings are preserved. See
 [Mac keyboard](mac-keyboard.md).
 
 New guest setup defaults to an explicit **Same as macOS** option.
@@ -389,8 +390,12 @@ for that first review. The temporary guest service journals,
 applies, and verifies the [reviewed manual-command migrations](integration-updates.md#manual-upgrade-commands-covered-by-update)
 before graphical login; it restores originals on failure
 and recovers interrupted file transactions even when the next launch skips
-updates. Results return through the settings port and remain advisory. No
-packages, kernel, or boot artifacts are upgraded by this runner. Battery modules
+updates. Results return through the settings port and remain advisory. The Japanese-input
+migration can install missing Mozc through the guest's normal pacman repositories
+after approval, updating supported Linux packages when Mozc is missing. The
+kernel, headers, runtime, and validated Hyprland stack are explicitly held.
+Package installations are not part of the file rollback, and the paired boot
+kit is retained. Battery modules
 build privately against existing headers; listed service/module activity is
 restored on failure. A missing lock-screen password policy can be seeded, while
 existing PAM and enrollment are preserved. See

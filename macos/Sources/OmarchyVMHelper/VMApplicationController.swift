@@ -769,7 +769,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             let checking = GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity, state: "checking",
                 components: GuestBootFixReport.pendingComponents)
             retainBootFixReport(checking)
-            bootFixResultTimer = Timer.scheduledTimer(withTimeInterval: 360, repeats: false) { [weak self] _ in
+            bootFixResultTimer = Timer.scheduledTimer(withTimeInterval: 660, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.receivedBootFixReport(GuestBootFixReport(schema: 1, type: "boot-fixes", identity: identity,
                         state: "unconfirmed", components: checking.components))

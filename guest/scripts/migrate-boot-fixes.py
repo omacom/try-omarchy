@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consent-gated existing-guest repairs; no package or kernel upgrades."""
+"""Consent-gated guest repairs and missing Mozc installation."""
 
 import base64
 import hashlib
@@ -306,7 +306,8 @@ def plan(payload, root, uid, cmdline):
     return changes, outcomes
 
 
-def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, users=False):
+def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, users=False,
+            package_result=None, restart=None):
     global TARGETS, LINKS, restore_runtime, allowed_link
     uid = os.getuid() if uid is None else uid
     identity = bundle_manifest(payload)["identity"]
@@ -337,7 +338,7 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
                         state = result['state']
                     if outcomes_order[result['outcome']] > outcomes_order[outcomes.get('desktop', 'current')]:
                         outcomes['desktop'] = result['outcome']
-                    if outcomes.get('japanese-input') not in ('preserved', 'unavailable'):
+                    if outcomes.get('japanese-input') in outcomes_order:
                         previous = outcomes.get('japanese-input', 'current')
                         if outcomes_order[result['japanese-input']] > outcomes_order[previous]:
                             outcomes['japanese-input'] = result['japanese-input']
@@ -345,7 +346,7 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
                     if states[state] < states['unconfirmed']:
                         state = 'unconfirmed'
                     outcomes['desktop'] = 'pending'
-                    if outcomes.get('japanese-input') not in ('preserved', 'unavailable'):
+                    if outcomes.get('japanese-input') in ('current', 'applied', 'pending'):
                         outcomes['japanese-input'] = 'pending'
         value = {"schema": 1, "type": "boot-fixes", "identity": identity,
                  "state": state, "components": {name: outcomes[name] for name in component_ids}}
@@ -357,14 +358,31 @@ def migrate(payload, root, approved, cmdline, emit=lambda _: None, uid=None, use
         return report("recovery-required", dict.fromkeys(component_ids, "pending"))
     if approved:
         report("running", dict.fromkeys(component_ids, "pending"))
+    preparation_failed = approved and package_result == 'failed'
+    japanese_install_outcome = package_result if approved else None
+    if approved and package_result == 'applied' and not extras.japanese_available(root):
+        preparation_failed, japanese_install_outcome = True, 'failed'
+    if approved and package_result is None and not extras.japanese_available(root):
+        try:
+            japanese_install_outcome = extras.install_japanese(root)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            preparation_failed, japanese_install_outcome = True, 'failed'
+            print('Try Omarchy Japanese input installation: ' + str(error), file=sys.stderr, flush=True)
+        if restart is not None and japanese_install_outcome in ('applied', 'failed'):
+            # Pacman may have replaced Python and its standard library, even
+            # during a partially completed update. Do not keep using old imports.
+            restart(japanese_install_outcome)
+    # A package update can replace stock files. Review their resulting bytes,
+    # rather than journaling stale preimages from before the package transaction.
     changes, outcomes = plan(payload, root, uid, cmdline)
     extra_changes, extra_outcomes = extras.plan(sys.modules[__name__] if __name__ in sys.modules else _self(), payload, root, uid)
     changes.extend(extra_changes)
     outcomes.update(extra_outcomes)
     outcomes['desktop'] = 'current'
+    if japanese_install_outcome is not None:
+        outcomes['japanese-input'] = japanese_install_outcome
     if set(outcomes) != set(component_ids):
         raise RuntimeError('Boot fix plan does not match catalog')
-    preparation_failed = False
     if approved and outcomes.get('battery') == 'pending':
         try:
             extras.build_battery(sys.modules[__name__] if __name__ in sys.modules else _self(), payload, root, uid, changes)
@@ -470,12 +488,19 @@ def boot(payload):
         except OSError:
             pass  # A missing host listener never grants consent or changes success.
     try:
+        package_result = os.environ.pop('_TRY_OMARCHY_JAPANESE_RESULT', None)
+        if package_result not in (None, 'applied', 'failed'):
+            raise RuntimeError('Invalid package continuation')
         cmdline = Path("/proc/cmdline").read_text()
         catalog = components(payload).read_catalog(payload / 'catalog.json')
         component_ids = tuple(entry['id'] for entry in catalog['migrations'])
         identity = bundle_manifest(payload)["identity"]
         approved = f"tryomarchy.fixes={identity}" in cmdline.split()
-        return migrate(payload, Path("/"), approved, cmdline, emit, uid=0, users=True)
+        def restart(result):
+            os.execve('/usr/bin/python3', ['/usr/bin/python3', str(payload / 'install.py')],
+                      {**os.environ, '_TRY_OMARCHY_JAPANESE_RESULT': result})
+        return migrate(payload, Path("/"), approved, cmdline, emit, uid=0, users=True,
+                       package_result=package_result, restart=restart)
     except (OSError, RuntimeError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
         print("Try Omarchy boot fix checking or recovery did not finish; completion was not recorded", flush=True)
         if identity is not None:

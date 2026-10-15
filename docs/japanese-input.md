@@ -50,28 +50,33 @@ fails.
 
 ## Existing guests
 
-Installing a new Mac app does not replace the saved guest's packages or home
-configuration. **Update and Launch** now includes **Japanese keyboard & input**.
-When Fcitx5 and Mozc are installed, it installs the reviewed Apple keyboard
-overlay and migrates recognized stock Fcitx profiles, including profiles saved
-by Fcitx after first login. Mozc becomes the first conversion engine on JIS Macs
-or for a Japanese guest language; other guests gain Mozc after Chewing. Korean
-group selection and the direct-input keyboard are preserved.
+Physical ANSI/ISO/JIS keyboard support is installed automatically at boot,
+including when migrations are skipped. It does not require Mozc. See
+[Mac keyboard](mac-keyboard.md#existing-vms).
 
-On a JIS Mac, the migration adds the overlay to an existing Hyprland input file
-unless it already loads it or has an explicit keyboard model. It seeds native
-英数/かな shortcuts only when the Fcitx global config is missing. Personal
-profiles, existing shortcuts, explicit models, and unsafe paths are preserved
-and reported. Skipping the update leaves these files untouched; interrupted
-changes are recovered before the next review. Guest language and packages are
-not changed.
+Choose **Update and Launch → Japanese input** to add Japanese composition.
+When Mozc is missing, the approved migration runs
+`pacman -Syu --needed --noconfirm` with Mozc as the installation target, using
+the guest's existing package repositories and signature policy. This refreshes
+repository data and updates supported Linux packages, avoiding stale-download
+failures. The command explicitly holds the project's kernel, headers, runtime,
+and validated Hyprland stack, in addition to the guest's existing holds. The
+migration waits briefly for networking and bounds the package operation to five
+minutes. Existing Mozc installations are kept without a package update.
 
-VMs missing Fcitx5 or Mozc report this component as unavailable. Install the
-dependencies inside that guest, then shut it down and retry **Update and Launch**:
+After installation, it migrates recognized stock Fcitx profiles, including
+profiles saved after first login. Mozc becomes the first conversion engine on
+JIS Macs or for a Japanese guest language; other guests gain Mozc after Chewing.
+Korean group selection and the direct-input keyboard are preserved. Native
+英数/かな shortcuts are seeded only when global Fcitx config is missing.
+Personal profiles, shortcuts, and unsafe paths are preserved and reported.
 
-```sh
-sudo pacman -Syu fcitx5 fcitx5-mozc fcitx5-configtool fcitx5-gtk fcitx5-qt noto-fonts-cjk
-```
+Skipping performs no package installation or Japanese-profile edits. Interrupted
+file changes are recovered before a retry. Package installation is a separate
+pacman transaction: installed packages remain if a later file repair fails.
+An active package-manager lock is preserved. Download or verification failures
+are reported and normal VM boot continues; check connectivity, then retry **Update and Launch**.
+Guest language, kernel, and paired boot files are retained.
 
 For preserved personal settings, use the configuration tool to finish setup:
 

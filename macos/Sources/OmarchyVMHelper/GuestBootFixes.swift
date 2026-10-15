@@ -59,7 +59,7 @@ struct GuestBootFixReport: Codable, Equatable {
             }
             return components.values.contains("applied") ? "VM fixes applied and verified" : "VM fixes are current"
         case "skipped": return "VM fixes skipped · update available"
-        case "failed": return "Some VM fixes failed · affected changes restored"
+        case "failed": return "Some VM fixes failed · affected file changes restored"
         case "unconfirmed": return "VM fixes could not be confirmed · retry available"
         default: return "VM fix recovery needs attention"
         }
@@ -114,7 +114,7 @@ struct GuestBootFixResult {
             }
         case "failed":
             title = "VM update couldn’t finish"
-            message = "Affected changes were restored. Shut down Omarchy and use Update and Launch to try again."
+            message = "Affected file changes were restored. Any packages already installed are kept. Shut down Omarchy and use Update and Launch to try again."
             isWarning = true
         case "recovery-required":
             title = "VM update needs recovery"

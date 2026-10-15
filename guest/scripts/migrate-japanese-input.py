@@ -4,7 +4,7 @@ import configparser
 import io
 import os
 
-INPUT = '.config/hypr/input.lua'
+INPUT = '.config/hypr/input.lua'  # Revision 1 journals can still contain this path.
 PROFILE = '.config/fcitx5/profile'
 CONFIG = '.config/fcitx5/config'
 TARGETS = {INPUT, PROFILE, CONFIG}
@@ -73,20 +73,6 @@ def plan(fixes, payload, home, uid, cmdline, language):
         if before != after:
             changes.append({'path': relative, 'before': before, 'after': after})
 
-    try:
-        before = fixes.snapshot(home / INPUT, home, uid)
-        if before:
-            data = base64.b64decode(before['data'])
-            if b'apple-keyboard-input.lua' not in data:
-                # An explicit model belongs to the user, including on a JIS Mac.
-                if b'kb_model' in data:
-                    preserved = True
-                elif jis:
-                    add(INPUT, before, data + b'\ndofile("/usr/share/try-omarchy/apple-keyboard-input.lua")\n')
-        elif jis:
-            preserved = True  # Do not invent an unsupported Hyprland config.
-    except (OSError, RuntimeError, ValueError):
-        preserved = True
     try:
         before = fixes.snapshot(home / PROFILE, home, uid)
         if before:

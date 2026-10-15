@@ -12,9 +12,6 @@ import tempfile
 import sys
 
 GROUPS = {
-    'japanese-input': {
-        'apple-keyboard-input.lua': ('usr/share/try-omarchy/apple-keyboard-input.lua', 0o644),
-    },
     'onepassword-installer': {
         'omarchy-install-service-1password': ('usr/bin/omarchy-install-service-1password', 0o755),
     },
@@ -64,9 +61,9 @@ LINKS = {
 EXTRA_FILES = {'omarchy-lock-password', 'repair-update-holds.py', 'components.py',
                'preimages.json', 'user-fixes.py', 'pinch-input.lua', 'power-profile-hooks.json', 'catalog.json',
                'japanese-input.py', 'profile-chewing.ini', 'profile-korean.ini',
-               'fcitx5-profile.ini', 'fcitx5-jis-config.ini'}
+               'fcitx5-profile.ini', 'fcitx5-jis-config.ini', 'apple-keyboard-input.lua'}
 HANDLED_COMPONENTS = frozenset(GROUPS) | {'clipboard', 'screensaver', 'alacritty',
-                                        'power', 'holds', 'lock', 'integrations', 'desktop', 'shell-qtquick'}
+                                        'power', 'holds', 'lock', 'integrations', 'desktop', 'shell-qtquick', 'japanese-input'}
 SHELL_TARGETS = frozenset({
     'usr/share/omarchy/shell/Commons/Border.qml',
     'usr/share/omarchy/shell/Commons/Color.qml',
@@ -176,6 +173,8 @@ POWER_TARGETS = {'usr/bin/omarchy-powerprofiles-list', 'usr/bin/omarchy-powerpro
                  'usr/share/omarchy/shell/plugins/panels/power/Model.js',
                  'usr/share/omarchy/shell/plugins/menu/Menu.qml'}
 FIXED_TARGETS = {p for group in GROUPS.values() for p, _ in group.values()} | set(LINKS) | POWER_TARGETS | SHELL_TARGETS | {
+    # Retain recovery support for revision 1's keyboard transaction.
+    'usr/share/try-omarchy/apple-keyboard-input.lua',
     'etc/pam.d/omarchy-lock-password', 'etc/pacman.conf', 'usr/share/try-omarchy/pacman.conf',
     'usr/local/bin/try-omarchy-integrations', 'usr/lib/systemd/system/try-omarchy-integrations.service',
 }
@@ -279,6 +278,31 @@ def run(args, check=True, timeout=20):
                           env={**os.environ, 'PATH': '/usr/local/sbin:/usr/local/bin:/usr/bin:/bin'})
 
 
+def japanese_available(root):
+    return all((root / p).is_file() for p in (
+        'usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf'))
+
+
+def install_japanese(root):
+    """Update supported packages and install missing Mozc in one pacman transaction."""
+    if japanese_available(root):
+        return 'current'
+    if root != Path('/') or not (root / 'usr/bin/pacman').is_file():
+        return 'unavailable'
+    if (root / 'var/lib/pacman/db.lck').exists():
+        return 'unavailable'
+    # Networking normally starts alongside the boot payload. Ensure the vendor
+    # service has started before attempting the bounded download.
+    run(['systemctl', 'start', 'NetworkManager.service'], timeout=15)
+    run(['nm-online', '-q', '-t', '15'], timeout=20)
+    holds = load('japanese_update_holds', Path(__file__).with_name('repair-update-holds.py')).HOLDS
+    ignored = ','.join((*holds, 'try-omarchy-runtime'))
+    run(['pacman', '-Syu', '--needed', '--noconfirm', '--ignore', ignored, 'fcitx5-mozc'], timeout=300)
+    if not japanese_available(root):
+        raise RuntimeError('Mozc installation could not be verified')
+    return 'applied'
+
+
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -311,10 +335,6 @@ def plan(fixes, payload, root, uid):
     for name, files in GROUPS.items():
         group = []
         try:
-            if name == 'japanese-input' and not all((root / p).is_file() for p in (
-                    'usr/bin/fcitx5', 'usr/share/fcitx5/inputmethod/mozc.conf')):
-                outcomes[name] = 'unavailable'
-                continue
             if name == 'onepassword-installer' and fixes.snapshot(
                     root / 'usr/bin/omarchy-install-service-1password', root, uid) is None:
                 outcomes[name] = 'unavailable'
@@ -470,6 +490,8 @@ def plan(fixes, payload, root, uid):
         except (OSError, RuntimeError, ValueError):
             preserved = True
     outcomes['shell-qtquick'] = 'pending' if pending else 'preserved' if preserved else 'current'
+    outcomes['japanese-input'] = ('current' if japanese_available(root) else
+                                 'pending' if (root / 'usr/bin/pacman').is_file() else 'unavailable')
     return changes, outcomes
 
 
@@ -610,6 +632,7 @@ def package(guest, payload):
         'catalog.json': guest / 'migrations/catalog.json',
         'omarchy-lock-password': guest / 'migrations/omarchy-lock-password',
         'pinch-input.lua': guest / 'native-overlay/usr/share/try-omarchy/pinch-input.lua',
+        'apple-keyboard-input.lua': guest / 'native-overlay/usr/share/try-omarchy/apple-keyboard-input.lua',
         'japanese-input.py': guest / 'scripts/migrate-japanese-input.py',
         'profile-chewing.ini': guest / 'migrations/japanese-input/profile-chewing.ini',
         'profile-korean.ini': guest / 'migrations/japanese-input/profile-korean.ini',
