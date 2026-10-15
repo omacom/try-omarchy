@@ -248,6 +248,15 @@ def load(path, name):
     return module
 
 
+class PowerKey(unittest.TestCase):
+    def test_app_shutdown_powers_off_after_omarchys_ignore_default(self):
+        dropin = FILES / "usr/lib/systemd/logind.conf.d/90-try-omarchy-power-key.conf"
+        self.assertIn("HandlePowerKey=poweroff", dropin.read_text())
+        # Omarchy's 10-ignore-power-button.conf sorts first, so this one wins.
+        self.assertGreater(dropin.name, "10-ignore-power-button.conf")
+        self.assertIn("systemctl kill -s HUP systemd-logind.service", (PACKAGE / "try-omarchy.install").read_text())
+
+
 class Recipe(unittest.TestCase):
     def test_battery_sources_and_backups_exist(self):
         recipe = (PACKAGE / "PKGBUILD").read_text()

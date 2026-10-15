@@ -40,9 +40,14 @@ if host_option("omarchy.qemu_virgl=1") then
   end)
   -- Omarchy's screensaver shows the cursor again as it exits, right before
   -- its window closes. Hide it whenever a window goes away; it is already
-  -- hidden, so for any other window this changes nothing.
+  -- hidden, so for any other window this changes nothing. When the window is
+  -- closed first, the screensaver's own reveal comes after this, so hide it
+  -- once more a moment later.
   hl.on("window.destroy", function()
     hl.config({ cursor = { invisible = true } })
+    hl.timer(function()
+      hl.config({ cursor = { invisible = true } })
+    end, { timeout = 1000, type = "oneshot" })
   end)
 end
 

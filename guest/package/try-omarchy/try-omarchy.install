@@ -6,13 +6,19 @@ try-omarchy-locale.service try-omarchy-timezone.service try-omarchy-clock-recove
 _user_units='omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service
 omarchy-native-clipboard-bridge.service omarchy-native-mac-share-link.service try-omarchy-session.service'
 
+# logind rereads its drop-ins (the power-key policy) on SIGHUP.
+_reload_logind() {
+  systemctl kill -s HUP systemd-logind.service >/dev/null 2>&1 || true
+}
+
 post_install() {
   systemctl preset $_units >/dev/null 2>&1 || true
   systemctl --global preset $_user_units >/dev/null 2>&1 || true
+  _reload_logind
 }
 
 post_upgrade() {
   # A unit added in a later release is enabled here, by name, the first time
   # an upgrade brings it (systemctl preset <unit>). None yet.
-  :
+  _reload_logind
 }
