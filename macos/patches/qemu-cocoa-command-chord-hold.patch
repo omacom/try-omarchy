@@ -1,0 +1,219 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: hold guest Super for the whole Command chord
+
+Applies after the Try Omarchy Cocoa input patches, including injected text.
+
+With full-grab, the HID event tap consumes Command's flagsChanged before
+AppKit records it. The next key can then arrive without
+NSEventModifierFlagCommand, and the modifier sync at the top of
+handleEventLocked: released guest Super before the chord key. Guests saw
+Super down, Super up, C down, so no Super binding fired.
+
+Track the Command keys sent to the guest. While the keyboard is captured
+and a Command key is held there, the missing flag no longer releases it;
+Command's own flagsChanged does, using the key's device bit, or the
+generic Command flag for posted events that carry no device bits. A
+release always reaches the guest, and raiseAllKeys clears the state on
+focus loss. A Command-up lost while captured leaves Super held until the
+next Command event or focus change. See omacom/try-omarchy#181.
+
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -105,16 +105,33 @@ static void cocoa_switch(DisplayChangeListener *dcl,
+     .dpy_cursor_define = cocoa_cursor_define,
+ };
+ static DisplayChangeListener dcl;
+ static DisplaySurface *surface;
+ static QKbdState *kbd;
+ static int64_t injectedTextSource;
+ static int cursor_hide = 1;
+ static int left_command_key_enabled = 1;
++
++/* Device-dependent Command bits of -[NSEvent modifierFlags] (IOLLEvent.h). */
++#define COCOA_DEVICE_LEFT_COMMAND  0x00000008
++#define COCOA_DEVICE_RIGHT_COMMAND 0x00000010
++
++/*
++ * Whether the Command key named by device_bit is down. Events posted without
++ * device bits (CGEventPost tools, some remote-control apps) carry only the
++ * generic Command flag, so fall back to it.
++ */
++static bool cocoa_command_down(NSUInteger modifiers, NSUInteger device_bit)
++{
++    if (modifiers & (COCOA_DEVICE_LEFT_COMMAND | COCOA_DEVICE_RIGHT_COMMAND)) {
++        return modifiers & device_bit;
++    }
++    return modifiers & NSEventModifierFlagCommand;
++}
+ static bool swap_opt_cmd;
+ static bool full_grab_enabled;
+ static bool immersive_mode_enabled = true;
+ static NSMenuItem *fullScreenMenuItem;
+ 
+ static bool zoom_interpolation;
+ static NSTextField *pauseLabel;
+ 
+@@ -422,16 +439,19 @@ @interface QemuCocoaView : NSView
+     CGColorSpaceRef colorspace;
+     CALayer *cursorLayer;
+     QEMUCursor *cursor;
+     int mouseX;
+     int mouseY;
+     bool mouseOn;
+     CocoaPinch pinch;
+     CocoaScroll scroll;
++    /* Host Command keys currently held down in the guest. */
++    BOOL leftCommandGuestDown;
++    BOOL rightCommandGuestDown;
+ }
+ - (void) grabMouse;
+ - (void) ungrabMouse;
+ - (void) setFullGrab:(id)sender;
+ - (void) handleMonitorInput:(NSEvent *)event;
+ - (bool) handleEvent:(NSEvent *)event;
+ - (bool) handleEventLocked:(NSEvent *)event;
+ - (void) notifyMouseModeChange;
+@@ -959,16 +979,28 @@ - (void) setFullGrab:(id)sender
+     CFRunLoopAddSource(runLoop, tapEventsSrc, kCFRunLoopDefaultMode);
+     CFRelease(tapEventsSrc);
+ }
+ 
+ - (void) toggleKey: (unsigned int)keycode {
+     qkbd_state_key_event(kbd, keycode, !qkbd_state_key_get(kbd, keycode));
+ }
+ 
++- (void) setCommandKey:(bool)right down:(bool)down
++{
++    unsigned int keycode = swap_opt_cmd ? (right ? KEY_RIGHTALT : KEY_LEFTALT)
++                                        : (right ? KEY_RIGHTMETA : KEY_LEFTMETA);
++    qkbd_state_key_event(kbd, keycode, down);
++    if (right) {
++        rightCommandGuestDown = down;
++    } else {
++        leftCommandGuestDown = down;
++    }
++}
++
+ // Does the work of sending input to the monitor
+ - (void) handleMonitorInput:(NSEvent *)event
+ {
+     int keysym = 0;
+     int control_key = 0;
+ 
+     // if the control key is down
+     if ([event modifierFlags] & NSEventModifierFlagControl) {
+@@ -1230,24 +1262,35 @@ - (bool) handleEventLocked:(NSEvent *)event
+         if (swap_opt_cmd) {
+             qkbd_state_key_event(kbd, KEY_LEFTMETA, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTMETA, false);
+         } else {
+             qkbd_state_key_event(kbd, KEY_LEFTALT, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTALT, false);
+         }
+     }
+-    if (!(modifiers & NSEventModifierFlagCommand)) {
++    /*
++     * While the keyboard is captured, the HID tap consumes Command's
++     * flagsChanged before AppKit records it, so the next key can arrive
++     * without NSEventModifierFlagCommand. Releasing guest Super here would
++     * split every Command chord into Super down, Super up, key. Command's
++     * own flagsChanged below releases it instead.
++     */
++    if (!(modifiers & NSEventModifierFlagCommand) &&
++        !([self isKeyboardCaptured] &&
++          (leftCommandGuestDown || rightCommandGuestDown))) {
+         if (swap_opt_cmd) {
+             qkbd_state_key_event(kbd, KEY_LEFTALT, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTALT, false);
+         } else {
+             qkbd_state_key_event(kbd, KEY_LEFTMETA, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTMETA, false);
+         }
++        leftCommandGuestDown = NO;
++        rightCommandGuestDown = NO;
+     }
+ 
+     if (qemu_console_is_graphic(dcl.con) && [self handleInjectedText:event]) {
+         return true;
+     }
+ 
+     switch ([event type]) {
+         case NSEventTypeFlagsChanged:
+@@ -1291,39 +1334,39 @@ - (bool) handleEventLocked:(NSEvent *)event
+                         if (swap_opt_cmd) {
+                             [self toggleKey:KEY_RIGHTMETA];
+                         } else {
+                             [self toggleKey:KEY_RIGHTALT];
+                         }
+                     }
+                     break;
+ 
+-                /* Don't pass command key changes to guest unless we captured the keyboard */
+-                case kVK_Command:
+-                    if ([self isKeyboardCaptured] &&
+-                        !!(modifiers & NSEventModifierFlagCommand) &&
+-                        left_command_key_enabled) {
+-                        if (swap_opt_cmd) {
+-                            [self toggleKey:KEY_LEFTALT];
+-                        } else {
+-                            [self toggleKey:KEY_LEFTMETA];
+-                        }
++                /*
++                 * Press Command in the guest only while the keyboard is
++                 * captured. The key's own device bit says whether it is now
++                 * down, so a release always reaches the guest, captured or not.
++                 */
++                case kVK_Command: {
++                    bool down = [self isKeyboardCaptured] &&
++                                left_command_key_enabled &&
++                                cocoa_command_down(modifiers, COCOA_DEVICE_LEFT_COMMAND);
++                    if (down != leftCommandGuestDown) {
++                        [self setCommandKey:false down:down];
+                     }
+                     break;
++                }
+ 
+-                case kVK_RightCommand:
+-                    if ([self isKeyboardCaptured] &&
+-                        !!(modifiers & NSEventModifierFlagCommand)) {
+-                        if (swap_opt_cmd) {
+-                            [self toggleKey:KEY_RIGHTALT];
+-                        } else {
+-                            [self toggleKey:KEY_RIGHTMETA];
+-                        }
++                case kVK_RightCommand: {
++                    bool down = [self isKeyboardCaptured] &&
++                                cocoa_command_down(modifiers, COCOA_DEVICE_RIGHT_COMMAND);
++                    if (down != rightCommandGuestDown) {
++                        [self setCommandKey:true down:down];
+                     }
+                     break;
++                }
+             }
+             return true;
+         case NSEventTypeKeyDown:
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
+             // Keep Command chords with the host unless the focused guest
+             // captured the keyboard.
+             if (![self isKeyboardCaptured] &&
+@@ -1621,16 +1664,18 @@ - (void) reenableEventTap
+  * key up events for those keys after we have lost focus.
+  */
+ - (void) raiseAllKeys
+ {
+     with_bql(^{
+         [self endPinchLocked];
+         injectedTextSource = 0;
+         qkbd_state_lift_all_keys(kbd);
++        leftCommandGuestDown = NO;
++        rightCommandGuestDown = NO;
+     });
+ }
+ 
+ - (void) raiseAllButtons
+ {
+     with_bql(^{
+         qemu_input_queue_btn(dcl.con, INPUT_BUTTON_LEFT, false);
+         qemu_input_queue_btn(dcl.con, INPUT_BUTTON_RIGHT, false);
