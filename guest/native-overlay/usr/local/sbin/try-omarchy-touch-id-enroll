@@ -1,3 +1,0 @@
-#!/bin/sh
-
-exec /usr/local/bin/try-omarchy-touch-id enable

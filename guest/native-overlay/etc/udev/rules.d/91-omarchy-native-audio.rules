@@ -1,1 +1,0 @@
-SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.audio", GROUP="audio", MODE="0660"

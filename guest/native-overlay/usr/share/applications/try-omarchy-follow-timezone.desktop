@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Follow Mac Time Zone
-Comment=Use the Mac's current time zone and follow later changes
-Exec=omarchy-launch-terminal sudo /usr/local/bin/try-omarchy-timezone --follow-mac
-Icon=preferences-system-time
-Terminal=false
-Categories=Settings;

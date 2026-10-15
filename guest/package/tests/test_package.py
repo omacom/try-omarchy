@@ -230,7 +230,7 @@ class GuestStatus(unittest.TestCase):
 class PackageInstall(unittest.TestCase):
     def test_name_pattern_matches_launcher(self):
         install = (LIB / "package-install").read_text()
-        launcher = (Path(__file__).resolve().parents[3] / "macos/run-shell-guest.sh").read_text()
+        launcher = (Path(__file__).resolve().parents[3] / "macos/run-qemu-gpu.sh").read_text()
         pattern = r"try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst"
         self.assertIn(pattern, install.replace("^", "").replace("$", ""))
         self.assertIn(pattern, launcher.replace("^", "").replace("$", ""))

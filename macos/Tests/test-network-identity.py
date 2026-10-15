@@ -45,11 +45,11 @@ class NetworkIdentityTests(unittest.TestCase):
         self.assertEqual(self.run_identity(), old["mac"])
 
     def test_disk_replacement_and_move_preserve_identity(self):
-        disk = self.root / "rootfs.ext4"
+        disk = self.root / "shell/disk.img"
         disk.write_bytes(b"original")
         mac = self.run_identity()
         saved = self.record.read_bytes()
-        replacement = self.root / "replacement.ext4"
+        replacement = self.root / "shell/replacement.img"
         replacement.write_bytes(b"upgraded")
         replacement.replace(disk)
         self.assertEqual(self.run_identity(), mac)

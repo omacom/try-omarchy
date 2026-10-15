@@ -1,11 +1,11 @@
 #!/bin/bash
 #
 # Builds the try-omarchy pacman package with makepkg in the upstream builder
-# image (guest/upstream/Containerfile).
+# image (guest/factory/Containerfile).
 #
 #   guest/package/build.sh [--output DIR]
 #
-# Output defaults to dist/upstream-guest/packages.
+# Output defaults to dist/guest/packages.
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ fail() {
 
 package_dir=$(cd "$(dirname "$0")" && pwd)
 repo_dir=$(cd "$package_dir/../.." && pwd)
-output="$repo_dir/dist/upstream-guest/packages"
+output="$repo_dir/dist/guest/packages"
 
 while (($#)); do
   case $1 in
@@ -30,8 +30,8 @@ command -v docker >/dev/null || fail "docker is required"
 command -v git >/dev/null || fail "git is required"
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
-builder_image=try-omarchy-upstream-builder
-docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/upstream/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
+builder_image=try-omarchy-guest-builder
+docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/factory/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
 
 # The recipe goes in as an archive of the files git knows about (tracked, or
 # new and not ignored), so caches and other local files never reach the

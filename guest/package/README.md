@@ -15,7 +15,7 @@ install running in the Mac app (see [the shell plan](../../docs/shell-plan.md)):
 - the guest status reporter and the integration package installer.
 
 ```sh
-make upstream-package   # dist/upstream-guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
+make guest-package   # dist/guest/packages/try-omarchy-<version>-aarch64.pkg.tar.zst
 make test-upstream      # contract tests for the package's scripts and layout
 ```
 

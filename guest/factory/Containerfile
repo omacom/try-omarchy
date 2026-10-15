@@ -1,0 +1,43 @@
+# Builder for the factory image: an Arch Linux ARM userland with
+# the tools upstream's installer uses (pacstrap, arch-chroot, btrfs, vfat).
+# The bootstrap stage is the same one guest/Containerfile uses.
+FROM docker.io/alpine:3.21 AS bootstrapper
+
+ARG TARGETARCH
+RUN test "$TARGETARCH" = arm64
+
+RUN apk add --no-cache bash curl gnupg pacman-makepkg zstd
+COPY guest/vendor/omarchy-pkgs/pacstrap-docker /usr/local/bin/pacstrap-docker
+RUN chmod 0755 /usr/local/bin/pacstrap-docker
+
+RUN mkdir -p /etc/pacman.d /usr/share/pacman/keyrings && \
+    printf '[options]\nHoldPkg = pacman glibc\nArchitecture = auto\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n\n[alarm]\nInclude = /etc/pacman.d/mirrorlist\n\n[aur]\nInclude = /etc/pacman.d/mirrorlist\n' > /etc/pacman.conf && \
+    printf 'Server = https://arm-mirror.omarchy.org/$arch/$repo\n' | sed 's/\$arch/aarch64/' > /etc/pacman.d/mirrorlist && \
+    for pair in \
+      'archlinuxarm-revoked e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' \
+      'archlinuxarm-trusted f2a7250f2a2b77542f82f4219b2bae7895f27b3dcfdf350b497e2be306af776d' \
+      'archlinuxarm.gpg 6ce771e853f04a38a5b533cb33e61f877b9b06b58b6db051eb8a15d737a2332f'; do \
+      set -- $pair; \
+      curl -fsSL "https://raw.githubusercontent.com/archlinuxarm/PKGBUILDs/0b5418fc3f62860b191cd872cb2f933f9fc77841/core/archlinuxarm-keyring/$1" -o "/usr/share/pacman/keyrings/$1"; \
+      echo "$2  /usr/share/pacman/keyrings/$1" | sha256sum -c -; \
+    done && \
+    pacman-key --init && pacman-key --populate archlinuxarm && \
+    mkdir /rootfs && pacstrap-docker /rootfs base archlinuxarm-keyring && \
+    cp /etc/pacman.conf /rootfs/etc/pacman.conf && \
+    cp /etc/pacman.d/mirrorlist /rootfs/etc/pacman.d/mirrorlist
+
+FROM scratch AS builder
+COPY --from=bootstrapper /rootfs/ /
+
+RUN pacman-key --init && pacman-key --populate archlinuxarm && \
+    pacman -Syu --noconfirm && \
+    pacman -S --needed --noconfirm arch-install-scripts base-devel btrfs-progs \
+      dosfstools e2fsprogs jq kmod python util-linux zstd && \
+    pacman -Scc --noconfirm
+
+# The reviewed Omarchy repository key (see guest/README.md), so the builder can
+# verify [omarchy] packages without a keyserver lookup.
+COPY guest/keys/omarchy.gpg guest/keys/omarchy-trusted guest/keys/omarchy-revoked /usr/share/pacman/keyrings/
+
+WORKDIR /workspace
+ENTRYPOINT ["/workspace/guest/factory/build-image.sh"]

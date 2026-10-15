@@ -1,6 +1,0 @@
-#!/bin/bash
-
-# omarchy:summary=Returns true when the guest architecture is aarch64
-# omarchy:hidden=true
-
-[[ $(uname -m) == aarch64 ]]

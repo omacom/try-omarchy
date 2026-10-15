@@ -3,7 +3,6 @@ SHELL := /bin/bash
 override ROOT := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 override DIST := $(ROOT)/dist
 override GUEST_DIST := $(DIST)/guest
-override UPSTREAM_DIST := $(DIST)/upstream-guest
 override APP := $(DIST)/app.noindex/Try Omarchy.app
 override BUILD_CACHE := $(ROOT)/scripts/build-cache.py
 override BUILD_STATE := $(ROOT)/.build/state
@@ -22,10 +21,8 @@ SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding run-qemu-gpu 
 SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor test guest runtime app build run run-ephemeral reset update-omarchy version-preflight package package-preflight release release-preflight clean clean-all clean-guest
-
-.PHONY: upstream-package upstream-guest firmware shell-app run-shell run-shell-ephemeral test-upstream
-.PHONY: test-all test-contracts test-guest test-swift test-shell test-resize $(SHELL_TEST_TARGETS)
+.PHONY: help doctor test guest guest-package runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight clean clean-all clean-guest
+.PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
 
 help:
 	@printf '%s\n' \
@@ -35,26 +32,21 @@ help:
 	  '  make test           Run native and guest contract tests' \
 	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
-	  '  make build FORCE=1  Rebuild every component' \
+	  '  make build FORCE=1  Rebuild every component (the guest takes the newest Omarchy edge)' \
 	  '  make run            Build the app from existing artifacts and open it' \
 	  '                      Automatically select a stable development certificate' \
 	  '  make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: ..."' \
 	  '                      Choose a certificate when several are available' \
-	  '  make update-omarchy OMARCHY_RELEASE=x.y.z' \
-	  '                      Pin an upstream release and refresh the ARM64 lock' \
 	  '  make package        Create a signed and notarized distribution DMG' \
 	  '  make release        Choose a version, tag, and build a notarized DMG' \
 	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
 	  '' \
 	  'Component builds:' \
-	  '  make guest          Ensure dist/guest is current (Docker)' \
+	  '  make guest          Ensure dist/guest (try-omarchy package and factory disk) is current (Docker)' \
+	  '  make guest-package  Rebuild only the try-omarchy package; the next app build bundles it' \
 	  '  make runtime        Ensure macos/.build/qemu-gpu-runtime is current' \
-	  '  make app            Ensure both artifacts and the app are current' \
-	  '' \
-	  'Upstream shell (docs/shell-plan.md):' \
-	  '  make upstream-guest Build the try-omarchy package and the stock aarch64 factory' \
-	  '  make shell-app      Build the app around the upstream factory (UEFI boot)' \
-	  '  make run-shell      Build the shell app and open it' \
+	  '  make firmware       Stage the UEFI firmware from the pinned QEMU source' \
+	  '  make app            Ensure every artifact and the app are current' \
 	  '' \
 	  'Storage:' \
 	  '  make run-ephemeral  Run without retaining VM changes' \
@@ -76,7 +68,7 @@ test:
 
 # Start Swift early; shell integration suites consume its helper binary. Each
 # suite owns its temporary state, but SwiftPM has a single build directory.
-test-all: test-swift test-contracts test-guest test-shell test-resize test-upstream
+test-all: test-swift test-contracts test-guest test-shell
 
 test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hda-recovery.py"
@@ -102,7 +94,7 @@ test-contracts:
 	@$(ROOT)/macos/Tests/runtime-relocation.test.sh
 
 test-guest:
-	@$(ROOT)/guest/test
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_package.py"
 
 test-swift:
 	@mkdir -p $(ROOT)/macos/.build/module-cache/swift $(ROOT)/macos/.build/module-cache/clang
@@ -113,20 +105,24 @@ test-shell: $(SHELL_TEST_TARGETS)
 $(SHELL_TEST_TARGETS): test-shell-%: test-swift
 	@bash "$(ROOT)/macos/Tests/$*.test.sh"
 
-test-resize: test-swift
-	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/resize-vm-disk.test.py"
-
 guest:
 	@OMARCHY_FORCE_BUILD="$(FORCE)" "$(BUILD_CACHE)" \
 	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" guest -- \
-	  "$(ROOT)/guest/build-container.sh" --output "$(GUEST_DIST)"
+	  "$(ROOT)/guest/build.sh" --output "$(GUEST_DIST)"
+
+guest-package:
+	@"$(ROOT)/guest/package/build.sh" --output "$(GUEST_DIST)/packages"
 
 runtime:
 	@OMARCHY_FORCE_BUILD="$(FORCE)" "$(BUILD_CACHE)" \
 	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" runtime -- \
 	  "$(ROOT)/macos/build-qemu-gpu-runtime.sh"
 
-app: guest runtime
+firmware:
+	@[[ -f "$(ROOT)/macos/.build/firmware/edk2-aarch64-code.fd" && "$(FORCE)" != 1 ]] || \
+	  "$(ROOT)/macos/stage-uefi-firmware.sh"
+
+app: guest runtime firmware
 	@identity=$$(python3 "$(ROOT)/macos/development-sign-identity.py" "$(DEVELOPMENT_SIGN_IDENTITY)") || exit 1; \
 	  OMARCHY_FORCE_BUILD="$(FORCE)" \
 	  OMARCHY_CODESIGN_IDENTITY="$$identity" \
@@ -146,43 +142,6 @@ run-ephemeral: app
 reset: app
 	@$(ROOT)/macos/open-qemu-gpu.sh --reset-storage
 
-upstream-package:
-	@"$(ROOT)/guest/package/build.sh" --output "$(UPSTREAM_DIST)/packages"
-
-upstream-guest: upstream-package
-	@"$(ROOT)/guest/upstream/build-container.sh" --output "$(UPSTREAM_DIST)" \
-	  --package "$$(ls "$(UPSTREAM_DIST)"/packages/try-omarchy-*.pkg.tar.zst)"
-
-firmware:
-	@[[ -f "$(ROOT)/macos/.build/firmware/edk2-aarch64-code.fd" && "$(FORCE)" != 1 ]] || \
-	  "$(ROOT)/macos/stage-uefi-firmware.sh"
-
-# The upstream factory is not part of the cached direct-boot artifact set, so
-# the shell app is built directly from dist/upstream-guest.
-shell-app: runtime firmware
-	@[[ -f "$(UPSTREAM_DIST)/factory.json" ]] || { echo 'error: run make upstream-guest first' >&2; exit 1; }
-	@identity=$$(python3 "$(ROOT)/macos/development-sign-identity.py" "$(DEVELOPMENT_SIGN_IDENTITY)") || exit 1; \
-	  OMARCHY_CODESIGN_IDENTITY="$$identity" "$(ROOT)/macos/build-app.sh" --guest-dir "$(UPSTREAM_DIST)"
-
-run-shell: shell-app
-	@$(ROOT)/macos/open-qemu-gpu.sh
-
-run-shell-ephemeral: shell-app
-	@$(ROOT)/macos/open-qemu-gpu.sh --ephemeral
-
-test-upstream:
-	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_package.py"
-
-update-omarchy:
-	@[[ -n "$(strip $(OMARCHY_RELEASE))" ]] || { echo 'error: OMARCHY_RELEASE=x.y.z is required' >&2; exit 1; }
-	@$(ROOT)/guest/scripts/update-upstream-pin.py \
-	  --release "$(OMARCHY_RELEASE)" \
-	  --spec "$(ROOT)/guest/spec.json" \
-	  --cache-dir "$(ROOT)/.build/upstream"
-	@$(ROOT)/guest/build-container.sh \
-	  --refresh-package-lock "$(ROOT)/guest/packages.lock.json"
-	@$(ROOT)/guest/test --source "$(ROOT)/.build/upstream/omarchy-v$(OMARCHY_RELEASE)"
-
 version-preflight:
 	@python3 "$(ROOT)/scripts/app_version.py" --root "$(ROOT)" --require-release
 
@@ -191,7 +150,7 @@ package-preflight: version-preflight
 	@[[ -n "$(strip $(PACKAGE_NOTARY_PROFILE))" ]] || { echo 'error: PACKAGE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 
 package: package-preflight
-	@$(MAKE) --no-print-directory guest runtime
+	@$(MAKE) --no-print-directory guest runtime firmware
 	@$(ROOT)/macos/build-app.sh \
 	  --configuration production \
 	  --dmg \
