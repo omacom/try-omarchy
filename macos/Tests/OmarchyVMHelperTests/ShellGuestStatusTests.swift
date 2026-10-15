@@ -51,3 +51,41 @@ struct ShellGuestStatusTests {
         #expect(ShellGuestStatusRecord.read(url)?.report == report)
     }
 }
+
+@Suite("Upstream-shell start menu row")
+struct ShellGuestPresentationTests {
+    private func record(_ json: String) throws -> ShellGuestStatusRecord {
+        ShellGuestStatusRecord(receivedAt: Date(), report: try ShellGuestReport.decode(Data(json.utf8)))
+    }
+
+    @Test("package names yield their version")
+    func packageNames() {
+        #expect(ShellGuestPresentation.packageVersion(fileName: "try-omarchy-0.1.0-1-aarch64.pkg.tar.zst") == "0.1.0-1")
+        #expect(ShellGuestPresentation.packageVersion(fileName: "other-0.1.0-1-aarch64.pkg.tar.zst") == nil)
+    }
+
+    @Test("a guest behind the bundled package shows the pending update")
+    func pendingUpdate() throws {
+        let value = ShellGuestPresentation.make(
+            record: try record(#"{"protocol":1,"omarchy":"4.0.0-1","channel":"edge","package":"0.1.0-1"}"#),
+            bundledPackage: "0.2.0-1")
+        #expect(!value.isCurrent)
+        #expect(value.detail == "Omarchy 4.0.0-1 · edge · integrations 0.1.0-1 · updates to 0.2.0-1 on next start")
+    }
+
+    @Test("a current or newer guest is current; no report yet is neutral")
+    func current() throws {
+        #expect(ShellGuestPresentation.make(
+            record: try record(#"{"protocol":1,"package":"0.3.0-1"}"#), bundledPackage: "0.2.0-1").isCurrent)
+        #expect(ShellGuestPresentation.make(record: nil, bundledPackage: "0.2.0-1").isCurrent)
+    }
+
+    @Test("a failed install is reported")
+    func failedInstall() throws {
+        let value = ShellGuestPresentation.make(
+            record: try record(#"{"protocol":1,"package":"0.1.0-1","install":{"requested":"x","result":"failed","message":"offline"}}"#),
+            bundledPackage: "0.1.0-1")
+        #expect(!value.isCurrent)
+        #expect(value.detail.hasSuffix("last update failed: offline"))
+    }
+}

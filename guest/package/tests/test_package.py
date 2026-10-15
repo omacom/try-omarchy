@@ -118,7 +118,7 @@ class SshAccess(unittest.TestCase):
 class UserSetup(unittest.TestCase):
     def test_places_loader_once(self):
         state = Path(tempfile.mkdtemp())
-        env = {"XDG_STATE_HOME": str(state), "HOME": str(state)}
+        env = {"XDG_STATE_HOME": str(state), "HOME": str(state), "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true"}
         run(LIB / "user-setup", env=env)
         loader = state / "omarchy/toggles/hypr/zz-try-omarchy.lua"
         first = loader.read_text()
@@ -129,6 +129,43 @@ class UserSetup(unittest.TestCase):
         loader.write_text("-- edited\n")
         run(LIB / "user-setup", env=env)
         self.assertEqual(loader.read_text(), first)
+
+
+class MenuEntries(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}
+        self.menu = self.home / ".config/omarchy/extensions/omarchy-menu.jsonc"
+
+    def entries(self):
+        subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, **self.env}, check=True)
+
+    @staticmethod
+    def parse(text):
+        # Omarchy's stripJsonc: whole-line comments and trailing commas.
+        text = re.sub(r"^\s*//[^\n]*(\n|$)", "", text, flags=re.M)
+        return json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+
+    def test_adds_rows_to_the_seeded_template_once(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text('{\n  // Extend the menu.\n  // "personal": {"label":"Personal"},\n}\n')
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id"})
+        self.menu.write_text("{}\n")  # the user removed them
+        self.entries()
+        self.assertEqual(self.menu.read_text(), "{}\n")
+
+    def test_keeps_user_rows_and_creates_missing_file(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text('{\n  "personal": {"label":"Personal"}\n}\n')
+        self.entries()
+        self.assertIn("personal", self.parse(self.menu.read_text()))
+        other = Path(tempfile.mkdtemp())
+        subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, "HOME": str(other),
+                       "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}, check=True)
+        created = other / ".config/omarchy/extensions/omarchy-menu.jsonc"
+        self.assertIn("setup.try-omarchy", self.parse(created.read_text()))
 
 
 class GuestStatus(unittest.TestCase):

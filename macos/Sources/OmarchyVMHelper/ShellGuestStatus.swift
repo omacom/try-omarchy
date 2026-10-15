@@ -128,3 +128,52 @@ enum ShellGuestStatusBridge {
         }
     }
 }
+
+/// What the start menu says about an upstream-shell VM's guest.
+struct ShellGuestPresentation: Equatable {
+    let detail: String
+    let isCurrent: Bool
+
+    /// True when this app was built around an upstream-shell factory.
+    static func isShellApp(bundle: Bundle = .main) -> Bool {
+        guard let resources = bundle.resourceURL else { return false }
+        return FileManager.default.fileExists(atPath: resources.appendingPathComponent("guest/factory.json").path)
+    }
+
+    /// The version of the try-omarchy package bundled in this app, from its file name.
+    static func bundledPackageVersion(bundle: Bundle = .main) -> String? {
+        guard let directory = bundle.resourceURL?.appendingPathComponent("guest-packages"),
+              let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return nil }
+        return names.compactMap(packageVersion(fileName:)).first
+    }
+
+    static func packageVersion(fileName: String) -> String? {
+        let prefix = "try-omarchy-"
+        guard fileName.hasPrefix(prefix), fileName.hasSuffix(".pkg.tar.zst") else { return nil }
+        // try-omarchy-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst
+        let parts = fileName.dropFirst(prefix.count).dropLast(".pkg.tar.zst".count).split(separator: "-")
+        guard parts.count == 3 else { return nil }
+        return "\(parts[0])-\(parts[1])"
+    }
+
+    static func make(record: ShellGuestStatusRecord?, bundledPackage: String?) -> Self {
+        guard let report = record?.report else {
+            return Self(detail: "Versions appear after Omarchy starts", isCurrent: true)
+        }
+        var parts: [String] = []
+        if let omarchy = report.omarchy { parts.append("Omarchy \(omarchy)") }
+        if let channel = report.channel { parts.append(channel) }
+        if let package = report.package { parts.append("integrations \(package)") }
+        var current = true
+        if let bundledPackage, let package = report.package,
+           PacmanVersion.compare(package, bundledPackage) == .orderedAscending {
+            current = false
+            parts.append("updates to \(bundledPackage) on next start")
+        }
+        if let install = report.install, install.result == "failed" {
+            current = false
+            parts.append("last update failed: \(install.message)")
+        }
+        return Self(detail: parts.isEmpty ? "No version reported" : parts.joined(separator: " · "), isCurrent: current)
+    }
+}

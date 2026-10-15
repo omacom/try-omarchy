@@ -886,6 +886,25 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         if let storageRow {
             integrationRowViews.append(storageRow)
         }
+        if ShellGuestPresentation.isShellApp() {
+            // Omarchy updates itself inside the VM (omarchy update); this row
+            // only reports what the guest last said about its versions.
+            let record = storageLocationURL().flatMap {
+                ShellGuestStatusRecord.read($0.appendingPathComponent("shell/guest-status.json"))
+            }
+            let guest = ShellGuestPresentation.make(
+                record: record, bundledPackage: ShellGuestPresentation.bundledPackageVersion()
+            )
+            integrationRowViews.append(permissionRow(
+                symbolName: "arrow.triangle.2.circlepath",
+                title: "Omarchy",
+                detail: guest.detail,
+                granted: guest.isCurrent,
+                statusLabels: ("\u{25cf}  Current", "\u{25cb}  Update pending"),
+                actions: [],
+                minimumHeight: 72
+            ))
+        }
         integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
 
         var permissionRowsAndSeparators: [NSView] = []

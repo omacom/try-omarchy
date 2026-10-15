@@ -147,6 +147,39 @@ new_vars() { # destination
 }
 
 work_dir=$(mktemp -d '/private/tmp/omarchy-shell.XXXXXX') || fail "could not create a private temporary directory"
+# Every exit from here on stops QEMU and the bridges and removes the work directory.
+qemu_pid=""
+bridge_pids=()
+
+terminate() { # pid attempts
+  local pid=$1 attempt
+  [[ $pid =~ ^[0-9]+$ ]] || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  for ((attempt = 0; attempt < $2; attempt++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+cleanup() {
+  local status=$? pid
+  trap - EXIT HUP INT TERM
+  set +e
+  [[ -z $qemu_pid ]] || terminate "$qemu_pid" 40
+  for pid in ${bridge_pids[@]+"${bridge_pids[@]}"}; do
+    terminate "$pid" 20
+  done
+  ! declare -F qemu_network_stop >/dev/null || qemu_network_stop
+  case $work_dir in /private/tmp/omarchy-shell.??????) rm -rf "$work_dir" ;; esac
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 socket_dir="/tmp/${work_dir##*/}"
 
 if [[ $storage_mode == ephemeral ]]; then
@@ -244,9 +277,16 @@ if [[ -n $shared_folder ]]; then
   host_options+=" omarchy.shared_folder_name=$name_encoded"
 fi
 
-# Update integrations: the app shares one try-omarchy package for this boot,
-# which the guest installs before login (try-omarchy-package-install.service).
-package_to_install=${OMARCHY_SHELL_INSTALL_PACKAGE:-}
+# Integration updates: the app shares its bundled try-omarchy package on every
+# boot. The guest installs it before login only when it is newer than the
+# installed one (try-omarchy-package-install.service), so a guest that already
+# took a newer package from [omarchy] keeps it. OMARCHY_SHELL_INSTALL_PACKAGE
+# names another archive; an empty value turns the offer off.
+bundled_package=""
+for candidate in "$resources_dir"/guest-packages/try-omarchy-*.pkg.tar.zst; do
+  [[ -f $candidate ]] && bundled_package=$candidate
+done
+package_to_install=${OMARCHY_SHELL_INSTALL_PACKAGE-$bundled_package}
 if [[ -n $package_to_install ]]; then
   [[ -f $package_to_install && ! -L $package_to_install &&
     ${package_to_install##*/} =~ ^try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst$ ]] ||
@@ -393,42 +433,8 @@ if [[ ${OMARCHY_QEMU_GPU_DRY_RUN:-0} == 1 ]]; then
   printf '[qemu-gpu] dry-run command:' >&2
   printf ' %q' "$qemu_bin" "${qemu_args[@]}" >&2
   printf '\n[qemu-gpu] host settings: %s\n' "$host_options" >&2
-  rm -rf "$work_dir"
   exit 0
 fi
-
-# --- run ---------------------------------------------------------------------------
-qemu_pid=""
-bridge_pids=()
-
-terminate() { # pid attempts
-  local pid=$1 attempt
-  [[ $pid =~ ^[0-9]+$ ]] || return 0
-  kill -TERM "$pid" 2>/dev/null || true
-  for ((attempt = 0; attempt < $2; attempt++)); do
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.05
-  done
-  kill -KILL "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-}
-
-cleanup() {
-  local status=$? pid
-  trap - EXIT HUP INT TERM
-  set +e
-  [[ -z $qemu_pid ]] || terminate "$qemu_pid" 40
-  for pid in ${bridge_pids[@]+"${bridge_pids[@]}"}; do
-    terminate "$pid" 20
-  done
-  ! declare -F qemu_network_stop >/dev/null || qemu_network_stop
-  case $work_dir in /private/tmp/omarchy-shell.??????) rm -rf "$work_dir" ;; esac
-  exit "$status"
-}
-trap cleanup EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 if [[ $storage_mode == persistent ]]; then
   echo "[qemu-gpu] Starting the persistent upstream Omarchy guest with $vcpu_count vCPUs and $memory_mib MiB RAM." >&2

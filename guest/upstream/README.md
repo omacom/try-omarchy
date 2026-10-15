@@ -1,0 +1,67 @@
+# Upstream-shell factory image
+
+This directory builds the factory disk for the upstream-shell system described
+in [the shell plan](../../docs/shell-plan.md). The direct-boot guest that the
+rest of `guest/` builds is unaffected.
+
+The image is a stock generic-`aarch64` Omarchy install, built from Omarchy's
+own package repositories with upstream's own install steps. Try Omarchy adds
+exactly one package to it, [`try-omarchy`](../package/README.md).
+
+```sh
+make upstream-guest
+```
+
+This builds the `try-omarchy` package and then the image in a privileged ARM64
+container. The output goes to `dist/upstream-guest/`:
+
+| File | Contents |
+| --- | --- |
+| `omarchy-aarch64-edge.img.zst` | The disk image (20 GiB virtual, sparse) |
+| `factory.json` | Identity, versions, the image's digests, and the boot method |
+| `packages.txt` | Every installed package and version |
+| `unavailable.txt` | Default-set names the aarch64 repositories do not carry |
+| `packages/try-omarchy-*.pkg.tar.zst` | The integration package installed in the image |
+
+Package downloads are cached in a Docker volume labeled
+`dev.tryomarchy.role=upstream-work`. `make clean` removes it.
+
+## What the build does
+
+`build-image.sh` follows the omarchy-iso orchestrator's full-disk install:
+
+1. A GPT disk with a 2 GiB vfat ESP mounted at `/boot` and a btrfs root with
+   the `@`, `@home`, `@log` and `@pkg` subvolumes (`compress=zstd`). The root
+   partition uses the ARM64 root type GUID.
+2. `pacstrap` of `base`, `linux-omarchy` and its headers. Then the early
+   packages, the runtime, and the aarch64 default set from
+   `omarchy-pkg-defaults aarch64`. The default set includes the
+   Limine/Snapper stack that UEFI aarch64 machines need.
+3. Limine on the ESP, at both `EFI/limine` and the removable fallback path
+   `EFI/BOOT/BOOTAA64.EFI`. A new VM's variable store holds no boot entry, so
+   the firmware uses the fallback path.
+4. The image-target manifest (`format=1`, `platform=aarch64`), then
+   `omarchy-apply-system --defer-provisioning --first-install`. Hardware
+   setup and the pacman master key are deferred to the VM's first boot.
+5. Owner provisioning armed as the ISO arms it, with the Node.js tarball
+   stashed for offline user finalization.
+6. One UKI build with `limine-update`, and upstream's aarch64 `edge` pacman
+   template and mirror list.
+7. Sealing: an empty machine ID, no random seed, no SSH host keys, no pacman
+   keyring, an empty package cache, and a read-only `@factory` snapshot for
+   Omarchy's own factory reset.
+
+On aarch64 the `edge` channel installs `omarchy-dev` and
+`omarchy-settings-dev`, as `omarchy-channel-set edge` does. Those packages are
+built from Omarchy's `quattro` branch, where the aarch64 platform support
+lives. The `omarchy` release package on the same repository predates that
+support. It has no `omarchy-pkg-defaults`, platform detector or image-target
+support.
+
+## Reproducibility
+
+The repositories are live. `factory.json` records the `[omarchy]` database
+digest the build resolved against, and `packages.txt` records every version.
+Two builds from the same database digest install the same `[omarchy]`
+packages. Arch Linux ARM has no frozen snapshot, so its packages can still
+differ.

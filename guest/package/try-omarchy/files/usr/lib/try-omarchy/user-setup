@@ -25,6 +25,9 @@ if [[ ! -f $loader || $(<"$loader") != "$expected" ]]; then
   changed=1
 fi
 
+# Settings and Touch ID rows in the Omarchy menu, added once.
+"${TRY_OMARCHY_MENU_ENTRIES:-/usr/lib/try-omarchy/menu-entries}" || true
+
 if ((changed)) && [[ ${1:-} == --reload && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   hyprctl reload >/dev/null 2>&1 || true
 fi

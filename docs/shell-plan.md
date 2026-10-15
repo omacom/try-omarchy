@@ -20,6 +20,41 @@ This plan is forward-looking. It defines the system for new VMs; moving
 existing VMs onto it is a separate piece of work (see
 [Existing VMs](#existing-vms)).
 
+## Implementation status
+
+Branch `upstream-shell`, started 2026-10-15. What exists:
+
+- **Factory** ([guest/upstream](../guest/upstream/README.md)):
+  `make upstream-guest` builds the stock install with the pacstrap route
+  below, not the ISO route. The ISO route needs a 6 GB offline mirror and an
+  archiso build, and upstream publishes no ARM ISO or VM image yet. The
+  install steps mirror upstream's orchestrator, and the result has the same
+  layout: btrfs subvolumes, Limine UKI, Snapper, `@factory`, and deferred
+  owner provisioning.
+- **Guest package** ([guest/package](../guest/package/README.md)): the
+  overlay's integrations moved into `try-omarchy`, reading host settings from
+  the `tryomarchy.host` credential. The three replaced Omarchy commands, the
+  Ghostty/Vivaldi installers, the aarch64-unavailable guards, the pacman
+  restore hook and the migrations are not carried over.
+- **Launcher** (`macos/run-shell-guest.sh`): UEFI boot with the edk2
+  firmware from the pinned QEMU source (`macos/stage-uefi-firmware.sh`), one
+  `shell/` VM directory beside the direct-boot `disks/`, the same CLI,
+  environment and progress lines as `run-qemu-gpu.sh`, and the bundled
+  `try-omarchy` package offered on every boot.
+- **App**: `make shell-app` builds the app around the upstream factory. The
+  start menu shows the guest's Omarchy, channel and integration versions from
+  `dev.tryomarchy.guest`. The default `make app` still builds the direct-boot
+  app, so `main` keeps shipping while the shell matures.
+
+Integration updates became automatic rather than an **Update integrations**
+button. The guest installs the offered package only when it is newer than
+its own (`vercmp`), so the offer is a no-op for a current guest or one that
+took a newer package from `[omarchy]`.
+
+Not done yet: an in-guest menu entry for settings and Touch ID (Omarchy's
+menu extensions are per user), copying a shell VM to another storage
+location, the nightly CI job, and the upstream asks below.
+
 ## What upstream has today
 
 - **[omarchy#14431](https://github.com/omacom/omarchy/pull/14431), merged
@@ -45,7 +80,7 @@ existing VMs onto it is a separate piece of work (see
     path with no platform branch in its code.
 - **[omarchy-pkgs](https://github.com/omacom/omarchy-pkgs)** publishes to
   `https://pkgs.omarchy.org/edge/aarch64`: `omarchy` 4.0.4, `omarchy-dev`,
-  `omarchy-settings`, Omarchy's own aarch64 `hyprland` 0.56.2, `aquamarine`,
+  `omarchy-settings`, `omarchy-settings-dev`, Omarchy's own aarch64 `hyprland` 0.56.2, `aquamarine`,
   `hyprtoolkit`, `hyprland-guiutils`, `quickshell`, `linux-omarchy` 7.2.8 with
   headers, `ghostty`, `mise-bin`, `yay`, `ttfx`, `voxtype-bin`, `1password`,
   `omarchy-chromium-bin`, `walker`, and the Mac bare-metal packages.
@@ -55,6 +90,11 @@ existing VMs onto it is a separate piece of work (see
     app uses.
   - `rc` and `stable` carry only fast-ring vendor packages for aarch64. No
     `omarchy`, Hyprland or kernel yet.
+  - On edge, `omarchy-channel-set edge` installs `omarchy-dev` and
+    `omarchy-settings-dev`, built from the `quattro` branch. The `omarchy`
+    4.0.4 release package there predates the aarch64 platform work (no
+    `omarchy-pkg-defaults`, platform detector or image-target support), so an
+    ARM guest runs the development line until a release carries it.
   - `arm-mirror.omarchy.org` mirrors the live Arch Linux ARM repositories
     with no frozen snapshot; every channel shares it.
 - **[omarchy-iso#258](https://github.com/omacom/omarchy-iso/pull/258), merged

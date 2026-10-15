@@ -1,0 +1,64 @@
+#!/usr/bin/python3 -I
+"""Add Try Omarchy's rows to the user's Omarchy menu extension, once.
+
+Omarchy reads menu extensions only from ~/.config/omarchy/extensions/
+omarchy-menu.jsonc. The rows go in right after the opening brace. Omarchy's
+parser drops whole-line comments and trailing commas. A marker in
+~/.local/state/try-omarchy records that this was done, so rows the user
+deletes stay deleted.
+"""
+
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+ENTRIES = (
+    '  // Try Omarchy: Mac app settings and Touch ID (added once; safe to remove).\n'
+    '  "setup.try-omarchy": {"icon":"","label":"Try Omarchy Settings",'
+    '"description":"Open the Mac app settings","action":"omarchy-native-settings",'
+    '"when":"test -w /dev/virtio-ports/dev.tryomarchy.settings"},\n'
+    '  "setup.security.touch-id": {"icon":"󰈷","label":"Touch ID for sudo",'
+    '"when":"[[ -x /usr/bin/try-omarchy-touch-id ]]",'
+    '"checked":"/usr/bin/try-omarchy-touch-id status --quiet",'
+    '"action":"omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-touch-id"},\n'
+)
+MAXIMUM_BYTES = 256 * 1024
+
+
+def main():
+    home = Path(os.environ["HOME"])
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    state = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state")
+    marker = state / "try-omarchy/menu-entries-v1"
+    path = config / "omarchy/extensions/omarchy-menu.jsonc"
+    if marker.exists():
+        return 0
+
+    if path.is_symlink():
+        return 0
+    if path.exists():
+        if path.stat().st_size > MAXIMUM_BYTES:
+            return 0
+        text = path.read_text()
+        opening = text.find("{")
+        if opening < 0 or text[:opening].strip() or text.rstrip()[-1:] != "}":
+            return 0  # not a plain JSONC object; leave the user's file alone
+        if '"setup.try-omarchy"' not in text:
+            text = text[: opening + 1] + "\n" + ENTRIES + text[opening + 1:]
+    else:
+        text = "{\n" + ENTRIES + "}\n"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".omarchy-menu.", dir=path.parent)
+    with os.fdopen(descriptor, "w") as output:
+        output.write(text)
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
