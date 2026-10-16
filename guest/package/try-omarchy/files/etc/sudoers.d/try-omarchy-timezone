@@ -1,0 +1,4 @@
+# Like Omarchy's omarchy-tzupdate rule for timedatectl set-timezone: the
+# desktop's time zone picker fixes a zone, or follows the Mac, without a password.
+%wheel ALL=(root) NOPASSWD: /usr/bin/try-omarchy-timezone --follow-mac
+%wheel ALL=(root) NOPASSWD: /usr/bin/try-omarchy-timezone ^--select [A-Za-z0-9_+][A-Za-z0-9_+.-]*(/[A-Za-z0-9_+][A-Za-z0-9_+.-]*)*$

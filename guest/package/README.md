@@ -28,9 +28,10 @@ not ignore, so caches and other local files never reach the package.
   `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
   `/etc/chromium-flags.conf` and
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` (both pacman
-  `backup` files). Nothing goes under `/usr/local`, `/usr/share/omarchy` or
-  `/etc/skel`. Customisation uses systemd drop-ins, presets and udev rules,
-  plus one loader in the user's Omarchy toggles directory.
+  `backup` files), and `/etc/sudoers.d/try-omarchy-timezone`. Nothing goes
+  under `/usr/local`, `/usr/share/omarchy` or `/etc/skel`. Customisation uses
+  systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
+  extension, plus one loader in the user's Omarchy toggles directory.
 - **No kernel command line from the host.** The guest owns its boot. The app
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
@@ -84,9 +85,24 @@ know about. Either side can therefore be updated first.
 form preselects the zone from `tzupdate -p`; the package's shim in
 `/usr/lib/try-omarchy/shims`, which is on the setup service's `PATH` only,
 answers with the Mac's zone. Keeping that zone means following the Mac.
-Choosing another zone, there or later in Omarchy's time zone menu, stops
-following. The **Follow Mac Time Zone** launcher entry
-(`try-omarchy-timezone --follow-mac`) turns following back on.
+Choosing another zone, there or later, stops following.
+
+The package's menu extension row overrides only the action of Omarchy's
+**Timezone** row (`update.timezone`). It opens `try-omarchy-timezone-menu`:
+Omarchy's zone list with **Same as macOS** first, which turns following back
+on. A sudoers rule lets that picker run `try-omarchy-timezone --follow-mac`
+or `--select <zone>` without a password, as Omarchy's own rule does for
+`timedatectl set-timezone`. The **Follow Mac Time Zone** launcher entry does
+the same as **Same as macOS**.
+
+## Ghostty
+
+Ghostty needs desktop OpenGL 4.3; VirGL here offers OpenGL ES 3.0, so the
+stock package exits at startup. `/usr/lib/try-omarchy/bin/ghostty` runs it with
+`LIBGL_ALWAYS_SOFTWARE=1`. The session's `environment.d` puts that directory
+first on `PATH` and `/usr/share/try-omarchy/xdg` first in `XDG_DATA_DIRS`,
+whose Ghostty desktop entry calls the wrapper; a user-unit drop-in covers
+D-Bus activation. See [Ghostty](../../docs/ghostty.md).
 
 ## Boot console
 

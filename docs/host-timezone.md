@@ -22,12 +22,20 @@ out, even if it points to the same zone. Relinking the same zone, as setup
 does, does not. Unsupported zone names are rejected without changing the
 guest.
 
-**Follow Mac Time Zone** in the application launcher
-(`try-omarchy-timezone --follow-mac`) turns following back on. It opens a
-terminal for ordinary guest sudo authorization. The Mac is never changed by a
-guest choice. The earlier pinned guest also added a **Same as macOS** entry to
-Omarchy's setup form and timezone menu by patching Omarchy; the current guest
-does not patch Omarchy, so that entry is not present.
+**Same as macOS** is the first row of the time zone picker opened by the
+Omarchy menu's **Update → Timezone** row. Choosing it turns following back on;
+choosing any zone there fixes the guest zone. Try Omarchy doesn't patch
+Omarchy: its menu extension row overrides only that row's action, pointing it
+at `try-omarchy-timezone-menu`, and a sudoers rule lets the picker apply the
+choice without a password, as Omarchy's own picker does. **Follow Mac Time
+Zone** in the application launcher (`try-omarchy-timezone --follow-mac`) does
+the same as **Same as macOS**. The Mac is never changed by a guest choice.
+
+Two Omarchy entry points still show Omarchy's plain list: the clock's
+middle-click and the first-boot setup form. In setup, the Mac's zone is
+preselected and keeping it follows the Mac. A choice in the clock's list is a
+fixed zone. Offering **Same as macOS** there too needs an upstream extension
+point, such as an automatic time zone choice with a per-platform provider.
 
 The zone determines regional display and daylight-saving rules. Clock accuracy
 is independent: `systemd-timesyncd` remains enabled and uses the guest's network
@@ -45,10 +53,11 @@ journalctl -u try-omarchy-timezone.service -b
 ```
 
 In a fresh VM, setup preselected the Mac's zone (Asia/Tokyo). Following live
-Mac changes, the fixed-zone opt-out and **Follow Mac Time Zone** have not been
-verified in the current guest yet. To verify, use a disposable VM: finish setup
+Mac changes, the fixed-zone opt-out, **Same as macOS** and **Follow Mac Time
+Zone** have not been verified in the current guest yet. To verify, use a disposable VM: finish setup
 with the preselected zone, change the Mac's zone and confirm both `timedatectl`
 and the bar change without a restart. Pick a zone in Omarchy's timezone menu,
-change the Mac again, and reboot; the fixed selection must remain. Run
-**Follow Mac Time Zone** and confirm immediate following. Confirm NTP stays
+change the Mac again, and reboot; the fixed selection must remain. Choose
+**Same as macOS** in the same menu and confirm immediate following without a
+password prompt. Confirm NTP stays
 active throughout.

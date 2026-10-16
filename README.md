@@ -180,9 +180,9 @@ its default without erasing the saved choice.
 
 Both are ordinary Omarchy packages on ARM: install them from the Omarchy menu
 (**Install → Terminal → Ghostty**, **Install → Service → 1Password**). Try
-Omarchy no longer ships its own installers for them. Whether either renders
-correctly through the VM's graphics path with the stock packages has not been
-verified yet; see [Ghostty](docs/ghostty.md).
+Omarchy no longer ships its own installers for them. Ghostty runs on the
+software renderer because the VM's graphics path lacks the OpenGL version it
+needs; see [Ghostty](docs/ghostty.md).
 
 ## Camera sharing
 

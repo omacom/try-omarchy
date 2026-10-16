@@ -30,6 +30,8 @@ class PackageLayout(unittest.TestCase):
             self.assertFalse(relative.startswith("usr/local"), relative)
             if path.is_file():
                 text = path.read_text(errors="ignore")
+                # Only the XDG default search path, kept when prepending to it.
+                text = text.replace("${XDG_DATA_DIRS:-/usr/local/share:/usr/share}", "")
                 self.assertNotIn("/usr/local/", text, relative)
                 self.assertNotIn("/proc/cmdline", text, relative)
 
@@ -42,7 +44,7 @@ class PackageLayout(unittest.TestCase):
                 self.assertFalse(relative.startswith(forbidden), relative)
 
     def test_executables(self):
-        for directory in ("usr/bin", "usr/lib/try-omarchy", "usr/lib/try-omarchy/shims"):
+        for directory in ("usr/bin", "usr/lib/try-omarchy", "usr/lib/try-omarchy/shims", "usr/lib/try-omarchy/bin"):
             for path in (FILES / directory).iterdir():
                 if path.suffix in ("", ".py") and path.is_file():
                     self.assertTrue(path.stat().st_mode & stat.S_IXUSR, path)
@@ -197,7 +199,11 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         parsed = self.parse(self.menu.read_text())
         self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id",
-                                       "setup.security.onepassword-touch-id"})
+                                       "setup.security.onepassword-touch-id", "update.timezone"})
+        # Overrides only the action of Omarchy's row, so its label and place stay.
+        self.assertEqual(set(parsed["update.timezone"]), {"action"})
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
+        self.assertIn("else exec omarchy-menu-timezone", parsed["update.timezone"]["action"])
         self.assertEqual(parsed["setup.try-omarchy"]["icon"], "\ue900")
         self.assertEqual(parsed["setup.try-omarchy"]["iconFont"], "omarchy")
         self.menu.write_text("{}\n")  # the user removed them
@@ -210,9 +216,21 @@ class MenuEntries(unittest.TestCase):
         (self.home / ".local/state/try-omarchy").mkdir(parents=True)
         (self.home / ".local/state/try-omarchy/menu-entries-v1").touch()
         self.entries()
-        self.assertEqual(set(self.parse(self.menu.read_text())), {"setup.security.onepassword-touch-id"})
+        self.assertEqual(set(self.parse(self.menu.read_text())),
+                         {"setup.security.onepassword-touch-id", "update.timezone"})
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 1)
+        self.assertEqual(len(self.parse(self.menu.read_text())), 2)
+        self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
+
+    def test_an_existing_header_is_not_repeated(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text("{\n  // Try Omarchy: Mac app settings and Touch ID (added once each; safe to remove).\n}\n")
+        (self.home / ".local/state/try-omarchy").mkdir(parents=True)
+        (self.home / ".local/state/try-omarchy/menu-entries").write_text("2\n")
+        self.entries()
+        text = self.menu.read_text()
+        self.assertEqual(set(self.parse(text)), {"update.timezone"})
+        self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
         self.menu.parent.mkdir(parents=True)
@@ -396,6 +414,16 @@ class TimeZone(unittest.TestCase):
         self.assertFalse(self.sync("Europe/Lisbon"))
         self.assertEqual(self.localtime.resolve(), (self.zoneinfo / "UTC").resolve())
 
+    def test_mode_is_readable_by_the_desktop_picker(self):
+        self.link("Asia/Tokyo")
+        self.sync("Asia/Tokyo")
+        self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o644)
+        self.assertEqual(self.module.current_mode(self.state), "follow")
+        self.link("UTC")
+        self.sync("Asia/Tokyo")
+        self.assertEqual(self.module.current_mode(self.state), "fixed")
+        self.assertEqual(self.module.current_mode(self.tmp / "missing.json"), "follow")
+
     def test_relinking_the_same_zone_keeps_following(self):
         self.link("Asia/Tokyo")
         self.sync("Asia/Tokyo")
@@ -405,6 +433,78 @@ class TimeZone(unittest.TestCase):
         self.link("UTC")  # chosen in Omarchy's time zone menu
         self.assertFalse(self.sync("Europe/Lisbon"))
         self.assertEqual(self.mode(), "manual")
+
+
+class TimeZoneMenu(unittest.TestCase):
+    def pick(self, choice, mode="follow", mac="Same as macOS"):
+        tmp = Path(tempfile.mkdtemp())
+        log = tmp / "log"
+        stubs = {
+            "try-omarchy-timezone": f'case $1 in --mirror-label) [ -n "{mac}" ] && echo "{mac}" || exit 1;;'
+                                    f' --mode) echo {mode};; esac',
+            "timedatectl": 'case $1 in list-timezones) printf "Asia/Tokyo\\nUTC\\n";; show) echo Asia/Tokyo;; esac',
+            "omarchy-menu-select": f'cat > "{tmp}/options"; echo "$@" > "{tmp}/args"; echo "{choice}"',
+            "omarchy-i18n": 'echo "$@"',
+            "sudo": f'echo sudo "$@" >> "{log}"',
+            "omarchy-shell": f'echo shell "$@" >> "{log}"',
+            "omarchy-notification-send": f'echo notify "$@" >> "{log}"',
+        }
+        for name, body in stubs.items():
+            (tmp / name).write_text(f"#!/bin/sh\n{body}\n")
+            (tmp / name).chmod(0o755)
+        subprocess.run(["/bin/bash", str(FILES / "usr/bin/try-omarchy-timezone-menu")], check=True,
+                       env={**os.environ, "PATH": f"{tmp}:/usr/bin:/bin"})
+        return (tmp / "options").read_text().splitlines(), (tmp / "args").read_text(), log.read_text()
+
+    def test_same_as_macos_comes_first_and_follows_the_mac(self):
+        options, args, log = self.pick("Same as macOS")
+        self.assertEqual(options, ["Same as macOS", "Asia/Tokyo", "UTC"])
+        self.assertIn("--selected Same as macOS", args)
+        self.assertIn("sudo -n try-omarchy-timezone --follow-mac", log)
+        self.assertIn("follows macOS (Asia/Tokyo)", log)
+
+    def test_a_zone_is_a_fixed_choice(self):
+        options, args, log = self.pick("UTC", mode="fixed")
+        self.assertIn("--selected Asia/Tokyo", args)
+        self.assertIn("sudo -n try-omarchy-timezone --select UTC", log)
+
+    def test_without_the_mac_channel_it_is_omarchys_list(self):
+        options, _, log = self.pick("UTC", mac="")
+        self.assertEqual(options, ["Asia/Tokyo", "UTC"])
+        self.assertIn("--select UTC", log)
+
+    def test_sudo_allows_only_the_pickers_commands(self):
+        rule = (FILES / "etc/sudoers.d/try-omarchy-timezone").read_text()
+        commands = [line.split("NOPASSWD: ", 1)[1] for line in rule.splitlines() if "NOPASSWD:" in line]
+        self.assertEqual(commands[0], "/usr/bin/try-omarchy-timezone --follow-mac")
+        pattern = commands[1].split(" ", 1)[1]
+        self.assertTrue(pattern.startswith("^--select ") and pattern.endswith("$"))
+        for allowed in ("--select UTC", "--select America/Argentina/Buenos_Aires", "--select Etc/GMT+3"):
+            self.assertTrue(re.fullmatch(pattern[1:-1], allowed), allowed)
+        for refused in ("--select ../../etc/passwd", "--select UTC --follow-mac", "--select /UTC", "--initialize"):
+            self.assertFalse(re.fullmatch(pattern[1:-1], refused), refused)
+        recipe = (PACKAGE / "PKGBUILD").read_text()
+        self.assertIn('chmod 0440 "$pkgdir/etc/sudoers.d/"*', recipe)
+
+
+class Ghostty(unittest.TestCase):
+    def test_every_launch_path_uses_the_software_renderer(self):
+        wrapper = FILES / "usr/lib/try-omarchy/bin/ghostty"
+        self.assertIn("export LIBGL_ALWAYS_SOFTWARE=1\nexec /usr/bin/ghostty \"$@\"", wrapper.read_text())
+        environment = (FILES / "usr/lib/environment.d/90-try-omarchy.conf").read_text()
+        self.assertIn("PATH=/usr/lib/try-omarchy/bin:$PATH\n", environment)
+        self.assertIn("XDG_DATA_DIRS=/usr/share/try-omarchy/xdg:", environment)
+        entry = configparser.ConfigParser(interpolation=None, strict=False)
+        entry.optionxform = str
+        entry.read(FILES / "usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop")
+        for section in entry.sections():
+            self.assertTrue(entry[section]["Exec"].startswith("/usr/lib/try-omarchy/bin/ghostty "), section)
+        # Hidden until the Ghostty package is installed.
+        self.assertEqual(entry["Desktop Entry"]["TryExec"], "/usr/bin/ghostty")
+        self.assertEqual(entry["Desktop Entry"]["X-TerminalArgExec"], "-e")
+        drop_in = (FILES / "usr/lib/systemd/user/app-com.mitchellh.ghostty.service.d"
+                   / "10-try-omarchy-software-gl.conf").read_text()
+        self.assertIn("Environment=LIBGL_ALWAYS_SOFTWARE=1", drop_in)
 
 
 class TzupdateShim(unittest.TestCase):

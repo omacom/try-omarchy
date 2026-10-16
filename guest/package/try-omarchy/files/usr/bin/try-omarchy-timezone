@@ -50,6 +50,8 @@ def save_state(state, path=STATE):
     descriptor, temporary = tempfile.mkstemp(prefix=".timezone-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w") as output:
+            # Readable so the desktop's time zone picker can show the policy.
+            os.fchmod(output.fileno(), 0o644)
             json.dump(state, output)
             output.flush()
             os.fsync(output.fileno())
@@ -115,6 +117,15 @@ def select_manual(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO
     save_state({"mode": "manual"}, state_path)
 
 
+def current_mode(state_path=STATE):
+    try:
+        return "follow" if json.loads(state_path.read_text()).get("mode") == "auto" else "fixed"
+    except FileNotFoundError:
+        return "follow"  # setup hasn't recorded a choice; the Mac zone is offered
+    except (OSError, ValueError, AttributeError):
+        return "fixed"
+
+
 def mirror_label(host_zone=HOST_ZONE, zoneinfo=ZONEINFO):
     zone = host_zone.read_text().strip()
     zone_path(zone, zoneinfo)
@@ -170,6 +181,9 @@ def main():
     if sys.argv[1:] == ["--mirror-label"]:
         print(mirror_label())
         return
+    if sys.argv[1:] == ["--mode"]:
+        print(current_mode())
+        return
     if os.geteuid() != 0:
         raise PermissionError("time zone synchronization requires root")
     if sys.argv[1:] == ["--initialize"]:
@@ -190,6 +204,8 @@ def main():
         return
     if sys.argv[1:]:
         raise ValueError("unexpected arguments")
+    if STATE.exists():
+        STATE.chmod(0o644)  # earlier releases wrote it root-only
     with PORT.open("r+b", buffering=0) as port:
         # Opening the virtio port isn't visible to the host bridge. Its periodic
         # snapshots guarantee delivery even when its first send was lost.

@@ -8,7 +8,7 @@
 
 pkgname=try-omarchy
 pkgver=0.1.0
-pkgrel=10
+pkgrel=11
 pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
 arch=('aarch64')
 url='https://github.com/omacom/try-omarchy'
@@ -40,6 +40,8 @@ _battery_version=1.3.0
 
 package() {
   cp -r --preserve=mode "$startdir/files/." "$pkgdir/"
+  chmod 0750 "$pkgdir/etc/sudoers.d"
+  chmod 0440 "$pkgdir/etc/sudoers.d/"*
   for _file in dkms.conf Makefile "$_battery.c"; do
     install -Dm0644 "$startdir/battery/$_file" "$pkgdir/usr/src/$_battery-$_battery_version/$_file"
   done

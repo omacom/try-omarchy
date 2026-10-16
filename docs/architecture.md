@@ -116,8 +116,8 @@ sets the matching `kb_model=applealu_*`. See [Mac keyboard](mac-keyboard.md).
 
 Omarchy's first-boot setup form preselects the Mac's time zone. Keeping it
 means the guest follows the Mac; a separate root-only virtio port publishes
-live zone changes. Choosing another zone stops following, and the **Follow
-Mac Time Zone** entry turns it back on. Internet clock synchronization
+live zone changes. Choosing another zone stops following, and **Same as
+macOS** in Omarchy's timezone menu turns it back on. Internet clock synchronization
 remains independent. See [Mac time zone and guest clock](host-timezone.md).
 
 The macOS helper opens an authenticated connection to QEMU's private,

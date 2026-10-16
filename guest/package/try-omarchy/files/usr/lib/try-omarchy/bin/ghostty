@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Ghostty needs desktop OpenGL 4.3, which this VM's VirGL renderer doesn't
+# offer, so the stock package exits at startup. Run it on Mesa's software
+# renderer instead. The session puts this directory first on PATH, and the
+# package's Ghostty desktop entry and service drop-in do the same.
+if [[ ! -x /usr/bin/ghostty ]]; then
+  echo "Ghostty isn't installed; choose Install > Terminal > Ghostty in the Omarchy menu." >&2
+  exit 127
+fi
+export LIBGL_ALWAYS_SOFTWARE=1
+exec /usr/bin/ghostty "$@"

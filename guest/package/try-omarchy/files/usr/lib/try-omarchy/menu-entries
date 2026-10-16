@@ -29,9 +29,13 @@ ROWS = (
      '"when":"[[ -x /opt/1Password/1password && -x /usr/bin/try-omarchy-onepassword-touch-id ]]",'
      '"checked":"/usr/bin/try-omarchy-onepassword-touch-id status --quiet",'
      '"action":"omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-onepassword-touch-id"},\n', 2),
+    # Overrides only the action of Omarchy's own Timezone row, adding Same as macOS.
+    ("update.timezone",
+     '  "update.timezone": {"action":"if [[ -x /usr/bin/try-omarchy-timezone-menu ]]; then '
+     'exec /usr/bin/try-omarchy-timezone-menu; else exec omarchy-menu-timezone; fi"},\n', 3),
 )
 RELEASE = max(release for _, _, release in ROWS)
-HEADER = "  // Try Omarchy: Mac app settings and Touch ID (added once each; safe to remove).\n"
+HEADER = "  // Try Omarchy: Mac app settings, Touch ID and Same as macOS time zone (added once each; safe to remove).\n"
 MAXIMUM_BYTES = 256 * 1024
 
 
@@ -68,7 +72,7 @@ def main():
 
     rows = "".join(row for key, row, release in ROWS if release > done and f'"{key}"' not in text)
     if rows:
-        if HEADER not in text:
+        if "// Try Omarchy:" not in text:
             rows = HEADER + rows
         text = text[: opening + 1] + "\n" + rows + text[opening + 1:].lstrip("\n")
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Omarchy's time zone picker with "Same as macOS" first. Try Omarchy's menu
+# extension points Omarchy's Timezone row here (see menu-entries). Choosing a
+# zone fixes the guest zone; choosing Same as macOS follows the Mac again.
+
+set -e
+
+mac=$(try-omarchy-timezone --mirror-label 2>/dev/null) || mac=""
+if [[ -n $mac && $(try-omarchy-timezone --mode 2>/dev/null) == follow ]]; then
+  current=$mac
+else
+  current=$(timedatectl show -p Timezone --value 2>/dev/null) || current=""
+fi
+
+timezone=$({ [[ -z $mac ]] || printf '%s\n' "$mac"; timedatectl list-timezones; } |
+  omarchy-menu-select "$(omarchy-i18n timezone.setTitle)" -- --width 520 --maxheight 520 ${current:+--selected "$current"}) || exit 1
+
+if [[ -n $mac && $timezone == "$mac" ]]; then
+  sudo -n try-omarchy-timezone --follow-mac >/dev/null
+  timezone=$(timedatectl show -p Timezone --value)
+  omarchy-shell -q omarchy.clock refresh
+  omarchy-notification-send "Timezone now follows macOS ($timezone)"
+else
+  sudo -n try-omarchy-timezone --select "$timezone"
+  omarchy-shell -q omarchy.clock refresh
+  omarchy-notification-send "$(omarchy-i18n timezone.changed "$timezone")"
+fi
