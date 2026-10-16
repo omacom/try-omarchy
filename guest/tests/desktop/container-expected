@@ -1,0 +1,4 @@
+# System units that fail in the desktop test's container, not in the VM:
+# the unit, then why. system-checks.sh reports these as notes; any other
+# failed unit fails the test. Keep this short and specific.
+try-omarchy-locale.service no host settings credential: only the app passes tryomarchy.host

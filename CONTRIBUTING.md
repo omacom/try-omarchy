@@ -94,6 +94,15 @@ removes it (`make test-guest-install`). No suites or runtime checks are skipped
 based on changed paths or cached test results; the builder image and package
 downloads are cached.
 
+A longer check runs outside pull requests:
+
+- **Guest desktop** (nightly, or by hand from the Actions tab): builds the
+  factory, boots its userland with systemd-nspawn on a hosted runner and
+  checks first-boot setup, the system and package units, Omarchy's desktop
+  session on a vkms virtual display, the shell, apps, and installs from the
+  live repositories ([guest/tests/desktop/run.sh](guest/tests/desktop/run.sh)).
+  Screenshots and logs are kept with the run.
+
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that
 can be exercised without opening AppKit windows. Do not make CI depend on pixel

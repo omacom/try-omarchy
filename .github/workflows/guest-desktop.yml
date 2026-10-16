@@ -1,0 +1,100 @@
+# Nightly: the factory disk built from Omarchy's live repositories, its
+# userland booted in a container on a hosted arm64 runner, and checked the
+# way a user meets it (guest/tests/desktop/run.sh): first-boot setup, units,
+# the desktop session on a virtual display, the shell, apps and installs.
+# Too slow for every pull request (the factory build alone takes about nine
+# minutes): it runs after merges that change the guest, and by hand. A run
+# can reuse the factory disk of an earlier run.
+name: Guest desktop
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "guest/**"
+      - ".github/workflows/guest-desktop.yml"
+  workflow_dispatch:
+    inputs:
+      factory_run:
+        description: Reuse the factory disk from this run ID (empty builds a new one)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: guest-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Factory userland on a virtual display
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      FACTORY_RUN: ${{ inputs.factory_run }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore the builder image
+        if: env.FACTORY_RUN == ''
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/builder-image.tar.zst
+          key: guest-builder-${{ hashFiles('guest/factory/Containerfile', 'guest/keys/**', 'guest/vendor/**') }}
+
+      - name: Build the factory disk
+        if: env.FACTORY_RUN == ''
+        run: |
+          image="$RUNNER_TEMP/builder-image.tar.zst"
+          if [ -f "$image" ]; then
+            zstd -dc "$image" | docker load --quiet
+          else
+            docker build --quiet --platform linux/arm64 -f guest/factory/Containerfile -t try-omarchy-guest-builder .
+            docker save try-omarchy-guest-builder | zstd -T0 -3 -q -o "$image"
+          fi
+          GUEST_BUILDER_IMAGE=try-omarchy-guest-builder guest/build.sh --output "$RUNNER_TEMP/guest"
+
+      - name: Keep the factory disk for reruns
+        if: env.FACTORY_RUN == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: factory
+          path: ${{ runner.temp }}/guest
+          retention-days: 3
+          compression-level: 0
+
+      - name: Reuse an earlier factory disk
+        if: env.FACTORY_RUN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: factory
+          path: ${{ runner.temp }}/guest
+          run-id: ${{ env.FACTORY_RUN }}
+          github-token: ${{ github.token }}
+
+      - name: Install systemd-nspawn
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends systemd-container
+
+      - name: Boot and check the userland
+        run: sudo guest/tests/desktop/run.sh "$RUNNER_TEMP/guest" "$RUNNER_TEMP/desktop"
+
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/desktop/results.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Keep screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop
+          path: ${{ runner.temp }}/desktop
+          retention-days: 14
