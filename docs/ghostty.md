@@ -18,7 +18,13 @@ terminal opens and closes. Mesa's software renderer offers OpenGL 4.6. The `try-
   `environment.d` is replaced.
 - `/usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop`
   shadows the package's desktop entry, through `XDG_DATA_DIRS`, and calls the
-  wrapper. Omarchy's terminal launcher (`xdg-terminal-exec`) uses it.
+  wrapper. Omarchy's terminal launcher (`xdg-terminal-exec`) uses it. It is a
+  link to `/usr/share/try-omarchy/ghostty/`, present only while Ghostty is
+  installed: Omarchy's app launcher ignores `TryExec`, so an entry for a
+  missing Ghostty would be listed and fail. Pacman hooks
+  (`/usr/share/libalpm/hooks/try-omarchy-ghostty*.hook`) run
+  `ghostty-desktop-entry` when Ghostty or `try-omarchy` is installed,
+  upgraded or removed.
 - A drop-in for `app-com.mitchellh.ghostty.service` starts the wrapper for
   D-Bus activation. It also makes the unit `Type=dbus`: Ghostty 1.3.1's
   `notify-reload` unit fails under systemd 262 ("lacks handler for reload

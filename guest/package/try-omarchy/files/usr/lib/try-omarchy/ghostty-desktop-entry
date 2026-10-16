@@ -1,0 +1,23 @@
+#!/bin/bash
+# Offer Try Omarchy's Ghostty desktop entry only while Ghostty is installed.
+#
+# The entry shadows Ghostty's own (the same desktop ID, earlier in
+# XDG_DATA_DIRS) to start Ghostty through the software-renderer wrapper.
+# Omarchy's launcher ignores TryExec, so while Ghostty is missing the entry
+# would be listed and fail. Pacman hooks run this after Ghostty or this
+# package is installed, upgraded or removed; --remove takes the link away
+# before this package is removed.
+
+set -euo pipefail
+
+source=${TRY_OMARCHY_GHOSTTY_ENTRY:-/usr/share/try-omarchy/ghostty/com.mitchellh.ghostty.desktop}
+applications=${TRY_OMARCHY_XDG_APPLICATIONS:-/usr/share/try-omarchy/xdg/applications}
+ghostty=${TRY_OMARCHY_GHOSTTY:-/usr/bin/ghostty}
+link=$applications/com.mitchellh.ghostty.desktop
+
+if [[ ${1:-} != --remove && -x $ghostty && -f $source ]]; then
+  mkdir -p "$applications"
+  [[ $(readlink "$link" 2>/dev/null) == "$source" ]] || ln -sfn "$source" "$link"
+else
+  rm -f "$link"
+fi

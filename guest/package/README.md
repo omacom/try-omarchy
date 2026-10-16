@@ -118,7 +118,9 @@ stock package exits at startup. `/usr/lib/try-omarchy/bin/ghostty` runs it with
 `LIBGL_ALWAYS_SOFTWARE=1`. `/etc/profile.d/try-omarchy.sh` puts that
 directory first on `PATH` (Omarchy's session takes `PATH` from the login
 shell), and the session's `environment.d` puts `/usr/share/try-omarchy/xdg`
-first in `XDG_DATA_DIRS`, whose Ghostty desktop entry calls the wrapper. A
+first in `XDG_DATA_DIRS`, whose Ghostty desktop entry calls the wrapper. Pacman
+hooks keep that entry linked only while Ghostty is installed, since Omarchy's
+launcher ignores `TryExec`. A
 user-unit drop-in covers D-Bus activation and starts the unit as `Type=dbus`:
 Ghostty 1.3.1's `notify-reload` unit fails under systemd 262. The wrapper
 sets `LIBGL_ALWAYS_SOFTWARE=0` for programs started in Ghostty, so they keep

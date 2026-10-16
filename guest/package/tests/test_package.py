@@ -692,7 +692,7 @@ class Ghostty(unittest.TestCase):
         self.assertEqual(twice.stdout.strip(), "/usr/lib/try-omarchy/bin:/usr/bin:/bin")
         entry = configparser.ConfigParser(interpolation=None, strict=False)
         entry.optionxform = str
-        entry.read(FILES / "usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop")
+        entry.read(FILES / "usr/share/try-omarchy/ghostty/com.mitchellh.ghostty.desktop")
         for section in entry.sections():
             self.assertEqual(entry[section]["Exec"],
                              "/usr/lib/try-omarchy/bin/ghostty --gtk-single-instance=true", section)
@@ -706,6 +706,51 @@ class Ghostty(unittest.TestCase):
                       "--gtk-single-instance=true --initial-window=false\n", drop_in)
         # Stock notify-reload fails under systemd 262 (no SIGUSR2 handler at READY).
         self.assertIn("\nType=dbus\n", drop_in)
+
+
+class GhosttyDesktopEntry(unittest.TestCase):
+    SCRIPT = FILES / "usr/lib/try-omarchy/ghostty-desktop-entry"
+
+    def run_script(self, installed, *args):
+        tmp = Path(tempfile.mkdtemp())
+        source = tmp / "ghostty/com.mitchellh.ghostty.desktop"
+        source.parent.mkdir()
+        source.write_text("[Desktop Entry]\n")
+        ghostty = tmp / "ghostty-bin"
+        if installed:
+            ghostty.write_text("#!/bin/sh\n")
+            ghostty.chmod(0o755)
+        env = {"TRY_OMARCHY_GHOSTTY_ENTRY": str(source), "TRY_OMARCHY_XDG_APPLICATIONS": str(tmp / "xdg"),
+               "TRY_OMARCHY_GHOSTTY": str(ghostty)}
+        run(self.SCRIPT, *args, env=env)
+        return tmp / "xdg/com.mitchellh.ghostty.desktop", source, env
+
+    def test_entry_exists_only_while_ghostty_is_installed(self):
+        # Omarchy's launcher ignores TryExec.
+        link, source, env = self.run_script(installed=True)
+        self.assertEqual(Path(os.readlink(link)), source)
+        run(self.SCRIPT, env={**env, "TRY_OMARCHY_GHOSTTY": "/nonexistent"})
+        self.assertFalse(link.is_symlink())
+        link, _, env = self.run_script(installed=False)
+        self.assertFalse(link.is_symlink())
+
+    def test_remove_takes_the_link_away_before_the_package_goes(self):
+        link, _, env = self.run_script(installed=True)
+        run(self.SCRIPT, "--remove", env=env)
+        self.assertFalse(link.is_symlink())
+
+    def test_hooks_follow_ghostty_and_this_package(self):
+        hooks = FILES / "usr/share/libalpm/hooks"
+        after = (hooks / "try-omarchy-ghostty.hook").read_text()
+        for line in ("Operation = Install", "Operation = Upgrade", "Operation = Remove",
+                     "Target = usr/bin/ghostty", "Target = usr/lib/try-omarchy/ghostty-desktop-entry",
+                     "When = PostTransaction", "Exec = /usr/lib/try-omarchy/ghostty-desktop-entry\n"):
+            self.assertIn(line, after)
+        before = (hooks / "try-omarchy-ghostty-remove.hook").read_text()
+        self.assertIn("When = PreTransaction", before)
+        self.assertIn("Exec = /usr/lib/try-omarchy/ghostty-desktop-entry --remove", before)
+        self.assertIn('install -d "$pkgdir/usr/share/try-omarchy/xdg/applications"',
+                      (PACKAGE / "PKGBUILD").read_text())
 
 
 class Kitty(unittest.TestCase):

@@ -8,7 +8,7 @@
 
 pkgname=try-omarchy
 pkgver=0.1.0
-pkgrel=18
+pkgrel=19
 pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
 arch=('aarch64')
 url='https://github.com/omacom/try-omarchy'
@@ -44,6 +44,8 @@ package() {
   cp -r --preserve=mode "$startdir/files/." "$pkgdir/"
   chmod 0750 "$pkgdir/etc/sudoers.d"
   chmod 0440 "$pkgdir/etc/sudoers.d/"*
+  # Watched by the launcher from login; ghostty-desktop-entry links into it.
+  install -d "$pkgdir/usr/share/try-omarchy/xdg/applications"
   for _file in dkms.conf Makefile "$_battery.c"; do
     install -Dm0644 "$startdir/battery/$_file" "$pkgdir/usr/src/$_battery-$_battery_version/$_file"
   done

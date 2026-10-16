@@ -1,0 +1,9 @@
+[Trigger]
+Type = Path
+Operation = Remove
+Target = usr/lib/try-omarchy/ghostty-desktop-entry
+
+[Action]
+Description = Removing Try Omarchy's Ghostty desktop entry...
+When = PreTransaction
+Exec = /usr/lib/try-omarchy/ghostty-desktop-entry --remove

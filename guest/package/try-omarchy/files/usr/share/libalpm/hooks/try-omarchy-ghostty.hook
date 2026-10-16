@@ -1,0 +1,12 @@
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/bin/ghostty
+Target = usr/lib/try-omarchy/ghostty-desktop-entry
+
+[Action]
+Description = Routing Ghostty through Try Omarchy's software renderer...
+When = PostTransaction
+Exec = /usr/lib/try-omarchy/ghostty-desktop-entry
