@@ -16,7 +16,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`. The stable `omarchy 4.0.4` package still has 52 shell files with a bare `Color`, but the factory installs `omarchy-dev`, whose edge build `4.0.0.r7026.g51bfd1d` uses `Commons.Color` throughout (no bare uses). OmacVM's workaround for stable: `src/guest/shell-colors.py` (TS #35) | not an issue on `omarchy-dev`; confirm the bar on the next factory |
+| Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`. The stable `omarchy 4.0.4` package still has 52 shell files with a bare `Color`, but the factory installs `omarchy-dev`, whose edge build `4.0.0.r7026.g51bfd1d` uses `Commons.Color` throughout (no bare uses). OmacVM's workaround for stable: `src/guest/shell-colors.py` (TS #35) | not an issue on `omarchy-dev`: no `Color` errors in the session log on the new factory |
 | Suspend leaves the VM looking frozen: no wake source | Upstream shows Suspend unless `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` exists (`bin/omarchy-sleep-disabled`) | fixed: the package ships that switch; verified logind `CanSuspend` "no" |
 | NTP may be off. The old guest enabled `systemd-timesyncd`; nothing in the factory, package or upstream does now | `guest-clock-recover` only try-restarts it; host-timezone.md assumes it is enabled | fixed: the package enables it once; verified enabled and synchronized |
 
@@ -30,7 +30,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | 1Password may draw blank or crash: Electron EGL context | The old guest ran it with software GL and `--disable-gpu`; stock edge `1password` has no wrapper | verify |
 | 1Password Quick Access shortcut (Ctrl+Shift+Space) gone | Old `1password-arm64-installer.patch`; upstream binds only Super+Shift+/ | open |
 | Vulkan-only apps install, then fail: Zed, Steam and games | No Vulkan driver in the guest; edge aarch64 carries `zed`, `steam`, `omarchy-steam-fex` | open; real fix is Venus (below) |
-| Screen recording: `gpu-screen-recorder` refuses VirGL and the `wf-recorder` fallback is missing | `bin/omarchy-capture-screenrecording` header; upstream installs `wf-recorder` on Apple Silicon | fixed: package depends on `wf-recorder` |
+| Screen recording: `gpu-screen-recorder` refuses VirGL and the `wf-recorder` fallback is missing | `bin/omarchy-capture-screenrecording` header; upstream installs `wf-recorder` on Apple Silicon | fixed: package depends on `wf-recorder` (installed in the test guest); a recording not yet made |
 | Lost GPU context leaves a permanent black desktop or black Chrome | VirGL treats Apple 4.1 core refusals (GLSL < 3.30, core-feature extension lines, 32 samplers, framebuffers without attachments) as fatal. OmacVM ADR 0019 and its gpu-robust patches; our `virgl-native-opengl.patch` has none | open; host VirGL patches |
 | Night light may do nothing on virtio-gpu (no colour transform) | `bin/omarchy-toggle-nightlight` has no guard | verify: `hyprctl hyprsunset temperature 4000` |
 | Browser screen sharing over the portal on VirGL buffers is untested | | verify |
@@ -53,6 +53,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | --- | --- | --- |
 | VM slows to 2–20 % while hidden, on another Space or with the Mac locked (App Nap) | No App Nap handling in QEMU or the app. OmacVM `omacvm-cocoa-no-app-nap.patch` (TS #31) | open |
 | Screensaver after 150 s and lock after 300 s while the user works in macOS; the screensaver costs CPU and the user unlocks on every return | `shell/plugins/services/idle/Service.qml` defaults | open; host-driven idle inhibit or user default |
+| Firmware logo and `BdsDxe` lines, then boot and shutdown text, show in the VM window. The window appears when QEMU starts, before the firmware | The firmware is QEMU's prebuilt `edk2-aarch64-code.fd`; it has no runtime switch for its logo on ARM. Proposed: a cover in QEMU's Cocoa window until the first GL scanout (Hyprland), revealed at the kernel on a VM's first boot for the setup form, with a timeout, and covering again on shutdown | open; deferred by choice |
 | Instant resume and guest hibernation | QEMU: "virgl is not yet migratable" (OmacVM ADR 0037) | limit |
 | 120 Hz frame pacing: frames dropped or repeated | OmacVM ADR 0020, 0023 | verify |
 | Power profiles show but change nothing; "Managed by macOS" presentation dropped | [Host battery](host-battery.md), [shell plan](shell-plan.md) | open |
@@ -63,8 +64,8 @@ needs a check in a running guest first), **limit** (a design constraint).
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| Setup → Direct Boot would bypass Limine and its snapshot menu | Guarded only by `! omarchy-hw-aarch64-apple` | fixed: hidden in the VM |
-| Update → Firmware installs fwupd with nothing to update | No guard | fixed: hidden in the VM |
+| Setup → Direct Boot would bypass Limine and its snapshot menu | Guarded only by `! omarchy-hw-aarch64-apple` | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
+| Update → Firmware installs fwupd with nothing to update | No guard | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
 | GeForce NOW, Battle.net and Lutris rows offered on aarch64 | The old guest refused them; upstream guards only some x86 rows | verify which fail |
 | Wi-Fi, Bluetooth and Trackpad restart rows do nothing | Harmless | open, low |
 | Notifications show over the screensaver | Old `notification-screen-privacy.patch`; no upstream equivalent | open; upstream |
