@@ -16,7 +16,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`; edge `omarchy 4.0.4` (built 2026-10-10) has 52 shell files with a bare `Color` and an unqualified `qs.Commons` import. Upstream `quattro` fixed it (`docs/omarchy-shell.md`: use `Commons.Color`); edge has not shipped it. OmacVM's workaround: `src/guest/shell-colors.py` (TS #35) | verify; the shell fix is a new edge Omarchy build, not a patch |
+| Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`. The stable `omarchy 4.0.4` package still has 52 shell files with a bare `Color`, but the factory installs `omarchy-dev`, whose edge build `4.0.0.r7026.g51bfd1d` uses `Commons.Color` throughout (no bare uses). OmacVM's workaround for stable: `src/guest/shell-colors.py` (TS #35) | not an issue on `omarchy-dev`; confirm the bar on the next factory |
 | Suspend leaves the VM looking frozen: no wake source | Upstream shows Suspend unless `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` exists (`bin/omarchy-sleep-disabled`) | fixed: the package ships that switch |
 | NTP may be off. The old guest enabled `systemd-timesyncd`; nothing in the factory, package or upstream does now | `guest-clock-recover` only try-restarts it; host-timezone.md assumes it is enabled | fixed: the package enables it once |
 
