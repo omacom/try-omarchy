@@ -7,6 +7,9 @@
 # app reads. Runs no VM.
 
 set -euo pipefail
+# An unexpected failure (such as a launch whose error output is captured)
+# would otherwise end the test without a word.
+trap 'printf "run-qemu-gpu.test: unexpected failure at line %s\n" "$LINENO" >&2' ERR
 
 test_dir=$(cd "$(dirname "$0")" && pwd -P)
 macos_dir=$(cd "$test_dir/.." && pwd -P)
@@ -82,7 +85,18 @@ done
 cp "$in" "$out"
 SH
 printf '#!/bin/sh\nexit 0\n' >"$shims/codesign"
-chmod 755 "$app/Contents/MacOS/omarchy-vm-helper" "$resources/runtime/bin/zstd" "$shims/codesign"
+# The launcher sizes the VM from the host. Report a 10-core, 16 GiB Mac, so
+# the result does not depend on the machine running the test (GitHub's
+# Apple Silicon runners have three CPUs, below the guest's minimum of four).
+cat >"$shims/sysctl" <<'SH'
+#!/bin/bash
+case $* in
+  "-n hw.logicalcpu") echo 10 ;;
+  "-n hw.memsize") echo 17179869184 ;;
+  *) exec /usr/sbin/sysctl "$@" ;;
+esac
+SH
+chmod 755 "$app/Contents/MacOS/omarchy-vm-helper" "$resources/runtime/bin/zstd" "$shims/codesign" "$shims/sysctl"
 
 dd if=/dev/zero of="$resources/guest/omarchy-aarch64-edge.img.zst" bs=1048576 count=4 2>/dev/null
 sha=$(shasum -a 256 "$resources/guest/omarchy-aarch64-edge.img.zst" | cut -d' ' -f1)
