@@ -7,7 +7,7 @@ The guest ran stock Omarchy `4.0.0.r7024.g246f33a-1`, Hyprland `0.56.2`,
 Mesa `26.2.4-arch1.1`, and `linux-omarchy 7.2.8-11`.
 
 The Mac became locked after the launcher was inspected with computer use.
-Further checks used an isolated APFS clone of the sealed factory, the signed
+Automated checks used an isolated APFS clone of the sealed factory, the signed
 app's real QEMU/HVF/Cocoa/VirGL runtime and host bridges, and a temporary SSH
 key reachable only at `127.0.0.1:2229`. The test VM used 4 CPUs, 4 GiB RAM,
 a 32 GiB disk, and a dedicated test share. The original VM was not reset or
@@ -17,7 +17,8 @@ The test clone seeded answers into Omarchy's own owner-provisioning functions;
 it did not exercise the interactive setup form. Later cold boots used autologin
 only in the disposable VM. Desktop readiness below means that the guest's
 graphical session and its services became active; it does not establish visual
-smoothness on the locked host.
+smoothness on the locked host. The Mac was subsequently unlocked for the
+additional visual checks below.
 
 | Check | Result |
 | --- | --- |
@@ -95,14 +96,57 @@ PASS: hardware VirGL GLES3 and 4x multisample color resolve
   the script rejected; the absolute-path invocation passed.
 - `git diff --check`: passed.
 
+### Unlocked desktop checks
+
+Computer use selected the private QA VM and test share through the real native
+launcher and started it. The VM picker correctly rejected the test disk while
+it had unsafe `0644` permissions; correcting the test fixture to `0600` allowed
+selection. The normal VM and shared-folder preferences were restored afterward.
+
+The automation could select the native launcher but could not reliably attach
+to its separate, unbundled QEMU display process. For guest interaction, a local
+test-only `.app` wrapper contained the same QEMU binary, signed with the same
+development identity and entitlements; its launcher used the app's actual
+runtime, firmware, factory and host bridges. The wrapper did not run the native
+launcher's controller, so these checks do not establish its initial window
+geometry or controller-driven sleep and keyboard behavior.
+
+- The desktop, Omarchy menu and Foot terminal rendered, and pointer-driven
+  navigation worked. Window zoom and native full-screen transitions updated the
+  guest resolution; captures during transitions briefly showed an old scaled
+  frame before the desktop settled. No persistent black desktop appeared.
+- The battery panel showed 95%, holding at the Mac's charge limit, 62 Wh,
+  220 charge cycles and a 75–95% charge range, consistent with the previously
+  verified host readings.
+- The audio panel exposed Mac System Default and the actual Mac endpoints.
+  Selecting MacBook Pro Speakers changed `wpctl inspect @DEFAULT_AUDIO_SINK@`
+  to the corresponding host remap; Mac System Default was restored afterward.
+- The display panel rendered its text-size and scale controls, and reported
+  fixed brightness. The Ethernet panel showed NAT address `10.0.2.15`, gateway
+  `10.0.2.2`, live traffic and zero packet loss in the displayed sample.
+- After these interactions, audio, camera and clipboard user services were
+  active with zero restarts; there were no failed system units.
+- A fresh, unmodified disposable factory showed the stock setup welcome screen.
+  Return advanced through keyboard selection and a test username to the password
+  prompt. No new password was entered, and the disposable VM was powered off.
+  This confirms visible console output and form navigation, not a completed
+  interactive installation. The wrapper's initial console capture clipped the
+  logo on the right and retained a strip of boot text; native-launcher setup
+  geometry still needs visual confirmation.
+
+The computer-use connection intermittently timed out or lost its window
+binding. Synthetic typing also lost Unicode in native TextEdit and shifted
+characters in the guest. Physical keyboard shortcuts and international typing
+therefore remain inconclusive; these observations alone do not establish a
+product input regression. Clipboard round-trip testing was stopped at the
+user's request and is assumed working, not recorded as a verified pass.
+
 ### Remaining checks
 
-Computer use confirmed the host was locked and could not resume visual testing.
-Before treating the refactor as fully signed off, verify the interactive setup
-form, resize/full-screen transitions, cursor and physical shortcuts, scrolling
-and pinch motion, bar/power-panel layout, and real text/PNG copy-and-paste in
-both directions on an unlocked Mac. The clipboard agent was running, but this
-session did not perform an end-to-end pasteboard round trip.
+Before treating the refactor as fully signed off, verify completing the
+interactive setup form, cursor and physical shortcuts, international typing,
+scrolling and pinch motion. Text/PNG clipboard transfers in both directions
+remain assumed working at the user's request.
 
 The media checks establish transport and device availability, not subjective
 audio quality or video-call behavior. FFmpeg emitted timestamp warnings during
