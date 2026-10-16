@@ -15,6 +15,10 @@ STATE = Path("/var/lib/try-omarchy/timezone.json")
 LOCALTIME = Path("/etc/localtime")
 ZONEINFO = Path("/usr/share/zoneinfo")
 HOST_ZONE = Path("/run/try-omarchy/host-timezone")
+HOST_CMDLINE = Path("/run/try-omarchy/cmdline")
+# By path: the first-boot setup service has a timedatectl stand-in on its PATH
+# that hands choices to this program.
+TIMEDATECTL = "/usr/bin/timedatectl"
 PROVISIONING_PENDING = Path("/var/lib/omarchy/provisioning/pending")
 FOLLOW_MAC_LABEL = "Same as macOS"
 
@@ -99,7 +103,7 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
     # Use timedated so its D-Bus clients see the change too. Leave the RTC and
     # NTP clock discipline alone: they both continue to use UTC.
     if apply is None:
-        subprocess.run(["timedatectl", "set-timezone", zone], check=True, timeout=5)
+        subprocess.run([TIMEDATECTL, "set-timezone", zone], check=True, timeout=5)
     else:
         apply(target)
     save_state({"mode": "auto", "zone": zone, "fingerprint": fingerprint(localtime)}, state_path)
@@ -110,7 +114,7 @@ def synchronize(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, 
 def select_manual(zone, state_path=STATE, localtime=LOCALTIME, zoneinfo=ZONEINFO, apply=None):
     target = zone_path(zone, zoneinfo)
     if apply is None:
-        subprocess.run(["timedatectl", "set-timezone", zone], check=True, timeout=5)
+        subprocess.run([TIMEDATECTL, "set-timezone", zone], check=True, timeout=5)
     else:
         apply(target)
     # Record intent even when timedated leaves an already-correct zone alone.
@@ -126,9 +130,25 @@ def current_mode(state_path=STATE):
         return "fixed"
 
 
-def mirror_label(host_zone=HOST_ZONE, zoneinfo=ZONEINFO):
-    zone = host_zone.read_text().strip()
-    zone_path(zone, zoneinfo)
+def boot_zone(cmdline=HOST_CMDLINE):
+    zones = [token.split("=", 1)[1] for token in cmdline.read_text().split()
+             if token.startswith("tryomarchy.timezone=")]
+    if len(zones) != 1:
+        raise ValueError("missing or ambiguous Mac time zone boot hint")
+    return zones[0]
+
+
+def mac_zone(host_zone=HOST_ZONE, cmdline=HOST_CMDLINE):
+    # The live channel's latest zone; before the agent first runs (during
+    # first-boot setup), the zone the app passed at launch.
+    try:
+        return host_zone.read_text().strip()
+    except FileNotFoundError:
+        return boot_zone(cmdline)
+
+
+def mirror_label(host_zone=HOST_ZONE, zoneinfo=ZONEINFO, cmdline=HOST_CMDLINE):
+    zone_path(mac_zone(host_zone, cmdline), zoneinfo)
     return FOLLOW_MAC_LABEL
 
 
@@ -146,7 +166,7 @@ def follow(zone=None, force=False, selection=None):
             # was open.
             force = True
         if zone is None:
-            zone = HOST_ZONE.read_text().strip()
+            zone = mac_zone()
         zone_path(zone)
         HOST_ZONE.parent.mkdir(parents=True, exist_ok=True)
         if not HOST_ZONE.exists() or HOST_ZONE.read_text().strip() != zone:
@@ -187,11 +207,7 @@ def main():
     if os.geteuid() != 0:
         raise PermissionError("time zone synchronization requires root")
     if sys.argv[1:] == ["--initialize"]:
-        tokens = Path("/run/try-omarchy/cmdline").read_text().split()
-        zones = [token.split("=", 1)[1] for token in tokens if token.startswith("tryomarchy.timezone=")]
-        if len(zones) != 1:
-            raise ValueError("missing or ambiguous Mac time zone boot hint")
-        follow(zones[0])
+        follow(boot_zone())
         return
     if sys.argv[1:] == ["--follow-mac"]:
         if follow(force=True):

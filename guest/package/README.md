@@ -45,8 +45,15 @@ not ignore, so caches and other local files never reach the package.
   also enables `systemd-timesyncd` (once, on upgrades from before `0.1.0-13`),
   which stock Omarchy leaves to the distribution.
 - **Menu rows go through Omarchy's menu extension.** `menu-entries` adds Try
-  Omarchy's rows once each, overrides the Timezone row's action, and hides
-  Direct Boot and Firmware in a VM by extending those rows' `when`.
+  Omarchy's rows once each and changes some of Omarchy's: the Timezone row's
+  action, and the conditions that show Direct Boot, Firmware, the Wi-Fi and
+  Bluetooth restarts, the battery percentage toggle and three game rows.
+  Omarchy's merge replaces a row whole, filling every field an extension
+  leaves out with a default (its menu documentation says only declared fields
+  are replaced), so each changed row carries Omarchy's complete row, read from
+  the installed Omarchy at every login, with our change applied. Rows still
+  exactly as written follow Omarchy's later changes; rows the user edits or
+  removes are left alone.
 
 ## Host interfaces
 
@@ -91,18 +98,18 @@ know about. Either side can therefore be updated first.
 ## Time zone
 
 `try-omarchy-timezone.service` follows the Mac's time zone. Omarchy's setup
-form preselects the zone from `tzupdate -p`; the package's shim in
-`/usr/lib/try-omarchy/shims`, which is on the setup service's `PATH` only,
-answers with the Mac's zone. Keeping that zone means following the Mac.
-Choosing another zone, there or later, stops following.
+form lists `timedatectl list-timezones` and preselects `tzupdate -p`; the
+package's stand-ins for both in `/usr/lib/try-omarchy/shims`, on the setup
+service's `PATH` only, put **Same as macOS** first and preselect it, and send
+the choice to `try-omarchy-timezone --select`. **Same as macOS** follows the
+Mac; a named zone, there or later, is a fixed choice.
 
-The package's menu extension row overrides only the action of Omarchy's
-**Timezone** row (`update.timezone`). It opens `try-omarchy-timezone-menu`:
+The package's menu extension changes the action of Omarchy's **Timezone**
+row (`update.timezone`). It opens `try-omarchy-timezone-menu`:
 Omarchy's zone list with **Same as macOS** first, which turns following back
 on. A sudoers rule lets that picker run `try-omarchy-timezone --follow-mac`
 or `--select <zone>` without a password, as Omarchy's own rule does for
-`timedatectl set-timezone`. The **Follow Mac Time Zone** launcher entry does
-the same as **Same as macOS**.
+`timedatectl set-timezone`.
 
 ## Ghostty
 

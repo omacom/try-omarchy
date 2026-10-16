@@ -1,11 +1,11 @@
 #!/usr/bin/python3 -I
-"""Offer the Mac's time zone to Omarchy's setup form.
+"""Preselect Same as macOS in Omarchy's setup form.
 
 Omarchy's first-boot setup preselects `tzupdate -p` (a network lookup). Only
 omarchy-provision-owner.service has this directory on its PATH (drop-in
-10-try-omarchy-native.conf). While the guest follows the Mac, or before the
-time-zone service has run, the Mac's zone is printed; everything else is the
-real tzupdate.
+10-try-omarchy-native.conf), together with a timedatectl stand-in that lists
+Same as macOS first. While the guest follows the Mac, or before the time-zone
+service has run, that label is printed; everything else is the real tzupdate.
 """
 
 import json
@@ -38,9 +38,10 @@ def mac_zone():
     return None
 
 
+FOLLOW_MAC_LABEL = "Same as macOS"
+
 if sys.argv[1:] == ["-p"]:
-    zone = mac_zone()
-    if zone:
-        print(zone)
+    if mac_zone():
+        print(FOLLOW_MAC_LABEL)
         sys.exit(0)
 os.execv(REAL, ["tzupdate", *sys.argv[1:]])

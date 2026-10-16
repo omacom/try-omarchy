@@ -1,0 +1,26 @@
+#!/bin/bash
+# Offer Same as macOS in Omarchy's first-boot setup form, as its default.
+#
+# The form lists `timedatectl list-timezones` and the account step applies
+# the choice with `timedatectl set-timezone`. Only
+# omarchy-provision-owner.service has this directory on its PATH (drop-in
+# 10-try-omarchy-native.conf). Same as macOS comes first and follows the Mac;
+# a named zone is a fixed choice, even the Mac's current one. Everything else
+# is the real timedatectl.
+
+real=${TRY_OMARCHY_TIMEDATECTL:-/usr/bin/timedatectl}
+timezone=${TRY_OMARCHY_TIMEZONE_COMMAND:-/usr/bin/try-omarchy-timezone}
+
+case ${1:-} in
+  list-timezones)
+    if (($# == 1)) && label=$("$timezone" --mirror-label 2>/dev/null); then
+      printf '%s\n' "$label"
+    fi
+    ;;
+  set-timezone)
+    if (($# == 2)) && "$timezone" --select "$2"; then
+      exit 0
+    fi
+    ;;
+esac
+exec "$real" "$@"

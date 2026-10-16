@@ -1,14 +1,15 @@
 # Mac time zone and guest clock
 
-Omarchy's first-boot setup form preselects the time zone from `tzupdate -p`.
-The `try-omarchy` package puts a small `tzupdate` shim on the setup service's
-`PATH` only (`/usr/lib/try-omarchy/shims`), which answers with the Mac's zone
-from the `tryomarchy.timezone` host setting. Keeping that zone means the guest
-follows the Mac. Choosing any other zone selects a fixed guest zone.
-
-On its first start after setup, `try-omarchy-timezone.service` records the
-policy in `/var/lib/try-omarchy/timezone.json`: following (`auto`) when
-`/etc/localtime` points at the Mac's zone, fixed (`manual`) otherwise.
+Omarchy's first-boot setup form lists `timedatectl list-timezones`,
+preselects `tzupdate -p`, and applies the choice with `timedatectl
+set-timezone`. The `try-omarchy` package puts small stand-ins for both
+commands on the setup service's `PATH` only (`/usr/lib/try-omarchy/shims`):
+the list starts with **Same as macOS**, which is preselected, and the choice
+goes to `try-omarchy-timezone --select`. **Same as macOS** sets the Mac's zone
+(from the `tryomarchy.timezone` host setting) and follows it; any named zone,
+even the Mac's current one, is a fixed guest zone. The policy is recorded in
+`/var/lib/try-omarchy/timezone.json` (`auto` or `manual`) during setup.
+Everything else reaches the real commands.
 
 While following, a dedicated root-only virtio port (`dev.tryomarchy.timezone`)
 receives the Mac's current zone every five seconds. The guest applies changes
@@ -25,17 +26,15 @@ guest.
 **Same as macOS** is the first row of the time zone picker opened by the
 Omarchy menu's **Update → Timezone** row. Choosing it turns following back on;
 choosing any zone there fixes the guest zone. Try Omarchy doesn't patch
-Omarchy: its menu extension row overrides only that row's action, pointing it
-at `try-omarchy-timezone-menu`, and a sudoers rule lets the picker apply the
-choice without a password, as Omarchy's own picker does. **Follow Mac Time
-Zone** in the application launcher (`try-omarchy-timezone --follow-mac`) does
-the same as **Same as macOS**. The Mac is never changed by a guest choice.
+Omarchy: its menu extension carries Omarchy's own Timezone row with the action
+pointing at `try-omarchy-timezone-menu`, and a sudoers rule lets the picker apply the
+choice without a password, as Omarchy's own picker does. The Mac is never
+changed by a guest choice.
 
-Two Omarchy entry points still show Omarchy's plain list: the clock's
-middle-click and the first-boot setup form. In setup, the Mac's zone is
-preselected and keeping it follows the Mac. A choice in the clock's list is a
-fixed zone. Offering **Same as macOS** there too needs an upstream extension
-point, such as an automatic time zone choice with a per-platform provider.
+The clock's middle-click still opens Omarchy's plain list, and a choice there
+is a fixed zone. Offering **Same as macOS** there too needs an upstream
+extension point, such as an automatic time zone choice with a per-platform
+provider.
 
 The zone determines regional display and daylight-saving rules. Clock accuracy
 is independent: `systemd-timesyncd` remains enabled and uses the guest's network
@@ -53,8 +52,8 @@ journalctl -u try-omarchy-timezone.service -b
 ```
 
 In a fresh VM, setup preselected the Mac's zone (Asia/Tokyo). Following live
-Mac changes, the fixed-zone opt-out, **Same as macOS** and **Follow Mac Time
-Zone** have not been verified in the current guest yet. To verify, use a disposable VM: finish setup
+Mac changes, the fixed-zone opt-out and **Same as macOS** in the setup form
+and the menu have not been verified in the current guest yet. To verify, use a disposable VM: finish setup
 with the preselected zone, change the Mac's zone and confirm both `timedatectl`
 and the bar change without a restart. Pick a zone in Omarchy's timezone menu,
 change the Mac again, and reboot; the fixed selection must remain. Choose

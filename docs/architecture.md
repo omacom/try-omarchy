@@ -114,10 +114,10 @@ Mac keyboard geometry (ANSI / ISO / JIS) is detected once per launch, given
 to Cocoa, and passed as `tryomarchy.keyboard`. The package's Hyprland profile
 sets the matching `kb_model=applealu_*`. See [Mac keyboard](mac-keyboard.md).
 
-Omarchy's first-boot setup form preselects the Mac's time zone. Keeping it
-means the guest follows the Mac; a separate root-only virtio port publishes
-live zone changes. Choosing another zone stops following, and **Same as
-macOS** in Omarchy's timezone menu turns it back on. Internet clock synchronization
+Omarchy's first-boot setup form offers **Same as macOS** first and preselects
+it; it follows the Mac, and a separate root-only virtio port publishes live
+zone changes. Choosing a named zone stops following, and **Same as macOS** in
+Omarchy's timezone menu turns it back on. Internet clock synchronization
 remains independent. See [Mac time zone and guest clock](host-timezone.md).
 
 The macOS helper opens an authenticated connection to QEMU's private,

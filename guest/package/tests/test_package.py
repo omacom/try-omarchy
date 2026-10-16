@@ -201,14 +201,33 @@ class UserSetup(unittest.TestCase):
 
 
 class MenuEntries(unittest.TestCase):
-    RELEASE_5 = {"trigger.appearance.top-bar.indicators.battery-percentage", "update.hardware.wifi",
-                 "update.hardware.bluetooth", "install.gaming.geforce-now", "install.gaming.battlenet",
-                 "install.gaming.lutris"}
+    # Omarchy's own rows as quattro 51bfd1d ships them.
+    OMARCHY = """{
+  // Omarchy's menu
+  "update.timezone": {"icon":"","label":"Timezone","action":"omarchy-menu-timezone"},
+  "setup.direct-boot": {"icon":"","label":"Direct Boot","when":"! omarchy-hw-aarch64-apple && [[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-setup-direct-boot"},
+  "update.firmware": {"icon":"","label":"Firmware","action":"omarchy-launch-floating-terminal-with-presentation omarchy-update-firmware"},
+  "update.hardware.wifi": {"icon":"\U000f16be","label":"Wi-Fi","action":"omarchy-launch-floating-terminal-with-presentation omarchy-restart-wifi"},
+  "update.hardware.bluetooth": {"icon":"\U000f00af","label":"Bluetooth","action":"omarchy-launch-floating-terminal-with-presentation omarchy-restart-bluetooth"},
+  "trigger.appearance.top-bar.indicators.battery-percentage": {"icon":"\U000f0079","label":"Battery Percentage","when":"omarchy-hw-laptop","action":"omarchy-shell omarchy.power togglePercentage"},
+  "install.gaming.geforce-now": {"icon":"\U000f08b9","label":"NVIDIA GeForce NOW","disabled":"flatpak info com.nvidia.geforcenow","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-geforce-now"},
+  "install.gaming.battlenet": {"icon":"","label":"Battle.net","disabled":"[[ -d $HOME/Games/battlenet ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-battlenet"},
+  "install.gaming.lutris": {"icon":"","label":"Lutris","disabled":"omarchy-pkg-present lutris","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-lutris"},
+}
+"""
+    OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id"}
+    CHANGED = {"update.timezone", "setup.direct-boot", "update.firmware", "update.hardware.wifi",
+               "update.hardware.bluetooth", "trigger.appearance.top-bar.indicators.battery-percentage",
+               "install.gaming.geforce-now", "install.gaming.battlenet", "install.gaming.lutris"}
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
-        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}
+        self.omarchy = self.home / "omarchy-menu.jsonc"
+        self.omarchy.write_text(self.OMARCHY)
+        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": "",
+                    "TRY_OMARCHY_OMARCHY_MENU": str(self.omarchy)}
         self.menu = self.home / ".config/omarchy/extensions/omarchy-menu.jsonc"
+        self.state = self.home / ".local/state/try-omarchy"
 
     def entries(self):
         subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, **self.env}, check=True)
@@ -219,56 +238,82 @@ class MenuEntries(unittest.TestCase):
         text = re.sub(r"^\s*//[^\n]*(\n|$)", "", text, flags=re.M)
         return json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
 
-    def test_adds_rows_to_the_seeded_template_once(self):
+    def test_changed_rows_carry_omarchys_whole_row(self):
+        # Omarchy's merge fills every field an extension row leaves out with a
+        # default (the label becomes the id, the action empty).
         self.menu.parent.mkdir(parents=True)
         self.menu.write_text('{\n  // Extend the menu.\n  // "personal": {"label":"Personal"},\n}\n')
         self.entries()
         parsed = self.parse(self.menu.read_text())
-        self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id",
-                                       "setup.security.onepassword-touch-id", "update.timezone",
-                                       "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
-        # Rows from release 5 only add or narrow conditions.
-        for key in self.RELEASE_5:
-            self.assertEqual(set(parsed[key]), {"when"}, key)
-        self.assertEqual(parsed["install.gaming.lutris"]["when"], "omarchy-hw-x86")
-        self.assertIn("compgen -G '/sys/class/power_supply/BAT*'",
-                      parsed["trigger.appearance.top-bar.indicators.battery-percentage"]["when"])
-        # VM-only rows hide Omarchy's own rows, keeping any condition they had.
-        self.assertEqual(parsed["update.firmware"], {"when": "! omarchy-hw-vm"})
-        self.assertEqual(parsed["setup.direct-boot"]["when"],
-                         "! omarchy-hw-vm && ! omarchy-hw-aarch64-apple && "
-                         "[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]")
-        # Overrides only the action of Omarchy's row, so its label and place stay.
-        self.assertEqual(set(parsed["update.timezone"]), {"action"})
+        omarchy = self.parse(self.OMARCHY)
+        self.assertEqual(set(parsed), self.OWN | self.CHANGED)
+        self.assertEqual(parsed["setup.try-omarchy"]["icon"], "")
+        for key in self.CHANGED:
+            for field in ("icon", "label", "action"):
+                if field != "action" or key != "update.timezone":
+                    self.assertEqual(parsed[key][field], omarchy[key][field], (key, field))
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
-        self.assertIn("else exec omarchy-menu-timezone", parsed["update.timezone"]["action"])
-        self.assertEqual(parsed["setup.try-omarchy"]["icon"], "\ue900")
-        self.assertEqual(parsed["setup.try-omarchy"]["iconFont"], "omarchy")
-        self.menu.write_text("{}\n")  # the user removed them
+        self.assertEqual(parsed["setup.direct-boot"]["when"],
+                         "! omarchy-hw-vm && (! omarchy-hw-aarch64-apple && "
+                         "[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]])")
+        self.assertEqual(parsed["update.firmware"]["when"], "! omarchy-hw-vm")
+        self.assertEqual(parsed["install.gaming.lutris"]["when"], "omarchy-hw-x86")
+        self.assertEqual(parsed["install.gaming.lutris"]["disabled"], "omarchy-pkg-present lutris")
+        self.assertEqual(parsed["trigger.appearance.top-bar.indicators.battery-percentage"]["when"],
+                         "(omarchy-hw-laptop) || compgen -G '/sys/class/power_supply/BAT*' >/dev/null")
+        # Removed rows stay removed.
+        self.menu.write_text("{}\n")
         self.entries()
         self.assertEqual(self.menu.read_text(), "{}\n")
+
+    def test_rows_follow_omarchy_until_the_user_edits_them(self):
+        self.entries()
+        self.omarchy.write_text(self.OMARCHY.replace('"label":"Firmware"', '"label":"Device Firmware"')
+                                .replace('"label":"Lutris"', '"label":"Lutris Games"'))
+        text = self.menu.read_text()
+        self.menu.write_text(text.replace('"label":"Lutris"', '"label":"My Lutris"'))
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(parsed["update.firmware"]["label"], "Device Firmware")
+        self.assertEqual(parsed["install.gaming.lutris"]["label"], "My Lutris")
+
+    def test_repairs_rows_earlier_packages_wrote(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text('{\n  "update.firmware": {"when":"! omarchy-hw-vm"},\n'
+                             '  "update.hardware.wifi": {"when":"! omarchy-hw-vm","label":"Mine"},\n}\n')
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries").write_text("5\n")
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(parsed["update.firmware"]["label"], "Firmware")
+        self.assertEqual(parsed["update.hardware.wifi"], {"when": "! omarchy-hw-vm", "label": "Mine"})
+        self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi"})  # nothing re-added
+
+    def test_without_omarchys_menu_only_own_rows_are_added(self):
+        self.omarchy.unlink()
+        self.entries()
+        self.assertEqual(set(self.parse(self.menu.read_text())), self.OWN)
 
     def test_a_later_release_adds_only_its_new_rows(self):
         self.menu.parent.mkdir(parents=True)
         self.menu.write_text("{\n}\n")  # the user removed the first release's rows
-        (self.home / ".local/state/try-omarchy").mkdir(parents=True)
-        (self.home / ".local/state/try-omarchy/menu-entries-v1").touch()
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries-v1").touch()
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
-                         {"setup.security.onepassword-touch-id", "update.timezone",
-                          "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
+                         {"setup.security.onepassword-touch-id"} | self.CHANGED)
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 4 + len(self.RELEASE_5))
+        self.assertEqual(len(self.parse(self.menu.read_text())), 1 + len(self.CHANGED))
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
         self.menu.parent.mkdir(parents=True)
         self.menu.write_text("{\n  // Try Omarchy: Mac app settings and Touch ID (added once each; safe to remove).\n}\n")
-        (self.home / ".local/state/try-omarchy").mkdir(parents=True)
-        (self.home / ".local/state/try-omarchy/menu-entries").write_text("2\n")
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), {"update.timezone", "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
+        self.assertEqual(set(self.parse(text)), self.CHANGED)
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
@@ -277,8 +322,8 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         self.assertIn("personal", self.parse(self.menu.read_text()))
         other = Path(tempfile.mkdtemp())
-        subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, "HOME": str(other),
-                       "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}, check=True)
+        subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, **self.env, "HOME": str(other)},
+                       check=True)
         created = other / ".config/omarchy/extensions/omarchy-menu.jsonc"
         self.assertIn("setup.try-omarchy", self.parse(created.read_text()))
 
@@ -538,6 +583,15 @@ class TimeZone(unittest.TestCase):
         self.assertEqual(self.module.current_mode(self.state), "fixed")
         self.assertEqual(self.module.current_mode(self.tmp / "missing.json"), "follow")
 
+    def test_mac_zone_comes_from_the_launch_until_the_agent_runs(self):
+        cmdline = self.tmp / "cmdline"
+        cmdline.write_text("omarchy.qemu_virgl=1 tryomarchy.timezone=Asia/Tokyo\n")
+        host = self.tmp / "host-timezone"
+        self.assertEqual(self.module.mac_zone(host, cmdline), "Asia/Tokyo")
+        self.assertEqual(self.module.mirror_label(host, self.zoneinfo, cmdline), "Same as macOS")
+        host.write_text("Europe/Lisbon\n")
+        self.assertEqual(self.module.mac_zone(host, cmdline), "Europe/Lisbon")
+
     def test_relinking_the_same_zone_keeps_following(self):
         self.link("Asia/Tokyo")
         self.sync("Asia/Tokyo")
@@ -674,6 +728,49 @@ class Kitty(unittest.TestCase):
         self.assertEqual(self.launch("@", "ls"), ["LIBGL_ALWAYS_SOFTWARE=1", "@", "ls"])
 
 
+class TimedatectlShim(unittest.TestCase):
+    def run_shim(self, *args, mac=True, select_ok=True):
+        tmp = Path(tempfile.mkdtemp())
+        log = tmp / "log"
+        real = tmp / "timedatectl"
+        real.write_text(f'#!/bin/sh\necho real "$@" >> "{log}"\n[ "$1" = list-timezones ] && printf "Asia/Tokyo\\nUTC\\n"\nexit 0\n')
+        real.chmod(0o755)
+        tool = tmp / "try-omarchy-timezone"
+        tool.write_text("#!/bin/sh\n"
+                        f'echo tool "$@" >> "{log}"\n'
+                        f'[ "$1" = --mirror-label ] && {{ {"echo \"Same as macOS\"" if mac else "exit 1"}; exit $?; }}\n'
+                        f'exit {0 if select_ok else 1}\n')
+        tool.chmod(0o755)
+        out = subprocess.run([str(LIB / "shims/timedatectl"), *args], capture_output=True, text=True, check=True,
+                             env={**os.environ, "TRY_OMARCHY_TIMEDATECTL": str(real),
+                                  "TRY_OMARCHY_TIMEZONE_COMMAND": str(tool)}).stdout.splitlines()
+        return out, log.read_text().splitlines()
+
+    def test_lists_same_as_macos_first(self):
+        out, _ = self.run_shim("list-timezones")
+        self.assertEqual(out, ["Same as macOS", "Asia/Tokyo", "UTC"])
+        out, _ = self.run_shim("list-timezones", mac=False)
+        self.assertEqual(out, ["Asia/Tokyo", "UTC"])
+
+    def test_setup_choices_go_through_the_follow_policy(self):
+        _, log = self.run_shim("set-timezone", "Same as macOS")
+        self.assertEqual(log, ["tool --select Same as macOS"])
+        _, log = self.run_shim("set-timezone", "Europe/Lisbon")
+        self.assertEqual(log, ["tool --select Europe/Lisbon"])
+        # If the policy tool can't apply it, the real command still gets the choice.
+        _, log = self.run_shim("set-timezone", "Europe/Lisbon", select_ok=False)
+        self.assertEqual(log, ["tool --select Europe/Lisbon", "real set-timezone Europe/Lisbon"])
+
+    def test_everything_else_is_the_real_command(self):
+        _, log = self.run_shim("show", "-p", "Timezone")
+        self.assertEqual(log, ["real show -p Timezone"])
+
+    def test_policy_tool_calls_the_real_command_by_path(self):
+        tool = (FILES / "usr/bin/try-omarchy-timezone").read_text()
+        self.assertIn('TIMEDATECTL = "/usr/bin/timedatectl"', tool)
+        self.assertNotIn('["timedatectl"', tool)
+
+
 class TzupdateShim(unittest.TestCase):
     def run_shim(self, state=None, cmdline="tryomarchy.timezone=Asia/Tokyo"):
         tmp = Path(tempfile.mkdtemp())
@@ -688,9 +785,9 @@ class TzupdateShim(unittest.TestCase):
                                    "TRY_OMARCHY_HOST_CMDLINE": str(tmp / "cmdline"),
                                    "TRY_OMARCHY_TZUPDATE": str(real)}).stdout.strip()
 
-    def test_offers_the_mac_zone_until_the_guest_chooses(self):
-        self.assertEqual(self.run_shim(), "Asia/Tokyo")
-        self.assertEqual(self.run_shim({"mode": "auto", "zone": "Europe/Lisbon", "fingerprint": []}), "Europe/Lisbon")
+    def test_preselects_same_as_macos_until_the_guest_chooses(self):
+        self.assertEqual(self.run_shim(), "Same as macOS")
+        self.assertEqual(self.run_shim({"mode": "auto", "zone": "Europe/Lisbon", "fingerprint": []}), "Same as macOS")
         self.assertEqual(self.run_shim({"mode": "manual"}), "real -p")
         self.assertEqual(self.run_shim(cmdline="omarchy.qemu_virgl=1"), "real -p")
 
