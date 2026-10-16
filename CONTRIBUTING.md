@@ -94,7 +94,7 @@ removes it (`make test-guest-install`). No suites or runtime checks are skipped
 based on changed paths or cached test results; the builder image and package
 downloads are cached.
 
-A longer check runs outside pull requests:
+Two longer checks run outside pull requests:
 
 - **Guest desktop** (nightly, or by hand from the Actions tab): builds the
   factory, boots its userland with systemd-nspawn on a hosted runner and
@@ -102,6 +102,11 @@ A longer check runs outside pull requests:
   session on a vkms virtual display, the shell, apps, and installs from the
   live repositories ([guest/tests/desktop/run.sh](guest/tests/desktop/run.sh)).
   Screenshots and logs are kept with the run.
+- **`make e2e`** (on an Apple Silicon Mac, with Docker running): boots a
+  disposable VM in the built app's own runtime and adds what only a Mac has:
+  HVF, VirGL on the Mac's GPU, the bridges, the shared folder, shutdown and a
+  second boot ([tests/e2e/run.sh](tests/e2e/run.sh)). Run it before a release
+  and for changes to the runtime or the bridges.
 
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that

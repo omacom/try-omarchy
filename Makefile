@@ -24,7 +24,7 @@ SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest guest-package refresh runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight clean clean-all clean-guest
 .PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
-.PHONY: test-upstream test-guest-install
+.PHONY: test-upstream test-guest-install e2e
 
 help:
 	@printf '%s\n' \
@@ -35,6 +35,7 @@ help:
 	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make test-upstream  Check the guest package against the current Omarchy (network)' \
 	  '  make test-guest-install  Install, upgrade and remove the guest package (Docker, network)' \
+	  '  make e2e            Boot a disposable VM in the app and check it end to end' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component (the guest takes the newest Omarchy edge)' \
 	  '  make refresh        Rebuild the factory from the latest Omarchy edge, then build' \
@@ -111,6 +112,11 @@ test-upstream:
 	@"$(ROOT)/guest/tests/fetch-upstream.sh" "$(ROOT)/.build/upstream-omarchy"
 	@OMARCHY_UPSTREAM_ROOT="$(ROOT)/.build/upstream-omarchy" PYTHONDONTWRITEBYTECODE=1 \
 	  python3 "$(ROOT)/guest/package/tests/test_upstream.py"
+
+# A disposable VM in the built app, first boot to second boot (tests/e2e/run.sh).
+E2E_ARGS ?=
+e2e:
+	@"$(ROOT)/tests/e2e/run.sh" --app "$(APP)" $(E2E_ARGS)
 
 # The package installed, upgraded from BASE (default: the main branch) and
 # removed against Omarchy's live repositories, in the guest builder image.
