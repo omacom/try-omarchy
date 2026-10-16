@@ -461,7 +461,24 @@ class Power(unittest.TestCase):
 class ScreenRecording(unittest.TestCase):
     def test_wf_recorder_is_the_fallback_for_virgl(self):
         # gpu-screen-recorder refuses VirGL; Omarchy falls back to wf-recorder.
-        self.assertIn("'wf-recorder'", (PACKAGE / "PKGBUILD").read_text())
+        recipe = (PACKAGE / "PKGBUILD").read_text()
+        self.assertIn("'wf-recorder: screen recording", recipe)
+        factory = (PACKAGE.parent.parent / "factory/build-image.sh").read_text()
+        self.assertIn("bsdtar -xOf \"$package\" .PKGINFO | sed -n 's/^optdepend = ", factory)
+        self.assertIn('target_install "${optional[@]}"', factory)
+
+
+class Dependencies(unittest.TestCase):
+    def test_upgrades_inside_a_vm_need_no_new_downloads(self):
+        # The app upgrades this package at boot, possibly offline or with a
+        # stale database. Every hard dependency is in the factory image
+        # already; new needs go to optdepends, which the factory installs.
+        recipe = (PACKAGE / "PKGBUILD").read_text()
+        block = recipe[recipe.index("depends=(\n"):]
+        names = re.findall(r"'([^']+)'", block[:block.index(")")])
+        self.assertEqual(names, ["bash", "dkms", "fcitx5-chewing", "fcitx5-hangul", "fcitx5-mozc", "gtk3",
+                                 "linux-omarchy-headers", "noto-fonts-cjk", "openssl", "polkit", "python",
+                                 "python-gobject", "systemd", "v4l2loopback-dkms"])
 
 
 class PowerKey(unittest.TestCase):

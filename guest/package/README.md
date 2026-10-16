@@ -40,6 +40,11 @@ not ignore, so caches and other local files never reach the package.
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
+- **Upgrades need no downloads.** The app installs this package at a VM's
+  boot from its own copy, possibly offline or with a stale package database,
+  so every hard dependency is already in the factory image. Anything new the
+  guest needs goes to `optdepends`, which the factory build installs from the
+  package's metadata.
 - **Units are enabled by preset.** They are enabled on first install. A unit
   added in a later release is enabled by name in `post_upgrade`. The install
   also enables `systemd-timesyncd` (once, on upgrades from before `0.1.0-13`),

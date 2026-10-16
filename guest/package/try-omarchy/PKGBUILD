@@ -8,11 +8,16 @@
 
 pkgname=try-omarchy
 pkgver=0.1.0
-pkgrel=19
+pkgrel=20
 pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
 arch=('aarch64')
 url='https://github.com/omacom/try-omarchy'
 license=('MIT')
+# The app installs this package at a VM's boot (package-install) from its own
+# copy, with no guarantee of network or a current package database. A new
+# entry here would have to be downloaded then and could fail the whole
+# upgrade, so add what the guest needs to optdepends: the factory image
+# installs those.
 depends=(
   'bash'
   'dkms'
@@ -28,7 +33,9 @@ depends=(
   'python-gobject'
   'systemd'
   'v4l2loopback-dkms'
-  'wf-recorder'
+)
+optdepends=(
+  'wf-recorder: screen recording, where gpu-screen-recorder refuses VirGL'
 )
 backup=(
   'etc/chromium-flags.conf'

@@ -238,6 +238,15 @@ log "Installing the default set (${#available[@]} packages; ${#unavailable[@]} u
 target_install "${available[@]}"
 
 if ((${#extra_packages[@]})); then
+  # A local package's optional dependencies are what it needs but must not
+  # pull in when the app upgrades it inside a VM; the image carries them.
+  mapfile -t optional < <(for package in "${extra_packages[@]}"; do
+    bsdtar -xOf "$package" .PKGINFO | sed -n 's/^optdepend = \([^:<>= ]*\).*/\1/p'
+  done | sort -u)
+  if ((${#optional[@]})); then
+    log "Installing the local packages' optional dependencies: ${optional[*]}"
+    target_install "${optional[@]}"
+  fi
   log "Installing ${#extra_packages[@]} local package(s)"
   pacstrap -C "$builder_conf" -G -M -c -U "$target" "${extra_packages[@]}"
 fi
