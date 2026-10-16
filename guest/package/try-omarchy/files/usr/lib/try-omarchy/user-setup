@@ -31,6 +31,27 @@ fi
 # Omarchy's idle screensaver and lock off in the VM, once.
 "${TRY_OMARCHY_IDLE_DEFAULTS:-/usr/lib/try-omarchy/idle-defaults}" || true
 
+# Extra backgrounds for Omarchy's themes, offered beside the theme's own in
+# its background switcher; the current background is never changed. Each is
+# linked into ~/.config/omarchy/backgrounds/<theme> once, so a user who
+# removes it keeps it removed.
+backgrounds=${TRY_OMARCHY_BACKGROUNDS:-/usr/share/try-omarchy/backgrounds}
+for source in "$backgrounds"/*/*; do
+  [[ -f $source ]] || continue
+  theme=${source%/*}
+  theme=${theme##*/}
+  name=${source##*/}
+  marker=$state_home/try-omarchy/backgrounds/$theme/$name
+  [[ -e $marker ]] && continue
+  target=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/backgrounds/$theme/$name
+  if [[ ! -e $target && ! -L $target ]]; then
+    mkdir -p "${target%/*}"
+    ln -s "$source" "$target"
+  fi
+  mkdir -p "${marker%/*}"
+  : >"$marker"
+done
+
 if ((changed)) && [[ ${1:-} == --reload && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   hyprctl reload >/dev/null 2>&1 || true
 fi

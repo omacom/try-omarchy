@@ -70,7 +70,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | Wi-Fi, Bluetooth and Trackpad restart rows do nothing | Harmless | fixed for Wi-Fi and Bluetooth (hidden in a VM). Trackpad kept: the VM has a virtual touchpad, and whether a restart affects it is unchecked |
 | Notifications show over the screensaver | Old `notification-screen-privacy.patch`; no upstream equivalent | open; upstream (rarely visible now that the VM's idle screensaver is off by default) |
 | US-International (dead keys) layout missing | Old `keyboard-us-acentos.patch` | open; upstream |
-| Project wallpaper gone | Old skel wallpaper (#88) | open, low |
+| Project wallpaper gone | Old skel wallpaper (#88) | fixed as an option: Tokyo Night's background switcher offers it beside Omarchy's own; the default background is unchanged |
 
 ## Suggested order
 

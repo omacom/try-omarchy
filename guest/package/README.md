@@ -123,6 +123,15 @@ way, found on the same `PATH` (Kitty's desktop entries run `kitty` by name).
 It passes `-o env=LIBGL_ALWAYS_SOFTWARE`, which leaves the variable empty,
 and so false, for programs started in Kitty.
 
+## Project wallpaper
+
+The project wallpaper ships in `/usr/share/try-omarchy/backgrounds/tokyo-night/`.
+`user-setup` links each file there into the user's
+`~/.config/omarchy/backgrounds/<theme>/` once, where Omarchy's background
+switcher offers it beside the theme's own backgrounds. Omarchy's default and
+current background stay as they are, and a link the user removes stays
+removed.
+
 ## Boot console
 
 `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` adds `console=hvc0`

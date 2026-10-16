@@ -164,10 +164,30 @@ class SshAccess(unittest.TestCase):
 
 
 class UserSetup(unittest.TestCase):
+    def test_offers_the_project_wallpaper_once_without_changing_the_background(self):
+        home = Path(tempfile.mkdtemp())
+        shipped = FILES / "usr/share/try-omarchy/backgrounds"
+        env = {"HOME": str(home), "XDG_STATE_HOME": "", "XDG_CONFIG_HOME": "", "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true",
+               "TRY_OMARCHY_IDLE_DEFAULTS": "/usr/bin/true", "TRY_OMARCHY_BACKGROUNDS": str(shipped)}
+        run(LIB / "user-setup", env=env)
+        link = home / ".config/omarchy/backgrounds/tokyo-night/try-omarchy-wallpaper.jpg"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(Path(os.readlink(link)), shipped / "tokyo-night/try-omarchy-wallpaper.jpg")
+        # Only an extra choice: Omarchy's current background is left alone.
+        self.assertFalse((home / ".local/state/omarchy/current").exists())
+        link.unlink()  # the user removed it
+        run(LIB / "user-setup", env=env)
+        self.assertFalse(link.exists() or link.is_symlink())
+
+    def test_wallpaper_is_shipped_for_tokyo_night(self):
+        image = FILES / "usr/share/try-omarchy/backgrounds/tokyo-night/try-omarchy-wallpaper.jpg"
+        self.assertEqual(image.read_bytes()[:3], b"\xff\xd8\xff")
+        self.assertEqual(stat.S_IMODE(image.stat().st_mode), 0o644)
+
     def test_places_loader_once(self):
         state = Path(tempfile.mkdtemp())
         env = {"XDG_STATE_HOME": str(state), "HOME": str(state), "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true",
-               "TRY_OMARCHY_IDLE_DEFAULTS": "/usr/bin/true"}
+               "TRY_OMARCHY_IDLE_DEFAULTS": "/usr/bin/true", "TRY_OMARCHY_BACKGROUNDS": str(state / "none")}
         run(LIB / "user-setup", env=env)
         loader = state / "omarchy/toggles/hypr/zz-try-omarchy.lua"
         first = loader.read_text()
