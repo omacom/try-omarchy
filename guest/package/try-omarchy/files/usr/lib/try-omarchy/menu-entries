@@ -33,9 +33,15 @@ ROWS = (
     ("update.timezone",
      '  "update.timezone": {"action":"if [[ -x /usr/bin/try-omarchy-timezone-menu ]]; then '
      'exec /usr/bin/try-omarchy-timezone-menu; else exec omarchy-menu-timezone; fi"},\n', 3),
+    # Hidden in the VM, keeping Omarchy's own condition: a direct UEFI entry
+    # would skip Limine and its snapshots, and there is no firmware to update.
+    ("setup.direct-boot",
+     '  "setup.direct-boot": {"when":"! omarchy-hw-vm && ! omarchy-hw-aarch64-apple && '
+     '[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]"},\n', 4),
+    ("update.firmware", '  "update.firmware": {"when":"! omarchy-hw-vm"},\n', 4),
 )
 RELEASE = max(release for _, _, release in ROWS)
-HEADER = "  // Try Omarchy: Mac app settings, Touch ID and Same as macOS time zone (added once each; safe to remove).\n"
+HEADER = "  // Try Omarchy: Mac integration rows and VM adjustments (added once each; safe to remove).\n"
 MAXIMUM_BYTES = 256 * 1024
 
 

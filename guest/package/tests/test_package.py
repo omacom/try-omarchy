@@ -199,7 +199,13 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         parsed = self.parse(self.menu.read_text())
         self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id",
-                                       "setup.security.onepassword-touch-id", "update.timezone"})
+                                       "setup.security.onepassword-touch-id", "update.timezone",
+                                       "setup.direct-boot", "update.firmware"})
+        # VM-only rows hide Omarchy's own rows, keeping any condition they had.
+        self.assertEqual(parsed["update.firmware"], {"when": "! omarchy-hw-vm"})
+        self.assertEqual(parsed["setup.direct-boot"]["when"],
+                         "! omarchy-hw-vm && ! omarchy-hw-aarch64-apple && "
+                         "[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]")
         # Overrides only the action of Omarchy's row, so its label and place stay.
         self.assertEqual(set(parsed["update.timezone"]), {"action"})
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
@@ -217,9 +223,10 @@ class MenuEntries(unittest.TestCase):
         (self.home / ".local/state/try-omarchy/menu-entries-v1").touch()
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
-                         {"setup.security.onepassword-touch-id", "update.timezone"})
+                         {"setup.security.onepassword-touch-id", "update.timezone",
+                          "setup.direct-boot", "update.firmware"})
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 2)
+        self.assertEqual(len(self.parse(self.menu.read_text())), 4)
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
@@ -229,7 +236,7 @@ class MenuEntries(unittest.TestCase):
         (self.home / ".local/state/try-omarchy/menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), {"update.timezone"})
+        self.assertEqual(set(self.parse(text)), {"update.timezone", "setup.direct-boot", "update.firmware"})
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
@@ -303,6 +310,33 @@ def load(path, name):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+class Power(unittest.TestCase):
+    def test_sleep_uses_omarchys_own_off_switch(self):
+        # bin/omarchy-sleep-disabled tests for exactly this file; the System
+        # menu then hides Suspend and Hibernate.
+        conf = FILES / "etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf"
+        parser = configparser.ConfigParser()
+        parser.optionxform = str
+        parser.read(conf)
+        self.assertEqual(dict(parser["Sleep"]), {"AllowSuspend": "no", "AllowHibernation": "no",
+                                                 "AllowSuspendThenHibernate": "no", "AllowHybridSleep": "no"})
+        self.assertIn("'etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf'", (PACKAGE / "PKGBUILD").read_text())
+
+    def test_ntp_is_enabled_on_install_and_once_on_upgrade(self):
+        install = (PACKAGE / "try-omarchy.install").read_text()
+        self.assertIn("systemctl enable --now systemd-timesyncd.service", install)
+        post_install = install[install.index("post_install()"):install.index("post_upgrade()")]
+        post_upgrade = install[install.index("post_upgrade()"):]
+        self.assertIn("_enable_ntp", post_install)
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then\n    _enable_ntp', post_upgrade)
+
+
+class ScreenRecording(unittest.TestCase):
+    def test_wf_recorder_is_the_fallback_for_virgl(self):
+        # gpu-screen-recorder refuses VirGL; Omarchy falls back to wf-recorder.
+        self.assertIn("'wf-recorder'", (PACKAGE / "PKGBUILD").read_text())
 
 
 class PowerKey(unittest.TestCase):

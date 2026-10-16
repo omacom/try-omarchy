@@ -28,7 +28,10 @@ not ignore, so caches and other local files never reach the package.
   `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
   `/etc/chromium-flags.conf` and
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` (both pacman
-  `backup` files), and `/etc/sudoers.d/try-omarchy-timezone`. Nothing goes
+  `backup` files), Omarchy's sleep switch
+  `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
+  the System menu then hides Suspend and Hibernate, which a VM cannot wake
+  from), and `/etc/sudoers.d/try-omarchy-timezone`. Nothing goes
   under `/usr/local`, `/usr/share/omarchy` or `/etc/skel`. Customisation uses
   systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
   extension, plus one loader in the user's Omarchy toggles directory.
@@ -37,7 +40,12 @@ not ignore, so caches and other local files never reach the package.
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
 - **Units are enabled by preset.** They are enabled on first install. A unit
-  added in a later release is enabled by name in `post_upgrade`.
+  added in a later release is enabled by name in `post_upgrade`. The install
+  also enables `systemd-timesyncd` (once, on upgrades from before `0.1.0-13`),
+  which stock Omarchy leaves to the distribution.
+- **Menu rows go through Omarchy's menu extension.** `menu-entries` adds Try
+  Omarchy's rows once each, overrides the Timezone row's action, and hides
+  Direct Boot and Firmware in a VM by extending those rows' `when`.
 
 ## Host interfaces
 

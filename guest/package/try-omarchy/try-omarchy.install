@@ -11,8 +11,15 @@ _reload_logind() {
   systemctl kill -s HUP systemd-logind.service >/dev/null 2>&1 || true
 }
 
+# The guest's clock follows NTP between Mac sleeps (guest-clock-recover
+# restarts it after one); stock Omarchy doesn't enable it.
+_enable_ntp() {
+  systemctl enable --now systemd-timesyncd.service >/dev/null 2>&1 || true
+}
+
 post_install() {
   systemctl preset $_units >/dev/null 2>&1 || true
+  _enable_ntp
   systemctl --global preset $_user_units >/dev/null 2>&1 || true
   _reload_logind
 }
@@ -28,6 +35,9 @@ post_upgrade() {
     fi
   done
   # A unit added in a later release is enabled here, by name, the first time
-  # an upgrade brings it (systemctl preset <unit>). None yet.
+  # an upgrade brings it (systemctl preset <unit>).
+  if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then
+    _enable_ntp
+  fi
   _reload_logind
 }
