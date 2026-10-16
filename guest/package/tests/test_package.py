@@ -547,9 +547,15 @@ class Ghostty(unittest.TestCase):
         self.assertIn("Install > Terminal > Ghostty", result.stderr)
 
     def test_every_launch_path_uses_the_wrapper(self):
+        # The session takes PATH from the login shell, so it is set there;
+        # environment.d keeps XDG_DATA_DIRS, which the shell leaves alone.
         environment = (FILES / "usr/lib/environment.d/90-try-omarchy.conf").read_text()
-        self.assertIn("PATH=/usr/lib/try-omarchy/bin:$PATH\n", environment)
+        self.assertNotIn("\nPATH=", environment)
         self.assertIn("XDG_DATA_DIRS=/usr/share/try-omarchy/xdg:", environment)
+        profile = FILES / "etc/profile.d/try-omarchy.sh"
+        twice = subprocess.run(["/bin/sh", "-c", f". {profile}; . {profile}; echo $PATH"], capture_output=True,
+                               text=True, check=True, env={**os.environ, "PATH": "/usr/bin:/bin"})
+        self.assertEqual(twice.stdout.strip(), "/usr/lib/try-omarchy/bin:/usr/bin:/bin")
         entry = configparser.ConfigParser(interpolation=None, strict=False)
         entry.optionxform = str
         entry.read(FILES / "usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop")
@@ -564,6 +570,8 @@ class Ghostty(unittest.TestCase):
                    / "10-try-omarchy-software-gl.conf").read_text()
         self.assertIn("ExecStart=\nExecStart=/usr/lib/try-omarchy/bin/ghostty "
                       "--gtk-single-instance=true --initial-window=false\n", drop_in)
+        # Stock notify-reload fails under systemd 262 (no SIGUSR2 handler at READY).
+        self.assertIn("\nType=dbus\n", drop_in)
 
 
 class TzupdateShim(unittest.TestCase):

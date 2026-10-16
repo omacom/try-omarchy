@@ -245,3 +245,27 @@ verification and the 17-image runtime / 22-image app compatibility audits.
 The observation VM was powered off after collecting the trace. Reliable
 physical keyboard ownership, including guest Super shortcuts after focus,
 pointer-exit and full-screen transitions, remains an explicit sign-off check.
+
+## Shell audit follow-up checks
+
+On 2026-10-16, after the audit recorded in [Known VM issues](vm-issues.md),
+checks ran over SSH in the user's provisioned test VM, launched from the app
+built with the new factory (`omarchy-dev 4.0.0.r7026.g51bfd1d`, Qt 6.12.0,
+Mesa 26.2.4, systemd 262). The guest upgraded itself to `try-omarchy
+0.1.0-13` at boot; `0.1.0-14` was then installed by hand with `pacman -U`.
+
+| Check | Result |
+| --- | --- |
+| Shell colours on Qt 6.12 | No `Color` assignment errors in the session log |
+| NTP | `systemd-timesyncd` enabled and active; `NTPSynchronized=yes` |
+| Sleep | Omarchy's sleep switch present; logind `CanSuspend` returned `no` |
+| Time zone | Following (`auto`, Asia/Tokyo); state file `0644`; `--mode` and `--mirror-label` work unprivileged; sudo lists only the picker's two rules and asks for a password for `--select ../x` |
+| Menu extension | Timezone, Direct Boot and Firmware rows present once, under one header |
+| OpenGL (EGL probe, surfaceless) | VirGL: desktop 4.1 core and compatibility, GLSL 4.10; ES 3.0. A 4.3 core request fails; a 3.3 core request succeeds. With `LIBGL_ALWAYS_SOFTWARE=1`: llvmpipe, 4.6 and ES 3.2 |
+| Ghostty via `xdg-terminal-exec` | Window opened and stayed open; Ghostty had `LIBGL_ALWAYS_SOFTWARE=1`, its shell `0` |
+| Ghostty via D-Bus activation | Stock unit failed under systemd 262 ("lacks handler for reload signal USR2"), also with stock `/usr/bin/ghostty`; with `Type=dbus` (`0.1.0-14`) it started, opened a window and survived `SIGUSR2` |
+| `PATH` | `environment.d`'s entry was replaced by the session's login-shell `PATH`; with `0.1.0-14`'s profile script a login shell resolves `ghostty` to the wrapper |
+
+Not checked: the desktop session's `PATH` after a fresh login, the Same as
+macOS picker through the menu UI, Kitty and 1Password themselves (not
+installed), and the screensaver with Ghostty as the default terminal.

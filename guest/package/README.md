@@ -31,7 +31,8 @@ not ignore, so caches and other local files never reach the package.
   `backup` files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
-  from), and `/etc/sudoers.d/try-omarchy-timezone`. Nothing goes
+  from), `/etc/sudoers.d/try-omarchy-timezone` and
+  `/etc/profile.d/try-omarchy.sh`. Nothing goes
   under `/usr/local`, `/usr/share/omarchy` or `/etc/skel`. Customisation uses
   systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
   extension, plus one loader in the user's Omarchy toggles directory.
@@ -107,10 +108,12 @@ the same as **Same as macOS**.
 
 Ghostty needs desktop OpenGL 4.3; VirGL here offers OpenGL ES 3.0, so the
 stock package exits at startup. `/usr/lib/try-omarchy/bin/ghostty` runs it with
-`LIBGL_ALWAYS_SOFTWARE=1`. The session's `environment.d` puts that directory
-first on `PATH` and `/usr/share/try-omarchy/xdg` first in `XDG_DATA_DIRS`,
-whose Ghostty desktop entry calls the wrapper; a user-unit drop-in covers
-D-Bus activation. The wrapper sets `LIBGL_ALWAYS_SOFTWARE=0` for programs
+`LIBGL_ALWAYS_SOFTWARE=1`. `/etc/profile.d/try-omarchy.sh` puts that
+directory first on `PATH` (Omarchy's session takes `PATH` from the login
+shell), and the session's `environment.d` puts `/usr/share/try-omarchy/xdg`
+first in `XDG_DATA_DIRS`, whose Ghostty desktop entry calls the wrapper. A
+user-unit drop-in covers D-Bus activation and starts the unit as `Type=dbus`:
+Ghostty 1.3.1's `notify-reload` unit fails under systemd 262. The wrapper sets `LIBGL_ALWAYS_SOFTWARE=0` for programs
 started in Ghostty, so they keep the GPU. See [Ghostty](../../docs/ghostty.md).
 
 ## Boot console

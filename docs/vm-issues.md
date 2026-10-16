@@ -17,15 +17,16 @@ needs a check in a running guest first), **limit** (a design constraint).
 | Issue | Evidence | Status |
 | --- | --- | --- |
 | Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`. The stable `omarchy 4.0.4` package still has 52 shell files with a bare `Color`, but the factory installs `omarchy-dev`, whose edge build `4.0.0.r7026.g51bfd1d` uses `Commons.Color` throughout (no bare uses). OmacVM's workaround for stable: `src/guest/shell-colors.py` (TS #35) | not an issue on `omarchy-dev`; confirm the bar on the next factory |
-| Suspend leaves the VM looking frozen: no wake source | Upstream shows Suspend unless `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` exists (`bin/omarchy-sleep-disabled`) | fixed: the package ships that switch |
-| NTP may be off. The old guest enabled `systemd-timesyncd`; nothing in the factory, package or upstream does now | `guest-clock-recover` only try-restarts it; host-timezone.md assumes it is enabled | fixed: the package enables it once |
+| Suspend leaves the VM looking frozen: no wake source | Upstream shows Suspend unless `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` exists (`bin/omarchy-sleep-disabled`) | fixed: the package ships that switch; verified logind `CanSuspend` "no" |
+| NTP may be off. The old guest enabled `systemd-timesyncd`; nothing in the factory, package or upstream does now | `guest-clock-recover` only try-restarts it; host-timezone.md assumes it is enabled | fixed: the package enables it once; verified enabled and synchronized |
 
 ## Graphics
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| Ghostty exits at start: needs desktop OpenGL 4.3 | [Ghostty](ghostty.md) | fixed: software-renderer wrapper |
-| Kitty may exit at start: needs desktop OpenGL 3.1+, no GLES fallback | The old guest wrapped it with `LIBGL_ALWAYS_SOFTWARE=1` (#173) when VirGL ran on ANGLE (desktop GL 2.1). The native Apple GL path's desktop GL version is unrecorded | verify: `eglinfo -B` and launching Kitty |
+| Ghostty exits at start: needs desktop OpenGL 4.3 | [Ghostty](ghostty.md) | fixed and verified: software-renderer wrapper |
+| Ghostty's D-Bus-activated service fails under systemd 262: "lacks handler for reload signal USR2" | Stock `/usr/bin/ghostty` fails the same way; affects any Omarchy machine with systemd 262 | worked around with `Type=dbus` in the package drop-in; report upstream (Ghostty / omarchy-pkgs) |
+| Kitty may exit at start: needs desktop OpenGL 3.1+, no GLES fallback | The old guest wrapped it (#173) when VirGL ran on ANGLE (desktop GL 2.1). An EGL probe on 2026-10-16: VirGL now gives desktop OpenGL 4.1 core and compatibility (GLSL 4.10) and ES 3.0; a 3.3 core request succeeds, 4.3 fails | not affected by GL; Kitty itself not launched yet |
 | 1Password may draw blank or crash: Electron EGL context | The old guest ran it with software GL and `--disable-gpu`; stock edge `1password` has no wrapper | verify |
 | 1Password Quick Access shortcut (Ctrl+Shift+Space) gone | Old `1password-arm64-installer.patch`; upstream binds only Super+Shift+/ | open |
 | Vulkan-only apps install, then fail: Zed, Steam and games | No Vulkan driver in the guest; edge aarch64 carries `zed`, `steam`, `omarchy-steam-fex` | open; real fix is Venus (below) |
