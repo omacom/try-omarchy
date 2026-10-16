@@ -113,8 +113,15 @@ directory first on `PATH` (Omarchy's session takes `PATH` from the login
 shell), and the session's `environment.d` puts `/usr/share/try-omarchy/xdg`
 first in `XDG_DATA_DIRS`, whose Ghostty desktop entry calls the wrapper. A
 user-unit drop-in covers D-Bus activation and starts the unit as `Type=dbus`:
-Ghostty 1.3.1's `notify-reload` unit fails under systemd 262. The wrapper sets `LIBGL_ALWAYS_SOFTWARE=0` for programs
-started in Ghostty, so they keep the GPU. See [Ghostty](../../docs/ghostty.md).
+Ghostty 1.3.1's `notify-reload` unit fails under systemd 262. The wrapper
+sets `LIBGL_ALWAYS_SOFTWARE=0` for programs started in Ghostty, so they keep
+the GPU. See [Ghostty](../../docs/ghostty.md).
+
+Kitty creates a GL context on VirGL but its window stays empty, so
+`/usr/lib/try-omarchy/bin/kitty` runs it on the software renderer the same
+way, found on the same `PATH` (Kitty's desktop entries run `kitty` by name).
+It passes `-o env=LIBGL_ALWAYS_SOFTWARE`, which leaves the variable empty,
+and so false, for programs started in Kitty.
 
 ## Boot console
 

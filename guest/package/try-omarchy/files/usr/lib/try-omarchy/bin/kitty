@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Kitty starts on this VM's VirGL renderer but its window stays empty, so run
+# it on Mesa's software renderer, as the Ghostty wrapper beside this does. The
+# session puts this directory first on PATH; Kitty's desktop entries and
+# Omarchy's screensaver start `kitty` by name.
+kitty=${TRY_OMARCHY_KITTY:-/usr/bin/kitty}
+if [[ ! -x $kitty ]]; then
+  echo "Kitty isn't installed; choose Install > Terminal > Kitty in the Omarchy menu." >&2
+  exit 127
+fi
+export LIBGL_ALWAYS_SOFTWARE=1
+# Shells and programs started in Kitty keep the GPU: env with a bare name
+# leaves the variable empty for them (Kitty 0.49.2), which Mesa reads as
+# false. A +kitten or @ remote-control command must stay the first argument.
+if [[ ${1:-} == [+@]* ]]; then
+  exec "$kitty" "$@"
+fi
+exec "$kitty" -o env=LIBGL_ALWAYS_SOFTWARE "$@"

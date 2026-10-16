@@ -269,3 +269,20 @@ Mesa 26.2.4, systemd 262). The guest upgraded itself to `try-omarchy
 Not checked: the desktop session's `PATH` after a fresh login, the Same as
 macOS picker through the menu UI, Kitty and 1Password themselves (not
 installed), and the screensaver with Ghostty as the default terminal.
+
+### Further app and feature checks
+
+Later the same day, in the same VM, with the user watching the VM window:
+
+| Check | Result |
+| --- | --- |
+| Screen recording | Omarchy's script (`--fullscreen`) recorded 5.8 s, 346 frames, 3024×1900 H.264 through `wf-recorder`; the frame showed the desktop. `gpu-screen-recorder` alone exits: no h264/hevc/av1 encoder |
+| Kitty 0.49.2 | On VirGL: a transparent window with only Hyprland's border. With `try-omarchy 0.1.0-15`'s wrapper: text renders (seen by the user); its shell sees `LIBGL_ALWAYS_SOFTWARE` empty |
+| 1Password 8.12.40 | Welcome window renders on the GPU, through XWayland (user's screenshot) |
+| Battery | On battery: discharging, 31 %, 8.9 W, 1.9 h. Plugged in: charging, 38 W, 1.1 h to full; no Holding |
+| WirePlumber and camera | Responsive in 0.13 s, no restarts, `Mac Camera` listed |
+| Night light | Hyprland: "crtc doesn't support CTM"; not checked by eye |
+
+In-guest `grim` captures are not reliable for GPU-drawn client windows: 1Password
+captured black every time while the user saw it render. Visual results above
+come from the Mac's screen.

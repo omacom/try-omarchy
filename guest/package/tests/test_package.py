@@ -574,6 +574,26 @@ class Ghostty(unittest.TestCase):
         self.assertIn("\nType=dbus\n", drop_in)
 
 
+class Kitty(unittest.TestCase):
+    WRAPPER = FILES / "usr/lib/try-omarchy/bin/kitty"
+
+    def launch(self, *args):
+        tmp = Path(tempfile.mkdtemp())
+        stub = tmp / "kitty"
+        stub.write_text('#!/bin/sh\necho "LIBGL_ALWAYS_SOFTWARE=$LIBGL_ALWAYS_SOFTWARE"\nprintf "%s\\n" "$@"\n')
+        stub.chmod(0o755)
+        return subprocess.run([str(self.WRAPPER), *args], capture_output=True, text=True, check=True,
+                              env={**os.environ, "TRY_OMARCHY_KITTY": str(stub)}).stdout.splitlines()
+
+    def test_kitty_renders_in_software_and_its_shells_do_not_inherit_it(self):
+        # A bare env name leaves the variable empty (false to Mesa) in Kitty's children.
+        self.assertEqual(self.launch("--title", "x", "-e", "htop"),
+                         ["LIBGL_ALWAYS_SOFTWARE=1", "-o", "env=LIBGL_ALWAYS_SOFTWARE", "--title", "x", "-e", "htop"])
+        # +kittens (the kitty-open desktop entry) and @ remote control stay first.
+        self.assertEqual(self.launch("+open", "file"), ["LIBGL_ALWAYS_SOFTWARE=1", "+open", "file"])
+        self.assertEqual(self.launch("@", "ls"), ["LIBGL_ALWAYS_SOFTWARE=1", "@", "ls"])
+
+
 class TzupdateShim(unittest.TestCase):
     def run_shim(self, state=None, cmdline="tryomarchy.timezone=Asia/Tokyo"):
         tmp = Path(tempfile.mkdtemp())

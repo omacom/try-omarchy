@@ -26,13 +26,13 @@ needs a check in a running guest first), **limit** (a design constraint).
 | --- | --- | --- |
 | Ghostty exits at start: needs desktop OpenGL 4.3 | [Ghostty](ghostty.md) | fixed and verified: software-renderer wrapper |
 | Ghostty's D-Bus-activated service fails under systemd 262: "lacks handler for reload signal USR2" | Stock `/usr/bin/ghostty` fails the same way; affects any Omarchy machine with systemd 262 | worked around with `Type=dbus` in the package drop-in; report upstream (Ghostty / omarchy-pkgs) |
-| Kitty may exit at start: needs desktop OpenGL 3.1+, no GLES fallback | The old guest wrapped it (#173) when VirGL ran on ANGLE (desktop GL 2.1). An EGL probe on 2026-10-16: VirGL now gives desktop OpenGL 4.1 core and compatibility (GLSL 4.10) and ES 3.0; a 3.3 core request succeeds, 4.3 fails | not affected by GL; Kitty itself not launched yet |
-| 1Password may draw blank or crash: Electron EGL context | The old guest ran it with software GL and `--disable-gpu`; stock edge `1password` has no wrapper | verify |
+| Kitty draws nothing on VirGL although a GL 3.3 core context succeeds | The old guest wrapped it (#173) when VirGL ran on ANGLE (desktop GL 2.1). An EGL probe on 2026-10-16: VirGL now gives desktop OpenGL 4.1 core and compatibility (GLSL 4.10) and ES 3.0; a 3.3 core request succeeds, 4.3 fails | fixed and verified: Kitty 0.49.2 on VirGL opens an empty, transparent window (only Hyprland's border); the package's `kitty` wrapper runs it on llvmpipe and its text renders |
+| 1Password may draw blank or crash: Electron EGL context | The old guest ran it with software GL and `--disable-gpu`; stock edge `1password` 8.12.40 has no wrapper | not an issue: the Welcome window renders on the GPU (seen on the Mac's screen; in-guest `grim` captures of it are black) |
 | 1Password Quick Access shortcut (Ctrl+Shift+Space) gone | Old `1password-arm64-installer.patch`; upstream binds only Super+Shift+/ | open |
 | Vulkan-only apps install, then fail: Zed, Steam and games | No Vulkan driver in the guest; edge aarch64 carries `zed`, `steam`, `omarchy-steam-fex` | open; real fix is Venus (below) |
-| Screen recording: `gpu-screen-recorder` refuses VirGL and the `wf-recorder` fallback is missing | `bin/omarchy-capture-screenrecording` header; upstream installs `wf-recorder` on Apple Silicon | fixed: package depends on `wf-recorder` (installed in the test guest); a recording not yet made |
+| Screen recording: `gpu-screen-recorder` refuses VirGL and the `wf-recorder` fallback is missing | `gpu-screen-recorder` exits: no h264/hevc/av1 encoder (no VA-API) | fixed and verified: Omarchy's script recorded a correct 3024×1900 H.264 file through `wf-recorder` |
 | Lost GPU context leaves a permanent black desktop or black Chrome | VirGL treats Apple 4.1 core refusals (GLSL < 3.30, core-feature extension lines, 32 samplers, framebuffers without attachments) as fatal. OmacVM ADR 0019 and its gpu-robust patches; our `virgl-native-opengl.patch` has none | open; host VirGL patches |
-| Night light may do nothing on virtio-gpu (no colour transform) | `bin/omarchy-toggle-nightlight` has no guard | verify: `hyprctl hyprsunset temperature 4000` |
+| Night light may do nothing on virtio-gpu (no colour transform) | Hyprland logs "connector Virtual-1 crtc doesn't support CTM"; a guest capture at 2500 K is unchanged (captures miss display-level transforms) | likely broken; confirm by eye, then hide the rows or ask upstream for a fallback |
 | Browser screen sharing over the portal on VirGL buffers is untested | | verify |
 | Screenshot freeze and recording stall the VM and audio: hyprpicker redraws every frame; full-screen uploads through the main loop | OmacVM TS #32 (rebuilt hyprpicker, `virgl-transfer-upload-pbo.patch`) | verify |
 | OpenGL above 4.1 on the GPU | Apple OpenGL is frozen at 4.1. Venus + KosmicKrisp (macOS 26) gives Vulkan; Zink on it gives only GL 2.1 today (OmacVM ADR 0013, 0035) | limit; Venus is the next graphics project |
@@ -45,7 +45,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | VM freezes when the microphone starts: QEMU opens SDL capture on a vCPU thread holding the BQL; CoreAudio can block for minutes | Our `qemu-sdl-audio-device-selection.patch` defers capture to that path. OmacVM: `qemu-sdl-audio-capture-thread.patch`, `-playback-thread.patch` (TS #22, #26) | open |
 | Crackling under GPU or CPU load | No main-loop QoS; RTKit's canary demotes PipeWire after a QEMU stall. OmacVM: `qemu-darwin-main-loop-qos.patch`, `qemu-hda-no-catch-up.patch`, `rtkit-no-canary.conf`; 365 → 50 breaks per 10 min (ADR 0036) | open |
 | Video audio leads the picture | QEMU buffers (110–150 ms, plus our 4096 quantum) and Mac output latency are unknown to PipeWire. OmacVM sets a sink latency offset from the host (TS #28) | open |
-| WirePlumber can stall on a V4L2 node that is not ready yet | OmacVM TS #29; check the camera bridge's device timing | verify |
+| WirePlumber can stall on a V4L2 node that is not ready yet | OmacVM TS #29 | not seen: WirePlumber responsive, no restarts, `Mac Camera` listed (one boot) |
 
 ## Mac integration, displays and power
 
@@ -57,7 +57,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | Instant resume and guest hibernation | QEMU: "virgl is not yet migratable" (OmacVM ADR 0037) | limit |
 | 120 Hz frame pacing: frames dropped or repeated | OmacVM ADR 0020, 0023 | verify |
 | Power profiles show but change nothing; "Managed by macOS" presentation dropped | [Host battery](host-battery.md), [shell plan](shell-plan.md) | open |
-| Battery panel may show Holding while charging (stock heuristic) | [Host battery](host-battery.md) | verify |
+| Battery panel may show Holding while charging (stock heuristic) | Holding when charging at ≤ 0.2 W or ≥ 8 h to full (`panels/power/Model.js`) | not seen: plugged in read charging 38 W, 1.1 h to full; on battery 8.9 W, 1.9 h left. A brief Holding right after plugging in (UPower's 10 s rate blackout) is possible |
 | Battery percentage toggle hidden: `omarchy-hw-laptop` finds no lid | `menu.jsonc` `when` | open |
 
 ## Menus and features
@@ -66,7 +66,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | --- | --- | --- |
 | Setup → Direct Boot would bypass Limine and its snapshot menu | Guarded only by `! omarchy-hw-aarch64-apple` | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
 | Update → Firmware installs fwupd with nothing to update | No guard | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
-| GeForce NOW, Battle.net and Lutris rows offered on aarch64 | The old guest refused them; upstream guards only some x86 rows | verify which fail |
+| GeForce NOW, Battle.net and Lutris rows offered on aarch64 | Lutris and Battle.net need `wine-staging` and `umu-launcher`, not in any aarch64 repository; GeForce NOW's installer is, as far as known, x86_64 only | open; all ARM Omarchy, so upstream `omarchy-hw-x86` guards |
 | Wi-Fi, Bluetooth and Trackpad restart rows do nothing | Harmless | open, low |
 | Notifications show over the screensaver | Old `notification-screen-privacy.patch`; no upstream equivalent | open; upstream |
 | US-International (dead keys) layout missing | Old `keyboard-us-acentos.patch` | open; upstream |
