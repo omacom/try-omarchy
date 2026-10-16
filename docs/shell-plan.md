@@ -161,6 +161,7 @@ Not done yet:
   text fit, which needed Omarchy patches.
 - **Boot previous snapshot** in the launcher. Limine's menu has it.
 - The upstream asks below.
+- The issues and backlog in [Known VM issues](vm-issues.md).
 
 ## What upstream has today
 
