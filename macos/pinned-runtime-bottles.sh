@@ -71,6 +71,27 @@ pinned_bottle_sha256() {
   shasum -a 256 "$1" | awk '{ print $1 }'
 }
 
+# OMARCHY_DOWNLOAD_CACHE (set by make) keeps pinned downloads between builds.
+# Every name is pinned, and a cached file stands in for a download only when
+# its SHA-256 matches the pin. Without the variable, every archive downloads.
+pinned_download_from_cache() { # expected_sha output
+  local cached
+  [[ -n ${OMARCHY_DOWNLOAD_CACHE:-} ]] || return 1
+  cached="$OMARCHY_DOWNLOAD_CACHE/${2##*/}"
+  [[ -f $cached && ! -L $cached ]] || return 1
+  [[ $(pinned_bottle_sha256 "$cached") == "$1" ]] || return 1
+  install -m 0644 "$cached" "$2"
+}
+
+pinned_download_to_cache() { # verified_output
+  local cached
+  [[ -n ${OMARCHY_DOWNLOAD_CACHE:-} ]] || return 0
+  cached="$OMARCHY_DOWNLOAD_CACHE/${1##*/}"
+  mkdir -p "$OMARCHY_DOWNLOAD_CACHE" &&
+    install -m 0644 "$1" "$cached.partial" &&
+    mv -f "$cached.partial" "$cached" || true
+}
+
 pinned_bottle_download() {
   local formula=$1
   local label=$2
@@ -81,6 +102,10 @@ pinned_bottle_download() {
   local actual_sha
 
   [[ $formula =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid Homebrew formula name: $formula"
+  if pinned_download_from_cache "$expected_sha" "$output"; then
+    log "Using the downloaded pinned arm64_sequoia $label bottle"
+    return
+  fi
   log "Downloading pinned arm64_sequoia $label bottle"
   token_json=$(curl --fail --location --silent --show-error \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -112,6 +137,7 @@ sys.stdout.write(value)
   actual_sha=$(pinned_bottle_sha256 "$output") || die "could not hash $label"
   [[ $actual_sha == "$expected_sha" ]] || \
     die "$label checksum mismatch: expected $expected_sha, got $actual_sha"
+  pinned_download_to_cache "$output"
 }
 
 pinned_bottle_obtain() {

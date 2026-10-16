@@ -32,12 +32,21 @@ archive_name="qemu-$qemu_commit.tar.gz"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 archive="$scratch/$archive_name"
+# The runtime build keeps the same pinned archive in OMARCHY_DOWNLOAD_CACHE.
+download_cache=${OMARCHY_DOWNLOAD_CACHE:-}
 if [[ -n $archive_cache && -f $archive_cache/$archive_name ]]; then
   cp "$archive_cache/$archive_name" "$archive"
+elif [[ -n $download_cache && -f $download_cache/$archive_name &&
+        $(shasum -a 256 "$download_cache/$archive_name" | cut -d' ' -f1) == "$qemu_sha256" ]]; then
+  cp "$download_cache/$archive_name" "$archive"
 else
   curl -fsSL "https://gitlab.com/qemu-project/qemu/-/archive/$qemu_commit/$archive_name" -o "$archive"
 fi
 [[ $(shasum -a 256 "$archive" | cut -d' ' -f1) == "$qemu_sha256" ]] || die "the QEMU source archive does not match its pin"
+if [[ -n $download_cache && ! -f $download_cache/$archive_name ]]; then
+  mkdir -p "$download_cache" && cp "$archive" "$download_cache/$archive_name.partial" &&
+    mv -f "$download_cache/$archive_name.partial" "$download_cache/$archive_name" || true
+fi
 
 tar -xzf "$archive" -C "$scratch" "qemu-$qemu_commit/pc-bios/edk2-aarch64-code.fd.bz2" "qemu-$qemu_commit/pc-bios/edk2-licenses.txt"
 mkdir -p "$output"

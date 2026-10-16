@@ -6,6 +6,7 @@ override GUEST_DIST := $(DIST)/guest
 override APP := $(DIST)/app.noindex/Try Omarchy.app
 override BUILD_CACHE := $(ROOT)/scripts/build-cache.py
 override BUILD_STATE := $(ROOT)/.build/state
+override DOWNLOAD_CACHE := $(ROOT)/.build/downloads
 RELEASE_SIGN_IDENTITY ?= Developer ID Application: Eduardo Martinez (RZC79MPD34)
 RELEASE_NOTARY_PROFILE ?= try-omarchy
 VERSION ?=
@@ -108,22 +109,28 @@ test-shell: $(SHELL_TEST_TARGETS)
 $(SHELL_TEST_TARGETS): test-shell-%: test-swift
 	@bash "$(ROOT)/macos/Tests/$*.test.sh"
 
-guest:
+# The package and the factory disk are cached separately: a package change
+# rebuilds the package in seconds, and the app delivers it to every VM.
+guest: guest-package
 	@OMARCHY_FORCE_BUILD="$(FORCE)" "$(BUILD_CACHE)" \
 	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" guest -- \
-	  "$(ROOT)/guest/build.sh" --output "$(GUEST_DIST)"
+	  "$(ROOT)/guest/build.sh" --factory-only --output "$(GUEST_DIST)"
 
 guest-package:
-	@"$(ROOT)/guest/package/build.sh" --output "$(GUEST_DIST)/packages"
-
-runtime:
 	@OMARCHY_FORCE_BUILD="$(FORCE)" "$(BUILD_CACHE)" \
+	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" guest-package -- \
+	  "$(ROOT)/guest/package/build.sh" --output "$(GUEST_DIST)/packages"
+
+# Pinned downloads (QEMU and its dependencies' sources, Homebrew bottles) are
+# kept here between builds and checksum-verified on every use.
+runtime:
+	@OMARCHY_FORCE_BUILD="$(FORCE)" OMARCHY_DOWNLOAD_CACHE="$(DOWNLOAD_CACHE)" "$(BUILD_CACHE)" \
 	  --root "$(ROOT)" --state-dir "$(BUILD_STATE)" runtime -- \
 	  "$(ROOT)/macos/build-qemu-gpu-runtime.sh"
 
 firmware:
 	@[[ -f "$(ROOT)/macos/.build/firmware/edk2-aarch64-code.fd" && "$(FORCE)" != 1 ]] || \
-	  "$(ROOT)/macos/stage-uefi-firmware.sh"
+	  OMARCHY_DOWNLOAD_CACHE="$(DOWNLOAD_CACHE)" "$(ROOT)/macos/stage-uefi-firmware.sh"
 
 app: guest runtime firmware
 	@identity=$$(python3 "$(ROOT)/macos/development-sign-identity.py" "$(DEVELOPMENT_SIGN_IDENTITY)") || exit 1; \

@@ -130,9 +130,13 @@ class BuildCacheTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             text=True,
         ).stdout
+        package = dry_run.index(" guest-package --")
         guest = dry_run.index(" guest --")
         runtime = dry_run.index(" runtime --")
         app = dry_run.index(" app --")
+        self.assertLess(package, guest)
+        self.assertIn("--factory-only", dry_run[guest:runtime])
+        self.assertIn('OMARCHY_DOWNLOAD_CACHE="' + str(REPOSITORY / ".build/downloads") + '"', dry_run)
         self.assertLess(guest, runtime)
         self.assertLess(runtime, app)
         self.assertIn("Build output:", dry_run)
@@ -148,7 +152,7 @@ class BuildCacheTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             text=True,
         ).stdout
-        self.assertEqual(3, forced.count('OMARCHY_FORCE_BUILD="1"'))
+        self.assertEqual(4, forced.count('OMARCHY_FORCE_BUILD="1"'))
         self.assertIn("stage-uefi-firmware.sh", forced)
 
         invalid_release = subprocess.run(
@@ -230,6 +234,65 @@ class BuildCacheTests(unittest.TestCase):
             self.assertNotEqual(
                 original, build_cache.fingerprint(root, "guest", command)
             )
+
+    def test_a_package_change_rebuilds_the_package_not_the_factory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            recipe = root / "guest/package/try-omarchy/PKGBUILD"
+            script = root / "guest/package/try-omarchy/files/usr/lib/try-omarchy/menu-entries"
+            console = root / "guest/package/try-omarchy/files/etc/limine-entry-tool.d/50-console.conf"
+            for path in (recipe, script, console, root / "guest/factory/build-image.sh"):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            recipe.write_text("pkgrel=1\ndepends=(\n  'bash'\n)\noptdepends=(\n  'wf-recorder: x'\n)\n")
+            script.write_text("one\n")
+            console.write_text("console=hvc0\n")
+            (root / "guest/factory/build-image.sh").write_text("factory\n")
+            (root / "LICENSE").write_text("license\n")
+            factory = [str(root / "guest/build.sh"), "--factory-only"]
+            package = [str(root / "guest/package/build.sh")]
+            factory_before = build_cache.fingerprint(root, "guest", factory)
+            package_before = build_cache.fingerprint(root, "guest-package", package)
+
+            # Package contents and a release bump reach VMs through the app.
+            script.write_text("two\n")
+            recipe.write_text(recipe.read_text().replace("pkgrel=1", "pkgrel=2"))
+            self.assertEqual(factory_before, build_cache.fingerprint(root, "guest", factory))
+            self.assertNotEqual(package_before, build_cache.fingerprint(root, "guest-package", package))
+
+            # What the factory bakes in: the boot image's command line and
+            # the dependencies it installs.
+            console.write_text("console=hvc0 quiet\n")
+            after_console = build_cache.fingerprint(root, "guest", factory)
+            self.assertNotEqual(factory_before, after_console)
+            recipe.write_text(recipe.read_text().replace("'wf-recorder: x'", "'wf-recorder: x'\n  'mpv: y'"))
+            self.assertNotEqual(after_console, build_cache.fingerprint(root, "guest", factory))
+
+    def test_pinned_downloads_are_kept_and_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            archive = work / "fresh/qemu-1.tar.gz"
+            archive.parent.mkdir()
+            archive.write_bytes(b"pinned archive\n")
+            pin = hashlib.sha256(b"pinned archive\n").hexdigest()
+            script = f"""
+                set -euo pipefail
+                log() {{ :; }}; die() {{ echo "$*" >&2; exit 1; }}
+                source "{REPOSITORY / 'macos/pinned-runtime-bottles.sh'}"
+                pinned_download_to_cache "{archive}"
+                mkdir -p "{work}/out"
+                pinned_download_from_cache {pin} "{work}/out/qemu-1.tar.gz" && echo hit
+                pinned_download_from_cache {'0' * 64} "{work}/out/other.tar.gz" || echo "wrong pin misses"
+            """
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True,
+                                    env={**os.environ, "OMARCHY_DOWNLOAD_CACHE": str(work / "cache")})
+            self.assertEqual(result.stdout.split("\n")[:2], ["hit", "wrong pin misses"])
+            self.assertEqual((work / "cache/qemu-1.tar.gz").read_bytes(), b"pinned archive\n")
+            # A corrupted cache entry is never used.
+            (work / "cache/qemu-1.tar.gz").write_bytes(b"tampered\n")
+            missed = subprocess.run(["bash", "-c", script.replace("pinned_download_to_cache", ": ")],
+                                    capture_output=True, text=True, check=True,
+                                    env={**os.environ, "OMARCHY_DOWNLOAD_CACHE": str(work / "cache")})
+            self.assertNotIn("hit", missed.stdout)
 
     def test_guest_validation_checks_manifest_and_successful_output_snapshot(
         self,

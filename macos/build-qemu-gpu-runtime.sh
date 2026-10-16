@@ -308,6 +308,10 @@ download_and_verify() {
   local output=$4
   local actual_sha
 
+  if pinned_download_from_cache "$expected_sha" "$output"; then
+    log "Using the downloaded $label"
+    return
+  fi
   log "Downloading $label"
   curl --fail --location --silent --show-error \
     --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --connect-timeout 20 \
@@ -315,6 +319,7 @@ download_and_verify() {
   actual_sha=$(shasum -a 256 "$output" | awk '{ print $1 }')
   [[ $actual_sha == "$expected_sha" ]] || \
     die "$label checksum mismatch: expected $expected_sha, got $actual_sha"
+  pinned_download_to_cache "$output"
 }
 
 obtain_and_verify() {

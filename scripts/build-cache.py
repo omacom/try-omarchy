@@ -86,13 +86,55 @@ def regular_files(
     return sorted(result)
 
 
+# What the factory takes from the guest package beyond installing it: the
+# kernel command line it builds into the boot image. Everything else in the
+# package reaches every VM, new ones included, when the app installs the newer
+# package before first-boot setup, so a package change rebuilds only the
+# package. The factory also installs the package's dependencies; those enter
+# its fingerprint through package_dependencies().
+GUEST_PACKAGE_FACTORY_INPUTS = ("try-omarchy/files/etc/limine-entry-tool.d",)
+
+
+def guest_package_files(root: Path) -> list[Path]:
+    package = root / "guest/package"
+    return [
+        path
+        for path in regular_files(package)
+        if path.name != "README.md" and "tests" not in path.relative_to(package).parts
+    ] + [root / "LICENSE"]
+
+
+def package_dependencies(root: Path) -> str:
+    """The guest package's depends and optdepends arrays, as written."""
+    try:
+        recipe = (root / "guest/package/try-omarchy/PKGBUILD").read_text()
+    except OSError:
+        return "<missing>"
+    arrays = re.findall(r"^((?:opt)?depends)=\((.*?)\)", recipe, re.M | re.S)
+    lines = []
+    for name, body in arrays:
+        items = re.findall(r"'([^']*)'", body)
+        lines.append(name + "=" + " ".join(items))
+    return "\n".join(lines)
+
+
 def component_files(root: Path, component: str) -> list[Path]:
+    if component == "guest-package":
+        return guest_package_files(root)
+
     if component == "guest":
         guest = root / "guest"
+        package = guest / "package"
+        factory_inputs = [package / relative for relative in GUEST_PACKAGE_FACTORY_INPUTS]
         return [
             path
             for path in regular_files(guest)
-            if path.name != "README.md" and "tests" not in path.relative_to(guest).parts
+            if path.name != "README.md"
+            and "tests" not in path.relative_to(guest).parts
+            and (
+                not path.is_relative_to(package)
+                or any(path.is_relative_to(inputs) for inputs in factory_inputs)
+            )
         ] + [root / "LICENSE"]
 
     if component == "runtime":
@@ -159,11 +201,13 @@ def app_external_files(root: Path) -> list[Path]:
     return [runtime / relative for relative in sorted(RUNTIME_FILES)]
 
 
-def context(component: str) -> dict[str, str]:
+def context(component: str, root: Path | None = None) -> dict[str, str]:
     values = {
         "architecture": command_output(["uname", "-m"]),
         "macOS": command_output(["sw_vers", "-productVersion"]),
     }
+    if component == "guest" and root is not None:
+        values["package-dependencies"] = package_dependencies(root)
     if component == "runtime":
         values.update(
             {
@@ -209,7 +253,7 @@ def fingerprint(root: Path, component: str, command: list[str]) -> str:
         json.dumps(normalized_command(root, command), separators=(",", ":")).encode()
     )
     digest.update(
-        json.dumps(context(component), sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(context(component, root), sort_keys=True, separators=(",", ":")).encode()
     )
 
     paths = component_files(root, component)
@@ -443,9 +487,22 @@ def validate_app(root: Path, previous: dict[str, Any] | None) -> dict[str, Any]:
     return snapshot
 
 
+def validate_guest_package(root: Path, previous: dict[str, Any] | None) -> dict[str, Any]:
+    directory = root / "dist/guest"
+    if not directory.is_dir() or directory.is_symlink():
+        raise CacheError("guest artifact directory is missing or unsafe")
+    package = guest_package(directory)
+    snapshot = {package.name: sha256_file(package)}
+    if previous is not None and previous.get("outputs") != snapshot:
+        raise CacheError("guest package changed since the successful build")
+    return snapshot
+
+
 def validate_outputs(
     root: Path, component: str, previous: dict[str, Any] | None
 ) -> dict[str, Any]:
+    if component == "guest-package":
+        return validate_guest_package(root, previous)
     if component == "guest":
         return validate_guest(root, previous)
     if component == "runtime":
@@ -552,7 +609,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--state-dir", required=True, type=Path)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("component", choices=("guest", "runtime", "app"))
+    parser.add_argument("component", choices=("guest-package", "guest", "runtime", "app"))
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command and args.command[0] == "--":
