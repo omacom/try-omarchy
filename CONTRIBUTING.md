@@ -82,31 +82,43 @@ as `make test-contracts`, `make test-guest` (the guest package), `make test-swif
 and `make test-shell`.
 
 PR checks run all tests and full runtime builds in separate, concurrent jobs on
-both macOS 15 and 26, labeled `Tests` and `Build`. Beside them, two Linux arm64
-jobs check the guest package the way a guest uses it: `Guest contracts` runs
-`make test-guest` on GNU tools, the guest scripts through ShellCheck, and
-`make test-upstream`, which checks the package's menu rows, commands, unit
-drop-ins and paths against the Omarchy the factory installs today;
-`Guest package install` installs the package with its dependencies from
-Omarchy's live repositories, builds its DKMS modules, upgrades from the base
-revision's package (whose version must be lower when the package changed) and
-removes it (`make test-guest-install`). No suites or runtime checks are skipped
-based on changed paths or cached test results; the builder image and package
-downloads are cached.
+both macOS 15 and 26, labeled `Tests` and `Build`. Beside them, three Linux
+arm64 jobs check the guest the way a user meets it:
 
-Two longer checks run outside pull requests:
+- `Guest contracts` runs `make test-guest` on GNU tools, the guest scripts
+  through ShellCheck, and `make test-upstream`, which checks the package's menu
+  rows, commands, unit drop-ins and paths against the Omarchy the factory
+  installs today.
+- `Guest package install` installs the package with its dependencies from
+  Omarchy's live repositories, builds its DKMS modules, upgrades from the base
+  revision's package (whose version must be lower when the package changed)
+  and removes it (`make test-guest-install`).
+- `Guest desktop` boots the factory's userland with systemd-nspawn, offers the
+  change's package the way the app offers its bundled one, and checks
+  first-boot setup, the system and package units, Omarchy's desktop session on
+  a vkms virtual display, its keybindings, the browser, screen recording, a
+  theme switch, the factory's apps, and Ghostty, Kitty and 1Password installed
+  the way Omarchy's Install menu does
+  ([guest/tests/desktop/run.sh](guest/tests/desktop/run.sh)). It boots the
+  nightly factory unless the change touches the factory's own inputs, which
+  then build here. Screenshots and logs are kept with the run.
 
-- **Guest desktop** (nightly, or by hand from the Actions tab): builds the
-  factory, boots its userland with systemd-nspawn on a hosted runner and
-  checks first-boot setup, the system and package units, Omarchy's desktop
-  session on a vkms virtual display, the shell, apps, and installs from the
-  live repositories ([guest/tests/desktop/run.sh](guest/tests/desktop/run.sh)).
-  Screenshots and logs are kept with the run.
-- **`make e2e`** (on an Apple Silicon Mac, with Docker running): boots a
+No suites or runtime checks are skipped based on changed paths or cached test
+results; the builder image, package downloads and the nightly factory are
+cached.
+
+Outside pull requests:
+
+- **Guest desktop** (nightly, or by hand from the Actions tab) builds a new
+  factory from Omarchy's live repositories and runs the same checks with VS
+  Code and Signal added. Its factory is the one pull requests boot the next
+  day.
+- **`make e2e`** (on an Apple Silicon Mac, with Docker running) boots a
   disposable VM in the built app's own runtime and adds what only a Mac has:
-  HVF, VirGL on the Mac's GPU, the bridges, the shared folder, shutdown and a
-  second boot ([tests/e2e/run.sh](tests/e2e/run.sh)). Run it before a release
-  and for changes to the runtime or the bridges.
+  HVF, VirGL on the Mac's GPU, Omarchy's keybindings on the VM's keyboard, the
+  bridges, the shared folder, shutdown and a second boot ([tests/e2e/run.sh](tests/e2e/run.sh)). Run it before opening a
+  pull request that changes the app, the runtime, the launcher or the bridges
+  (the template's checklist asks), and before a release.
 
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that

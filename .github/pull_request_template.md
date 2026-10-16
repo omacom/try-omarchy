@@ -8,3 +8,6 @@
 <!-- Describe the commands or manual steps you used and their results.
      Mention anything you could not test.
      Add screenshots or a short video here if they help explain a UI change. -->
+
+- [ ] `make e2e` passes on an Apple Silicon Mac (recommended for changes to
+      the app, the runtime, the launcher or the bridges, which CI cannot boot)

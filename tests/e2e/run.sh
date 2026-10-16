@@ -4,12 +4,17 @@
 # (QEMU on HVF, VirGL on the Mac's GPU, the Cocoa window, the Mac bridges),
 # from first boot to a second cold boot. What the hosted CI cannot run.
 #
-#   tests/e2e/run.sh [--app APP] [--out DIR] [--keep] [--no-installs] [--prepare-only] [APP_COMMAND...]
+#   tests/e2e/run.sh [--app APP] [--factory DIR] [--package FILE] [--out DIR] [--keep] [--no-installs] [--prepare-only] [APP_COMMAND...]
 #
 # --app APP     the built app (default dist/app.noindex/Try Omarchy.app)
+# --factory DIR boot this factory (guest/build.sh's output) instead of the app's
+# --package FILE offer this try-omarchy package instead of the app's bundled one
+#               (as the app offers it, through the guest's update service)
 # --out DIR     results, screenshots and logs (default .build/e2e/<time>)
 # --keep        keep the VM's storage folder afterwards
-# --no-installs skip installing packages and terminals from Omarchy's repositories
+# --no-installs skip installing apps from Omarchy's repositories (by default:
+#               Ghostty, Kitty, 1Password, VS Code and Signal; CI_INSTALLS
+#               names others, see guest/tests/desktop/session-checks.sh)
 # --prepare-only create and prepare the VM, keep it and stop before its first boot
 #
 # The VM gets its own storage folder (never the app's), a free loopback port
@@ -17,9 +22,10 @@
 # fixed answers for Omarchy's first-boot form, the checks and a root SSH key
 # (prepare-disk.sh, in the guest builder image, so Docker must be running).
 # The VM's window opens on this Mac while the run lasts (about ten minutes).
-# The checks: guest/tests/desktop's system and session checks, plus the Mac
-# integrations (vm-checks.sh), the shutdown and a second boot that keeps
-# the user's files. Exits 1 when a check fails.
+# The checks: guest/tests/desktop's system and session checks, plus Omarchy's
+# keybindings pressed on the VM's keyboard (qmp-keys.py), the Mac integrations
+# (vm-checks.sh), the shutdown and a second boot that keeps the user's files.
+# Exits 1 when a check fails.
 
 set -euo pipefail
 
@@ -34,14 +40,18 @@ out=""
 keep=0
 installs=1
 prepare_only=0
+package=""
+factory=""
 while (($#)); do
   case $1 in
     --app) app=${2:?}; shift 2 ;;
+    --factory) factory=$(cd "${2:?}" && pwd -P); shift 2 ;;
+    --package) package=$(cd "$(dirname "${2:?}")" && pwd -P)/$(basename "$2"); shift 2 ;;
     --out) out=${2:?}; shift 2 ;;
     --keep) keep=1; shift ;;
     --no-installs) installs=0; shift ;;
     --prepare-only) prepare_only=1; keep=1; shift ;;
-    -h | --help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,30p' "$0"; exit 0 ;;
     --*) fail "unknown option: $1" ;;
     *) break ;;
   esac
@@ -98,7 +108,7 @@ password="e2e-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf 'CI_USER=%s\nCI_PASSWORD=%s\n' "$user" "$password" >"$inject/ci-run/answers"
 cp "$repo"/guest/tests/desktop/provision-seeded.sh "$repo"/guest/tests/desktop/system-checks.sh \
   "$repo"/guest/tests/desktop/session-checks.sh "$repo"/tests/e2e/vm-checks.sh \
-  "$repo"/guest/package/tests/virgl-smoke.c "$inject/ci/"
+  "$repo"/guest/package/tests/virgl-smoke.c "$repo"/tests/e2e/hypr-state.sh "$inject/ci/"
 : >"$inject/ci/container-expected"
 share_token="from-the-mac-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf '%s' "$share_token" >"$share/e2e-from-mac.txt"
@@ -115,12 +125,15 @@ launch_env=(
   OMARCHY_QEMU_GPU_SHARED_FOLDER="$share"
   OMARCHY_QEMU_GPU_IMMERSIVE=0
 )
+[[ -z $package ]] || launch_env+=(OMARCHY_SHELL_INSTALL_PACKAGE="$package")
 # The VM's size follows the launcher's own settings when they are set.
 for setting in OMARCHY_QEMU_GPU_MEMORY_MIB OMARCHY_QEMU_GPU_CPUS; do
   [[ -z ${!setting:-} ]] || launch_env+=("$setting=${!setting}")
 done
+launcher_args=()
+[[ -z $factory ]] || launcher_args=("$factory")
 launch() { # log
-  env "${launch_env[@]}" "$launcher" >"$1" 2>&1 &
+  env "${launch_env[@]}" "$launcher" ${launcher_args[@]+"${launcher_args[@]}"} >"$1" 2>&1 &
   launcher_pid=$!
 }
 wait_for_ssh() { # seconds
@@ -133,7 +146,7 @@ wait_for_ssh() { # seconds
 }
 # --- a new VM, prepared before its first boot ------------------------------------------
 log "Creating the VM (the app's launcher, dry run)"
-env "${launch_env[@]}" OMARCHY_QEMU_GPU_DRY_RUN=1 "$launcher" >"$out/create.log" 2>&1 || {
+env "${launch_env[@]}" OMARCHY_QEMU_GPU_DRY_RUN=1 "$launcher" ${launcher_args[@]+"${launcher_args[@]}"} >"$out/create.log" 2>&1 || {
   tail -20 "$out/create.log"
   fail "the launcher could not create the VM"
 }
@@ -162,11 +175,52 @@ log "System checks"
 guest /ci/system-checks.sh 2>&1 | record
 log "Desktop session"
 uid=$(guest id -u "$user")
-terminals="ghostty kitty"
-((installs)) || terminals=""
+installs_list=${CI_INSTALLS-ghostty kitty 1password vscode signal}
+((installs)) || installs_list=""
 quoted=""
 for app in "$@"; do quoted="$quoted $(printf '%q' "$app")"; done
-guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus CI_TERMINALS='$terminals' /ci/session-checks.sh$quoted" 2>&1 | record
+guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus CI_INSTALLS='$installs_list' /ci/session-checks.sh$quoted" 2>&1 | record
+# Omarchy's keybindings, pressed on the VM's keyboard through QEMU (the path a
+# Mac keyboard takes), which the session checks cannot do from inside.
+log "Keybindings on the VM's keyboard"
+qmp=$(sed -n 's/^\[qemu-gpu\] Ready\. QMP: //p' "$out/launch-1.log" | tail -1)
+press() { /usr/bin/python3 "$repo/tests/e2e/qmp-keys.py" "$qmp" "$@"; }
+state() { guest "runuser -u $user -- /ci/hypr-state.sh $1" 2>/dev/null; }
+eventually() { # seconds command...
+  local deadline=$((SECONDS + $1))
+  shift
+  until "$@"; do
+    ((SECONDS < deadline)) || return 1
+    sleep 1
+  done
+}
+windows=$(state windows)
+more_windows() { [[ $(state windows) -gt $windows ]]; }
+same_windows() { [[ $(state windows) -eq $windows ]]; }
+press meta_l+ret
+if eventually 30 more_windows; then
+  pass "Super + Return opens a terminal"
+  sleep 3
+  guest rm -f /ci-run/keys.txt
+  press --text "echo keys-$port > /ci-run/keys.txt" && press ret
+  keys_typed() { [[ $(guest cat /ci-run/keys.txt 2>/dev/null) == "keys-$port" ]]; }
+  eventually 15 keys_typed && pass "a command typed on the VM's keyboard runs" || miss "a command typed on the VM's keyboard did not run"
+  press meta_l+w
+  eventually 15 same_windows && pass "Super + W closes the window" || miss "Super + W did not close the window"
+else
+  miss "Super + Return opened no terminal"
+fi
+press meta_l+spc
+menu_open() { state menu; }
+menu_closed() { ! state menu; }
+if eventually 15 menu_open; then
+  pass "Super + Space opens Omarchy's menu"
+  press esc
+  eventually 15 menu_closed && pass "Escape closes Omarchy's menu" || miss "Escape did not close Omarchy's menu"
+else
+  miss "Super + Space did not open Omarchy's menu"
+fi
+
 # After the session: the desktop bridges follow graphical-session.target.
 log "Mac integrations"
 guest /ci/vm-checks.sh "$user" "$mac_zone" "$share_token" 2>&1 | record

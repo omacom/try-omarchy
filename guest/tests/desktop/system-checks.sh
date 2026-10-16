@@ -48,6 +48,8 @@ while read -r unit _; do
   else
     bad "$unit failed"
     journalctl -b -u "$unit" --no-pager -n 8 -o cat 2>/dev/null | sed 's/^/     /'
+    # Omarchy's first-boot steps log their output there.
+    [[ $unit != omarchy-provision-* ]] || tail -15 /var/log/omarchy-install.log 2>/dev/null | sed 's/^/     install.log: /'
   fi
 done < <(systemctl list-units --failed --plain --no-legend 2>/dev/null)
 
@@ -74,7 +76,19 @@ done
 
 [[ $(systemctl is-enabled systemd-timesyncd.service 2>/dev/null) == enabled ]] && ok "NTP is enabled" || bad "NTP is not enabled"
 version=$(pacman -Q try-omarchy 2>/dev/null | awk '{print $2}')
-if [[ -n ${CI_PACKAGE_VERSION:-} ]]; then
+# A package offered the way the app offers its bundled one (the
+# tryomarchy.package credential and the package share) installs before login
+# when it is newer than the installed one.
+if [[ -n ${CI_OFFERED_VERSION:-} ]]; then
+  result=$(jq -r .result /var/lib/try-omarchy/package-install.json 2>/dev/null)
+  case $result in
+    installed)
+      [[ $version == "$CI_OFFERED_VERSION" ]] && ok "the update path installed the offered try-omarchy $version before login" ||
+        bad "the update path reported an install, but try-omarchy $version is installed, not $CI_OFFERED_VERSION" ;;
+    current) note "the offered try-omarchy $CI_OFFERED_VERSION is not newer than the factory's $version" ;;
+    *) bad "the update path did not install the offered package: $(cat /var/lib/try-omarchy/package-install.json 2>/dev/null || echo 'no result')" ;;
+  esac
+elif [[ -n ${CI_PACKAGE_VERSION:-} ]]; then
   [[ $version == "$CI_PACKAGE_VERSION" ]] && ok "try-omarchy $version installed" ||
     bad "try-omarchy $version installed, expected $CI_PACKAGE_VERSION"
 else

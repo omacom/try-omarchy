@@ -7,11 +7,15 @@
 # drawn by Mesa's software renderer, the shell, apps, and installs from
 # Omarchy's repositories.
 #
-#   sudo guest/tests/desktop/run.sh FACTORY_DIR OUT_DIR [APP...]   (APP: see session-checks.sh)
+#   sudo guest/tests/desktop/run.sh [--package FILE] FACTORY_DIR OUT_DIR [APP...]
 #
 # FACTORY_DIR holds factory.json and the compressed disk (guest/build.sh's
-# output). OUT_DIR receives results.txt, results.md, screens/, the console
-# and the journal. Exits 1 when a check fails.
+# output). --package offers a try-omarchy package the way the app offers its
+# bundled one (the tryomarchy.package credential and the package share), so
+# the guest's own update service installs it before first login. APP: see
+# session-checks.sh; CI_INSTALLS passes through. OUT_DIR receives
+# results.txt, results.md, screens/, the console and the journal. Exits 1
+# when a check fails.
 #
 # What differs from the VM, and why: no kernel or firmware of the guest's
 # own; no Mac on the other side of the virtio ports (units that need one are
@@ -31,7 +35,14 @@ fail() {
 }
 
 ((EUID == 0)) || fail "run as root"
-(($# >= 2)) || fail "usage: run.sh FACTORY_DIR OUT_DIR [APP...]"
+offered=""
+if [[ ${1:-} == --package ]]; then
+  offered=$(cd "$(dirname "${2:?}")" && pwd)/$(basename "$2")
+  [[ -f $offered && ${offered##*/} =~ ^try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst$ ]] ||
+    fail "not a try-omarchy package: $2"
+  shift 2
+fi
+(($# >= 2)) || fail "usage: run.sh [--package FILE] FACTORY_DIR OUT_DIR [APP...]"
 factory=$(cd "$1" && pwd)
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
@@ -109,8 +120,19 @@ jq -r '"factory: omarchy \(.omarchy), kernel \(.kernel), built \(.built)"' "$fac
 # --- container adaptations (see the header) -------------------------------------------
 mkdir -p "$run/screens"
 chmod 1777 "$run" "$run/screens"
-printf 'CI_USER=%s\nCI_PASSWORD=%s\nCI_PACKAGE_VERSION=%s\n' "$user" "ci-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
-  "$(awk '$1 == "try-omarchy" { print $2 }' "$factory/packages.txt")" >"$run/answers"
+offered_version=""
+offer=()
+if [[ -n $offered ]]; then
+  offered_version=${offered##*/try-omarchy-}
+  offered_version=${offered_version%-*.pkg.tar.zst}
+  mkdir -p "$work/packages"
+  cp "$offered" "$work/packages/"
+  # The share's mount point already mounted, the update service skips its 9p mount.
+  offer=(--set-credential="tryomarchy.package:${offered##*/}" --bind-ro="$work/packages:/run/try-omarchy/packages")
+fi
+printf 'CI_USER=%s\nCI_PASSWORD=%s\nCI_PACKAGE_VERSION=%s\nCI_OFFERED_VERSION=%s\n' "$user" \
+  "ci-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+  "$(awk '$1 == "try-omarchy" { print $2 }' "$factory/packages.txt")" "$offered_version" >"$run/answers"
 chmod 644 "$run/answers"
 : >"$work/fstab"
 ln -sfn /dev/null "$root/etc/systemd/system/sddm.service"
@@ -145,7 +167,7 @@ systemd-nspawn --boot --quiet --machine="$machine" --directory="$root" \
   --network-veth --resolv-conf=auto --timezone=off --link-journal=no \
   --bind-ro="$work/fstab:/etc/fstab" --bind-ro="$here:/ci" --bind="$run:/ci-run" \
   --bind="$card" --property="DeviceAllow=$card rw" --bind=/dev/fuse --property="DeviceAllow=/dev/fuse rwm" \
-  --bind-ro=/run/udev \
+  --bind-ro=/run/udev ${offer[@]+"${offer[@]}"} \
   --console=pipe </dev/null >"$out/console.log" 2>&1 &
 nspawn_pid=$!
 # The host side of the container's network: systemd-networkd's
@@ -182,7 +204,9 @@ systemd-run --machine="$machine" --quiet --unit=ci-desktop-session -p PAMName=lo
   /usr/bin/bash -lc "XDG_SEAT=seat0 exec $session"
 
 log "Session checks"
-systemd-run --machine="$machine" --quiet --wait --pipe --collect -p User="$user" -E "XDG_RUNTIME_DIR=/run/user/$uid" \
+check_env=(-E "XDG_RUNTIME_DIR=/run/user/$uid")
+[[ -z ${CI_INSTALLS+set} ]] || check_env+=(-E "CI_INSTALLS=$CI_INSTALLS")
+systemd-run --machine="$machine" --quiet --wait --pipe --collect -p User="$user" "${check_env[@]}" \
   /ci/session-checks.sh ${apps[@]+"${apps[@]}"} 2>&1 | record
 journalctl -M "$machine" --no-pager -u ci-desktop-session >"$out/session.log" 2>&1 || true
 

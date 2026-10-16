@@ -96,14 +96,7 @@ jobs:
           key: guest-builder-${{ hashFiles('guest/factory/Containerfile', 'guest/keys/**', 'guest/vendor/**') }}
 
       - name: Load or build the builder image
-        run: |
-          image="$RUNNER_TEMP/builder-image.tar.zst"
-          if [ -f "$image" ]; then
-            zstd -dc "$image" | docker load --quiet
-          else
-            docker build --quiet --platform linux/arm64 -f guest/factory/Containerfile -t try-omarchy-guest-builder .
-            docker save try-omarchy-guest-builder | zstd -T0 -3 -q -o "$image"
-          fi
+        run: guest/tests/builder-image.sh "$RUNNER_TEMP/builder-image.tar.zst"
 
       - name: Restore package downloads
         id: pacman-restore
@@ -135,3 +128,83 @@ jobs:
         with:
           path: ${{ runner.temp }}/pacman-cache
           key: ${{ steps.pacman-key.outputs.key }}
+
+  # The factory's userland booted with systemd-nspawn and checked the way a
+  # user meets it (guest/tests/desktop): first-boot setup, units, Omarchy's
+  # desktop on a virtual display, keybindings, the browser, screen recording,
+  # a theme switch, the factory's apps, and apps installed the way Omarchy's
+  # Install menu does. The factory comes from the nightly Guest desktop run's
+  # cache when this change leaves its inputs alone; the change's own package
+  # is offered the way the app offers its bundled one, so the guest's update
+  # service installs it before first login. A change to the factory's inputs
+  # builds a new factory here instead.
+  guest-desktop:
+    name: Guest desktop (Linux)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Restore the builder image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/builder-image.tar.zst
+          key: guest-builder-${{ hashFiles('guest/factory/Containerfile', 'guest/keys/**', 'guest/vendor/**') }}
+
+      - name: Load or build the builder image
+        run: guest/tests/builder-image.sh "$RUNNER_TEMP/builder-image.tar.zst"
+
+      - name: Restore the factory disk
+        id: factory
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/factory
+          key: guest-factory-${{ hashFiles('guest/factory/**', 'guest/build.sh', 'guest/keys/**', 'guest/vendor/**') }}-latest
+          restore-keys: guest-factory-${{ hashFiles('guest/factory/**', 'guest/build.sh', 'guest/keys/**', 'guest/vendor/**') }}-
+
+      - name: Build the factory disk (its inputs changed)
+        if: steps.factory.outputs.cache-matched-key == ''
+        env:
+          GUEST_BUILDER_IMAGE: try-omarchy-guest-builder
+        run: guest/build.sh --output "$RUNNER_TEMP/factory"
+
+      - name: Keep the new factory disk for later runs
+        if: steps.factory.outputs.cache-matched-key == '' && github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/factory
+          key: guest-factory-${{ hashFiles('guest/factory/**', 'guest/build.sh', 'guest/keys/**', 'guest/vendor/**') }}-${{ github.run_id }}
+
+      - name: Build this change's package
+        if: steps.factory.outputs.cache-matched-key != ''
+        env:
+          GUEST_BUILDER_IMAGE: try-omarchy-guest-builder
+        run: guest/package/build.sh --output "$RUNNER_TEMP/package"
+
+      - name: Install systemd-nspawn
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends systemd-container
+
+      - name: Boot and check the userland
+        run: |
+          offer=()
+          for package in "$RUNNER_TEMP"/package/try-omarchy-*.pkg.tar.zst; do
+            [ -f "$package" ] && offer=(--package "$package")
+          done
+          sudo env CI_INSTALLS="ghostty kitty 1password" \
+            guest/tests/desktop/run.sh "${offer[@]}" "$RUNNER_TEMP/factory" "$RUNNER_TEMP/desktop"
+
+      - name: Summary
+        if: always()
+        run: cat "$RUNNER_TEMP/desktop/results.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Keep screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guest-desktop
+          path: ${{ runner.temp }}/desktop
+          retention-days: 14
