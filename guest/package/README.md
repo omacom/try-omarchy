@@ -48,7 +48,8 @@ not ignore, so caches and other local files never reach the package.
 - **Units are enabled by preset.** They are enabled on first install. A unit
   added in a later release is enabled by name in `post_upgrade`. The install
   also enables `systemd-timesyncd` (once, on upgrades from before `0.1.0-13`),
-  which stock Omarchy leaves to the distribution.
+  which stock Omarchy leaves to the distribution. Removing the package
+  disables its own units again.
 - **Menu rows go through Omarchy's menu extension.** `menu-entries` adds Try
   Omarchy's rows once each and changes some of Omarchy's: the Timezone row's
   action, and the conditions that show Direct Boot, Firmware, the Wi-Fi and

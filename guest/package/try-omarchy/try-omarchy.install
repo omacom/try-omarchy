@@ -24,6 +24,12 @@ post_install() {
   _reload_logind
 }
 
+# Removal undoes the install's enablement, so no unit link outlives its unit.
+pre_remove() {
+  systemctl disable $_units >/dev/null 2>&1 || true
+  systemctl --global disable $_user_units >/dev/null 2>&1 || true
+}
+
 post_upgrade() {
   # Earlier packages started these in every user manager, including SSH and
   # owner provisioning, before logind granted the desktop's device access.
