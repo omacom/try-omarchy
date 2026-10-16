@@ -16,13 +16,16 @@ closes. The `try-omarchy` package runs Ghostty on Mesa's software renderer
 - `/usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop`
   shadows the package's desktop entry, through `XDG_DATA_DIRS`, and calls the
   wrapper. Omarchy's terminal launcher (`xdg-terminal-exec`) uses it.
-- A drop-in for `app-com.mitchellh.ghostty.service` sets the variable for
+- A drop-in for `app-com.mitchellh.ghostty.service` starts the wrapper for
   D-Bus activation.
 
-The variable is inherited by programs started from a Ghostty terminal, which
-then also render in software. Software rendering costs more CPU, especially at
-high resolutions. The `PATH` and `XDG_DATA_DIRS` changes apply from the next
-login.
+Only Ghostty renders in software. The wrapper also passes
+`--env=LIBGL_ALWAYS_SOFTWARE=0`, which Mesa reads as false, so shells and
+programs started in a Ghostty terminal keep the GPU. Ghostty's `env` option
+can override an inherited variable but not remove it; a program that treats
+the variable's mere presence as "software" would still see it. Software
+rendering costs more CPU, especially at high resolutions. The `PATH` and
+`XDG_DATA_DIRS` changes apply from the next login.
 
 Not yet verified in a running guest. To check, install Ghostty, restart the
 VM, press **Super + Return**, and confirm a Ghostty window stays open. If it

@@ -488,9 +488,31 @@ class TimeZoneMenu(unittest.TestCase):
 
 
 class Ghostty(unittest.TestCase):
-    def test_every_launch_path_uses_the_software_renderer(self):
-        wrapper = FILES / "usr/lib/try-omarchy/bin/ghostty"
-        self.assertIn("export LIBGL_ALWAYS_SOFTWARE=1\nexec /usr/bin/ghostty \"$@\"", wrapper.read_text())
+    WRAPPER = FILES / "usr/lib/try-omarchy/bin/ghostty"
+
+    def launch(self, *args):
+        tmp = Path(tempfile.mkdtemp())
+        stub = tmp / "ghostty"
+        stub.write_text('#!/bin/sh\necho "LIBGL_ALWAYS_SOFTWARE=$LIBGL_ALWAYS_SOFTWARE"\nprintf "%s\\n" "$@"\n')
+        stub.chmod(0o755)
+        result = subprocess.run([str(self.WRAPPER), *args], capture_output=True, text=True, check=True,
+                                env={**os.environ, "TRY_OMARCHY_GHOSTTY": str(stub)})
+        return result.stdout.splitlines()
+
+    def test_ghostty_renders_in_software_and_its_shells_keep_the_gpu(self):
+        self.assertEqual(self.launch("--gtk-single-instance=true", "-e", "htop"),
+                         ["LIBGL_ALWAYS_SOFTWARE=1", "--env=LIBGL_ALWAYS_SOFTWARE=0",
+                          "--gtk-single-instance=true", "-e", "htop"])
+        # +actions must stay first.
+        self.assertEqual(self.launch("+version"), ["LIBGL_ALWAYS_SOFTWARE=1", "+version"])
+
+    def test_missing_ghostty_says_how_to_install_it(self):
+        result = subprocess.run([str(self.WRAPPER)], capture_output=True, text=True,
+                                env={**os.environ, "TRY_OMARCHY_GHOSTTY": "/nonexistent"})
+        self.assertEqual(result.returncode, 127)
+        self.assertIn("Install > Terminal > Ghostty", result.stderr)
+
+    def test_every_launch_path_uses_the_wrapper(self):
         environment = (FILES / "usr/lib/environment.d/90-try-omarchy.conf").read_text()
         self.assertIn("PATH=/usr/lib/try-omarchy/bin:$PATH\n", environment)
         self.assertIn("XDG_DATA_DIRS=/usr/share/try-omarchy/xdg:", environment)
@@ -498,13 +520,16 @@ class Ghostty(unittest.TestCase):
         entry.optionxform = str
         entry.read(FILES / "usr/share/try-omarchy/xdg/applications/com.mitchellh.ghostty.desktop")
         for section in entry.sections():
-            self.assertTrue(entry[section]["Exec"].startswith("/usr/lib/try-omarchy/bin/ghostty "), section)
+            self.assertEqual(entry[section]["Exec"],
+                             "/usr/lib/try-omarchy/bin/ghostty --gtk-single-instance=true", section)
         # Hidden until the Ghostty package is installed.
         self.assertEqual(entry["Desktop Entry"]["TryExec"], "/usr/bin/ghostty")
         self.assertEqual(entry["Desktop Entry"]["X-TerminalArgExec"], "-e")
+        # Ghostty 1.3.1's unit, with the wrapper in place of /usr/bin/ghostty.
         drop_in = (FILES / "usr/lib/systemd/user/app-com.mitchellh.ghostty.service.d"
                    / "10-try-omarchy-software-gl.conf").read_text()
-        self.assertIn("Environment=LIBGL_ALWAYS_SOFTWARE=1", drop_in)
+        self.assertIn("ExecStart=\nExecStart=/usr/lib/try-omarchy/bin/ghostty "
+                      "--gtk-single-instance=true --initial-window=false\n", drop_in)
 
 
 class TzupdateShim(unittest.TestCase):

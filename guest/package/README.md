@@ -102,7 +102,8 @@ stock package exits at startup. `/usr/lib/try-omarchy/bin/ghostty` runs it with
 `LIBGL_ALWAYS_SOFTWARE=1`. The session's `environment.d` puts that directory
 first on `PATH` and `/usr/share/try-omarchy/xdg` first in `XDG_DATA_DIRS`,
 whose Ghostty desktop entry calls the wrapper; a user-unit drop-in covers
-D-Bus activation. See [Ghostty](../../docs/ghostty.md).
+D-Bus activation. The wrapper sets `LIBGL_ALWAYS_SOFTWARE=0` for programs
+started in Ghostty, so they keep the GPU. See [Ghostty](../../docs/ghostty.md).
 
 ## Boot console
 

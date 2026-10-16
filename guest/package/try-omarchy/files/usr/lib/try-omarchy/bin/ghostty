@@ -3,10 +3,17 @@
 # Ghostty needs desktop OpenGL 4.3, which this VM's VirGL renderer doesn't
 # offer, so the stock package exits at startup. Run it on Mesa's software
 # renderer instead. The session puts this directory first on PATH, and the
-# package's Ghostty desktop entry and service drop-in do the same.
-if [[ ! -x /usr/bin/ghostty ]]; then
+# package's Ghostty desktop entry and service drop-in call it too.
+ghostty=${TRY_OMARCHY_GHOSTTY:-/usr/bin/ghostty}
+if [[ ! -x $ghostty ]]; then
   echo "Ghostty isn't installed; choose Install > Terminal > Ghostty in the Omarchy menu." >&2
   exit 127
 fi
 export LIBGL_ALWAYS_SOFTWARE=1
-exec /usr/bin/ghostty "$@"
+# Shells and programs started in Ghostty keep the GPU: Mesa reads 0 as false.
+# Ghostty's env option can only override an inherited variable, not unset it.
+# A +action (ghostty +version) must stay the first argument.
+if [[ ${1:-} == +* ]]; then
+  exec "$ghostty" "$@"
+fi
+exec "$ghostty" --env=LIBGL_ALWAYS_SOFTWARE=0 "$@"
