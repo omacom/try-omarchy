@@ -1,6 +1,8 @@
 [Unit]
 Description=Install the Try Omarchy package offered by the Mac app
-After=local-fs.target network-online.target
+# pacman takes one transaction at a time: Omarchy's first-boot hardware setup
+# (which also makes the machine's keyring) installs packages too, so wait for it.
+After=local-fs.target network-online.target omarchy-provision-hardware.service
 Before=display-manager.service omarchy-provision-owner.service getty@tty1.service
 
 [Service]

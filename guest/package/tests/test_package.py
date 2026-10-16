@@ -429,6 +429,13 @@ class GuestStatus(unittest.TestCase):
 
 
 class PackageInstall(unittest.TestCase):
+    def test_waits_for_omarchys_first_boot_hardware_setup(self):
+        # Both run pacman at first boot; a second transaction fails on the lock.
+        unit = (FILES / "usr/lib/systemd/system/try-omarchy-package-install.service").read_text()
+        after = re.search(r"^After=(.*)$", unit, re.M).group(1).split()
+        self.assertIn("omarchy-provision-hardware.service", after)
+        self.assertRegex(unit, r"(?m)^Before=.*omarchy-provision-owner\.service")
+
     def test_name_pattern_matches_launcher(self):
         install = (LIB / "package-install").read_text()
         launcher = (Path(__file__).resolve().parents[3] / "macos/run-qemu-gpu.sh").read_text()
