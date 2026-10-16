@@ -7,7 +7,8 @@
 #   user-setup [--reload]
 #
 # It places one loader in Omarchy's Hyprland toggles directory, which Omarchy
-# loads after the user's own configuration. Nothing the user edits is changed.
+# loads after the user's own configuration, adds menu rows once and turns
+# Omarchy's idle screensaver and lock off once; a user's later edits stay.
 
 set -euo pipefail
 
@@ -27,6 +28,8 @@ fi
 
 # Settings and Touch ID rows in the Omarchy menu, added once.
 "${TRY_OMARCHY_MENU_ENTRIES:-/usr/lib/try-omarchy/menu-entries}" || true
+# Omarchy's idle screensaver and lock off in the VM, once.
+"${TRY_OMARCHY_IDLE_DEFAULTS:-/usr/lib/try-omarchy/idle-defaults}" || true
 
 if ((changed)) && [[ ${1:-} == --reload && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   hyprctl reload >/dev/null 2>&1 || true

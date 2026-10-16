@@ -39,6 +39,20 @@ ROWS = (
      '  "setup.direct-boot": {"when":"! omarchy-hw-vm && ! omarchy-hw-aarch64-apple && '
      '[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]"},\n', 4),
     ("update.firmware", '  "update.firmware": {"when":"! omarchy-hw-vm"},\n', 4),
+    # The Mac's battery shows in the bar, but the VM has no lid or laptop
+    # chassis, so Omarchy's own condition hides the percentage toggle.
+    ("trigger.appearance.top-bar.indicators.battery-percentage",
+     '  "trigger.appearance.top-bar.indicators.battery-percentage": '
+     '{"when":"omarchy-hw-laptop || compgen -G \'/sys/class/power_supply/BAT*\' >/dev/null"},\n', 5),
+    # The VM has no Wi-Fi or Bluetooth hardware to restart.
+    ("update.hardware.wifi", '  "update.hardware.wifi": {"when":"! omarchy-hw-vm"},\n', 5),
+    ("update.hardware.bluetooth", '  "update.hardware.bluetooth": {"when":"! omarchy-hw-vm"},\n', 5),
+    # These install Windows games through Wine (Lutris, Battle.net) or an
+    # x86_64 client (GeForce NOW), which aarch64 has no packages for. Omarchy
+    # already hides Minecraft and Heroic this way.
+    ("install.gaming.geforce-now", '  "install.gaming.geforce-now": {"when":"omarchy-hw-x86"},\n', 5),
+    ("install.gaming.battlenet", '  "install.gaming.battlenet": {"when":"omarchy-hw-x86"},\n', 5),
+    ("install.gaming.lutris", '  "install.gaming.lutris": {"when":"omarchy-hw-x86"},\n', 5),
 )
 RELEASE = max(release for _, _, release in ROWS)
 HEADER = "  // Try Omarchy: Mac integration rows and VM adjustments (added once each; safe to remove).\n"

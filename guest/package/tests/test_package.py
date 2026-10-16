@@ -69,7 +69,8 @@ class PackageLayout(unittest.TestCase):
                 continue
             for match in re.finditer(r"^Exec\w*=-?(/\S+)", unit.read_text(), re.M):
                 program = match.group(1)
-                if program.startswith(("/usr/bin/rm", "/usr/bin/python3")):
+                # Other packages' programs: coreutils, python, rtkit (a drop-in).
+                if program.startswith(("/usr/bin/rm", "/usr/bin/python3", "/usr/lib/rtkit-daemon")):
                     continue
                 self.assertTrue((FILES / program.lstrip("/")).is_file(), f"{unit.name}: {program}")
 
@@ -165,7 +166,8 @@ class SshAccess(unittest.TestCase):
 class UserSetup(unittest.TestCase):
     def test_places_loader_once(self):
         state = Path(tempfile.mkdtemp())
-        env = {"XDG_STATE_HOME": str(state), "HOME": str(state), "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true"}
+        env = {"XDG_STATE_HOME": str(state), "HOME": str(state), "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true",
+               "TRY_OMARCHY_IDLE_DEFAULTS": "/usr/bin/true"}
         run(LIB / "user-setup", env=env)
         loader = state / "omarchy/toggles/hypr/zz-try-omarchy.lua"
         first = loader.read_text()
@@ -179,6 +181,10 @@ class UserSetup(unittest.TestCase):
 
 
 class MenuEntries(unittest.TestCase):
+    RELEASE_5 = {"trigger.appearance.top-bar.indicators.battery-percentage", "update.hardware.wifi",
+                 "update.hardware.bluetooth", "install.gaming.geforce-now", "install.gaming.battlenet",
+                 "install.gaming.lutris"}
+
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
         self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}
@@ -200,7 +206,13 @@ class MenuEntries(unittest.TestCase):
         parsed = self.parse(self.menu.read_text())
         self.assertEqual(set(parsed), {"setup.try-omarchy", "setup.security.touch-id",
                                        "setup.security.onepassword-touch-id", "update.timezone",
-                                       "setup.direct-boot", "update.firmware"})
+                                       "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
+        # Rows from release 5 only add or narrow conditions.
+        for key in self.RELEASE_5:
+            self.assertEqual(set(parsed[key]), {"when"}, key)
+        self.assertEqual(parsed["install.gaming.lutris"]["when"], "omarchy-hw-x86")
+        self.assertIn("compgen -G '/sys/class/power_supply/BAT*'",
+                      parsed["trigger.appearance.top-bar.indicators.battery-percentage"]["when"])
         # VM-only rows hide Omarchy's own rows, keeping any condition they had.
         self.assertEqual(parsed["update.firmware"], {"when": "! omarchy-hw-vm"})
         self.assertEqual(parsed["setup.direct-boot"]["when"],
@@ -224,9 +236,9 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
                          {"setup.security.onepassword-touch-id", "update.timezone",
-                          "setup.direct-boot", "update.firmware"})
+                          "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 4)
+        self.assertEqual(len(self.parse(self.menu.read_text())), 4 + len(self.RELEASE_5))
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
@@ -236,7 +248,7 @@ class MenuEntries(unittest.TestCase):
         (self.home / ".local/state/try-omarchy/menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), {"update.timezone", "setup.direct-boot", "update.firmware"})
+        self.assertEqual(set(self.parse(text)), {"update.timezone", "setup.direct-boot", "update.firmware"} | self.RELEASE_5)
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
@@ -249,6 +261,54 @@ class MenuEntries(unittest.TestCase):
                        "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""}, check=True)
         created = other / ".config/omarchy/extensions/omarchy-menu.jsonc"
         self.assertIn("setup.try-omarchy", self.parse(created.read_text()))
+
+
+class IdleDefaults(unittest.TestCase):
+    STOCK = '{\n  "idle": {\n    "screensaver": 150,\n    "lock": 300\n  },\n  "bar": {\n    "position": "top"\n  }\n}\n'
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        self.shell = self.home / ".config/omarchy/shell.json"
+        self.marker = self.home / ".local/state/try-omarchy/idle-defaults"
+
+    def run_once(self):
+        subprocess.run(["python3", str(LIB / "idle-defaults")], check=True,
+                       env={**os.environ, "HOME": str(self.home), "XDG_CONFIG_HOME": "", "XDG_STATE_HOME": ""})
+
+    def write(self, text):
+        self.shell.parent.mkdir(parents=True, exist_ok=True)
+        self.shell.write_text(text)
+
+    def test_stock_timeouts_are_turned_off_once_and_nothing_else_changes(self):
+        self.write(self.STOCK)
+        self.run_once()
+        self.assertEqual(self.shell.read_text(), self.STOCK.replace("150", "0").replace("300", "0"))
+        self.assertTrue(self.marker.exists())
+        self.write(self.STOCK)  # the user turned them back on
+        self.run_once()
+        self.assertEqual(self.shell.read_text(), self.STOCK)
+
+    def test_a_users_own_timeouts_stay(self):
+        custom = self.STOCK.replace("150", "600")
+        self.write(custom)
+        self.run_once()
+        self.assertEqual(self.shell.read_text(), custom)
+        self.assertTrue(self.marker.exists())
+
+    def test_waits_for_omarchy_and_leaves_other_files_alone(self):
+        self.run_once()
+        self.assertFalse(self.marker.exists())  # retried at the next login
+        self.write("{ not json")
+        self.run_once()
+        self.assertEqual(self.shell.read_text(), "{ not json")
+        self.assertFalse(self.marker.exists())
+
+
+class Rtkit(unittest.TestCase):
+    def test_mac_sleep_does_not_demote_pipewire(self):
+        drop_in = (FILES / "usr/lib/systemd/system/rtkit-daemon.service.d"
+                   / "10-try-omarchy-no-canary.conf").read_text()
+        self.assertIn("[Service]\nExecStart=\nExecStart=/usr/lib/rtkit-daemon --no-canary\n", drop_in)
 
 
 class Locale(unittest.TestCase):

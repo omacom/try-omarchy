@@ -1,0 +1,58 @@
+#!/usr/bin/python3 -I
+"""Turn off Omarchy's idle screensaver and lock in the VM, once per user.
+
+The guest sees no input while its user works in macOS, so the screensaver
+would start after Omarchy's 150 s and the session lock after 300 s, out of
+sight: the screensaver costs CPU and every return to the VM asks for the
+password, although the Mac's own lock protects the VM. Omarchy reads both
+timeouts from ~/.config/omarchy/shell.json (`idle`, seconds, 0 is off). Only
+Omarchy's defaults (150 and 300) are changed, and a marker in
+~/.local/state/try-omarchy records that this ran, so a user's own timeouts,
+now or later, stay as they are. The numbers are replaced in place; the rest
+of the file is kept byte for byte.
+"""
+
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+
+DEFAULTS = {"screensaver": 150, "lock": 300}
+MAXIMUM_BYTES = 256 * 1024
+
+
+def main():
+    home = Path(os.environ["HOME"])
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    state = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state")
+    marker = state / "try-omarchy/idle-defaults"
+    path = config / "omarchy/shell.json"
+    if marker.exists() or path.is_symlink() or not path.is_file():
+        return 0  # done before, or Omarchy hasn't written it yet: next login
+    if path.stat().st_size > MAXIMUM_BYTES:
+        return 0
+    text = path.read_text()
+    try:
+        idle = json.loads(text).get("idle")
+    except (ValueError, AttributeError):
+        return 0  # not plain JSON; leave the user's file alone
+    if idle == DEFAULTS:
+        block = re.search(r'"idle"\s*:\s*\{[^{}]*\}', text)
+        new = block and re.sub(r'("(?:screensaver|lock)"\s*:\s*)\d+', r"\g<1>0", block.group(0))
+        updated = new and text[:block.start()] + new + text[block.end():]
+        if not updated or json.loads(updated).get("idle") != {"screensaver": 0, "lock": 0}:
+            return 0
+        descriptor, temporary = tempfile.mkstemp(prefix=".shell.", dir=path.parent)
+        with os.fdopen(descriptor, "w") as output:
+            output.write(updated)
+        os.chmod(temporary, path.stat().st_mode & 0o777)
+        os.replace(temporary, path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("1\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
