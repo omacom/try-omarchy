@@ -31,7 +31,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 | 1Password Quick Access shortcut (Ctrl+Shift+Space) gone | Old `1password-arm64-installer.patch`; upstream binds only Super+Shift+/ | open |
 | Vulkan-only apps install, then fail: Zed, Steam and games | No Vulkan driver in the guest; edge aarch64 carries `zed`, `steam`, `omarchy-steam-fex` | open; real fix is Venus (below) |
 | Screen recording: `gpu-screen-recorder` refuses VirGL and the `wf-recorder` fallback is missing | `gpu-screen-recorder` exits: no h264/hevc/av1 encoder (no VA-API) | fixed and verified: Omarchy's script recorded a correct 3024×1900 H.264 file through `wf-recorder` |
-| Lost GPU context leaves a permanent black desktop or black Chrome | VirGL treats Apple 4.1 core refusals (GLSL < 3.30, core-feature extension lines, 32 samplers, framebuffers without attachments) as fatal. OmacVM ADR 0019 and its gpu-robust patches; our `virgl-native-opengl.patch` has none | open; host VirGL patches |
+| Lost GPU context leaves a permanent black desktop or black Chrome | VirGL treats Apple 4.1 core refusals (GLSL < 3.30, core-feature extension lines, 32 samplers, framebuffers without attachments) as fatal. OmacVM ADR 0019 and its gpu-robust patches; our `virgl-native-opengl.patch` has none | open: the next graphics project. OmacVM forked this runtime and carries about 60 interdependent VirGL patches, each proven with dEQP and WebGL runs; the robustness subset (ADR 0019 GLSL and limits, shader-failure containment, context-loss reporting) needs those runs here before it ships |
 | Night light may do nothing on virtio-gpu (no colour transform) | Hyprland logs "connector Virtual-1 crtc doesn't support CTM"; a guest capture at 2500 K is unchanged (captures miss display-level transforms) | likely broken; confirm by eye, then hide the rows or ask upstream for a fallback |
 | Browser screen sharing over the portal on VirGL buffers is untested | | verify |
 | Screenshot freeze and recording stall the VM and audio: hyprpicker redraws every frame; full-screen uploads through the main loop | OmacVM TS #32 (rebuilt hyprpicker, `virgl-transfer-upload-pbo.patch`) | verify |
@@ -42,23 +42,23 @@ needs a check in a running guest first), **limit** (a design constraint).
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| VM freezes when the microphone starts: QEMU opens SDL capture on a vCPU thread holding the BQL; CoreAudio can block for minutes | Our `qemu-sdl-audio-device-selection.patch` defers capture to that path. OmacVM: `qemu-sdl-audio-capture-thread.patch`, `-playback-thread.patch` (TS #22, #26) | open |
-| Crackling under GPU or CPU load | No main-loop QoS; RTKit's canary demotes PipeWire after a QEMU stall. OmacVM: `qemu-darwin-main-loop-qos.patch`, `qemu-hda-no-catch-up.patch`, `rtkit-no-canary.conf`; 365 → 50 breaks per 10 min (ADR 0036) | open |
-| Video audio leads the picture | QEMU buffers (110–150 ms, plus our 4096 quantum) and Mac output latency are unknown to PipeWire. OmacVM sets a sink latency offset from the host (TS #28) | open |
+| VM freezes when the microphone starts: QEMU opens SDL capture on a vCPU thread holding the BQL; CoreAudio can block for minutes | Our `qemu-sdl-audio-device-selection.patch` defers capture to that path. OmacVM: `qemu-sdl-audio-capture-thread.patch`, `-playback-thread.patch` (TS #22, #26) | fixed: both adapted ([audio continuity](audio-continuity.md#stalls-slow-devices-and-mac-sleep)); a wedged device not reproduced here |
+| Crackling under GPU or CPU load | No main-loop QoS; RTKit's canary demotes PipeWire after a QEMU stall, which is what pausing the VM for Mac sleep looks like. OmacVM: `qemu-darwin-main-loop-qos.patch`, `qemu-hda-no-catch-up.patch`, `rtkit-no-canary.conf`; 365 → 50 breaks per 10 min (ADR 0036) | fixed: all three adapted; OmacVM's measurements, not repeated here |
+| Video audio leads the picture | QEMU buffers (110–150 ms in OmacVM's build) and Mac output latency are unknown to PipeWire. OmacVM sets a sink latency offset from the host (TS #28) | open, designed: add each Mac output's CoreAudio latency (device, safety offset, stream, buffer) plus QEMU's share to the audio bridge's catalog; the guest bridge sets it as the HDA output port's latency offset when the route changes. Not built: QEMU's share is an estimate, and a wrong offset makes sync worse, so it needs a lip-sync measurement first |
 | WirePlumber can stall on a V4L2 node that is not ready yet | OmacVM TS #29 | not seen: WirePlumber responsive, no restarts, `Mac Camera` listed (one boot) |
 
 ## Mac integration, displays and power
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
-| VM slows to 2–20 % while hidden, on another Space or with the Mac locked (App Nap) | No App Nap handling in QEMU or the app. OmacVM `omacvm-cocoa-no-app-nap.patch` (TS #31) | open |
-| Screensaver after 150 s and lock after 300 s while the user works in macOS; the screensaver costs CPU and the user unlocks on every return | `shell/plugins/services/idle/Service.qml` defaults | open; host-driven idle inhibit or user default |
+| VM slows to 2–20 % while hidden, on another Space or with the Mac locked (App Nap) | No App Nap handling in QEMU or the app. OmacVM `omacvm-cocoa-no-app-nap.patch` (TS #31) | fixed: `qemu-cocoa-no-app-nap.patch` ([performance](performance.md#app-nap)); the activity is held (QEMU's log) and the guest ran at full speed out of sight. A napped baseline from this build (`TRYOMARCHY_APP_NAP=1`) is not measured yet |
+| Screensaver after 150 s and lock after 300 s while the user works in macOS; the screensaver costs CPU and the user unlocks on every return | `shell/plugins/services/idle/Service.qml` defaults | fixed: `idle-defaults` sets both to 0 in `~/.config/omarchy/shell.json` once, only while they are Omarchy's defaults; the Mac's lock protects the VM, and Omarchy's settings turn them back on |
 | Firmware logo and `BdsDxe` lines, then boot and shutdown text, show in the VM window. The window appears when QEMU starts, before the firmware | The firmware is QEMU's prebuilt `edk2-aarch64-code.fd`; it has no runtime switch for its logo on ARM. Proposed: a cover in QEMU's Cocoa window until the first GL scanout (Hyprland), revealed at the kernel on a VM's first boot for the setup form, with a timeout, and covering again on shutdown | open; deferred by choice |
 | Instant resume and guest hibernation | QEMU: "virgl is not yet migratable" (OmacVM ADR 0037) | limit |
 | 120 Hz frame pacing: frames dropped or repeated | OmacVM ADR 0020, 0023 | verify |
-| Power profiles show but change nothing; "Managed by macOS" presentation dropped | [Host battery](host-battery.md), [shell plan](shell-plan.md) | open |
+| Power profiles show but change nothing; "Managed by macOS" presentation dropped | [Host battery](host-battery.md), [shell plan](shell-plan.md) | open: the power panel is Omarchy's QML, so a "Managed by macOS" state needs an upstream hook (a platform that reports no CPU frequency control); not patched |
 | Battery panel may show Holding while charging (stock heuristic) | Holding when charging at ≤ 0.2 W or ≥ 8 h to full (`panels/power/Model.js`) | not seen: plugged in read charging 38 W, 1.1 h to full; on battery 8.9 W, 1.9 h left. A brief Holding right after plugging in (UPower's 10 s rate blackout) is possible |
-| Battery percentage toggle hidden: `omarchy-hw-laptop` finds no lid | `menu.jsonc` `when` | open |
+| Battery percentage toggle hidden: `omarchy-hw-laptop` finds no lid | `menu.jsonc` `when` | fixed: the menu extension also shows it when a `BAT*` power supply exists |
 
 ## Menus and features
 
@@ -66,9 +66,9 @@ needs a check in a running guest first), **limit** (a design constraint).
 | --- | --- | --- |
 | Setup → Direct Boot would bypass Limine and its snapshot menu | Guarded only by `! omarchy-hw-aarch64-apple` | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
 | Update → Firmware installs fwupd with nothing to update | No guard | fixed: hidden in the VM (row in the menu extension; menu not viewed) |
-| GeForce NOW, Battle.net and Lutris rows offered on aarch64 | Lutris and Battle.net need `wine-staging` and `umu-launcher`, not in any aarch64 repository; GeForce NOW's installer is, as far as known, x86_64 only | open; all ARM Omarchy, so upstream `omarchy-hw-x86` guards |
-| Wi-Fi, Bluetooth and Trackpad restart rows do nothing | Harmless | open, low |
-| Notifications show over the screensaver | Old `notification-screen-privacy.patch`; no upstream equivalent | open; upstream |
+| GeForce NOW, Battle.net and Lutris rows offered on aarch64 | Lutris and Battle.net need `wine-staging` and `umu-launcher`, not in any aarch64 repository; GeForce NOW's installer is, as far as known, x86_64 only | fixed locally: hidden with `omarchy-hw-x86`, as Omarchy does for Minecraft and Heroic; worth the same guard upstream for every ARM machine |
+| Wi-Fi, Bluetooth and Trackpad restart rows do nothing | Harmless | fixed for Wi-Fi and Bluetooth (hidden in a VM). Trackpad kept: the VM has a virtual touchpad, and whether a restart affects it is unchecked |
+| Notifications show over the screensaver | Old `notification-screen-privacy.patch`; no upstream equivalent | open; upstream (rarely visible now that the VM's idle screensaver is off by default) |
 | US-International (dead keys) layout missing | Old `keyboard-us-acentos.patch` | open; upstream |
 | Project wallpaper gone | Old skel wallpaper (#88) | open, low |
 

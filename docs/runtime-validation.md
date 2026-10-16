@@ -286,3 +286,18 @@ Later the same day, in the same VM, with the user watching the VM window:
 In-guest `grim` captures are not reliable for GPU-drawn client windows: 1Password
 captured black every time while the user saw it render. Visual results above
 come from the Mac's screen.
+
+### Runtime patches and package 0.1.0-16
+
+The app rebuilt with the App Nap, HDA pacing, SDL capture and playback
+thread, and main-loop QoS patches, and `try-omarchy 0.1.0-16`, launched the
+same test VM (8 vCPUs, 8 GiB).
+
+| Check | Result |
+| --- | --- |
+| QEMU's log | "App Nap off while the VM runs", "main loop QoS: user-interactive", "HDA sound pacing on"; no audio-device warnings |
+| Guest CPU out of sight | 8 busy processes: 346 and 354 million loops/s in two 15 s runs with Finder or another app in front; QEMU's threads at priority 31 and 46 (a napped QEMU runs at 4). The VM was not confirmed on screen for either run, so this shows no slowdown, not a visible-versus-hidden comparison; a `TRYOMARCHY_APP_NAP=1` baseline is not measured |
+| Microphone open | `pw-record` took 3.8 s of real input (RMS 412) while 80 pings to the Mac at 50 ms intervals all answered, the slowest in 0.41 ms |
+| RTKit | `rtkit-daemon --no-canary`; PipeWire's data loops at SCHED_RR 20 |
+| Idle | `~/.config/omarchy/shell.json` idle `screensaver` and `lock` 0, marker written |
+| Menu | Release 5 rows present (battery percentage, Wi-Fi and Bluetooth restart, three game rows) |
