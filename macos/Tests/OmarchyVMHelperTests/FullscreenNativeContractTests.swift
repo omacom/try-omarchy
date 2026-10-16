@@ -40,9 +40,10 @@ struct FullscreenNativeContractTests {
         #expect(!immersivePatch.contains("+    NSMenuItem *fullScreenMenuItem;"))
 
         #expect(keyboardPatch.contains(
-            "return [NSApp isActive] && [[self window] isKeyWindow] &&\n" +
-            "+           (isMouseGrabbed || full_grab_enabled);"
+            "BOOL captured = foregroundPID == getpid() && keyWindow &&\n" +
+            "+                    (isMouseGrabbed || full_grab_enabled);"
         ))
+        #expect(keyboardPatch.contains("[[NSWorkspace sharedWorkspace] frontmostApplication]"))
         #expect(keyboardPatch.contains("if ([view isKeyboardCaptured]"))
         #expect(keyboardPatch.contains("if (![self isKeyboardCaptured]"))
 

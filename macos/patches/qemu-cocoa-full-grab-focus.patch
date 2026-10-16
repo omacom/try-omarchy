@@ -28,8 +28,9 @@ The HID-level event tap receives system Command shortcuts before normal host
 dispatch. When Accessibility permission is available, full grab therefore
 keeps those shortcuts with the focused guest as well.
 
-Require the application to be active and the VM window to be key before
-capturing any keyboard event, including when a stale mouse grab remains set.
+Require macOS's frontmost process to be this QEMU process and the VM window
+to be key before capturing any keyboard event. NSApp's cached active state
+alone is insufficient during launch and activation transitions.
 Also release mouse and guest keys on app deactivation, independently of the
 existing key-window notification. A background VM must never swallow host
 keystrokes while a focus notification is delayed.
@@ -45,16 +46,20 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  - (void) raiseAllKeys;
  @end
  
-@@ -362,7 +363,7 @@
+@@ -362,7 +363,11 @@
  {
      QemuCocoaView *view = userInfo;
      NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];
 -    if ([view isMouseGrabbed] && [view handleEvent:event]) {
++    if (getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY")) {
++        [view isKeyboardCaptured];
++        return cgEvent;
++    }
 +    if ([view isKeyboardCaptured] && [view handleEvent:event]) {
          COCOA_DEBUG("Global events tap: qemu handled the event, capturing!\n");
          return NULL;
      }
-@@ -1032,10 +1033,9 @@
+@@ -1032,10 +1037,9 @@
                      }
                      break;
  
@@ -67,7 +72,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
                          !!(modifiers & NSEventModifierFlagCommand) &&
                          left_command_key_enabled) {
                          if (swap_opt_cmd) {
-@@ -1047,8 +1047,7 @@
+@@ -1047,8 +1051,7 @@
                      break;
  
                  case kVK_RightCommand:
@@ -77,7 +82,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
                          !!(modifiers & NSEventModifierFlagCommand)) {
                          if (swap_opt_cmd) {
                              [self toggleKey:KEY_RIGHTALT];
-@@ -1062,8 +1061,9 @@
+@@ -1062,8 +1065,9 @@
          case NSEventTypeKeyDown:
              keycode = cocoa_keycode_to_linux([event keyCode]);
  
@@ -89,7 +94,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
                  ([event modifierFlags] & NSEventModifierFlagCommand)) {
                  return false;
              }
-@@ -1101,7 +1101,7 @@
+@@ -1101,7 +1105,7 @@
  
              // don't pass the guest a spurious key-up if we treated this
              // command-key combo as a host UI action
@@ -98,7 +103,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
                  ([event modifierFlags] & NSEventModifierFlagCommand)) {
                  return true;
              }
-@@ -1293,6 +1293,24 @@
+@@ -1293,6 +1297,45 @@
      }
  }
  - (BOOL) isMouseGrabbed {return isMouseGrabbed;}
@@ -117,13 +122,34 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 + */
 +- (BOOL) isKeyboardCaptured
 +{
-+    return [NSApp isActive] && [[self window] isKeyWindow] &&
-+           (isMouseGrabbed || full_grab_enabled);
++    NSRunningApplication *frontmost =
++        [[NSWorkspace sharedWorkspace] frontmostApplication];
++    pid_t foregroundPID = frontmost ? [frontmost processIdentifier] : -1;
++    BOOL keyWindow = [[self window] isKeyWindow];
++    BOOL captured = foregroundPID == getpid() && keyWindow &&
++                    (isMouseGrabbed || full_grab_enabled);
++
++    /* Opt-in diagnostics contain focus state only, never key contents. */
++    if (getenv("TRYOMARCHY_INPUT_TRACE")) {
++        static pid_t lastForegroundPID = -2;
++        static int lastState = -1;
++        int state = ([NSApp isActive] ? 1 : 0) | (keyWindow ? 2 : 0) |
++                    (isMouseGrabbed ? 4 : 0) | (captured ? 8 : 0);
++        if (lastForegroundPID != foregroundPID || lastState != state) {
++            fprintf(stderr, "[input-focus] self=%d foreground=%d app-active=%d "
++                    "key-window=%d mouse-grab=%d captured=%d\n",
++                    getpid(), foregroundPID, !![NSApp isActive], !!keyWindow,
++                    !!isMouseGrabbed, !!captured);
++            lastForegroundPID = foregroundPID;
++            lastState = state;
++        }
++    }
++    return captured;
 +}
  
  /*
   * Makes the target think all down keys are being released.
-@@ -1537,6 +1555,14 @@
+@@ -1537,6 +1580,14 @@
      [cocoaView ungrabMouse];
      [cocoaView raiseAllKeys];
  }

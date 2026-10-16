@@ -31,8 +31,8 @@ in [Japanese input](japanese-input.md).
 
 ## Focus and keyboard capture
 
-Command reaches the guest as Super while the QEMU application is active and
-its VM window is key, in both windowed and full-screen presentation. A stale
+Command reaches the guest as Super while macOS identifies QEMU as the foreground
+process and its VM window is key, in both windowed and full-screen presentation. A stale
 mouse grab cannot authorize global keyboard capture after switching to a Mac
 app. App deactivation and window focus loss both release the guest's held keys
 and mouse buttons; returning to the VM does not require typing to reset capture.
@@ -40,6 +40,12 @@ and mouse buttons; returning to the VM does not require typing to reset capture.
 If input appears stuck while using an older runtime, focus the VM and press
 Control–Option–G to release its mouse grab, then select the Mac application.
 Quit the VM if host input still does not recover.
+
+For diagnosis, `TRYOMARCHY_INPUT_TRACE=1` logs foreground PID, local activation,
+window-key state and capture decisions, without recording key contents.
+`TRYOMARCHY_INPUT_OBSERVE_ONLY=1` makes the global tap pass every event through;
+it observes the capture decision without forwarding or suppressing the event.
+These variables apply to the QEMU process and are unset during normal use.
 
 ## Validation
 

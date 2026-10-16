@@ -3,6 +3,7 @@
 
 import hashlib
 import platform
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -38,6 +39,19 @@ class KeyboardFocusTests(unittest.TestCase):
         harness = harness.replace('/* CAPTURE */', capture)
         harness = harness.replace('/* DEACTIVATE */', deactivate)
         with tempfile.TemporaryDirectory() as directory:
+            # Apply the actual callback hunks to its pinned upstream body.
+            # Exercise suppression/recovery without creating a global tap.
+            callback = Path(directory) / 'ui/cocoa.m'
+            callback.parent.mkdir()
+            callback.write_text((ROOT / 'macos/Tests/cocoa-keyboard-tap-base.m').read_text())
+            for patch in (PATCH, ROOT / 'macos/patches/qemu-cocoa-full-grab-reenable.patch'):
+                chunks = re.split(r'(?=^@@ )', patch.read_text(), flags=re.M)
+                hunk = next(chunk for chunk in chunks[1:]
+                            if 'QemuCocoaView *view = userInfo;' in chunk)
+                subprocess.run(['patch', '-d', directory, '-p1', '-F', '0', '-f'],
+                               input='--- a/ui/cocoa.m\n+++ b/ui/cocoa.m\n' + hunk,
+                               text=True, check=True, capture_output=True)
+            harness = harness.replace('/* CALLBACK */', callback.read_text())
             source, binary = Path(directory) / 'test.m', Path(directory) / 'test'
             source.write_text(harness)
             subprocess.run(['xcrun', 'clang', '-Werror', '-framework', 'Foundation',

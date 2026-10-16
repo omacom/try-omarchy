@@ -177,7 +177,7 @@ sets its mouse-grab flag. The previous capture predicate trusted that flag even
 if the QEMU application was inactive or its VM window was not key, so it could
 authorize the global keyboard tap before the first focus-loss cleanup.
 
-The capture predicate now requires an active application and key VM window,
+The first mitigation required an active application and key VM window,
 including when the mouse-grab flag is set. App deactivation also releases mouse
 and guest key state independently of the existing window-focus notification.
 The QEMU pin stayed unchanged; both affected local patch checksums were updated.
@@ -206,3 +206,42 @@ Verification:
 
 The QA VM was powered off afterward. The normal VM and launcher preferences were
 not changed, and the temporary test-only Command bridge was not running.
+
+### Recurrence during active-capture verification
+
+The user reported another capture without focus during the next QA session.
+The VM was powered off immediately, and process inspection confirmed its QEMU
+and host bridges had exited. UUID and Objective-C symbol checks confirmed the
+QA display contained the rebuilt runtime and deactivation handler. The first
+mitigation and its earlier automated smoke checks therefore did not establish
+reliable physical keyboard ownership.
+
+The revised guard checks the foreground process reported by
+[`NSWorkspace.frontmostApplication`](https://developer.apple.com/documentation/appkit/nsworkspace/frontmostapplication),
+which Apple defines as the recipient of key events, instead of trusting
+`NSApp.isActive`. It still captures focused input
+with full grab enabled when the mouse is outside the view or its grab is clear.
+Unknown foreground state passes input through. Optional focus-only tracing and
+an observe-only mode support live diagnosis without global suppression.
+
+The native harness now applies the actual callback hunks to the pinned upstream
+callback, then compiles it alongside the capture and deactivation methods. It
+checks stale local activation in both directions, nil foreground state,
+focused key-down/key-up suppression with no mouse grab, background pass-through,
+both tap-disable recovery paths, and observation without forwarding or consuming
+events. The focused regression passes.
+
+The observation run recorded QEMU's local `app-active=1`, `key-window=1` and
+`mouse-grab=1` while the OS foreground process was UserNotificationCenter.
+The revised predicate correctly reported `captured=0` in that state. This is
+direct evidence that the local activation flags were insufficient. Computer
+use was blocked from inspecting UserNotificationCenter, so its dialog and the
+subsequent physical foreground-shortcut path were not verified. Earlier
+TextEdit injections did not produce a global-tap trace and must not be treated
+as proof of hardware-event capture or release.
+
+`make runtime` and `make app` passed for the revised guard, including signature
+verification and the 17-image runtime / 22-image app compatibility audits.
+The observation VM was powered off after collecting the trace. Reliable
+physical keyboard ownership, including guest Super shortcuts after focus,
+pointer-exit and full-screen transitions, remains an explicit sign-off check.
