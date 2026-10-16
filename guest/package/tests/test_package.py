@@ -878,6 +878,35 @@ class Hyprland(unittest.TestCase):
         self.assertIn("invisible = true", handler[:200])
 
 
+class AuthenticationState(unittest.TestCase):
+    def setUp(self):
+        self.broker = load(LIB / "native-authentication-broker", "broker")
+        self.directory = Path(tempfile.mkdtemp()) / "try-omarchy"
+        self.path = self.directory / "native-authentication.json"
+
+    def save(self):
+        self.broker.save_state(b"k" * 32, "a" * 64, self.path, enforce_root_owner=False)
+
+    def test_pairing_keeps_the_shared_state_directory_usable_by_the_desktop_user(self):
+        # The user checks that a pairing exists (1Password Touch ID) and reads
+        # the time zone policy here; 0700 hid both.
+        self.directory.mkdir(mode=0o700)
+        self.save()
+        self.assertEqual(stat.S_IMODE(self.directory.stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+        self.assertEqual(json.loads(self.path.read_text())["guestId"], "a" * 64)
+
+    def test_an_unsafe_directory_is_still_refused(self):
+        self.directory.parent.mkdir(exist_ok=True)
+        self.directory.symlink_to(self.directory.parent)
+        with self.assertRaises(Exception):
+            self.save()
+
+    def test_boot_repairs_directories_earlier_packages_locked(self):
+        rule = (FILES / "usr/lib/tmpfiles.d/try-omarchy.conf").read_text()
+        self.assertIn("\nd /var/lib/try-omarchy 0755 root root -\n", rule)
+
+
 class OnePassword(unittest.TestCase):
     def test_enables_the_shipped_unit(self):
         command = (FILES / "usr/bin/try-omarchy-onepassword-touch-id").read_text()

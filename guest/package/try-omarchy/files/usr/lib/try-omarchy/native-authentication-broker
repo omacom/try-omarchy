@@ -431,10 +431,13 @@ def save_state(
 ) -> None:
     payload = (json.dumps(state_payload(public_key, guest_id), sort_keys=True) + "\n").encode("ascii")
     parent = path.parent
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    parent.chmod(0o700)
+    # /var/lib/try-omarchy is shared: the desktop user reads the time zone
+    # policy there and checks that a pairing exists. Root-owned and writable by
+    # root alone protects the pairing as well as 0700 did; the file is 0600.
+    parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    parent.chmod(0o755)
     parent_info = parent.stat(follow_symlinks=False)
-    if not stat.S_ISDIR(parent_info.st_mode) or (
+    if not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_mode & 0o022 or (
         enforce_root_owner and parent_info.st_uid != 0
     ):
         raise AuthorizationError("authentication state directory is unsafe")
