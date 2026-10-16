@@ -74,6 +74,11 @@ mapped_sections_patch="$native_dir/patches/qemu-hvf-mapped-sections.patch"
 strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
 minimum_guest_size_patch="$native_dir/patches/qemu-cocoa-minimum-guest-size.patch"
+no_app_nap_patch="$native_dir/patches/qemu-cocoa-no-app-nap.patch"
+hda_no_catch_up_patch="$native_dir/patches/qemu-hda-no-catch-up.patch"
+audio_capture_thread_patch="$native_dir/patches/qemu-sdl-audio-capture-thread.patch"
+audio_playback_thread_patch="$native_dir/patches/qemu-sdl-audio-playback-thread.patch"
+main_loop_qos_patch="$native_dir/patches/qemu-darwin-main-loop-qos.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
@@ -111,6 +116,11 @@ virgl_upload_flush_patch_sha256=e5de1617bfeeb2e0ea0fa5cc5c4192f34c896c86efc51e0f
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
+no_app_nap_patch_sha256=af5f7c5c04da1293dcfcd752c60bfd258357bd72427492ea81c834ededa39967
+hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
+audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
+audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
+main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
 slirp_source_root=libslirp-v4.9.4
@@ -244,6 +254,16 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing USB exact-bus patch: $usb_exact_bus_patch"
 [[ -f $minimum_guest_size_patch && ! -L $minimum_guest_size_patch ]] || \
   die "missing Cocoa minimum guest size patch: $minimum_guest_size_patch"
+[[ -f $no_app_nap_patch && ! -L $no_app_nap_patch ]] || \
+  die "missing Cocoa App Nap patch: $no_app_nap_patch"
+[[ -f $hda_no_catch_up_patch && ! -L $hda_no_catch_up_patch ]] || \
+  die "missing HDA no-catch-up pacing patch: $hda_no_catch_up_patch"
+[[ -f $audio_capture_thread_patch && ! -L $audio_capture_thread_patch ]] || \
+  die "missing SDL audio capture-thread patch: $audio_capture_thread_patch"
+[[ -f $audio_playback_thread_patch && ! -L $audio_playback_thread_patch ]] || \
+  die "missing SDL audio playback-thread patch: $audio_playback_thread_patch"
+[[ -f $main_loop_qos_patch && ! -L $main_loop_qos_patch ]] || \
+  die "missing Darwin main-loop QoS patch: $main_loop_qos_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -471,8 +491,18 @@ verify_file_sha "Try Omarchy USB exact-bus patch" \
   "$usb_exact_bus_patch" "$usb_exact_bus_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa minimum guest size patch" \
   "$minimum_guest_size_patch" "$minimum_guest_size_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa App Nap patch" \
+  "$no_app_nap_patch" "$no_app_nap_patch_sha256"
+verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
+  "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
+verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
+  "$audio_capture_thread_patch" "$audio_capture_thread_patch_sha256"
+verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
+  "$audio_playback_thread_patch" "$audio_playback_thread_patch_sha256"
+verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
+  "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, and minimum guest size patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, and main-loop QoS patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -485,6 +515,9 @@ verify_file_sha "Try Omarchy HDA full-ring recovery patch" \
   "$audio_recovery_patch" "$audio_recovery_patch_sha256"
 patch -d "$source_dir" -p1 -f -i "$audio_device_patch"
 patch -d "$source_dir" -p1 -f -i "$audio_recovery_patch"
+patch -d "$source_dir" -p1 -f -i "$hda_no_catch_up_patch"
+patch -d "$source_dir" -p1 -f -i "$audio_capture_thread_patch"
+patch -d "$source_dir" -p1 -f -i "$audio_playback_thread_patch"
 patch -d "$source_dir" -p1 -f -i "$shared_folder_patch"
 patch -d "$source_dir" -p1 -f -i "$strchrnul_patch"
 patch -d "$source_dir" -p1 -f -i "$memory_reclaim_patch"
@@ -496,6 +529,8 @@ patch -d "$source_dir" -p1 -f -i "$iso_swap_patch"
 patch -d "$source_dir" -p1 -f -i "$injected_text_patch"
 patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 patch -d "$source_dir" -p1 -f -i "$minimum_guest_size_patch"
+patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
+patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

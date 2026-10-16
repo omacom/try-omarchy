@@ -1,0 +1,177 @@
+From: Try Omarchy contributors
+Subject: [PATCH] hda-codec: no catch-up after a stalled main loop (pacing)
+
+What: the HDA output timer stops taking a stalled main loop's missed guest
+audio all at once. 250 ms after a stream starts (QEMU's ring is full by
+then), the guest's audio is taken at most 1/32 faster than real time plus a
+small burst (B_SIZE / 8); a debt beyond that is forgiven, so the guest's
+clock pauses during a stall and QEMU's own ring covers it. New codec
+property pace (default on); pace=off is QEMU's behaviour. QEMU's log says
+"Try Omarchy: HDA sound pacing on|off"; trace event hda_audio_pace_forgive.
+
+Why: when the main loop stalls for S ms (virgl compiling shaders: 50-80 ms;
+a Mac with every core busy), the backend keeps playing from QEMU's ring, and
+then the output timer took the whole S at once and the sync corrections
+pulled up to five times faster. The guest saw its DMA position jump by S:
+PipeWire's sink under-ran, or refilled in a burst and drained the app's
+stream. Each stall had to be buffered twice (in QEMU and in the guest).
+Measured (M4 Max, VM 8 vCPUs, glmark2 scene changes, 8 busy Mac threads, a
+tone through PipeWire, 10 min each, main loop at user-interactive QoS):
+breaks in the tone median 120 (5 runs) without, 50 (4 runs) with when the
+vCPUs are busy too; the guest's sink under-ran in 4 of 5 runs without and
+1 of 4 with; QEMU's full-ring recoveries 62-67 per run without, 0 with.
+Round trip unchanged (about 282 ms).
+
+Applies after qemu-hda-full-ring-recovery.patch.
+Upstream: not sent yet (QEMU's HDA pacing is shared by every host; worth
+offering once it has run a release here).
+Tested in OmacVM: app/runtime/Tests/audio (measure.sh, glitches.py); the audio-crackle
+track's notes have the runs.
+
+Adapted from OmacVM's patch of the same name (MIT,
+https://github.com/gillesgoetsch/OmacVM), with its log lines and
+environment variable renamed for Try Omarchy.
+
+--- a/hw/audio/hda-codec.c
++++ b/hw/audio/hda-codec.c
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "qemu/osdep.h"
++#include "qemu/error-report.h"
+ #include "hw/pci/pci.h"
+ #include "hw/core/qdev-properties.h"
+ #include "intel-hda.h"
+@@ -172,6 +173,11 @@
+     int64_t wpos;
+     QEMUTimer *buft;
+     int64_t buft_start;
++    /* Sound pacing (output): see hda_audio_output_pace() */
++    bool primed;
++    int64_t run_ns;
++    int64_t pace_ns;
++    int64_t budget;
+ };
+ 
+ struct HDAAudioState {
+@@ -187,6 +193,7 @@
+     /* properties */
+     uint32_t debug;
+     bool     mixer;
++    bool     pace;
+ };
+ 
+ static inline uint32_t hda_bytes_per_second(HDAAudioStream *st)
+@@ -285,6 +292,58 @@
+     }
+ 
+     hda_timer_sync_adjust(st, -((wpos - rpos) - (B_SIZE >> 1)));
++}
++
++/*
++ * No catch-up after a stalled main loop.
++ *
++ * The output timer takes guest audio by the wall clock. When the main loop
++ * stalls for S ms (virgl compiling shaders, a Mac with every core busy), the
++ * backend keeps playing from its own ring, and the next timer runs take the
++ * whole S of guest audio at once, then the sync corrections pull up to five
++ * times faster until the ring is full again. The guest sees its DMA position
++ * jump by S and under-runs unless its own buffer is larger than S, so every
++ * stall had to be buffered twice.
++ *
++ * Once the stream has run for HDA_PACE_PRIME (the backend's ring is full by
++ * then: it fills at up to five times real time), the guest's audio is taken
++ * at most 1/32 faster than real time, plus a burst of B_SIZE / 8; a debt beyond
++ * that is forgiven (the guest's clock pauses during a stall). The backend's
++ * ring alone covers the stall and refills slowly. pace=off on the codec
++ * (-device hda-micro,...,pace=off) restores QEMU's behaviour.
++ */
++#define HDA_PACE_BURST (B_SIZE / 8)
++#define HDA_PACE_PRIME (250 * SCALE_MS)
++
++static int64_t hda_audio_output_pace(HDAAudioStream *st, int64_t now,
++                                     int64_t wanted, int64_t to_transfer)
++{
++    int64_t bps = hda_bytes_per_second(st);
++
++    if (!st->state->pace || bps <= 0) {
++        return to_transfer;
++    }
++    if (!st->primed) {
++        if (now - st->run_ns < HDA_PACE_PRIME) {
++            st->pace_ns = now;
++            return to_transfer;
++        }
++        st->primed = true;
++        st->budget = HDA_PACE_BURST;
++    }
++    if (st->pace_ns && now > st->pace_ns) {
++        st->budget += muldiv64(now - st->pace_ns, bps + bps / 32,
++                               NANOSECONDS_PER_SECOND);
++    }
++    st->pace_ns = now;
++    st->budget = MIN(st->budget, (int64_t)HDA_PACE_BURST);
++    if (wanted - st->wpos > (int64_t)HDA_PACE_BURST) {
++        int64_t excess = wanted - st->wpos - HDA_PACE_BURST;
++
++        st->buft_start += muldiv64(excess, NANOSECONDS_PER_SECOND, bps);
++        trace_hda_audio_pace_forgive(st->node->name, excess);
++    }
++    return MIN(to_transfer, st->budget & -4);
+ }
+ 
+ static void hda_audio_output_timer(void *opaque)
+@@ -313,6 +372,7 @@
+     }
+ 
+     int64_t to_transfer = MIN(B_SIZE - (wpos - rpos), wanted_wpos - wpos);
++    to_transfer = hda_audio_output_pace(st, now, wanted_wpos, to_transfer);
+     while (to_transfer) {
+         uint32_t start = (wpos & B_MASK);
+         uint32_t chunk = MIN(B_SIZE - start, to_transfer);
+@@ -324,6 +384,7 @@
+         wpos += chunk;
+         to_transfer -= chunk;
+         st->wpos += chunk;
++        st->budget -= chunk;
+     }
+ 
+ out_timer:
+@@ -382,6 +443,10 @@
+         st->rpos = 0;
+         st->wpos = 0;
+         st->buft_start = now;
++        st->primed = false;
++        st->run_ns = now;
++        st->pace_ns = 0;
++        st->budget = 0;
+         timer_mod_anticipate_ns(st->buft, now + HDA_TIMER_TICKS);
+     } else {
+         timer_del(st->buft);
+@@ -642,6 +707,8 @@
+ 
+     a->desc = desc;
+     a->name = object_get_typename(OBJECT(a));
++    /* Say which way the sound is paced (QEMU's log). */
++    info_report("Try Omarchy: HDA sound pacing %s", a->pace ? "on" : "off");
+     dprint(a, 1, "%s: cad %d\n", __func__, a->hda.cad);
+ 
+     for (i = 0; i < a->desc->nnodes; i++) {
+@@ -798,6 +865,7 @@
+ 
+ static const Property hda_audio_properties[] = {
+     DEFINE_AUDIO_PROPERTIES(HDAAudioState, audio_be),
++    DEFINE_PROP_BOOL("pace", HDAAudioState, pace, true),
+     DEFINE_PROP_UINT32("debug", HDAAudioState, debug,   0),
+     DEFINE_PROP_BOOL("mixer", HDAAudioState, mixer,  true),
+ };
+--- a/hw/audio/trace-events
++++ b/hw/audio/trace-events
+@@ -23,6 +23,7 @@
+ hda_audio_adjust(const char *stream, int pos) "st %s, pos %d"
+ hda_audio_overrun(const char *stream) "st %s"
+ hda_audio_full_recovery(const char *stream, int64_t virtual_ns, int64_t queued, int avail) "st %s virtual_ns %" PRId64 " queued %" PRId64 " avail %d"
++hda_audio_pace_forgive(const char *stream, int64_t bytes) "st %s forgiven %" PRId64 " bytes"
+ 
+ # pcspk.c
+ pcspk_io_read(uint16_t addr, uint8_t val) "[0x%"PRIx16"] -> 0x%"PRIx8

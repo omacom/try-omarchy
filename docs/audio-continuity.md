@@ -19,6 +19,39 @@ exposure to scheduling gaps; neither prevents the main loop from being delayed.
 The guest PipeWire quantum and existing user application configurations are not
 modified.
 
+## Stalls, slow devices and Mac sleep
+
+Four further QEMU patches, adapted from OmacVM's (MIT), which forked this
+runtime and measured each on an M4 Max:
+
+- `qemu-darwin-main-loop-qos.patch`: QEMU's main loop, which feeds the HDA
+  timer and the audio timer and also runs VirGL, asks for user-interactive
+  QoS instead of competing with the vCPU threads and the Mac's own work. With
+  a busy guest on a busy Mac, OmacVM measured audio-timer delays of 10–19 ms
+  825 times in 150 s at the default QoS and once at user-interactive.
+  `TRYOMARCHY_MAIN_LOOP_QOS=default` keeps the default.
+- `qemu-hda-no-catch-up.patch`: after a stalled main loop (shader compiles
+  take 50–80 ms), the HDA output timer no longer takes the whole stall from
+  the guest at once; the debt beyond a small burst is forgiven and QEMU's ring
+  covers it. Codec property `pace` (default on). OmacVM measured median tone
+  breaks per 10 minutes of load from 120 to 50 and full-ring recoveries from
+  62–67 per run to none.
+- `qemu-sdl-audio-capture-thread.patch` and
+  `qemu-sdl-audio-playback-thread.patch`: SDL opens, switches and closes the
+  Mac's recording and playback devices on threads of their own. Before, a
+  CoreAudio start that waits on `coreaudiod` (a pending microphone
+  permission, a slow or wedged USB device) ran under QEMU's global lock on a
+  vCPU thread, and the whole VM stopped, for minutes in OmacVM's reports.
+  The guest now gets silence until the device opens, or plays to nobody if it
+  never does; QEMU's log says "Try Omarchy: sound: the Mac's audio device
+  does not answer" and "... works again".
+
+In the guest, the `try-omarchy` package starts RTKit with `--no-canary`.
+RTKit's watchdog takes any 10 s in which the VM did not run while its clock
+went on, which is what pausing the VM for Mac sleep looks like, for a runaway
+real-time thread and demotes PipeWire's real-time threads for the rest of the
+session, after which audio crackles under load.
+
 ## Regression coverage
 
 `make test` compiles the patched HDA producer and consumer functions with

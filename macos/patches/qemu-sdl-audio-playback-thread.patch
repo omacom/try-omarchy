@@ -1,0 +1,600 @@
+From: Try Omarchy contributors
+Subject: [PATCH] audio/sdl: open the playback device off the BQL
+
+What: the SDL backend opens and closes the playback device on helper
+threads; the BQL never waits for CoreAudio. sdl_init_out() no longer opens
+a device at all (it only checked one and closed it again), and a stream
+start only starts an open (sdl_enable_out). run_buffer_out takes the device
+once it is open. Until then the guest's sound waits in the ring, as it did
+behind the blocking open. If SDL has not opened it within 3 s, or the open
+failed, the voice drops the sound at the stream's rate (the guest plays to
+nobody, the VM runs) and logs once:
+  Try Omarchy: sound: the Mac's audio device does not answer (no start within 3 s); the VM goes on without sound
+No other playback open starts while one is stuck. A stuck open that returns
+with a device is used if the guest still plays ("Try Omarchy: sound: the Mac's
+audio device works again"); one that fails after it was stuck is tried
+again 5 s later. Closing (stream stop, route switch) happens on a thread
+after the callback has stopped.
+
+Why: on the Mac mini (2026-10-05, coreaudiod up for 7 days, a Scarlett 2i2
+as the default output) every AudioQueueStart() blocked. SDL3's
+COREAUDIO_OpenDevice waits for its device thread, which waited there, so
+QEMU hung for good in qemu_init -> hda_audio_init -> sdl_init_out (main
+thread, no window, guest never ran, QMP dead). A stream start under the BQL
+would hang a running VM the same way.
+
+The time limit starts once the open has sdl_open_lock: a recording open may
+hold it for minutes (a pending microphone permission,
+qemu-sdl-audio-capture-thread.patch); playback then waits as it did before.
+
+Applies after qemu-sdl-audio-device-selection.patch and
+qemu-sdl-audio-capture-thread.patch.
+
+Upstream: the blocking open under the BQL is upstream's too, but this builds
+on the try-omarchy route and capture patches; not sent.
+
+Tested in OmacVM: Tests/audio/wedged-output-start.c blocks AudioQueueStart(), injected
+into a re-signed copy of the runtime, headless 4-vCPU test VM, a 6 s tone
+played twice in the guest with a stream stop between (audio-crackle notes,
+"Start hang"). Before: QMP never answered; sample showed the field stack.
+After, blocked forever: QMP answers within 2 s, the session is up in 18 s
+(as without the library); the first tone takes 9.6 s (3 s wait, then
+dropped at its rate), the second 6.6 s; QMP answers during both; the VM
+powers off in 3 s with the open still stuck. Device dies after the first
+stream (AQHANG_AFTER=1): tone 1 plays, tone 2 as above. Device answers
+again (AQHANG_UNTIL): "works again" 5 s later, tone 2 plays. Blocked start
+then fails (AQHANG_FAIL, coreaudiod killed): retried 5 s later, "works
+again". Without the library: two opens at 44.1 kHz S16 stereo 512 frames as
+before, tones take 6.6 s, no warning (sdlprobe). src/tests/audio-timing.sh
+(CI) checks the build order, the log lines against omacvm check and that
+the stub builds.
+
+Adapted from OmacVM's patch of the same name (MIT,
+https://github.com/gillesgoetsch/OmacVM), with its log lines and
+environment variable renamed for Try Omarchy.
+
+--- a/audio/sdlaudio.c
++++ b/audio/sdlaudio.c
+@@ -52,6 +52,8 @@
+ };
+ 
+ 
++typedef struct SDLOutOpen SDLOutOpen;
++
+ typedef struct SDLVoiceOut {
+     HWVoiceOut hw;
+     int exit;
+@@ -63,7 +65,12 @@
+     gint64 next_route_check;
+     bool route_matches;
+     bool enabled;
+-    bool open_busy;
++    SDLOutOpen *opening;        /* an open on its way */
++    bool opening_late;          /* ... that took too long */
++    gint64 next_open;           /* no new open before this time */
++    bool silent;                /* the Mac's audio device does not answer */
++    bool dropping;              /* no device: the sound goes nowhere */
++    RateCtl drop_rate;
+ } SDLVoiceOut;
+ 
+ typedef struct SDLCapture SDLCapture;
+@@ -301,21 +308,6 @@
+ #endif
+     qemu_mutex_unlock(&sdl_open_lock);
+     return devid;
+-}
+-
+-static void sdl_close_out(SDLVoiceOut *sdl)
+-{
+-    if (sdl->initialized) {
+-        SDL_LockAudioDevice(sdl->devid);
+-        sdl->exit = 1;
+-        SDL_UnlockAudioDevice(sdl->devid);
+-        SDL_PauseAudioDevice(sdl->devid, 1);
+-        sdl->initialized = 0;
+-    }
+-    if (sdl->devid) {
+-        SDL_CloseAudioDevice(sdl->devid);
+-        sdl->devid = 0;
+-    }
+ }
+ 
+ static void sdl_callback_out(void *opaque, Uint8 *buf, int len)
+@@ -374,67 +366,252 @@
+  * again when the stream starts. The reopen reuses the spec the voice was
+  * initialised with, so the guest never observes a format change.
+  *
+- * Reacquiring costs one device open on the first sample after silence. The
+- * frontend toggles this when the guest starts or stops a stream, not per
+- * buffer, so that open never lands in a hot path.
++ * Opening and closing run on helper threads, never under the BQL. When
++ * coreaudiod stops answering (seen with a USB interface after days of
++ * uptime), SDL_OpenAudioDevice() blocks for good: SDL waits for its device
++ * thread, and that one waits in AudioQueueStart(). Under the BQL that hung
++ * the whole VM, at its start already.
++ *
++ * While an open is on its way, the guest's sound waits in the ring, as it
++ * did behind the blocking open. If the open takes longer than
++ * SDL_OUT_OPEN_TIMEOUT_US or fails, the voice drops the sound at the
++ * stream's rate: the guest plays to nobody and the VM keeps running. No new
++ * open starts while one is stuck; a stuck open that returns with a device
++ * is used if the guest still plays, one that fails after it was stuck is
++ * retried after SDL_OUT_RETRY_US.
++ *
++ * Locking: sdl_out_lock guards the SDLOutOpen fields marked below and
++ * sdl_out_stuck, and is never held across an SDL call. The rest of
++ * SDLVoiceOut belongs to the BQL; the device's callback only touches the
++ * ring, and only while the device runs.
+  */
+-static void sdl_release_out(SDLVoiceOut *sdl)
++#define SDL_OUT_OPEN_TIMEOUT_US (3 * G_USEC_PER_SEC)
++#define SDL_OUT_RETRY_US (5 * G_USEC_PER_SEC)
++
++struct SDLOutOpen {
++    /* Set before the thread starts. */
++    SDL_AudioSpec spec;
++    char *device_name;
++    /* Under sdl_out_lock. */
++    gint64 started;             /* when SDL got it, 0 while it waits */
++    bool done;
++    bool late;                  /* the voice stopped waiting for it */
++    bool abandoned;             /* the voice is gone: the thread frees it */
++    SDL_AudioDeviceID devid;
++    bool route_matches;
++};
++
++static QemuMutex sdl_out_lock;
++static bool sdl_out_stuck;      /* a late open has not returned yet */
++static int sdl_out_threads;     /* helper threads that may be inside SDL */
++
++static void *sdl_out_close_thread(void *opaque)
+ {
+-    if (!sdl->devid) {
+-        return;
+-    }
+-    SDL_PauseAudioDevice(sdl->devid, 1);
+-    SDL_CloseAudioDevice(sdl->devid);
+-    sdl->devid = 0;
++    SDL_CloseAudioDevice((SDL_AudioDeviceID)(uintptr_t)opaque);
++    qatomic_dec(&sdl_out_threads);
++    return NULL;
+ }
+ 
+-static bool sdl_acquire_out(SDLVoiceOut *sdl)
++/* For a device whose callback cannot run any more. */
++static void sdl_out_close_later(SDL_AudioDeviceID devid)
+ {
+-    g_autofree char *requested = NULL;
++    QemuThread thread;
++
++    qatomic_inc(&sdl_out_threads);
++    qemu_thread_create(&thread, "sdl-out-close", sdl_out_close_thread,
++                       (void *)(uintptr_t)devid, QEMU_THREAD_DETACHED);
++}
++
++/* Returns once the device's callback has stopped and cannot run again. */
++static void sdl_out_quiesce(SDL_AudioDeviceID devid)
++{
++    SDL_PauseAudioDevice(devid, 1);
++    SDL_LockAudioDevice(devid);
++    SDL_UnlockAudioDevice(devid);
++}
++
++/* May block for as long as CoreAudio does. */
++static void *sdl_out_open_thread(void *opaque)
++{
++    SDLOutOpen *op = opaque;
+     SDL_AudioSpec obtained;
+     SDL_AudioDeviceID devid;
++    bool route_matches = false;
++    bool abandoned;
++
++    /*
++     * A recording open may hold sdl_open_lock for minutes (a pending
++     * microphone permission); the time limit starts once SDL has this one.
++     * sdl_open() takes the lock again, so the start is a moment early.
++     */
++    qemu_mutex_lock(&sdl_open_lock);
++    qemu_mutex_unlock(&sdl_open_lock);
++    qemu_mutex_lock(&sdl_out_lock);
++    op->started = g_get_monotonic_time();
++    qemu_mutex_unlock(&sdl_out_lock);
++
++    devid = sdl_open(&op->spec, &obtained, 0, op->device_name,
++                     &route_matches, NULL);
++    if (devid && !sdl_audio_specs_match(&op->spec, &obtained)) {
++        warn_report("Requested SDL playback route has an incompatible format");
++        SDL_CloseAudioDevice(devid);
++        devid = 0;
++    }
++    if (devid) {
++        SDL_PauseAudioDevice(devid, 1);
++    }
++
++    qemu_mutex_lock(&sdl_out_lock);
++    op->done = true;
++    op->devid = devid;
++    op->route_matches = route_matches;
++    if (op->late) {
++        sdl_out_stuck = false;
++    }
++    abandoned = op->abandoned;
++    qemu_mutex_unlock(&sdl_out_lock);
++
++    if (abandoned) {
++        if (devid) {
++            SDL_CloseAudioDevice(devid);
++        }
++        g_free(op->device_name);
++        g_free(op);
++    }
++    qatomic_dec(&sdl_out_threads);
++    return NULL;
++}
++
++/* Starts opening DEVICE_NAME (NULL: the Mac's default), taking it. */
++static void sdl_out_start_open(SDLVoiceOut *sdl, char *device_name)
++{
++    SDLOutOpen *op;
++    QemuThread thread;
++    bool stuck;
++
++    qemu_mutex_lock(&sdl_out_lock);
++    stuck = sdl_out_stuck;
++    qemu_mutex_unlock(&sdl_out_lock);
++    if (sdl->opening || stuck) {
++        g_free(device_name);
++        return;
++    }
++
++    op = g_new0(SDLOutOpen, 1);
++    op->spec = sdl->reopen_spec;
++    op->device_name = device_name;
++    sdl->opening = op;
++    sdl->opening_late = false;
++    qatomic_inc(&sdl_out_threads);
++    qemu_thread_create(&thread, "sdl-out-open", sdl_out_open_thread, op,
++                       QEMU_THREAD_DETACHED);
++}
++
++/* The device the route file names, else the one last used. */
++static void sdl_out_open_route(SDLVoiceOut *sdl)
++{
++    char *requested;
+     bool present;
+-    bool route_matches;
+ 
+     requested = sdl_route_file_device_name(0, &present);
+     if (!present) {
+         requested = g_strdup(sdl->device_name);
+     }
+-    devid = sdl_open(&sdl->reopen_spec, &obtained, 0, requested,
+-                     &route_matches, &sdl->open_busy);
+-    if (!devid) {
+-        return false;
++    sdl_out_start_open(sdl, requested);
++}
++
++static void sdl_out_free_open(SDLOutOpen *op)
++{
++    g_free(op->device_name);
++    g_free(op);
++}
++
++/* Takes the result of a finished open; tells once when one is late. */
++static void sdl_out_poll(SDLVoiceOut *sdl)
++{
++    SDLOutOpen *op = sdl->opening;
++    gint64 now = g_get_monotonic_time();
++    SDL_AudioDeviceID devid, old;
++    bool done, late = false;
++
++    if (!op) {
++        return;
+     }
+-    if (!sdl_audio_specs_match(&sdl->reopen_spec, &obtained)) {
+-        warn_report(
+-                "Requested SDL playback route has an incompatible format");
+-        SDL_CloseAudioDevice(devid);
+-        return false;
++    qemu_mutex_lock(&sdl_out_lock);
++    done = op->done;
++    if (!done && !op->late && op->started &&
++        now - op->started > SDL_OUT_OPEN_TIMEOUT_US) {
++        op->late = late = true;
++        sdl_out_stuck = true;
+     }
++    qemu_mutex_unlock(&sdl_out_lock);
+ 
+-    SDL_PauseAudioDevice(devid, 1);
++    if (late) {
++        sdl->opening_late = true;
++        /* A late switch to another device leaves the sound where it is. */
++        if (!sdl->devid && !sdl->silent) {
++            sdl->silent = true;
++            error_report("Try Omarchy: sound: the Mac's audio device does not "
++                         "answer (no start within %d s); the VM goes on "
++                         "without sound",
++                         (int)(SDL_OUT_OPEN_TIMEOUT_US / G_USEC_PER_SEC));
++        }
++    }
++    if (!done) {
++        return;
++    }
++
++    sdl->opening = NULL;
++    devid = op->devid;
++    if (!devid) {
++        /*
++         * sdl_open() said why. A device that failed fast is tried again when
++         * the guest starts its next stream; one that hung before it failed
++         * (coreaudiod restarted) right away.
++         */
++        sdl->next_open = sdl->opening_late ? now + SDL_OUT_RETRY_US : INT64_MAX;
++        sdl_out_free_open(op);
++        return;
++    }
++
++    old = sdl->devid;
++    if (old) {
++        sdl_out_quiesce(old);
++    }
+     sdl->devid = devid;
+     g_free(sdl->device_name);
+-    sdl->device_name = g_steal_pointer(&requested);
+-    sdl->route_matches = route_matches;
++    sdl->device_name = g_steal_pointer(&op->device_name);
++    sdl->route_matches = op->route_matches;
+     sdl->next_route_check = 0;
+-    return true;
++    sdl->dropping = false;
++    if (sdl->silent) {
++        sdl->silent = false;
++        info_report("Try Omarchy: sound: the Mac's audio device works again");
++    }
++    SDL_PauseAudioDevice(devid, 0);
++    if (old) {
++        sdl_out_close_later(old);
++    }
++    sdl_out_free_open(op);
+ }
+ 
++static void sdl_release_out(SDLVoiceOut *sdl)
++{
++    if (!sdl->devid) {
++        return;
++    }
++    sdl_out_quiesce(sdl->devid);
++    sdl_out_close_later(sdl->devid);
++    sdl->devid = 0;
++}
++
++/* Follow the route file: the new device runs before the old one closes. */
+ static void sdl_refresh_route_Out(SDLVoiceOut *sdl)
+ {
+     g_autofree char *requested = NULL;
+-    SDL_AudioSpec obtained;
+-    SDL_AudioDeviceID replacement;
+     bool present;
+-    bool route_matches;
+-    bool busy;
+ 
+-    if (!sdl->devid) {
+-        /* The open was busy when the stream started: try again. */
+-        if (sdl->enabled && sdl->open_busy && sdl_acquire_out(sdl)) {
+-            SDL_PauseAudioDevice(sdl->devid, 0);
+-        }
++    if (!sdl->devid || sdl->opening) {
+         return;
+     }
+     if (!sdl_route_check_due(&sdl->next_route_check)) {
+@@ -445,29 +622,38 @@
+                      g_strcmp0(requested, sdl->device_name) == 0)) {
+         return;
+     }
+-    replacement = sdl_open(&sdl->reopen_spec, &obtained, 0, requested,
+-                           &route_matches, &busy);
+-    if (!replacement) {
+-        if (busy) {
+-            sdl->next_route_check = 0;
+-        }
++    sdl_out_start_open(sdl, g_steal_pointer(&requested));
++}
++
++/*
++ * The frontend's output hook, under the BQL: takes a device that finished
++ * opening; while none runs and none is on its way in time, drops the sound
++ * at the stream's rate.
++ */
++static void sdl_run_buffer_out(HWVoiceOut *hw)
++{
++    SDLVoiceOut *sdl = (SDLVoiceOut *)hw;
++    gint64 now = g_get_monotonic_time();
++
++    sdl_out_poll(sdl);
++    if (sdl->devid || !sdl->enabled) {
+         return;
+     }
+-    if (!sdl_audio_specs_match(&sdl->reopen_spec, &obtained)) {
+-        warn_report(
+-                "Requested SDL playback route has an incompatible format");
+-        SDL_CloseAudioDevice(replacement);
++    if (!sdl->opening && now >= sdl->next_open) {
++        sdl->next_open = now + SDL_OUT_RETRY_US;
++        sdl_out_open_route(sdl);
++    }
++    if (sdl->opening && !sdl->opening_late) {
+         return;
+     }
+-
+-    SDL_PauseAudioDevice(replacement, 1);
+-    SDL_PauseAudioDevice(sdl->devid, 1);
+-    SDL_CloseAudioDevice(sdl->devid);
+-    sdl->devid = replacement;
+-    g_free(sdl->device_name);
+-    sdl->device_name = g_steal_pointer(&requested);
+-    sdl->route_matches = route_matches;
+-    SDL_PauseAudioDevice(sdl->devid, !sdl->enabled);
++    if (!sdl->dropping) {
++        sdl->dropping = true;
++        audio_rate_start(&sdl->drop_rate);
++    }
++    if (hw->buf_emul) {
++        hw->pending_emul -= audio_rate_get_bytes(&sdl->drop_rate, &hw->info,
++                                                 hw->pending_emul);
++    }
+ }
+ 
+ /*
+@@ -759,11 +945,18 @@
+     {                                                          \
+         ret_type ret;                                          \
+         glue(SDLVoice, dir) *sdl = (glue(SDLVoice, dir) *)hw;  \
++                                                               \
++        SDL_AudioDeviceID devid;                               \
+                                                                \
+         glue(sdl_refresh_route_, glue(dir, ))(sdl);             \
+-        SDL_LockAudioDevice(sdl->devid);                       \
++        devid = sdl->devid;                                    \
++        if (devid) {                                           \
++            SDL_LockAudioDevice(devid);                        \
++        }                                                      \
+         ret = glue(audio_generic_, name)args;                  \
+-        SDL_UnlockAudioDevice(sdl->devid);                     \
++        if (devid) {                                           \
++            SDL_UnlockAudioDevice(devid);                      \
++        }                                                      \
+                                                                \
+         return ret;                                            \
+     }
+@@ -780,8 +973,24 @@
+ static void sdl_fini_out(HWVoiceOut *hw)
+ {
+     SDLVoiceOut *sdl = (SDLVoiceOut *)hw;
++    SDLOutOpen *op = g_steal_pointer(&sdl->opening);
++    bool abandoned;
+ 
+-    sdl_close_out(sdl);
++    sdl_release_out(sdl);
++    if (op) {
++        /* An open still on its way frees itself (and its device). */
++        qemu_mutex_lock(&sdl_out_lock);
++        abandoned = op->abandoned = !op->done;
++        qemu_mutex_unlock(&sdl_out_lock);
++        if (!abandoned) {
++            if (op->devid) {
++                sdl_out_close_later(op->devid);
++            }
++            sdl_out_free_open(op);
++        }
++    }
++    sdl->exit = 1;
++    sdl->initialized = 0;
+     g_clear_pointer(&sdl->device_name, g_free);
+     sdl->next_route_check = 0;
+ }
+@@ -789,7 +998,7 @@
+ static int sdl_init_out(HWVoiceOut *hw, struct audsettings *as)
+ {
+     SDLVoiceOut *sdl = (SDLVoiceOut *)hw;
+-    SDL_AudioSpec req, obt;
++    SDL_AudioSpec req = { 0 };
+     int err;
+     Audiodev *dev = hw->s->dev;
+     AudiodevSdlPerDirectionOptions *spdo = dev->u.sdl.out;
+@@ -804,36 +1013,32 @@
+     req.callback = sdl_callback_out;
+     req.userdata = sdl;
+ 
+-    sdl->dev = dev;
+-    sdl->device_name = sdl_initial_device_name(0);
+-    sdl->devid = sdl_open(&req, &obt, 0, sdl->device_name,
+-                          &sdl->route_matches, NULL);
+-    if (!sdl->devid) {
+-        return -1;
+-    }
+-
+-    err = sdl_to_audfmt(obt.format, &obt_as.fmt, &obt_as.big_endian);
++    /*
++     * No device yet: one opens when the guest starts a stream, off the BQL
++     * (sdl_enable_out). SDL is called with allowed_changes=0, so a
++     * successful open cannot change this requested spec.
++     */
++    err = sdl_to_audfmt(req.format, &obt_as.fmt, &obt_as.big_endian);
+     if (err) {
+-        sdl_close_out(sdl);
+         return -1;
+     }
+ 
+-    obt_as.freq = obt.freq;
+-    obt_as.nchannels = obt.channels;
++    obt_as.freq = req.freq;
++    obt_as.nchannels = req.channels;
+ 
+     audio_pcm_init_info (&hw->info, &obt_as);
+     hw->samples = (spdo->has_buffer_count ? spdo->buffer_count : 4) *
+-        obt.samples;
++        req.samples;
+ 
+-    sdl->reopen_spec = obt;
+-    sdl->reopen_spec.callback = sdl_callback_out;
+-    sdl->reopen_spec.userdata = sdl;
++    sdl->dev = dev;
++    sdl->device_name = sdl_initial_device_name(0);
++    sdl->reopen_spec = req;
+     sdl->initialized = 1;
+     sdl->exit = 0;
+-    sdl_release_out(sdl);
+     return 0;
+ }
+ 
++/* Under the BQL: starts an open, never waits for one. */
+ static void sdl_enable_out(HWVoiceOut *hw, bool enable)
+ {
+     SDLVoiceOut *sdl = (SDLVoiceOut *)hw;
+@@ -846,10 +1051,13 @@
+         sdl_release_out(sdl);
+         return;
+     }
+-    if (!sdl->devid && !sdl_acquire_out(sdl)) {
+-        return;
++    sdl->dropping = false;
++    /* An open that finished while the guest was silent is used now. */
++    sdl_out_poll(sdl);
++    if (!sdl->devid && !sdl->opening) {
++        sdl->next_open = g_get_monotonic_time() + SDL_OUT_RETRY_US;
++        sdl_out_open_route(sdl);
+     }
+-    SDL_PauseAudioDevice(sdl->devid, 0);
+ }
+ 
+ static void sdl_fini_in(HWVoiceIn *hw)
+@@ -954,8 +1162,9 @@
+ 
+ static void audio_sdl_finalize(Object *obj)
+ {
+-    /* A capture thread may still be inside SDL, waiting for CoreAudio. */
+-    if (qatomic_read(&sdl_capture_threads)) {
++    /* A helper thread may still be inside SDL, waiting for CoreAudio. */
++    if (qatomic_read(&sdl_capture_threads) ||
++        qatomic_read(&sdl_out_threads)) {
+         return;
+     }
+     SDL_QuitSubSystem(SDL_INIT_AUDIO);
+@@ -968,6 +1177,7 @@
+ 
+     audio_sdl_parent_class = AUDIO_BACKEND_CLASS(object_class_get_parent(klass));
+     qemu_mutex_init(&sdl_open_lock);
++    qemu_mutex_init(&sdl_out_lock);
+ 
+     b->realize = audio_sdl_realize;
+     k->max_voices_out = INT_MAX;
+@@ -986,6 +1196,8 @@
+     /* wrapper for audio_generic_put_buffer_out */
+     k->put_buffer_out = sdl_put_buffer_out;
+     k->enable_out = sdl_enable_out;
++    /* takes opened devices; drops the sound while none runs */
++    k->run_buffer_out = sdl_run_buffer_out;
+ 
+     k->init_in = sdl_init_in;
+     k->fini_in = sdl_fini_in;

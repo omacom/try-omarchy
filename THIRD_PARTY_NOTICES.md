@@ -22,6 +22,12 @@ code.
   from the pinned QEMU source archive.
 - **ANGLE, VirGLRenderer, libepoxy, SDL, libslirp, GLib, Pixman, and other QEMU
   dependencies** — retain their respective upstream licenses.
+- **OmacVM** — MIT, Copyright (c) 2026 Gilles Goetsch,
+  [github.com/gillesgoetsch/OmacVM](https://github.com/gillesgoetsch/OmacVM).
+  The QEMU patches `qemu-hda-no-catch-up`, `qemu-sdl-audio-capture-thread`,
+  `qemu-sdl-audio-playback-thread` and `qemu-darwin-main-loop-qos`, and the
+  guest's RTKit drop-in, are adapted from OmacVM's; each says so in its
+  header. The App Nap patch follows OmacVM's approach.
 - **pacstrap-docker** (`guest/vendor/omarchy-pkgs/`) — from
   [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs); used only inside the
   build container.

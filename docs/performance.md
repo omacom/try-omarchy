@@ -6,6 +6,21 @@ graphics therefore still have command translation, synchronization, upload, and
 presentation costs. See [architecture](architecture.md) and QEMU's
 [virtio-gpu documentation](https://www.qemu.org/docs/master/system/devices/virtio/virtio-gpu.html).
 
+## App Nap
+
+macOS naps an app none of whose windows can be seen: the screen locked, the
+VM's full screen on another Space, the window minimized or covered. A napped
+QEMU runs every thread, the vCPUs too, at background priority, and the guest
+slows to a fraction of its speed. OmacVM, which runs the same QEMU/HVF/VirGL
+stack, measured 2–20 % of normal guest speed with the Mac's screen locked.
+
+`macos/patches/qemu-cocoa-no-app-nap.patch` makes QEMU's window process hold an
+`NSProcessInfo` activity (`NSActivityUserInitiatedAllowingIdleSystemSleep`) for
+the whole run, so the VM keeps working out of sight while an idle Mac can still
+sleep. The app pauses the VM for Mac sleep on its own. QEMU's log says "Try
+Omarchy: App Nap off while the VM runs". `TRYOMARCHY_APP_NAP=1` in QEMU's
+environment leaves the activity out, to measure the difference.
+
 ## Reproducible resource measurements
 
 `scripts/profile-process.py` reads interval CPU counters and memory accounting on

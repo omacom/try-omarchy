@@ -1,0 +1,719 @@
+From: Try Omarchy contributors
+Subject: [PATCH] audio/sdl: open the recording device off the BQL
+
+What: the SDL backend opens, switches and closes the recording device on a
+thread of its own. The guest's enable/disable only tells that thread. Until
+the device runs, or when it cannot be opened, the voice gives the guest
+silence at the stream's rate (run_buffer_in), so the capture stream keeps
+going; a device that opens late is used if the guest still records. After
+5 s without a device, one warning in the log.
+
+Why: on macOS, SDL's recording open ends in AudioQueueStart, which waits for
+coreaudiod. That can take minutes (a pending microphone permission, a slow
+device): sample showed it under intel_hda_set_st_ctl on a vCPU thread
+holding the BQL, so the whole VM stopped for about four minutes, then the
+open failed with 268451843 (MACH_RCV_TIMED_OUT). Now only the capture
+thread waits.
+
+sdl2-compat runs every SDL_OpenAudioDevice() under one global lock, so a
+playback open under the BQL would wait behind a slow recording open. Opens
+now take sdl_open_lock: the capture thread waits for it, playback opens under
+the BQL only try it and retry on the next audio tick (playback starts a
+little later instead of the VM stopping).
+
+Applies after qemu-sdl-audio-device-selection.patch and
+qemu-hda-full-ring-recovery.patch.
+
+Upstream: upstreamable in spirit (the SDL backend opens devices under the
+BQL), but it builds on the try-omarchy route patch; not sent.
+
+Tested in OmacVM: OmacVM.app signed with the Developer ID, a fresh VM and an existing
+one: pw-record 5 s gives sound (not zeros) while SSH from the Mac and the
+guest's ping to 10.0.2.2 keep answering (no gap over 0.3 s); playback and the
+camera as before; 25 quick start/stops of pw-record.
+Tests/audio/slow-capture-start.c holds AudioQueueStart back 20 s (silence,
+then sound; pw-play waits for it), fails it (silence and the error, the VM
+runs), and the VM powers off within seconds while a start is held.
+
+Adapted from OmacVM's patch of the same name (MIT,
+https://github.com/gillesgoetsch/OmacVM), with its log lines and
+environment variable renamed for Try Omarchy.
+
+--- a/audio/sdlaudio.c
++++ b/audio/sdlaudio.c
+@@ -27,6 +27,7 @@
+ #include <SDL_thread.h>
+ #include "qemu/module.h"
+ #include "qemu/error-report.h"
++#include "qemu/thread.h"
+ #include "qapi/error.h"
+ #include "qemu/audio.h"
+ #include "qom/object.h"
+@@ -62,19 +63,16 @@ typedef struct SDLVoiceOut {
+     gint64 next_route_check;
+     bool route_matches;
+     bool enabled;
++    bool open_busy;
+ } SDLVoiceOut;
+ 
++typedef struct SDLCapture SDLCapture;
++
+ typedef struct SDLVoiceIn {
+     HWVoiceIn hw;
+-    int exit;
+-    int initialized;
+-    Audiodev *dev;
+-    SDL_AudioDeviceID devid;
+-    SDL_AudioSpec reopen_spec;
+-    char *device_name;
++    SDLCapture *cap;
++    RateCtl rate;
+     gint64 next_route_check;
+-    bool route_matches;
+-    bool enabled;
+ } SDLVoiceIn;
+ 
+ static int aud_to_sdlfmt (AudioFormat fmt)
+@@ -231,24 +229,45 @@ static bool sdl_route_check_due(gint64 *next_check)
+     return true;
+ }
+ 
++/*
++ * sdl2-compat runs every SDL_OpenAudioDevice() under one global lock, and a
++ * recording open can wait minutes for CoreAudio (see SDLCapture). Every open
++ * takes sdl_open_lock first: the capture thread waits for it, opens under the
++ * BQL pass busy and only try it, so they never wait behind a recording open.
++ */
++static QemuMutex sdl_open_lock;
++
+ static SDL_AudioDeviceID sdl_open(SDL_AudioSpec *req, SDL_AudioSpec *obt,
+                                   int rec, const char *device_name,
+-                                  bool *route_matches)
++                                  bool *route_matches, bool *busy)
+ {
+     SDL_AudioDeviceID devid;
+ #ifndef _WIN32
+     int err;
+     sigset_t new, old;
++#endif
++
++    if (busy) {
++        *busy = qemu_mutex_trylock(&sdl_open_lock) != 0;
++        if (*busy) {
++            return 0;
++        }
++    } else {
++        qemu_mutex_lock(&sdl_open_lock);
++    }
+ 
++#ifndef _WIN32
+     /* Make sure potential threads created by SDL don't hog signals.  */
+     err = sigfillset (&new);
+     if (err) {
+         error_report("sdl: sigfillset failed: %s", strerror (errno));
++        qemu_mutex_unlock(&sdl_open_lock);
+         return 0;
+     }
+     err = pthread_sigmask (SIG_BLOCK, &new, &old);
+     if (err) {
+         error_report("sdl: pthread_sigmask failed: %s", strerror (err));
++        qemu_mutex_unlock(&sdl_open_lock);
+         return 0;
+     }
+ #endif
+@@ -280,6 +299,7 @@ static SDL_AudioDeviceID sdl_open(SDL_AudioSpec *req, SDL_AudioSpec *obt,
+         exit (EXIT_FAILURE);
+     }
+ #endif
++    qemu_mutex_unlock(&sdl_open_lock);
+     return devid;
+ }
+ 
+@@ -329,30 +349,11 @@ static void sdl_callback_out(void *opaque, Uint8 *buf, int len)
+     }
+ }
+ 
+-static void sdl_close_in(SDLVoiceIn *sdl)
+-{
+-    if (sdl->initialized) {
+-        SDL_LockAudioDevice(sdl->devid);
+-        sdl->exit = 1;
+-        SDL_UnlockAudioDevice(sdl->devid);
+-        SDL_PauseAudioDevice(sdl->devid, 1);
+-        sdl->initialized = 0;
+-    }
+-    if (sdl->devid) {
+-        SDL_CloseAudioDevice(sdl->devid);
+-        sdl->devid = 0;
+-    }
+-}
+-
+ static void sdl_callback_in(void *opaque, Uint8 *buf, int len)
+ {
+     SDLVoiceIn *sdl = opaque;
+     HWVoiceIn *hw = &sdl->hw;
+ 
+-    if (sdl->exit) {
+-        return;
+-    }
+-
+     while (hw->pending_emul < hw->size_emul && len) {
+         size_t read_len = MIN(len, MIN(hw->size_emul - hw->pos_emul,
+                                        hw->size_emul - hw->pending_emul));
+@@ -400,7 +401,7 @@ static bool sdl_acquire_out(SDLVoiceOut *sdl)
+         requested = g_strdup(sdl->device_name);
+     }
+     devid = sdl_open(&sdl->reopen_spec, &obtained, 0, requested,
+-                     &route_matches);
++                     &route_matches, &sdl->open_busy);
+     if (!devid) {
+         return false;
+     }
+@@ -427,8 +428,13 @@ static void sdl_refresh_route_Out(SDLVoiceOut *sdl)
+     SDL_AudioDeviceID replacement;
+     bool present;
+     bool route_matches;
++    bool busy;
+ 
+     if (!sdl->devid) {
++        /* The open was busy when the stream started: try again. */
++        if (sdl->enabled && sdl->open_busy && sdl_acquire_out(sdl)) {
++            SDL_PauseAudioDevice(sdl->devid, 0);
++        }
+         return;
+     }
+     if (!sdl_route_check_due(&sdl->next_route_check)) {
+@@ -440,8 +446,11 @@ static void sdl_refresh_route_Out(SDLVoiceOut *sdl)
+         return;
+     }
+     replacement = sdl_open(&sdl->reopen_spec, &obtained, 0, requested,
+-                           &route_matches);
++                           &route_matches, &busy);
+     if (!replacement) {
++        if (busy) {
++            sdl->next_route_check = 0;
++        }
+         return;
+     }
+     if (!sdl_audio_specs_match(&sdl->reopen_spec, &obtained)) {
+@@ -461,89 +470,288 @@ static void sdl_refresh_route_Out(SDLVoiceOut *sdl)
+     SDL_PauseAudioDevice(sdl->devid, !sdl->enabled);
+ }
+ 
+-/* The recording counterpart of sdl_release_out(). */
+-static void sdl_release_in(SDLVoiceIn *sdl)
++/*
++ * Starting a recording can take minutes on macOS: CoreAudio waits for
++ * coreaudiod, which may itself wait for the microphone permission or a slow
++ * device. The guest starts and stops its capture stream from a vCPU with the
++ * BQL held, so the recording device is opened, switched and closed on a
++ * thread of its own and never under the BQL.
++ *
++ * Until the device runs, or when it cannot be opened, the voice delivers
++ * silence at the stream's rate: the guest's capture keeps going and the VM
++ * keeps running. A device that opens late is used if the guest still records.
++ *
++ * Locking: SDLCapture.lock guards every field marked below and is taken
++ * before an SDL device lock, never after it. The SDL callback takes only the
++ * SDL device lock. The capture thread never holds the lock across an SDL open
++ * or close.
++ */
++#define SDL_CAPTURE_START_TIMEOUT_US (5 * G_USEC_PER_SEC)
++
++static int sdl_capture_threads;
++
++struct SDLCapture {
++    QemuMutex lock;
++    QemuCond cond;
++    /* Owned by the capture thread once it runs. */
++    SDL_AudioSpec spec;
++    char *device_name;
++    bool route_matches;
++    /* Under lock. */
++    SDLVoiceIn *voice;          /* NULL once the voice is gone */
++    bool want;                  /* the guest has its stream enabled */
++    bool failed;                /* the last open failed */
++    bool route_check;           /* the route file may name another device */
++    bool warned;                /* the start timeout was reported */
++    gint64 open_since;          /* when the pending open began, 0 if none */
++    SDL_AudioDeviceID devid;    /* the running device, 0 if none */
++};
++
++/* Called without the lock: may block for as long as CoreAudio does. */
++static SDL_AudioDeviceID sdl_capture_open(SDLCapture *cap, const char *name,
++                                          bool *route_matches)
+ {
+-    if (!sdl->devid) {
+-        return;
++    SDL_AudioSpec obtained;
++    SDL_AudioDeviceID devid;
++
++    devid = sdl_open(&cap->spec, &obtained, 1, name, route_matches, NULL);
++    if (!devid) {
++        return 0;
+     }
+-    SDL_PauseAudioDevice(sdl->devid, 1);
+-    SDL_CloseAudioDevice(sdl->devid);
+-    sdl->devid = 0;
++    if (!sdl_audio_specs_match(&cap->spec, &obtained)) {
++        warn_report("Requested SDL recording route has an incompatible format");
++        SDL_CloseAudioDevice(devid);
++        return 0;
++    }
++    SDL_PauseAudioDevice(devid, 1);
++    return devid;
+ }
+ 
+-static bool sdl_acquire_in(SDLVoiceIn *sdl)
++/* Returns once the device's callback has stopped and cannot run again. */
++static void sdl_capture_quiesce(SDL_AudioDeviceID devid)
++{
++    SDL_PauseAudioDevice(devid, 1);
++    SDL_LockAudioDevice(devid);
++    SDL_UnlockAudioDevice(devid);
++}
++
++/*
++ * Called with the lock held. Stops the callback, so that the voice's ring
++ * belongs to the silence generator again, and hands the device back for the
++ * caller to close without the lock.
++ */
++static SDL_AudioDeviceID sdl_capture_detach(SDLCapture *cap)
++{
++    SDL_AudioDeviceID devid = cap->devid;
++
++    if (devid) {
++        sdl_capture_quiesce(devid);
++        cap->devid = 0;
++    }
++    return devid;
++}
++
++static void sdl_capture_start(SDLCapture *cap)
+ {
+     g_autofree char *requested = NULL;
+-    SDL_AudioSpec obtained;
+     SDL_AudioDeviceID devid;
+     bool present;
+     bool route_matches;
+ 
++    cap->open_since = g_get_monotonic_time();
++    cap->warned = false;
++    qemu_mutex_unlock(&cap->lock);
++
+     requested = sdl_route_file_device_name(1, &present);
+     if (!present) {
+-        requested = g_strdup(sdl->device_name);
++        requested = g_strdup(cap->device_name);
+     }
+-    devid = sdl_open(&sdl->reopen_spec, &obtained, 1, requested,
+-                     &route_matches);
++    devid = sdl_capture_open(cap, requested, &route_matches);
++
++    qemu_mutex_lock(&cap->lock);
++    cap->open_since = 0;
+     if (!devid) {
+-        return false;
++        cap->failed = true;
++        return;
+     }
+-    if (!sdl_audio_specs_match(&sdl->reopen_spec, &obtained)) {
+-        warn_report(
+-                "Requested SDL recording route has an incompatible format");
++    g_free(cap->device_name);
++    cap->device_name = g_steal_pointer(&requested);
++    cap->route_matches = route_matches;
++    if (!cap->voice || !cap->want) {
++        /* The guest stopped meanwhile. */
++        qemu_mutex_unlock(&cap->lock);
+         SDL_CloseAudioDevice(devid);
+-        return false;
++        qemu_mutex_lock(&cap->lock);
++        return;
+     }
++    if (cap->warned) {
++        warn_report("SDL recording device started late; recording resumes");
++    }
++    cap->devid = devid;
++    SDL_PauseAudioDevice(devid, 0);
++}
+ 
+-    SDL_PauseAudioDevice(devid, 1);
+-    sdl->devid = devid;
+-    g_free(sdl->device_name);
+-    sdl->device_name = g_steal_pointer(&requested);
+-    sdl->route_matches = route_matches;
+-    sdl->next_route_check = 0;
+-    return true;
++static void sdl_capture_stop(SDLCapture *cap)
++{
++    SDL_AudioDeviceID devid = sdl_capture_detach(cap);
++
++    qemu_mutex_unlock(&cap->lock);
++    SDL_CloseAudioDevice(devid);
++    qemu_mutex_lock(&cap->lock);
+ }
+ 
+-static void sdl_refresh_route_In(SDLVoiceIn *sdl)
++/* Follow the route file: the new device runs before the old one closes. */
++static void sdl_capture_reroute(SDLCapture *cap)
+ {
+     g_autofree char *requested = NULL;
+-    SDL_AudioSpec obtained;
+-    SDL_AudioDeviceID replacement;
++    SDL_AudioDeviceID replacement, old;
+     bool present;
+     bool route_matches;
+ 
+-    if (!sdl->devid) {
+-        return;
+-    }
+-    if (!sdl_route_check_due(&sdl->next_route_check)) {
+-        return;
+-    }
++    cap->route_check = false;
++    qemu_mutex_unlock(&cap->lock);
++
+     requested = sdl_route_file_device_name(1, &present);
+-    if (!present || (sdl->route_matches &&
+-                     g_strcmp0(requested, sdl->device_name) == 0)) {
++    if (!present || (cap->route_matches &&
++                     g_strcmp0(requested, cap->device_name) == 0)) {
++        qemu_mutex_lock(&cap->lock);
+         return;
+     }
+-    replacement = sdl_open(&sdl->reopen_spec, &obtained, 1, requested,
+-                           &route_matches);
++    replacement = sdl_capture_open(cap, requested, &route_matches);
+     if (!replacement) {
++        qemu_mutex_lock(&cap->lock);
+         return;
+     }
+-    if (!sdl_audio_specs_match(&sdl->reopen_spec, &obtained)) {
+-        warn_report(
+-                "Requested SDL recording route has an incompatible format");
++    g_free(cap->device_name);
++    cap->device_name = g_steal_pointer(&requested);
++    cap->route_matches = route_matches;
++
++    qemu_mutex_lock(&cap->lock);
++    old = sdl_capture_detach(cap);
++    if (cap->voice && cap->want) {
++        cap->devid = replacement;
++        SDL_PauseAudioDevice(replacement, 0);
++        replacement = 0;
++    }
++    qemu_mutex_unlock(&cap->lock);
++    if (old) {
++        SDL_CloseAudioDevice(old);
++    }
++    if (replacement) {
+         SDL_CloseAudioDevice(replacement);
++    }
++    qemu_mutex_lock(&cap->lock);
++}
++
++static void *sdl_capture_thread(void *opaque)
++{
++    SDLCapture *cap = opaque;
++
++    qemu_mutex_lock(&cap->lock);
++    while (cap->voice || cap->devid) {
++        if (!cap->voice || !cap->want) {
++            if (cap->devid) {
++                sdl_capture_stop(cap);
++                continue;
++            }
++        } else if (!cap->devid && !cap->failed) {
++            sdl_capture_start(cap);
++            continue;
++        } else if (cap->devid && cap->route_check) {
++            sdl_capture_reroute(cap);
++            continue;
++        }
++        if (!cap->voice) {
++            break;
++        }
++        qemu_cond_wait(&cap->cond, &cap->lock);
++    }
++    qemu_mutex_unlock(&cap->lock);
++
++    qemu_cond_destroy(&cap->cond);
++    qemu_mutex_destroy(&cap->lock);
++    g_free(cap->device_name);
++    g_free(cap);
++    qatomic_dec(&sdl_capture_threads);
++    return NULL;
++}
++
++/*
++ * The frontend's input hook, under the BQL: while no device runs, fill the
++ * ring with silence at the stream's rate. The lock keeps a device from
++ * starting (and its callback from writing the ring) meanwhile.
++ */
++static void sdl_run_buffer_in(HWVoiceIn *hw)
++{
++    SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
++    SDLCapture *cap = sdl->cap;
++    size_t avail;
++
++    qemu_mutex_lock(&cap->lock);
++    if (cap->devid) {
++        if (sdl_route_check_due(&sdl->next_route_check)) {
++            cap->route_check = true;
++            qemu_cond_signal(&cap->cond);
++        }
++        qemu_mutex_unlock(&cap->lock);
+         return;
+     }
++    if (cap->open_since && !cap->warned &&
++        g_get_monotonic_time() - cap->open_since >
++        SDL_CAPTURE_START_TIMEOUT_US) {
++        cap->warned = true;
++        warn_report("SDL recording device did not start within %d seconds; "
++                    "the guest records silence until it does",
++                    (int)(SDL_CAPTURE_START_TIMEOUT_US / G_USEC_PER_SEC));
++    }
+ 
+-    SDL_PauseAudioDevice(replacement, 1);
+-    SDL_PauseAudioDevice(sdl->devid, 1);
+-    SDL_CloseAudioDevice(sdl->devid);
+-    sdl->devid = replacement;
+-    g_free(sdl->device_name);
+-    sdl->device_name = g_steal_pointer(&requested);
+-    sdl->route_matches = route_matches;
+-    SDL_PauseAudioDevice(sdl->devid, !sdl->enabled);
++    avail = audio_rate_get_bytes(&sdl->rate, &hw->info,
++                                 hw->size_emul - hw->pending_emul);
++    avail -= avail % hw->info.bytes_per_frame;
++    while (avail) {
++        size_t len = MIN(avail, hw->size_emul - hw->pos_emul);
++
++        audio_pcm_info_clear_buf(&hw->info, hw->buf_emul + hw->pos_emul,
++                                 len / hw->info.bytes_per_frame);
++        hw->pending_emul += len;
++        hw->pos_emul = (hw->pos_emul + len) % hw->size_emul;
++        avail -= len;
++    }
++    qemu_mutex_unlock(&cap->lock);
++}
++
++static void *sdl_get_buffer_in(HWVoiceIn *hw, size_t *size)
++{
++    SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
++    SDLCapture *cap = sdl->cap;
++    void *ret;
++
++    qemu_mutex_lock(&cap->lock);
++    if (cap->devid) {
++        SDL_LockAudioDevice(cap->devid);
++    }
++    ret = audio_generic_get_buffer_in(hw, size);
++    if (cap->devid) {
++        SDL_UnlockAudioDevice(cap->devid);
++    }
++    qemu_mutex_unlock(&cap->lock);
++    return ret;
++}
++
++static void sdl_put_buffer_in(HWVoiceIn *hw, void *buf, size_t size)
++{
++    SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
++    SDLCapture *cap = sdl->cap;
++
++    qemu_mutex_lock(&cap->lock);
++    if (cap->devid) {
++        SDL_LockAudioDevice(cap->devid);
++    }
++    audio_generic_put_buffer_in(hw, buf, size);
++    if (cap->devid) {
++        SDL_UnlockAudioDevice(cap->devid);
++    }
++    qemu_mutex_unlock(&cap->lock);
+ }
+ 
+ #define SDL_WRAPPER_FUNC(name, ret_type, args_decl, args, dir) \
+@@ -560,17 +768,6 @@ static void sdl_refresh_route_In(SDLVoiceIn *sdl)
+         return ret;                                            \
+     }
+ 
+-#define SDL_WRAPPER_VOID_FUNC(name, args_decl, args, dir)      \
+-    static void glue(sdl_, name)args_decl                      \
+-    {                                                          \
+-        glue(SDLVoice, dir) *sdl = (glue(SDLVoice, dir) *)hw;  \
+-                                                               \
+-        glue(sdl_refresh_route_, glue(dir, ))(sdl);             \
+-        SDL_LockAudioDevice(sdl->devid);                       \
+-        glue(audio_generic_, name)args;                        \
+-        SDL_UnlockAudioDevice(sdl->devid);                     \
+-    }
+-
+ SDL_WRAPPER_FUNC(buffer_get_free, size_t, (HWVoiceOut *hw), (hw), Out)
+ SDL_WRAPPER_FUNC(get_buffer_out, void *, (HWVoiceOut *hw, size_t *size),
+                  (hw, size), Out)
+@@ -578,14 +775,7 @@ SDL_WRAPPER_FUNC(put_buffer_out, size_t,
+                  (HWVoiceOut *hw, void *buf, size_t size), (hw, buf, size), Out)
+ SDL_WRAPPER_FUNC(write, size_t,
+                  (HWVoiceOut *hw, void *buf, size_t size), (hw, buf, size), Out)
+-SDL_WRAPPER_FUNC(read, size_t, (HWVoiceIn *hw, void *buf, size_t size),
+-                 (hw, buf, size), In)
+-SDL_WRAPPER_FUNC(get_buffer_in, void *, (HWVoiceIn *hw, size_t *size),
+-                 (hw, size), In)
+-SDL_WRAPPER_VOID_FUNC(put_buffer_in, (HWVoiceIn *hw, void *buf, size_t size),
+-                      (hw, buf, size), In)
+ #undef SDL_WRAPPER_FUNC
+-#undef SDL_WRAPPER_VOID_FUNC
+ 
+ static void sdl_fini_out(HWVoiceOut *hw)
+ {
+@@ -617,7 +807,7 @@ static int sdl_init_out(HWVoiceOut *hw, struct audsettings *as)
+     sdl->dev = dev;
+     sdl->device_name = sdl_initial_device_name(0);
+     sdl->devid = sdl_open(&req, &obt, 0, sdl->device_name,
+-                          &sdl->route_matches);
++                          &sdl->route_matches, NULL);
+     if (!sdl->devid) {
+         return -1;
+     }
+@@ -665,16 +855,25 @@ static void sdl_enable_out(HWVoiceOut *hw, bool enable)
+ static void sdl_fini_in(HWVoiceIn *hw)
+ {
+     SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
++    SDLCapture *cap = sdl->cap;
+ 
+-    sdl_close_in(sdl);
+-    g_clear_pointer(&sdl->device_name, g_free);
+-    sdl->next_route_check = 0;
++    /* The thread closes a running device, then frees cap. */
++    qemu_mutex_lock(&cap->lock);
++    if (cap->devid) {
++        sdl_capture_quiesce(cap->devid);
++    }
++    cap->voice = NULL;
++    qemu_cond_signal(&cap->cond);
++    qemu_mutex_unlock(&cap->lock);
++    sdl->cap = NULL;
+ }
+ 
+ static int sdl_init_in(HWVoiceIn *hw, audsettings *as)
+ {
+     SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
+-    SDL_AudioSpec req, obt;
++    SDLCapture *cap;
++    QemuThread thread;
++    SDL_AudioSpec req;
+     int err;
+     Audiodev *dev = hw->s->dev;
+     AudiodevSdlPerDirectionOptions *spdo = dev->u.sdl.in;
+@@ -689,55 +888,57 @@ static int sdl_init_in(HWVoiceIn *hw, audsettings *as)
+     req.callback = sdl_callback_in;
+     req.userdata = sdl;
+ 
+-    sdl->dev = dev;
+-    sdl->device_name = sdl_initial_device_name(1);
+     /*
+      * Opening a recording device starts CoreAudio capture and trips macOS's
+      * privacy indicator. SDL is called with allowed_changes=0, so a
+      * successful open cannot change this requested spec; defer the real open
+      * until the guest enables a recording stream.
+      */
+-    obt = req;
+-    err = sdl_to_audfmt(obt.format, &obt_as.fmt, &obt_as.big_endian);
++    err = sdl_to_audfmt(req.format, &obt_as.fmt, &obt_as.big_endian);
+     if (err) {
+-        sdl_close_in(sdl);
+         return -1;
+     }
+ 
+-    obt_as.freq = obt.freq;
+-    obt_as.nchannels = obt.channels;
++    obt_as.freq = req.freq;
++    obt_as.nchannels = req.channels;
+ 
+     audio_pcm_init_info(&hw->info, &obt_as);
+     hw->samples = (spdo->has_buffer_count ? spdo->buffer_count : 4) *
+-        obt.samples;
++        req.samples;
+     hw->size_emul = hw->samples * hw->info.bytes_per_frame;
+     hw->buf_emul = g_malloc(hw->size_emul);
+     hw->pos_emul = hw->pending_emul = 0;
+ 
+-    sdl->reopen_spec = obt;
+-    sdl->reopen_spec.callback = sdl_callback_in;
+-    sdl->reopen_spec.userdata = sdl;
+-    sdl->initialized = 1;
+-    sdl->exit = 0;
++    cap = g_new0(SDLCapture, 1);
++    qemu_mutex_init(&cap->lock);
++    qemu_cond_init(&cap->cond);
++    cap->spec = req;
++    cap->device_name = sdl_initial_device_name(1);
++    cap->voice = sdl;
++    sdl->cap = cap;
++    qatomic_inc(&sdl_capture_threads);
++    qemu_thread_create(&thread, "sdl-capture", sdl_capture_thread, cap,
++                       QEMU_THREAD_DETACHED);
+     return 0;
+ }
+ 
++/* Under the BQL: only tells the capture thread, never waits for it. */
+ static void sdl_enable_in(HWVoiceIn *hw, bool enable)
+ {
+     SDLVoiceIn *sdl = (SDLVoiceIn *)hw;
++    SDLCapture *cap = sdl->cap;
+ 
+-    if (sdl->enabled == enable) {
+-        return;
++    if (enable) {
++        audio_rate_start(&sdl->rate);
++        sdl->next_route_check = 0;
+     }
+-    sdl->enabled = enable;
+-    if (!enable) {
+-        sdl_release_in(sdl);
+-        return;
++    qemu_mutex_lock(&cap->lock);
++    if (enable && !cap->want) {
++        cap->failed = false;
+     }
+-    if (!sdl->devid && !sdl_acquire_in(sdl)) {
+-        return;
+-    }
+-    SDL_PauseAudioDevice(sdl->devid, 0);
++    cap->want = enable;
++    qemu_cond_signal(&cap->cond);
++    qemu_mutex_unlock(&cap->lock);
+ }
+ 
+ static bool audio_sdl_realize(AudioBackend *abe, Audiodev *dev, Error **errp)
+@@ -753,6 +954,10 @@ static bool audio_sdl_realize(AudioBackend *abe, Audiodev *dev, Error **errp)
+ 
+ static void audio_sdl_finalize(Object *obj)
+ {
++    /* A capture thread may still be inside SDL, waiting for CoreAudio. */
++    if (qatomic_read(&sdl_capture_threads)) {
++        return;
++    }
+     SDL_QuitSubSystem(SDL_INIT_AUDIO);
+ }
+ 
+@@ -762,6 +967,7 @@ static void audio_sdl_class_init(ObjectClass *klass, const void *data)
+     AudioMixengBackendClass *k = AUDIO_MIXENG_BACKEND_CLASS(klass);
+ 
+     audio_sdl_parent_class = AUDIO_BACKEND_CLASS(object_class_get_parent(klass));
++    qemu_mutex_init(&sdl_open_lock);
+ 
+     b->realize = audio_sdl_realize;
+     k->max_voices_out = INT_MAX;
+@@ -783,8 +989,9 @@ static void audio_sdl_class_init(ObjectClass *klass, const void *data)
+ 
+     k->init_in = sdl_init_in;
+     k->fini_in = sdl_fini_in;
+-    /* wrapper for audio_generic_read */
+-    k->read = sdl_read;
++    k->read = audio_generic_read;
++    /* silence while no recording device runs */
++    k->run_buffer_in = sdl_run_buffer_in;
+     /* wrapper for audio_generic_get_buffer_in */
+     k->get_buffer_in = sdl_get_buffer_in;
+     /* wrapper for audio_generic_put_buffer_in */

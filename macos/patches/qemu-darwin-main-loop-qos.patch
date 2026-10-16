@@ -1,0 +1,65 @@
+From: Try Omarchy contributors
+Subject: [PATCH] darwin: the main loop runs at user-interactive QoS
+
+What: the qemu_main thread (QEMU's main loop on macOS) asks for
+QOS_CLASS_USER_INTERACTIVE; TRYOMARCHY_MAIN_LOOP_QOS=default keeps the default
+QoS. QEMU's log says which one it got.
+
+Why: the main loop feeds the sound card (the HDA DMA timer and the 1 ms
+audio timer) and runs virgl. At the default QoS it competes on equal terms
+with the vCPU threads and the Mac's own work; a busy guest on a busy Mac
+delays it by 10-50 ms again and again, and the sound crackles. Measured on
+an M4 Max, 8 vCPUs busy + glmark2 + 8 busy Mac threads, 150 s: audio timer
+late 5-9 ms 4906x, 10-19 ms 825x, 20-49 ms 65x at the default QoS; 52x, 1x,
+0x at user-interactive (notes: audio-crackle track).
+
+Upstream: not sent (a Darwin policy choice; upstream leaves QoS alone).
+Tested in OmacVM: QEMU's log line; the audio-crackle measurements (run.sh, analyze.py).
+
+Adapted from OmacVM's patch of the same name (MIT,
+https://github.com/gillesgoetsch/OmacVM), with its log lines and
+environment variable renamed for Try Omarchy.
+
+--- a/system/main.c
++++ b/system/main.c
+@@ -39,12 +39,40 @@
+ 
+ #ifdef CONFIG_DARWIN
+ #include <CoreFoundation/CoreFoundation.h>
++#include <pthread/qos.h>
+ #endif
+ 
++#ifdef CONFIG_DARWIN
++/*
++ * The main loop feeds the sound card (HDA DMA and the audio timer)
++ * and runs virgl. At the default QoS it competes with the vCPU threads, so a
++ * busy guest on a busy Mac delays it by tens of ms and the sound breaks up.
++ * User-interactive QoS (as the window thread) puts it first.
++ * TRYOMARCHY_MAIN_LOOP_QOS=default keeps the default.
++ */
++static void tryomarchy_main_loop_qos(void)
++{
++    const char *v = getenv("TRYOMARCHY_MAIN_LOOP_QOS");
++
++    if (v && strcmp(v, "default") == 0) {
++        fprintf(stderr, "Try Omarchy: main loop QoS: default\n");
++        return;
++    }
++    if (pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) != 0) {
++        fprintf(stderr, "Try Omarchy: main loop QoS: default (user-interactive refused)\n");
++        return;
++    }
++    fprintf(stderr, "Try Omarchy: main loop QoS: user-interactive\n");
++}
++#endif
++
+ static void *qemu_default_main(void *opaque)
+ {
+     int status;
+ 
++#ifdef CONFIG_DARWIN
++    tryomarchy_main_loop_qos();
++#endif
+     replay_mutex_lock();
+     bql_lock();
+     status = qemu_main_loop();

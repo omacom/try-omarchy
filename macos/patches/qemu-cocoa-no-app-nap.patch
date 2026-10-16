@@ -1,0 +1,55 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: keep App Nap off while the VM runs
+
+Applies after the other Try Omarchy Cocoa patches.
+
+macOS naps an app none of whose windows can be seen: the screen locked, the
+VM's full screen on another Space, the window minimized or covered. A napped
+QEMU runs every thread, the vCPUs too, at background priority and the guest
+crawls. OmacVM (MIT) measured 2-20 % of normal guest speed on an M4 Max with
+the screen locked and four busy vCPUs, and fixed it the same way. Hold an
+NSProcessInfo activity (NSActivityUserInitiatedAllowingIdleSystemSleep) from
+the start of the run loop: the VM keeps working out of sight, as UTM's and
+Parallels' VM processes do, and an idle Mac can still sleep. The macOS helper
+pauses the VM for Mac sleep on its own. TRYOMARCHY_APP_NAP=1 leaves the
+activity out, for measurements. QEMU's log says which applies.
+
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -2469,8 +2469,36 @@ static void cocoa_clipboard_request(QemuClipboardInfo *info,
+     }
+ }
+ 
++/*
++ * macOS naps an app none of whose windows can be seen (the screen locked, the
++ * VM's full screen on another Space, the window minimized or covered). Every
++ * QEMU thread, the vCPUs too, then runs at background priority, and the guest
++ * slows to a fraction of its speed. Hold an activity for the whole run so the
++ * VM keeps working while nobody looks at it; idle system sleep stays allowed,
++ * and the app pauses the VM itself for Mac sleep. TRYOMARCHY_APP_NAP=1 lets
++ * macOS nap it, for measurements.
++ */
++static void cocoa_hold_no_app_nap_activity(void)
++{
++    static id activity;
++    const char *allow = getenv("TRYOMARCHY_APP_NAP");
++
++    if (activity) {
++        return;
++    }
++    if (allow && strcmp(allow, "1") == 0) {
++        info_report("Try Omarchy: App Nap allowed (TRYOMARCHY_APP_NAP=1)");
++        return;
++    }
++    activity = [[[NSProcessInfo processInfo]
++        beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
++                          reason:@"Omarchy is running"] retain];
++    info_report("Try Omarchy: App Nap off while the VM runs");
++}
++
+ static int cocoa_main(void)
+ {
++    cocoa_hold_no_app_nap_activity();
+     COCOA_DEBUG("Main thread: entering OSX run loop\n");
+     [NSApp run];
+     COCOA_DEBUG("Main thread: left OSX run loop, which should never happen\n");
