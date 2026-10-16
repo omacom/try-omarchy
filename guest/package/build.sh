@@ -30,21 +30,28 @@ command -v docker >/dev/null || fail "docker is required"
 command -v git >/dev/null || fail "git is required"
 mkdir -p "$output"
 output=$(cd "$output" && pwd)
-builder_image=try-omarchy-guest-builder
-docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/factory/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
+# GUEST_BUILDER_IMAGE names an already built builder image (CI restores one
+# from its cache); otherwise the Containerfile is built here.
+builder_image=${GUEST_BUILDER_IMAGE:-try-omarchy-guest-builder}
+[[ -n ${GUEST_BUILDER_IMAGE:-} ]] ||
+  docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/factory/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
 
 # The recipe goes in as an archive of the files git knows about (tracked, or
 # new and not ignored), so caches and other local files never reach the
 # package. The repository license sits beside the PKGBUILD.
+# macOS's bsdtar also needs telling to leave out its AppleDouble metadata;
+# GNU tar (a Linux builder) has no such option.
+tar_flags=(--no-xattrs)
+tar --version 2>/dev/null | grep -q 'GNU tar' || tar_flags+=(--no-mac-metadata)
 recipe=$(mktemp -d "${TMPDIR:-/tmp}/try-omarchy-package.XXXXXX")
 trap 'rm -rf "$recipe"' EXIT
 (
   cd "$package_dir/try-omarchy"
   git ls-files -z --cached --others --exclude-standard -- . |
     while IFS= read -r -d '' file; do if [[ -e $file ]]; then printf '%s\0' "$file"; fi; done |
-    COPYFILE_DISABLE=1 tar -c --no-mac-metadata --no-xattrs --null -T - -f "$recipe/recipe.tar"
+    COPYFILE_DISABLE=1 tar -c "${tar_flags[@]}" --null -T - -f "$recipe/recipe.tar"
 )
-COPYFILE_DISABLE=1 tar -r --no-mac-metadata --no-xattrs -f "$recipe/recipe.tar" -C "$repo_dir" LICENSE
+COPYFILE_DISABLE=1 tar -r "${tar_flags[@]}" -f "$recipe/recipe.tar" -C "$repo_dir" LICENSE
 
 # makepkg refuses root: build as an unprivileged user from a copy of the recipe.
 docker run --rm -i --platform linux/arm64 --entrypoint /bin/bash \

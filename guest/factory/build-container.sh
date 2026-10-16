@@ -45,9 +45,12 @@ done
 
 repo_checksum=$(printf '%s' "$repo_dir" | cksum)
 work_volume="try-omarchy-upstream-work-${repo_checksum%% *}"
-builder_image=try-omarchy-guest-builder
+# GUEST_BUILDER_IMAGE names an already built builder image (CI restores one
+# from its cache); otherwise the Containerfile is built here.
+builder_image=${GUEST_BUILDER_IMAGE:-try-omarchy-guest-builder}
 
-docker build --platform linux/arm64 -f "$upstream_dir/Containerfile" -t "$builder_image" "$repo_dir"
+[[ -n ${GUEST_BUILDER_IMAGE:-} ]] ||
+  docker build --platform linux/arm64 -f "$upstream_dir/Containerfile" -t "$builder_image" "$repo_dir"
 docker volume create --label dev.tryomarchy.role=upstream-work "$work_volume" >/dev/null
 docker run --rm --platform linux/arm64 --privileged \
   -v "$repo_dir:/workspace:ro" \
