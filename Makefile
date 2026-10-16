@@ -22,7 +22,7 @@ SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding run-qemu-gpu 
 SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor test guest guest-package runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight clean clean-all clean-guest
+.PHONY: help doctor test guest guest-package refresh runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight clean clean-all clean-guest
 .PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
 
 help:
@@ -34,12 +34,13 @@ help:
 	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component (the guest takes the newest Omarchy edge)' \
+	  '  make refresh        Rebuild the factory from the latest Omarchy edge, then build' \
 	  '  make run            Build the app from existing artifacts and open it' \
 	  '                      Automatically select a stable development certificate' \
 	  '  make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: ..."' \
 	  '                      Choose a certificate when several are available' \
 	  '  make package        Create a signed and notarized distribution DMG' \
-	  '  make release        Choose a version, tag, and build a notarized DMG' \
+	  '  make release        Choose a version, tag, and build a notarized DMG (fresh factory)' \
 	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
 	  '' \
 	  'Component builds:' \
@@ -88,6 +89,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-runtime-capabilities.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-virtio-pinch.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-build-cache.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-factory-freshness.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-profile-process.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-development-sign-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
@@ -142,6 +144,13 @@ app: guest runtime firmware
 
 build: doctor app
 	@printf 'Build output: %s\n' "$(APP)"
+	@python3 "$(ROOT)/scripts/factory-freshness.py" --root "$(ROOT)"
+
+# The factory is cached by its inputs, not by upstream: rebuild it from what
+# Omarchy's edge repositories serve now.
+refresh:
+	@$(MAKE) --no-print-directory guest FORCE=1
+	@$(MAKE) --no-print-directory build
 
 run: app
 	@$(ROOT)/macos/open-qemu-gpu.sh

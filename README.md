@@ -758,9 +758,16 @@ make build run
 The first build downloads Omarchy's packages to install the factory disk and
 compiles QEMU from pinned sources, so it can take a while. `make build` includes the basic toolchain
 check. Later builds hash the effective inputs and validate the existing outputs,
-then rebuild only the guest, runtime, or app components that changed. To bypass
-that cache deliberately, run `make build FORCE=1` (or add `FORCE=1` to an
-individual component command).
+then rebuild only the guest package, factory disk, runtime, or app that changed:
+a guest package change rebuilds the package in seconds, not the factory, and
+pinned runtime downloads are kept in `.build/downloads`. To bypass that cache
+deliberately, run `make build FORCE=1` (or add `FORCE=1` to an individual
+component command).
+
+The factory installs whatever Omarchy's edge repositories serve when it is
+built. After each build, `make build` prints whether Omarchy has moved since
+then, with the factory's age and the newer packages; `make refresh` rebuilds
+the factory from the latest Omarchy.
 
 Artifacts created before their `.build/state/` record exists are rebuilt once;
 the cache never adopts an output whose successful inputs it did not observe.

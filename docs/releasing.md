@@ -60,12 +60,12 @@ Always upload the DMG as `TryOmarchy.dmg` so older app release checkers and the
 website's stable download link continue to work:
 <https://github.com/omacom/try-omarchy/releases/latest/download/TryOmarchy.dmg>.
 
-The guest artifacts are cached by their inputs. The factory installs whatever
-Omarchy's `edge` repositories serve when it is built, so to ship a newer
-Omarchy in the factory, rebuild it with `make guest FORCE=1` and review
-`dist/guest/factory.json` (the `[omarchy]` database digest) and
-`dist/guest/packages.txt` before continuing. Existing VMs update themselves
-with `omarchy update` either way.
+The factory installs whatever Omarchy's `edge` repositories serve when it is
+built, and development builds reuse it until its own inputs change. `make
+release` always rebuilds it (`make guest FORCE=1`), so a release ships the
+current Omarchy; review `dist/guest/factory.json` (the `[omarchy]` database
+digest) and `dist/guest/packages.txt` before publishing. Existing VMs update
+themselves with `omarchy update` either way.
 
 Outputs are written to:
 

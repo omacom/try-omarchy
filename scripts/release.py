@@ -135,7 +135,10 @@ def release(root: Path, make: str) -> None:
             raise ValueError("release cancelled; no builds or tag changes were made")
     clean_head(root, head)
     print(f"Preparing {tag} from {head[:12]}", flush=True)
-    subprocess.run([make, "--no-print-directory", "-C", str(root), "guest", "runtime"], check=True)
+    # A release ships a factory built from what Omarchy's edge serves now; the
+    # cached one may be days behind upstream.
+    subprocess.run([make, "--no-print-directory", "-C", str(root), "guest", "FORCE=1"], check=True)
+    subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime"], check=True)
     clean_head(root, head)
     if validate_tag(root, tag, head):
         print(f"Reusing {tag}", flush=True)

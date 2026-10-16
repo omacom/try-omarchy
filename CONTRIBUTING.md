@@ -58,8 +58,12 @@ input must be rebuilt; do not work around the cache by editing generated state.
 ## Updating Omarchy and the guest package
 
 The guest updates itself with `omarchy update`, so there is no Omarchy pin to
-move. To ship a newer Omarchy in the factory, run `make guest FORCE=1` and
-review `dist/guest/factory.json` and `dist/guest/packages.txt`.
+move. The factory is cached by its own inputs, not by upstream: after each
+`make build` a check compares Omarchy's edge index with the one the factory
+was built from and says how old the factory is and which installed packages
+are newer upstream. `make refresh` rebuilds the factory from the latest
+Omarchy, then builds. `make release` always does. Review
+`dist/guest/factory.json` and `dist/guest/packages.txt` afterwards.
 
 Mac integrations in the guest live in the `try-omarchy` package
 ([guest/package](guest/package/README.md)). Bump its `pkgrel` (or `pkgver`)

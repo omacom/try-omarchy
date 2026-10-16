@@ -29,7 +29,7 @@ class ReleaseTests(unittest.TestCase):
         # Keep the actual public release/preflight recipes; substitute only the
         # expensive guest, runtime, and signed app builders at their boundaries.
         makefile = (REPOSITORY / "Makefile").read_text()
-        makefile += '\nguest runtime:\n\t@python3 "$(ROOT)/fake-component.py" "$@"\n'
+        makefile += '\nguest-package guest runtime:\n\t@python3 "$(ROOT)/fake-component.py" "$@" "$(FORCE)"\n'
         (self.root / "Makefile").write_text(makefile)
         (self.root / ".gitignore").write_text("/dist/\n/.build/\n/scripts/__pycache__/\n")
         (self.root / "source.swift").write_text("// initial source\n")
@@ -43,7 +43,8 @@ out = root / "dist"
 out.mkdir(exist_ok=True)
 with (out / "events").open("a") as stream:
     tags = subprocess.check_output(["git", "tag", "--points-at", "HEAD"], text=True).strip()
-    stream.write(f"{sys.argv[1]}:{tags}\\n")
+    forced = " forced" if sys.argv[2:] == ["1"] else ""
+    stream.write(f"{sys.argv[1]}{forced}:{tags}\\n")
 if os.environ.get("FAIL_COMPONENT") == sys.argv[1]:
     sys.exit(23)
 if sys.argv[1] == "runtime":
@@ -129,7 +130,9 @@ if os.environ.get("FAIL_PACKAGE"):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("tag", self.git("cat-file", "-t", "refs/tags/v1.2.3"))
         self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "v1.2.3^{commit}"))
-        self.assertEqual("guest:\nruntime:\npackage\n", (self.root / "dist/events").read_text())
+        # A release builds the factory fresh from upstream; the runtime is pinned.
+        self.assertEqual("guest-package forced:\nguest forced:\nruntime:\npackage\n",
+                         (self.root / "dist/events").read_text())
         self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
         self.assertIn(f"Release DMG: {self.root.resolve() / 'dist/TryOmarchy.dmg'}", result.stdout)
         app_info = plistlib.loads((self.root / "dist/release.noindex/Try Omarchy.app/Contents/Info.plist").read_bytes())
@@ -250,7 +253,7 @@ if os.environ.get("FAIL_PACKAGE"):
             with self.subTest(environment=environment):
                 self.assert_failed(self.run_release(**environment), message)
                 self.assertEqual("", self.git("tag"))
-                self.assertNotIn("package", (self.root / "dist/events").read_text())
+                self.assertNotIn("package", (self.root / "dist/events").read_text().splitlines())
 
     def test_packaging_failure_keeps_tag_and_retry_reuses_it(self) -> None:
         self.assert_failed(self.run_release(FAIL_PACKAGE="1"), "Retry with make release VERSION=v1.2.3")
