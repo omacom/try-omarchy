@@ -44,3 +44,94 @@ jobs:
       - name: Build and verify native runtime
         if: matrix.target == 'runtime'
         run: make runtime
+
+  # The guest package on Linux, the way a guest runs it: its tests on GNU
+  # tools, its shell scripts, and its contracts with the Omarchy the factory
+  # installs today (omarchy-dev and omarchy-settings-dev from the live edge
+  # repository, signatures checked against guest/keys).
+  guest-contracts:
+    name: Guest contracts (Linux)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Guest package tests
+        run: make test-guest
+
+      - name: Guest shell scripts (bash -n, ShellCheck errors)
+        run: |
+          git ls-files guest | while read -r f; do
+            if [ -f "$f" ] && head -1 "$f" | grep -qE '^#!.*\b(ba)?sh\b'; then echo "$f"; fi
+          done > "$RUNNER_TEMP/shell-files"
+          while read -r f; do bash -n "$f"; done < "$RUNNER_TEMP/shell-files"
+          command -v shellcheck >/dev/null || sudo apt-get install -yq shellcheck
+          tr '\n' '\0' < "$RUNNER_TEMP/shell-files" | xargs -0 shellcheck -S error -s bash
+
+      - name: Contracts with the current Omarchy
+        run: make test-upstream
+
+  # The package installed with its dependencies from Omarchy's live aarch64
+  # repositories, its DKMS modules built for linux-omarchy, upgraded from the
+  # base revision's package (whose version must be lower when the files
+  # changed) and removed again. The builder image and the package downloads
+  # are cached; every check runs on every change.
+  guest-package:
+    name: Guest package install (Linux)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore the builder image
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/builder-image.tar.zst
+          key: guest-builder-${{ hashFiles('guest/factory/Containerfile', 'guest/keys/**', 'guest/vendor/**') }}
+
+      - name: Load or build the builder image
+        run: |
+          image="$RUNNER_TEMP/builder-image.tar.zst"
+          if [ -f "$image" ]; then
+            zstd -dc "$image" | docker load --quiet
+          else
+            docker build --quiet --platform linux/arm64 -f guest/factory/Containerfile -t try-omarchy-guest-builder .
+            docker save try-omarchy-guest-builder | zstd -T0 -3 -q -o "$image"
+          fi
+
+      - name: Restore package downloads
+        id: pacman-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/pacman-cache
+          key: guest-pacman-latest
+          restore-keys: guest-pacman-
+
+      - name: Install, upgrade and remove the package
+        env:
+          GUEST_BUILDER_IMAGE: try-omarchy-guest-builder
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base=$BASE_SHA
+          git rev-parse --verify --quiet "$base^{commit}" >/dev/null || base=$(git rev-parse HEAD^)
+          guest/tests/package-check.sh --base "$base" --cache "$RUNNER_TEMP/pacman-cache"
+
+      # Saved only when the set of packages changed (the test keeps one
+      # version of each), so most runs upload nothing.
+      - name: Name the package downloads
+        id: pacman-key
+        if: always()
+        run: echo "key=guest-pacman-$(ls "$RUNNER_TEMP/pacman-cache" 2>/dev/null | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Save package downloads
+        if: always() && steps.pacman-key.outputs.key != steps.pacman-restore.outputs.cache-matched-key
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/pacman-cache
+          key: ${{ steps.pacman-key.outputs.key }}

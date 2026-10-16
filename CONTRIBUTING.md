@@ -82,8 +82,17 @@ as `make test-contracts`, `make test-guest` (the guest package), `make test-swif
 and `make test-shell`.
 
 PR checks run all tests and full runtime builds in separate, concurrent jobs on
-both macOS 15 and 26, labeled `Tests` and `Build`. No suites or runtime checks
-are skipped based on changed paths or cached test results.
+both macOS 15 and 26, labeled `Tests` and `Build`. Beside them, two Linux arm64
+jobs check the guest package the way a guest uses it: `Guest contracts` runs
+`make test-guest` on GNU tools, the guest scripts through ShellCheck, and
+`make test-upstream`, which checks the package's menu rows, commands, unit
+drop-ins and paths against the Omarchy the factory installs today;
+`Guest package install` installs the package with its dependencies from
+Omarchy's live repositories, builds its DKMS modules, upgrades from the base
+revision's package (whose version must be lower when the package changed) and
+removes it (`make test-guest-install`). No suites or runtime checks are skipped
+based on changed paths or cached test results; the builder image and package
+downloads are cached.
 
 Tests should describe a user-visible behavior, policy, data contract, or
 process boundary. Keep presentation and edit rules in deterministic models that
