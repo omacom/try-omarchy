@@ -168,3 +168,41 @@ The console also emitted an encryption-hook warning for the unencrypted root,
 and QEMU logged a port-8 add warning even though the time-zone device appeared
 and passed transport tests. Neither blocked these boots; neither warning was
 fixed in this change.
+
+## Keyboard capture follow-up
+
+The user reported that all Mac keyboard input stopped during a VM launch and
+returned after focusing the VM and then leaving it. QEMU's full-screen entry
+sets its mouse-grab flag. The previous capture predicate trusted that flag even
+if the QEMU application was inactive or its VM window was not key, so it could
+authorize the global keyboard tap before the first focus-loss cleanup.
+
+The capture predicate now requires an active application and key VM window,
+including when the mouse-grab flag is set. App deactivation also releases mouse
+and guest key state independently of the existing window-focus notification.
+The QEMU pin stayed unchanged; both affected local patch checksums were updated.
+
+Verification:
+
+- `PYTHONDONTWRITEBYTECODE=1 python3 macos/Tests/test-cocoa-keyboard-focus.py`:
+  the native regression failed against the old predicate, then passed after the
+  fix. It compiles the actual patched Objective-C methods without installing an
+  event tap, and covers an inactive app with a stale grab, another key window,
+  focused shortcuts, repeated focus transitions and deactivation cleanup.
+- `make test`: passed, including 408 Swift tests and the new native regression.
+- `make runtime`: passed the complete pinned source build and runtime validation;
+  17 self-contained Mach-O images passed the macOS 15.0 compatibility audit.
+- `make app`: passed assembly and signing; the app's 22 Mach-O images passed the
+  compatibility audit. `codesign --verify --deep --strict` passed for the app.
+- Computer use typed into a private TextEdit fixture before and after launching
+  the rebuilt QA VM in full screen. Ordinary typing and Command-A worked while
+  the VM ran, then again after focusing the VM and returning to TextEdit without
+  any guest keystroke. These are automated smoke checks; the user's exact
+  physical-keyboard failure was not reproduced end to end.
+- The local display wrapper initially failed strict bundle verification because
+  its dependency directory was an external symlink. The disposable wrapper was
+  made self-contained and re-signed; strict verification then passed. The product
+  app had passed independently.
+
+The QA VM was powered off afterward. The normal VM and launcher preferences were
+not changed, and the temporary test-only Command bridge was not running.

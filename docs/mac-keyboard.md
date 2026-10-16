@@ -29,9 +29,24 @@ Omarchy's setup form asks for the keyboard layout and input method; it does
 not preselect Japanese on JIS Macs. Native 英数/かな mode keys are described
 in [Japanese input](japanese-input.md).
 
+## Focus and keyboard capture
+
+Command reaches the guest as Super while the QEMU application is active and
+its VM window is key, in both windowed and full-screen presentation. A stale
+mouse grab cannot authorize global keyboard capture after switching to a Mac
+app. App deactivation and window focus loss both release the guest's held keys
+and mouse buttons; returning to the VM does not require typing to reset capture.
+
+If input appears stuck while using an older runtime, focus the VM and press
+Control–Option–G to release its mouse grab, then select the Mac application.
+Quit the VM if host input still does not recover.
+
 ## Validation
 
 `make test` checksums the Cocoa patch and compiles the ISO swap helper. The upstream QEMU pin is unchanged. Review
 `iso_swap_patch_sha256` in `macos/build-qemu-gpu-runtime.sh` against
 `macos/patches/qemu-cocoa-iso-section-grave-swap.patch`. `make runtime`
 applies the patch after the existing Cocoa series.
+The native focus regression compiles the capture and deactivation methods from
+the full-grab patch against controlled application/window state, without
+installing a global event tap or generating keyboard events.

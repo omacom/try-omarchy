@@ -61,8 +61,8 @@ server simply disables the tap again.
          COCOA_DEBUG("Global events tap: qemu handled the event, capturing!\n");
 @@ -1153,6 +1169,19 @@
  {
-     return isMouseGrabbed ||
-            (full_grab_enabled && [[self window] isKeyWindow]);
+     return [NSApp isActive] && [[self window] isKeyWindow] &&
+            (isMouseGrabbed || full_grab_enabled);
 +}
 +
 +/*
