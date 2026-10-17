@@ -79,7 +79,8 @@ struct LauncherView: View {
         } detail: {
             pane
                 .disabled(model.permissionPromptOpen)
-                .navigationTitle(selection == .home ? (model.isRunning ? "Try Omarchy Settings" : "Try Omarchy") : (selection ?? .home).rawValue)
+                .navigationTitle((selection ?? .home).rawValue)
+                .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
                 .toolbar {
                     if selection != .home {
                         ToolbarItem(placement: .primaryAction) { LaunchToolbarButton() }
