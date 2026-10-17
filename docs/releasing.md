@@ -164,6 +164,6 @@ These binary checks do not replace testing on the supported operating systems.
 
 Before publishing, boot the release app on macOS 15.0–15.3 and macOS 26. Verify
 the default terminal draws text correctly while resizing, check desktop
-rendering, and test both new and existing guests. macOS 15 must
-use EL1 without probing nested virtualization; on macOS 26, verify the existing
-EL2 probe and fallback on supported and unsupported hardware respectively.
+rendering, and test both new and existing guests. By default every Mac must
+use EL1 without probing nested virtualization. Turn EL2 back on by default
+only after an M3-or-newer Mac boots to the desktop at EL2.

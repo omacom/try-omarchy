@@ -42,7 +42,7 @@ Shutting down Omarchy closes the app and leaves it closed.
 ## Highlights
 
 - Hardware-accelerated ARM64 virtualization and VirGL graphics
-- Nested KVM virtualization on M3 and newer Apple Silicon running macOS 26
+- Opt-in nested KVM virtualization on M3 and newer Apple Silicon running macOS 26+
 - Resizable native window with automatic guest resolution and HiDPI scale updates
 - Mac audio input/output selection inside Omarchy, with live routing and system-default fallback
 - FaceTime HD and other Mac cameras exposed to Omarchy as an on-demand 720p webcam
@@ -578,13 +578,12 @@ Omarchy select their input methods independently. See
 - About 12 GB free for the first launch (the decompressed factory disk is about
   9 GB), plus room for the VM to grow
 
-On M3 and newer Apple Silicon running macOS 26, Try Omarchy also exposes ARM
-EL2 to Linux, so the guest provides `/dev/kvm` for nested VMs and compatible
-VMMs. macOS 15, macOS 27 and older Apple Silicon Macs keep the normal
-non-nested launch path: on macOS 27 the UEFI boot hangs at EL2. Set
-`OMARCHY_QEMU_GPU_NESTED_VIRT=1` to probe EL2 on any macOS 26 or newer host,
-or `0` to always use EL1. Hardware-accelerated graphics are available on both
-macOS 15 and macOS 26.
+Nested virtualization is off by default: with ARM EL2 exposed, the UEFI boot
+currently hangs before Linux starts on M3 and newer Apple Silicon. Scripted
+launches can set `OMARCHY_QEMU_GPU_NESTED_VIRT=1` to try it on macOS 26 or
+newer; when the host supports EL2, the guest then provides `/dev/kvm` for
+nested VMs and compatible VMMs. Hardware-accelerated graphics are available on
+both macOS 15 and macOS 26.
 
 ## Data and updates
 

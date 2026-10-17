@@ -54,14 +54,14 @@ firmware_code=${OMARCHY_SHELL_FIRMWARE:-"$resources_dir/firmware/edk2-aarch64-co
 [[ $(uname -m) == arm64 && $(uname -s) == Darwin ]] || fail "requires an Apple Silicon Mac"
 macos_major=$(sw_vers -productVersion | cut -d. -f1)
 [[ $macos_major =~ ^[0-9]+$ ]] && ((macos_major >= 15)) || fail "requires macOS 15 or newer"
-# EL2 is validated on macOS 26 only: on macOS 27 the UEFI firmware runs at EL2
-# but Limine never returns from its first timer wait, leaving a black screen.
-# 1 probes EL2 on any macOS 26 or newer host; 0 always uses EL1.
-case ${OMARCHY_QEMU_GPU_NESTED_VIRT:-auto} in
-  auto) ((macos_major == 26)) && probe_nested=1 || probe_nested=0 ;;
+# Nested virtualization (EL2) is opt-in: the UEFI firmware then runs at EL2
+# too, where its virtual-timer interrupt never arrives under HVF, so Limine
+# hangs in its first timer wait (seen on macOS 26 and 27, M4 and M5). 1 probes
+# EL2 on macOS 26 or newer; 0, the default, always uses EL1.
+case ${OMARCHY_QEMU_GPU_NESTED_VIRT:-0} in
   1) ((macos_major >= 26)) && probe_nested=1 || probe_nested=0 ;;
   0) probe_nested=0 ;;
-  *) fail "OMARCHY_QEMU_GPU_NESTED_VIRT must be auto, 0 or 1" ;;
+  *) fail "OMARCHY_QEMU_GPU_NESTED_VIRT must be 0 or 1" ;;
 esac
 [[ -d $guest_input && ! -L $guest_input ]] || fail "guest directory is missing or unsafe: $guest_input"
 guest_dir=$(cd "$guest_input" && pwd -P)
@@ -357,8 +357,10 @@ if ((probe_nested)) && (
   qemu_machine='virt,gic-version=3,virtualization=on'
   qemu_accel=(-accel 'hvf,kernel-irqchip=on')
   echo '[qemu-gpu] Nested virtualization is enabled.' >&2
-else
+elif ((probe_nested)); then
   echo '[qemu-gpu] Nested virtualization is unavailable; using the compatible EL1 path.' >&2
+else
+  echo '[qemu-gpu] Nested virtualization is off; using the EL1 path.' >&2
 fi
 
 case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
