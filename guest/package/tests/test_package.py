@@ -531,6 +531,13 @@ class Recipe(unittest.TestCase):
         consoles = re.findall(r"console=(\w+)", line)
         self.assertEqual(consoles, ["hvc0", "tty0"])
 
+    def test_cpu_drop_in_hides_sme_without_sve(self):
+        # The M4 has SME but no SVE; QEMU under HVF cannot hide SME.
+        text = (FILES / "etc/limine-entry-tool.d/50-try-omarchy-cpu.conf").read_text()
+        lines = [line for line in text.splitlines() if line.startswith("KERNEL_CMDLINE[default]+=")]
+        self.assertEqual(lines, ['KERNEL_CMDLINE[default]+=" arm64.nosme"'])
+        self.assertIn("'etc/limine-entry-tool.d/50-try-omarchy-cpu.conf'", (PACKAGE / "PKGBUILD").read_text())
+
     def test_chromium_takes_input_methods(self):
         self.assertIn("--enable-wayland-ime", (FILES / "etc/chromium-flags.conf").read_text().split())
 

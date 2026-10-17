@@ -8,7 +8,7 @@
 
 pkgname=try-omarchy
 pkgver=0.1.0
-pkgrel=23
+pkgrel=24
 pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
 arch=('aarch64')
 url='https://github.com/omacom/try-omarchy'
@@ -40,6 +40,7 @@ optdepends=(
 backup=(
   'etc/chromium-flags.conf'
   'etc/limine-entry-tool.d/50-try-omarchy-console.conf'
+  'etc/limine-entry-tool.d/50-try-omarchy-cpu.conf'
   'etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf'
 )
 install=try-omarchy.install
