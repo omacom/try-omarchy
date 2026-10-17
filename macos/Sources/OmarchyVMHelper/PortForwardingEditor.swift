@@ -57,34 +57,19 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
     }
 
     private func buildWindow() {
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 430),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Port Forwarding"
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
+        let width: CGFloat = 540
+        window = NativeSheetChrome.window(title: "Port Forwarding", width: width)
         window.delegate = self
-        window.setAccessibilityLabel("Port Forwarding")
-
-        let title = NSTextField(labelWithString: "Port forwarding")
-        title.font = .systemFont(ofSize: 21, weight: .bold)
 
         let explanation = NSTextField(
             wrappingLabelWithString: "Mac → Omarchy mappings expose guest services on Mac localhost. For Omarchy → Mac, connect to \(PortForwardPolicy.guestToHostAddress)."
         )
-        explanation.font = .systemFont(ofSize: 12.5)
-        explanation.textColor = .secondaryLabelColor
         explanation.maximumNumberOfLines = 2
         explanation.identifier = NSUserInterfaceItemIdentifier("port-forward-explanation")
-
-        let heading = NSStackView(views: [title, explanation])
-        heading.orientation = .vertical
-        heading.alignment = .leading
-        heading.spacing = 5
+        let heading = NativeSheetChrome.header(
+            symbol: "arrow.left.arrow.right", color: .systemIndigo,
+            title: "Port Forwarding", subtitle: explanation
+        )
 
         rowsStack.orientation = .vertical
         rowsStack.alignment = .leading
@@ -104,37 +89,26 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         scrollView.documentView = document
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        scrollView.borderType = .bezelBorder
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .controlBackgroundColor
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.identifier = NSUserInterfaceItemIdentifier("port-forward-scroll")
         NSLayoutConstraint.activate([
             document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
             scrollView.heightAnchor.constraint(equalToConstant: 224),
         ])
+        let list = FormGroupView()
+        list.embed(scrollView)
 
-        addButton.title = "Add Port"
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
-        addButton.imagePosition = .imageLeading
-        addButton.bezelStyle = .rounded
-        addButton.controlSize = .regular
-        addButton.target = self
-        addButton.action = #selector(addPort)
-        addButton.identifier = NSUserInterfaceItemIdentifier("port-forward-add")
-        addButton.setAccessibilityHelp("Adds another localhost-to-Omarchy port mapping")
+        configureAddButton(addButton, title: "Add Port", symbol: "plus", action: #selector(addPort),
+                           identifier: "port-forward-add",
+                           help: "Adds another localhost-to-Omarchy port mapping")
+        configureAddButton(addSSHButton, title: "Add SSH", symbol: "terminal", action: #selector(addSSH),
+                           identifier: "port-forward-add-ssh",
+                           help: "Adds localhost:2222 to Omarchy:22 over TCP")
 
-        addSSHButton.title = "Add SSH"
-        addSSHButton.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)
-        addSSHButton.imagePosition = .imageLeading
-        addSSHButton.bezelStyle = .rounded
-        addSSHButton.controlSize = .regular
-        addSSHButton.target = self
-        addSSHButton.action = #selector(addSSH)
-        addSSHButton.identifier = NSUserInterfaceItemIdentifier("port-forward-add-ssh")
-        addSSHButton.setAccessibilityHelp("Adds localhost:2222 to Omarchy:22 over TCP")
-
-        validationLabel.font = .systemFont(ofSize: 11.5)
+        NativeSheetChrome.styleFootnote(validationLabel)
         validationLabel.maximumNumberOfLines = 2
         validationLabel.identifier = NSUserInterfaceItemIdentifier("port-forward-validation")
         validationLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -144,51 +118,42 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         addActions.alignment = .centerY
         addActions.spacing = 8
 
-        let listFooter = NSStackView(views: [addActions, validationLabel])
-        listFooter.orientation = .vertical
-        listFooter.alignment = .leading
-        listFooter.spacing = 6
+        let validation = NativeSheetChrome.inset(validationLabel)
+        validation.heightAnchor.constraint(greaterThanOrEqualToConstant: 28).isActive = true
 
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
-        cancelButton.bezelStyle = .rounded
+        let cancelButton = NativeSheetChrome.button("Cancel", target: self, action: #selector(cancel))
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.identifier = NSUserInterfaceItemIdentifier("port-forward-cancel")
 
         saveButton.title = "Save"
-        saveButton.bezelStyle = .rounded
+        saveButton.bezelStyle = .push
         saveButton.keyEquivalent = "\r"
         saveButton.target = self
         saveButton.action = #selector(save)
         saveButton.identifier = NSUserInterfaceItemIdentifier("port-forward-save")
 
-        let spacer = NSView()
-        let actions = NSStackView(views: [spacer, cancelButton, saveButton])
-        actions.orientation = .horizontal
-        actions.alignment = .centerY
-        actions.spacing = 8
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let actions = NativeSheetChrome.actions(leading: [addActions], trailing: [cancelButton, saveButton])
 
-        let contentStack = NSStackView(views: [heading, scrollView, listFooter, actions])
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 14
-        contentStack.setCustomSpacing(18, after: heading)
-        contentStack.setCustomSpacing(18, after: listFooter)
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        let stack = NSStackView(views: [heading, list, validation, actions])
+        stack.spacing = 6
+        stack.setCustomSpacing(16, after: heading)
+        stack.setCustomSpacing(12, after: validation)
+        NativeSheetChrome.install(stack, in: window, width: width)
+    }
 
-        let content = NSView()
-        content.addSubview(contentStack)
-        window.contentView = content
-        NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 26),
-            contentStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -26),
-            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 38),
-            contentStack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22),
-            heading.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            scrollView.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            listFooter.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-            actions.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
-        ])
+    private func configureAddButton(
+        _ button: NSButton, title: String, symbol: String, action: Selector,
+        identifier: String, help: String
+    ) {
+        button.title = title
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.bezelStyle = .push
+        button.controlSize = .regular
+        button.target = self
+        button.action = action
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.setAccessibilityHelp(help)
     }
 
     private func rebuildRows(
@@ -206,7 +171,7 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         } else {
             for index in model.drafts.indices {
                 if index > model.drafts.startIndex {
-                    addFullWidthArrangedSubview(separator())
+                    addInsetSeparator()
                 }
                 addFullWidthArrangedSubview(mappingRow(at: index))
             }
@@ -302,8 +267,10 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         remove.toolTip = "Remove this mapping"
         remove.widthAnchor.constraint(equalToConstant: 28).isActive = true
 
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let rowStack = NSStackView(
-            views: [localhost, hostField, arrow, guest, guestField, protocolPicker, remove]
+            views: [localhost, hostField, arrow, guest, guestField, protocolPicker, spacer, remove]
         )
         rowStack.orientation = .horizontal
         rowStack.alignment = .centerY
@@ -315,8 +282,8 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         row.addSubview(rowStack)
         NSLayoutConstraint.activate([
             row.heightAnchor.constraint(equalToConstant: 48),
-            rowStack.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12),
-            rowStack.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -8),
+            rowStack.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: NativeSheetChrome.rowInset),
+            rowStack.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -6),
             rowStack.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
         return row
@@ -350,10 +317,13 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
         return field
     }
 
-    private func separator() -> NSView {
-        let separator = NSBox()
-        separator.boxType = .separator
-        return separator
+    private func addInsetSeparator() {
+        let separator = NativeSheetChrome.separator()
+        rowsStack.addArrangedSubview(separator)
+        NSLayoutConstraint.activate([
+            separator.leadingAnchor.constraint(equalTo: rowsStack.leadingAnchor, constant: NativeSheetChrome.rowInset),
+            separator.trailingAnchor.constraint(equalTo: rowsStack.trailingAnchor, constant: -NativeSheetChrome.rowInset),
+        ])
     }
 
     private func addFullWidthArrangedSubview(_ view: NSView) {

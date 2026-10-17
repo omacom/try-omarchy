@@ -116,7 +116,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
 
     private func showStatus(_ text: String, error: Bool = false) {
         statusLabel.stringValue = text
-        statusLabel.textColor = error ? .systemRed : OmarchyStartMenuTheme.foreground
+        statusLabel.textColor = error ? .systemRed : .labelColor
         NSAccessibility.post(element: statusLabel, notification: .announcementRequested,
             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
     }
@@ -250,64 +250,30 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             progressBar.startAnimation(nil)
             statusLabel.stringValue = "\(update.title)\nThe original VM is kept. Please wait before closing this dialog."
         }
-        statusLabel.textColor = OmarchyStartMenuTheme.foreground
+        statusLabel.textColor = .labelColor
     }
 
     @objc private func done() { dismiss() }
 
-    private func label(_ text: String, size: CGFloat = 12, bold: Bool = false, muted: Bool = false) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: bold ? .semibold : .regular)
-        field.textColor = muted ? OmarchyStartMenuTheme.muted : OmarchyStartMenuTheme.foreground
-        return field
-    }
-
-    private func button(_ title: String, action: Selector, id: String, primary: Bool = false, danger: Bool = false) -> NSButton {
-        let control = OmarchyActionButton(title: title, style: danger ? .danger : (primary ? .primary : .secondary), target: self, action: action)
+    private func button(_ title: String, action: Selector, id: String, danger: Bool = false) -> NSButton {
+        let control = danger
+            ? NativeSheetChrome.destructiveButton(title, target: self, action: action)
+            : NativeSheetChrome.button(title, target: self, action: action)
         control.identifier = NSUserInterfaceItemIdentifier("vm-storage-" + id)
-        control.widthAnchor.constraint(equalToConstant: primary ? 86 : 178).isActive = true
-        control.heightAnchor.constraint(equalToConstant: 32).isActive = true
         return control
     }
 
-    private func row(_ title: String, detail: String, control: NSView) -> NSView {
-        let titleLabel = label(title, size: 14, bold: true)
-        let description = label(detail, muted: true)
-        let text = NSStackView(views: [titleLabel, description])
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 6
-        let row = NSStackView(views: [text, control])
-        row.alignment = .centerY
-        row.spacing = 20
-        description.widthAnchor.constraint(equalTo: text.widthAnchor).isActive = true
-        text.widthAnchor.constraint(equalToConstant: 354).isActive = true
-        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 82).isActive = true
-        return row
-    }
-
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 688),
-            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Manage virtual machines"
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = OmarchyStartMenuTheme.background
+        let width: CGFloat = 600
+        window = NativeSheetChrome.window(title: "Manage virtual machines", width: width)
         window.delegate = self
-        window.setAccessibilityLabel("Manage virtual machines")
 
-        pathLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
-        pathLabel.textColor = OmarchyStartMenuTheme.foreground
         pathLabel.identifier = NSUserInterfaceItemIdentifier("vm-storage-selected-path")
-        selectionLabel.font = .systemFont(ofSize: 12)
-        selectionLabel.textColor = OmarchyStartMenuTheme.muted
+        pathLabel.isSelectable = true
         selectionLabel.identifier = NSUserInterfaceItemIdentifier("vm-storage-selection-detail")
-        statusLabel.font = .systemFont(ofSize: 12)
-        statusLabel.textColor = OmarchyStartMenuTheme.foreground
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.textColor = .labelColor
         statusLabel.identifier = NSUserInterfaceItemIdentifier("vm-storage-status")
-        statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
         progressBar.style = .bar
         progressBar.minValue = 0
         progressBar.maxValue = 100
@@ -317,38 +283,64 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         moveButton = button("Choose Destination…", action: #selector(moveSelectedVM), id: "move")
         newButton = button("Choose Empty Folder…", action: #selector(chooseNewVM), id: "new")
         deleteButton = button("Delete VM…", action: #selector(deleteSelectedVM), id: "delete", danger: true)
-        deleteButton.hasDestructiveAction = true
         defaultButton = button("Use Default Folder", action: #selector(selectDefault), id: "default")
-        doneButton = button("Done", action: #selector(done), id: "done", primary: true)
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let footer = NSStackView(views: [defaultButton, spacer, doneButton])
-        footer.spacing = 12
-        let rows: [NSView] = [
-            label("Manage VMs", size: 22, bold: true),
-            label("Selected VM for next launch", size: 13, bold: true), pathLabel, selectionLabel,
-            row("Switch to another VM", detail: "Choose a saved VM in another folder. This changes which VM the app will launch; files stay where they are.", control: existingButton),
-            row("Move the selected VM", detail: "Copy this VM to a new folder, verify it, and switch to the copy. The original remains a recovery copy.", control: moveButton),
-            row("Create a separate VM", detail: "Choose an empty folder. A new VM is created on the next launch; the selected VM is kept.", control: newButton),
-            row("Delete the selected VM", detail: "Move this VM folder to macOS Trash. Other VM copies are kept. You can recover it until Trash is emptied.", control: deleteButton),
-            statusLabel, progressBar, footer
-        ]
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = NSView()
-        content.wantsLayer = true
-        content.layer?.backgroundColor = OmarchyStartMenuTheme.background.cgColor
-        content.addSubview(stack)
-        window.contentView = content
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 36),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20)
+        doneButton = button("Done", action: #selector(done), id: "done")
+
+        let heading = NativeSheetChrome.header(
+            symbol: "externaldrive.fill", color: .systemGray, title: "Manage VMs",
+            subtitle: "Choices apply to the next launch."
+        )
+        let selected = NativeSheetChrome.group([
+            NativeSheetChrome.row(title: pathLabel, detail: selectionLabel),
         ])
-        for view in rows { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        let choices = NativeSheetChrome.group([
+            NativeSheetChrome.row(
+                title: "Switch to another VM",
+                detail: "Choose a saved VM in another folder. This changes which VM the app will launch; files stay where they are.",
+                control: existingButton
+            ),
+            NativeSheetChrome.row(
+                title: "Move the selected VM",
+                detail: "Copy this VM to a new folder, verify it, and switch to the copy. The original remains a recovery copy.",
+                control: moveButton
+            ),
+            NativeSheetChrome.row(
+                title: "Create a separate VM",
+                detail: "Choose an empty folder. A new VM is created on the next launch; the selected VM is kept.",
+                control: newButton
+            ),
+            NativeSheetChrome.row(
+                title: "Delete the selected VM",
+                detail: "Move this VM folder to macOS Trash. Other VM copies are kept. You can recover it until Trash is emptied.",
+                control: deleteButton
+            ),
+        ])
+        progressBar.controlSize = .small
+        // Keep the bar's space reserved so the sheet does not jump while copying.
+        let statusStack = NSStackView()
+        statusStack.detachesHiddenViews = false
+        statusStack.orientation = .vertical
+        statusStack.alignment = .leading
+        statusStack.spacing = 6
+        statusStack.addArrangedSubview(statusLabel)
+        statusStack.addArrangedSubview(progressBar)
+        statusLabel.widthAnchor.constraint(equalTo: statusStack.widthAnchor).isActive = true
+        progressBar.widthAnchor.constraint(equalTo: statusStack.widthAnchor).isActive = true
+        statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+        let status = NativeSheetChrome.inset(statusStack)
+        let footer = NativeSheetChrome.actions(leading: [defaultButton], trailing: [doneButton])
+
+        let stack = NSStackView(views: [
+            heading,
+            NativeSheetChrome.sectionTitle("Selected VM for next launch"), selected,
+            choices, status, footer,
+        ])
+        stack.spacing = 8
+        stack.setCustomSpacing(16, after: heading)
+        stack.setCustomSpacing(6, after: stack.arrangedSubviews[1])
+        stack.setCustomSpacing(16, after: selected)
+        stack.setCustomSpacing(10, after: choices)
+        stack.setCustomSpacing(12, after: status)
+        NativeSheetChrome.install(stack, in: window, width: width)
     }
 }

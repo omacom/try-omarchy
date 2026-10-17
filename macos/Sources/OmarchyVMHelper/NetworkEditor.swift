@@ -18,7 +18,7 @@ final class NetworkEditor: NSObject {
     private let detail = NSTextField(wrappingLabelWithString: "")
     private let serviceStatus = NSTextField(wrappingLabelWithString: "")
     private let setup = NSButton()
-    private let remove = NSButton()
+    private let remove = NativeSheetChrome.destructiveButton("Remove Networking Helper", target: nil, action: nil)
     private let controls = NSStackView()
     private let stack = NSStackView()
     private var serviceBusy = false
@@ -38,6 +38,7 @@ final class NetworkEditor: NSObject {
         self.didClose = didClose
         super.init()
         alert.messageText = "Networking"
+        alert.icon = NativeSheetChrome.iconImage(symbol: "network", color: .systemBlue)
         alert.informativeText = "Changes apply the next time you start Omarchy."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
@@ -59,7 +60,6 @@ final class NetworkEditor: NSObject {
         explanation.textColor = .secondaryLabelColor
         setup.title = "Set Up / Repair Networking…"
         setup.target = self; setup.action = #selector(setUpService)
-        remove.title = "Remove Networking Helper"
         remove.target = self; remove.action = #selector(removeService)
         controls.addArrangedSubview(setup)
         controls.addArrangedSubview(remove)
@@ -126,10 +126,21 @@ final class NetworkEditor: NSObject {
             regenerateMAC.toolTip = identity.isEphemeral
                 ? "Ephemeral MAC addresses cannot be changed here."
                 : (canReplaceMAC ? nil : "Shut down the VM before changing its MAC address.")
-            macAddress.stringValue = currentMAC.isEmpty
-                ? (identity.isEphemeral ? "MAC address: assigned on each bridged launch."
-                    : "MAC address: assigned on the first bridged launch.")
-                : "MAC address: \(currentMAC)"
+            if currentMAC.isEmpty {
+                macAddress.stringValue = identity.isEphemeral
+                    ? "MAC address: assigned on each bridged launch."
+                    : "MAC address: assigned on the first bridged launch."
+            } else {
+                let text = NSMutableAttributedString(string: "MAC address: ", attributes: [
+                    .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                    .foregroundColor: NSColor.labelColor,
+                ])
+                text.append(NSAttributedString(string: currentMAC, attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+                    .foregroundColor: NSColor.labelColor,
+                ]))
+                macAddress.attributedStringValue = text
+            }
         } catch {
             currentMAC = ""
             macAddress.stringValue = error.localizedDescription
