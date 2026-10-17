@@ -489,6 +489,14 @@ class ScreenRecording(unittest.TestCase):
         self.assertIn('target_install "${optional[@]}"', factory)
 
 
+class Which(unittest.TestCase):
+    def test_factory_installs_which_for_omarchys_panels(self):
+        # Omarchy's bar detects tools such as tailscale with `which`. Arch
+        # pulls it in through base-devel; Arch Linux ARM's base-devel is
+        # empty, so the factory installs it from optdepends.
+        self.assertIn("'which: ", (PACKAGE / "PKGBUILD").read_text())
+
+
 class Dependencies(unittest.TestCase):
     def test_upgrades_inside_a_vm_need_no_new_downloads(self):
         # The app upgrades this package at boot, possibly offline or with a
