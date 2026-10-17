@@ -61,6 +61,9 @@ struct BundledGuestMetrics: Equatable {
     var identity: String
     var sourceDiskBytes: Int64
     var workingDiskBytes: Int64
+    /// The compressed image a release app downloads before its first VM; it
+    /// sits beside the decompressed factory until the VM has started.
+    var downloadBytes: Int64 = 0
 }
 
 /// How much room the workspace needs on the chosen volume.
@@ -71,12 +74,13 @@ struct BundledGuestMetrics: Equatable {
 struct StorageSpaceRequirement: Equatable {
     var sourceBytes: Int64
     var workingBytes: Int64
+    var downloadBytes: Int64 = 0
 
     static let headroomBytes: Int64 = 1_073_741_824
 
     /// Below this the workspace cannot even be created.
     var floorBytes: Int64 {
-        sourceBytes + Self.headroomBytes
+        sourceBytes + downloadBytes + Self.headroomBytes
     }
 
     /// Below this the VM starts but the guest can run out of room later.
@@ -306,7 +310,8 @@ enum StorageLocationPolicy {
         if let metrics, !hasRecordedPersistentDisk {
             let requirement = StorageSpaceRequirement(
                 sourceBytes: metrics.sourceDiskBytes,
-                workingBytes: metrics.workingDiskBytes
+                workingBytes: metrics.workingDiskBytes,
+                downloadBytes: metrics.downloadBytes
             )
             guard capabilities.availableBytes >= requirement.floorBytes else {
                 throw StorageLocationPolicyError.insufficientSpace(

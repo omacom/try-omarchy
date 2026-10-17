@@ -15,12 +15,15 @@ enum QEMUGPURuntimeEnvironment {
     static let dryRunKey = "OMARCHY_QEMU_GPU_DRY_RUN"
     /// Where a session-only storage folder clones the decompressed factory from.
     static let factoryCacheKey = "OMARCHY_QEMU_GPU_FACTORY_CACHE"
+    /// The downloaded compressed factory, for an app that does not carry it.
+    static let factoryImageKey = "OMARCHY_QEMU_GPU_FACTORY_IMAGE"
 
     static func sanitizedForLaunch(_ base: [String: String]) -> [String: String] {
         var environment = base
         environment.removeValue(forKey: inspectOnlyKey)
         environment.removeValue(forKey: dryRunKey)
         environment.removeValue(forKey: factoryCacheKey)
+        environment.removeValue(forKey: factoryImageKey)
         return environment
     }
 
@@ -188,8 +191,27 @@ enum QEMUGPUStorageSpaceEstimate {
     /// yields nil rather than a guess.
     static func bundledMetrics(bundle: Bundle = .main) -> BundledGuestMetrics? {
         guard let resourceURL = bundle.resourceURL,
-              let data = try? Data(contentsOf: resourceURL.appendingPathComponent("guest/factory.json")) else { return nil }
-        return factoryMetrics(data)
+              let data = try? Data(contentsOf: resourceURL.appendingPathComponent("guest/factory.json")),
+              var metrics = factoryMetrics(data) else { return nil }
+        if !bundlesFactoryImage(bundle: bundle),
+           let manifest = FactoryDownloadManifest.bundled(bundle: bundle),
+           manifest.identity == metrics.identity {
+            metrics.downloadBytes = manifest.imageBytes
+        }
+        return metrics
+    }
+
+    /// Development builds carry the compressed factory; release builds
+    /// download it (FactoryImageDownload.swift).
+    static func bundlesFactoryImage(bundle: Bundle = .main) -> Bool {
+        guard let resourceURL = bundle.resourceURL,
+              let data = try? Data(contentsOf: resourceURL.appendingPathComponent("guest/factory.json")),
+              data.count <= 65_536,
+              let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let compressed = manifest["compressed"] as? [String: Any],
+              let name = compressed["path"] as? String,
+              !name.isEmpty, !name.contains("/") else { return false }
+        return FactoryImageStore.isRegularFile(resourceURL.appendingPathComponent("guest/\(name)"))
     }
 
     static func factoryMetrics(_ data: Data) -> BundledGuestMetrics? {

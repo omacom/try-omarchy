@@ -82,6 +82,10 @@ while (($#)); do
     *) in=$1; shift ;;
   esac
 done
+if [[ -n ${FAKE_ZSTD_FAIL:-} ]]; then
+  printf 'partial' >"$out"
+  exit 1
+fi
 cp "$in" "$out"
 SH
 printf '#!/bin/sh\nexit 0\n' >"$shims/codesign"
@@ -302,6 +306,42 @@ for setting in OMARCHY_QEMU_GPU_CPUS=2 OMARCHY_QEMU_GPU_MEMORY_MIB=1024 OMARCHY_
     fail "$setting failed without a launcher error: $output"
   [[ ! -e $untouched ]] || fail "$setting touched storage"
 done
+
+# --- a release app's downloaded factory ---------------------------------------------------
+# A release app carries no image. An existing VM still launches; a new one
+# needs the app's verified download (FactoryImageDownload.swift).
+downloaded="$test_root/downloaded.img.zst"
+mv "$resources/guest/omarchy-aarch64-edge.img.zst" "$downloaded"
+rm -f "$state/shell-factory/$sha.img"
+launch_env=()
+output=$(launch)
+assert_not_contains "$output" "Launch phase: preparing"
+fresh="$test_root/fresh"
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh")
+output=$(launch) && fail "a new VM was created without the factory image"
+assert_contains "$output" "run-qemu-gpu: the Omarchy image has not been downloaded"
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh" OMARCHY_QEMU_GPU_FACTORY_IMAGE=relative.img.zst)
+output=$(launch) && fail "a relative factory image was accepted"
+assert_contains "$output" "OMARCHY_QEMU_GPU_FACTORY_IMAGE must be an absolute path"
+# A failed decompression (a full disk) leaves no partial disk behind.
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$downloaded" FAKE_ZSTD_FAIL=1)
+output=$(launch) && fail "a failed decompression was accepted"
+assert_contains "$output" "run-qemu-gpu: could not decompress the factory disk"
+[[ ! -e $fresh/shell-factory/$sha.img.partial && ! -e $fresh/shell/disk.img ]] ||
+  fail "a failed decompression left files behind"
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$downloaded")
+output=$(launch)
+assert_contains "$output" "Launch phase: preparing"
+[[ -f $fresh/shell/disk.img && -f $fresh/shell-factory/$sha.img ]] || fail "the downloaded factory did not create a VM"
+printf 'damaged' >"$test_root/damaged.img.zst"
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/damaged" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$test_root/damaged.img.zst")
+output=$(launch) && fail "a damaged factory image was accepted"
+assert_contains "$output" "run-qemu-gpu: the Omarchy factory image is damaged"
+# The bundled image wins over a download.
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/bundled" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$test_root/damaged.img.zst")
+mv "$downloaded" "$resources/guest/omarchy-aarch64-edge.img.zst"
+output=$(launch)
+[[ -f $test_root/bundled/shell/disk.img ]] || fail "the bundled factory did not win over a download"
 
 # --- storage location checks -------------------------------------------------------------
 launch_env=(OMARCHY_QEMU_GPU_TEST_FS_TYPE=exfat)

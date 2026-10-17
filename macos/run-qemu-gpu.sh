@@ -83,7 +83,14 @@ disk_bytes=$(factory_field disk.bytes)
 [[ $compressed_name =~ ^[A-Za-z0-9._-]+\.img\.zst$ && $compressed_sha =~ ^[0-9a-f]{64}$ &&
   $disk_sha =~ ^[0-9a-f]{64}$ && $disk_bytes =~ ^[1-9][0-9]*$ ]] || fail "the factory manifest is invalid"
 compressed="$guest_dir/$compressed_name"
-[[ -f $compressed && ! -L $compressed ]] || fail "the factory disk is missing: $compressed"
+# A release app downloads the compressed factory instead of carrying it
+# (FactoryImageDownload.swift) and names the verified copy here. It is only
+# read when a new VM disk needs the factory.
+if [[ ! -e $compressed && ! -L $compressed ]]; then
+  compressed=${OMARCHY_QEMU_GPU_FACTORY_IMAGE:-}
+  [[ -z $compressed || ($compressed == /* && $compressed != *$'\n'*) ]] ||
+    fail "OMARCHY_QEMU_GPU_FACTORY_IMAGE must be an absolute path"
+fi
 factory_identity=$disk_sha
 
 if [[ ${OMARCHY_QEMU_GPU_INSPECT_ONLY:-0} == 1 ]]; then
@@ -376,6 +383,8 @@ prepare_factory_disk() {
     fi
     rm -f "$factory_disk.partial"
   fi
+  [[ -n $compressed && -f $compressed && ! -L $compressed ]] ||
+    fail "the Omarchy image has not been downloaded; open Try Omarchy to download it"
   echo '[qemu-gpu] Preparing the Omarchy factory disk (first launch only)...' >&2
   echo '[qemu-gpu] Launch phase: preparing' >&2
   local stale
@@ -384,10 +393,17 @@ prepare_factory_disk() {
   done
   # The decompressed disk is sparse, but about half of it is written.
   require_free_space "$factory_cache" $((disk_bytes / 2 + 1073741824))
-  local actual
+  local actual available
   actual=$(/usr/bin/shasum -a 256 "$compressed" | cut -d' ' -f1)
-  [[ $actual == "$compressed_sha" ]] || fail "the bundled factory disk is damaged"
-  "$zstd_bin" -q -d --sparse -f "$compressed" -o "$factory_disk.partial" || fail "could not decompress the factory disk"
+  [[ $actual == "$compressed_sha" ]] || fail "the Omarchy factory image is damaged: $compressed"
+  # A failed decompression (most often a full disk) must not leave gigabytes
+  # of partial disk behind.
+  if ! "$zstd_bin" -q -d --sparse -f "$compressed" -o "$factory_disk.partial"; then
+    rm -f "$factory_disk.partial"
+    available=$(free_bytes "$factory_cache") || available=0
+    ((available >= 1073741824)) || fail "not enough free space to prepare the Omarchy VM; free up some space and launch again"
+    fail "could not decompress the factory disk"
+  fi
   [[ $(stat -f %z "$factory_disk.partial") == "$disk_bytes" ]] || fail "the factory disk has the wrong size"
   chmod 600 "$factory_disk.partial"
   echo '[qemu-gpu] Launch phase: finishing' >&2

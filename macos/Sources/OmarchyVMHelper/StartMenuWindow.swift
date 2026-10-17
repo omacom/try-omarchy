@@ -204,6 +204,11 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private weak var resetActionButton: OmarchyActionButton?
     private var launchInProgress = false
     private var launchPhase = VMLaunchPhase.checking
+    /// Set while the factory image downloads, before the launcher runs.
+    private var launchDownload: FactoryDownloadProgress?
+    private var launchButtonTitle: String {
+        launchDownload?.title ?? launchPhase.buttonTitle
+    }
     private weak var launchActionButton: OmarchyActionButton?
     private var virtualMachineRunning = false
     private var closeRunningSettings: (() -> Void)?
@@ -518,13 +523,36 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func launchDidProgress(to phase: VMLaunchPhase) {
         guard launchInProgress, launchPhase != phase else { return }
         launchPhase = phase
-        launchActionButton?.updateTitle(phase.buttonTitle)
+        launchDownload = nil
+        updateLaunchTitle(announcing: phase.buttonTitle)
+    }
+
+    /// The download runs before the launcher; an automatic start shows the
+    /// window so a long first download is never invisible.
+    func launchDidDownload(_ progress: FactoryDownloadProgress) {
+        guard launchInProgress, launchDownload != progress else { return }
+        let phaseChanged = launchDownload?.phase != progress.phase
+        launchDownload = progress
+        if !window.isVisible { show() }
+        updateLaunchTitle(announcing: phaseChanged ? progress.title : nil)
+    }
+
+    func launchDidFinishDownload() {
+        guard launchInProgress, launchDownload != nil else { return }
+        launchDownload = nil
+        updateLaunchTitle(announcing: nil)
+    }
+
+    private func updateLaunchTitle(announcing announcement: String?) {
+        launchActionButton?.updateTitle(launchButtonTitle)
+        launchActionButton?.setAccessibilityLabel(launchButtonTitle)
         launchActionButton?.invalidateIntrinsicContentSize()
+        guard let announcement else { return }
         NSAccessibility.post(
             element: window,
             notification: .announcementRequested,
             userInfo: [
-                .announcement: phase.buttonTitle,
+                .announcement: announcement,
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
@@ -574,6 +602,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func launchDidAbort() {
         guard launchInProgress else { return }
         launchInProgress = false
+        launchDownload = nil
         show()
     }
 
@@ -590,6 +619,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     func launchDidFail(errorMessage: String) {
         guard launchInProgress else { return }
         launchInProgress = false
+        launchDownload = nil
         show()
 
         let alert = NSAlert()
@@ -919,7 +949,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         manage.isEnabled = !controlsBusy
         let resetAction = virtualMachineRunning && canResetStorage ? manage : reset
 
-        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? launchPhase.buttonTitle : "Launch Omarchy")
+        let launchButtonTitle = virtualMachineRunning ? "Done" : (launchInProgress ? self.launchButtonTitle : "Launch Omarchy")
         let launchButton = OmarchyActionButton(
             title: launchButtonTitle,
             style: .primary,
@@ -1812,6 +1842,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
               !microphoneRequestInFlight,
               !cameraRequestInFlight else { return }
         launchPhase = .checking
+        launchDownload = nil
         launchInProgress = true
         render()
         action()

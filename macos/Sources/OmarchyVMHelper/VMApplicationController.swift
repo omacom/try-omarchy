@@ -64,6 +64,11 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let volumeRootDetector: VolumeRootDetecting
     private let deviceProvider: HostAudioDeviceProviding
     private let bundledMetrics: BundledGuestMetrics?
+    private let factoryManifest: FactoryDownloadManifest?
+    private let bundlesFactoryImage: Bool
+    private var factoryDownloader: FactoryImageDownloader?
+    /// Where this launch's downloaded image lives, cleaned once the VM runs.
+    private var launchedFactoryDirectories: [URL] = []
     private var startMenuWindow: StartMenuWindow?
     private var settingsBridge: NativeSettingsBridge?
     private var controlSocketPath: String?
@@ -115,6 +120,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         volumeRootDetector: VolumeRootDetecting = FileManagerVolumeRootDetector(),
         deviceProvider: HostAudioDeviceProviding = CoreAudioHostAudioDeviceProvider(),
         bundledMetrics: BundledGuestMetrics? = QEMUGPUStorageSpaceEstimate.bundledMetrics(),
+        factoryManifest: FactoryDownloadManifest? = FactoryDownloadManifest.bundled(),
+        bundlesFactoryImage: Bool = QEMUGPUStorageSpaceEstimate.bundlesFactoryImage(),
         appReleaseChecker: AppReleaseChecker? = nil
     ) {
         self.launcherURL = launcherURL
@@ -135,6 +142,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.volumeRootDetector = volumeRootDetector
         self.deviceProvider = deviceProvider
         self.bundledMetrics = bundledMetrics
+        self.factoryManifest = factoryManifest
+        self.bundlesFactoryImage = bundlesFactoryImage
         self.appReleaseChecker = appReleaseChecker ?? AppReleaseChecker()
     }
 
@@ -406,6 +415,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             guard cameraDecision.allowsLaunch else {
                 throw HelperError.io("camera policy unexpectedly prevented launch")
             }
+            if try beginFactoryDownloadIfNeeded() { return }
             try launch(arguments: launchArguments())
         } catch {
             failLaunch(error)
@@ -490,6 +500,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if workspaceTransferProcess != nil { return .terminateCancel }
+        // What was downloaded stays for the next launch to resume.
+        factoryDownloader?.cancel()
         guard childRunning else { return .terminateNow }
         guard !applicationTerminationPending else { return .terminateLater }
 
@@ -513,7 +525,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private struct ChildLaunchContext {
-        let environment: [String: String]
+        var environment: [String: String]
         let stateRoot: String?
         let portForwardMappings: [PortForwardMapping]
         /// Set when a chosen data folder could not be validated. Starting the
@@ -628,8 +640,72 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func launch(arguments: [String]) throws {
+    /// The factory a new VM disk needs, for this launch's storage folder.
+    private func factoryImagePreparation(_ context: ChildLaunchContext) -> FactoryImagePreparation {
+        guard context.storageUnavailableReason == nil, let stateRoot = context.stateRoot else {
+            return .ready(image: nil)
+        }
+        return FactoryImagePreparation.plan(
+            manifest: factoryManifest,
+            bundlesImage: bundlesFactoryImage,
+            stateRoot: URL(fileURLWithPath: stateRoot, isDirectory: true),
+            sharedFactory: context.environment[QEMUGPURuntimeEnvironment.factoryCacheKey]
+                .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        )
+    }
+
+    /// Downloads the factory image before a launch that creates a VM, then
+    /// launches. Returns false when the launch can go ahead now.
+    private func beginFactoryDownloadIfNeeded() throws -> Bool {
+        guard factoryDownloader == nil, let manifest = factoryManifest else { return false }
         let context = childLaunchContext()
+        guard case .download(var directory) = factoryImagePreparation(context) else { return false }
+        let stateRoot = URL(fileURLWithPath: context.stateRoot!, isDirectory: true)
+        let localFactory = stateRoot.appendingPathComponent(VMWorkspaceTransfer.factoryCacheName, isDirectory: true)
+        do {
+            // A disposable VM shares the storage folder's copy. A chosen folder
+            // that is missing is never recreated, so the disposable workspace
+            // keeps its own download instead.
+            let mayCreateRoot = directory == localFactory || storageLocationStore.load().isDefault
+                || !(baseEnvironment[StorageLocationPolicy.environmentKey] ?? "").isEmpty
+            try FactoryImageStore.prepareDirectory(directory, mayCreateRoot: mayCreateRoot)
+        } catch where directory != localFactory {
+            directory = localFactory
+            try FactoryImageStore.prepareDirectory(directory, mayCreateRoot: true)
+        }
+        FactoryImageStore.removeObsoleteDownloads(in: directory, identity: manifest.identity)
+        // The launcher then decompresses about half the disk beside it.
+        let reserve = (bundledMetrics?.sourceDiskBytes ?? 0) + StorageSpaceRequirement.headroomBytes
+        let downloader = FactoryImageDownloader(manifest: manifest, directory: directory, reserveBytes: reserve)
+        factoryDownloader = downloader
+        fputs("[download] Downloading the Omarchy image into \(directory.path)\n", stderr)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result {
+                try downloader.run { progress in
+                    DispatchQueue.main.async { self?.startMenuWindow?.launchDidDownload(progress) }
+                }
+            }
+            DispatchQueue.main.async { self?.factoryDownloadDidFinish(downloader, result: result) }
+        }
+        return true
+    }
+
+    private func factoryDownloadDidFinish(_ downloader: FactoryImageDownloader, result: Result<URL, Error>) {
+        guard factoryDownloader === downloader else { return }
+        factoryDownloader = nil
+        switch result {
+        case .success:
+            startMenuWindow?.launchDidFinishDownload()
+            do { try launch(arguments: launchArguments()) } catch { failLaunch(error) }
+        case .failure(FactoryDownloadError.cancelled):
+            startMenuWindow?.launchDidAbort()
+        case .failure(let error):
+            failLaunch(error)
+        }
+    }
+
+    private func launch(arguments: [String]) throws {
+        var context = childLaunchContext()
         // The UI gate above normally resolves this first; failing closed here
         // too keeps a silent fallback impossible for any future caller.
         if let reason = context.storageUnavailableReason {
@@ -640,6 +716,14 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             try NetworkService.verifyConnection()
         }
         try PortForwardAvailability.validate(context.portForwardMappings)
+        launchedFactoryDirectories = context.stateRoot.map {
+            [URL(fileURLWithPath: $0, isDirectory: true)
+                .appendingPathComponent(VMWorkspaceTransfer.factoryCacheName, isDirectory: true)]
+        } ?? []
+        if case .ready(let image?) = factoryImagePreparation(context) {
+            context.environment[QEMUGPURuntimeEnvironment.factoryImageKey] = image.path
+            launchedFactoryDirectories.append(image.deletingLastPathComponent())
+        }
         activeStateRoot = context.stateRoot
         try supervisor.start(
             executableURL: launcherURL,
@@ -679,6 +763,16 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             catch { fputs("[startup] Could not retain Skip launcher: \(error.localizedDescription)\n", stderr) }
         }
         virtualMachineReachedStart = true
+        // The launcher has decompressed the factory by now, so a downloaded
+        // image is no longer needed.
+        if let identity = factoryManifest?.identity {
+            let directories = launchedFactoryDirectories
+            DispatchQueue.global(qos: .utility).async {
+                for directory in Set(directories) {
+                    FactoryImageStore.removeObsoleteDownloads(in: directory, identity: identity)
+                }
+            }
+        }
         startMenuWindow?.dismiss()
         activationController.setDesiredPolicy(ApplicationPresentation.runningActivationPolicy)
         controlSocketPath = qmpSocketPath
