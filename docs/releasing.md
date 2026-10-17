@@ -83,11 +83,17 @@ website's stable download link continue to work:
 <https://github.com/omacom/try-omarchy/releases/latest/download/TryOmarchy.dmg>.
 
 The factory installs whatever Omarchy's `edge` repositories serve when it is
-built, and development builds reuse it until its own inputs change. `make
-release` always rebuilds it (`make guest FORCE=1`), so a release ships the
-current Omarchy; review `dist/guest/factory.json` (the `[omarchy]` database
-digest) and `dist/guest/packages.txt` before publishing. Existing VMs update
-themselves with `omarchy update` either way.
+built, and development builds reuse it until its own inputs change. A release
+ships a factory that matches what upstream serves now without rebuilding one
+that already does: `make release` asks `scripts/factory-freshness.py --check`
+to compare every repository database the factory was built from (`[omarchy]`,
+`[core]`, `[extra]`, `[alarm]` and `[aur]`) and the Node.js release it bundles
+with upstream's current ones. It reuses the cached factory only when all of
+them match, so a second release minutes after the first skips the factory
+build; otherwise, or when the check cannot reach upstream, it rebuilds it.
+`make release FORCE=1` rebuilds it regardless. Review
+`dist/guest/factory.json` and `dist/guest/packages.txt` before publishing.
+Existing VMs update themselves with `omarchy update` either way.
 
 Outputs are written to:
 

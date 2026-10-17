@@ -136,6 +136,15 @@ pacman-key --populate omarchy >/dev/null
 pacman --config "$builder_conf" -Syy --noconfirm >/dev/null
 omarchy_db=/var/lib/pacman/sync/omarchy.db
 [[ -f $omarchy_db ]] || fail "the [omarchy] database did not download"
+# Every database the factory installs from, so a release can tell whether
+# upstream moved since this build (scripts/factory-freshness.py --check).
+repositories='{}'
+for repository in omarchy core extra alarm aur; do
+  database=/var/lib/pacman/sync/$repository.db
+  [[ -f $database ]] || fail "the [$repository] database did not download"
+  repositories=$(jq -c --arg name "$repository" --arg sha "$(sha256sum "$database" | cut -d' ' -f1)" \
+    '. + {($name): $sha}' <<<"$repositories")
+done
 
 # --- disk ----------------------------------------------------------------
 log "Creating a ${size_gib} GiB GPT disk"
@@ -457,6 +466,7 @@ jq -n \
   --arg image "$image_name" --arg sha "$image_sha256" --argjson bytes "$image_bytes" \
   --arg compressed "$image_name.zst" --arg csha "$compressed_sha256" \
   --arg root_partuuid "$root_partuuid" --arg node "$node_file" --arg node_sha "$node_sha" \
+  --argjson repositories "$repositories" \
   '{
     format: 1,
     kind: "upstream-shell-factory",
@@ -466,6 +476,7 @@ jq -n \
     omarchy: $omarchy,
     kernel: $kernel,
     omarchy_db_sha256: $db,
+    repositories: $repositories,
     boot: "uefi-limine",
     root_partuuid: $root_partuuid,
     node: { file: $node, sha256: $node_sha },

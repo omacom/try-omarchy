@@ -31,6 +31,16 @@ class ReleaseTests(unittest.TestCase):
         makefile = (REPOSITORY / "Makefile").read_text()
         makefile += '\nguest-package guest runtime:\n\t@python3 "$(ROOT)/fake-component.py" "$@" "$(FORCE)"\n'
         (self.root / "Makefile").write_text(makefile)
+        (self.root / "scripts/factory-freshness.py").write_text('''
+import os
+from pathlib import Path
+import sys
+out = Path(__file__).resolve().parents[1] / "dist"
+out.mkdir(exist_ok=True)
+with (out / "events").open("a") as stream:
+    stream.write("check\\n")
+sys.exit(0 if os.environ.get("FACTORY_CURRENT") else 1)
+''')
         (self.root / ".gitignore").write_text("/dist/\n/.build/\n/scripts/__pycache__/\n")
         (self.root / "source.swift").write_text("// initial source\n")
         (self.root / "fake-component.py").write_text('''
@@ -41,6 +51,9 @@ import sys
 root = Path(__file__).resolve().parent
 out = root / "dist"
 out.mkdir(exist_ok=True)
+# Like build-cache.py, which refuses anything but 0 or 1.
+if sys.argv[2] not in ("0", "1"):
+    sys.exit(f"FORCE must be 0 or 1, not {sys.argv[2]!r}")
 with (out / "events").open("a") as stream:
     tags = subprocess.check_output(["git", "tag", "--points-at", "HEAD"], text=True).strip()
     forced = " forced" if sys.argv[2:] == ["1"] else ""
@@ -141,8 +154,9 @@ manifest.write_text(json.dumps({"parts": [{"url": url, "bytes": 5}]}))
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("tag", self.git("cat-file", "-t", "refs/tags/v1.2.3"))
         self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "v1.2.3^{commit}"))
-        # A release builds the factory fresh from upstream; the runtime is pinned.
-        self.assertEqual("guest-package forced:\nguest forced:\nruntime:\npackage\n",
+        # The cached factory no longer matches upstream, so it is rebuilt; the
+        # runtime is pinned.
+        self.assertEqual("guest-package:\nguest:\ncheck\nguest-package forced:\nguest forced:\nruntime:\npackage\n",
                          (self.root / "dist/events").read_text())
         self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
         self.assertIn(f"Release DMG: {self.root.resolve() / 'dist/TryOmarchy.dmg'}", result.stdout)
@@ -152,6 +166,18 @@ manifest.write_text(json.dumps({"parts": [{"url": url, "bytes": 5}]}))
         self.assertIn("run make publish", result.stdout)
         self.assertNotIn("[y/N]", result.stdout)
         self.assertEqual("", self.git("status", "--porcelain"))
+
+    def test_a_factory_current_with_upstream_is_reused(self) -> None:
+        result = self.run_release(FACTORY_CURRENT="1")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("guest-package:\nguest:\ncheck\nruntime:\npackage\n",
+                         (self.root / "dist/events").read_text())
+
+    def test_force_rebuilds_the_factory_without_checking_or_forcing_the_runtime(self) -> None:
+        result = self.run_release(FACTORY_CURRENT="1", FORCE="1")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("guest-package forced:\nguest forced:\nruntime:\npackage\n",
+                         (self.root / "dist/events").read_text())
 
     def test_release_factory_download_points_at_its_own_assets(self) -> None:
         result = self.run_release(WRONG_FACTORY_URL="1")

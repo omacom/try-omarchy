@@ -62,7 +62,9 @@ move. The factory is cached by its own inputs, not by upstream: after each
 `make build` a check compares Omarchy's edge index with the one the factory
 was built from and says how old the factory is and which installed packages
 are newer upstream. `make refresh` rebuilds the factory from the latest
-Omarchy, then builds. `make release` always does. Review
+Omarchy, then builds. `make release` rebuilds it unless every repository and
+the Node.js release it was built from still match upstream (`FORCE=1` always
+rebuilds). Review
 `dist/guest/factory.json` and `dist/guest/packages.txt` afterwards.
 
 Mac integrations in the guest live in the `try-omarchy` package

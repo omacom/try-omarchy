@@ -18,7 +18,7 @@ image in a privileged ARM64 container. The output goes to `dist/guest/`:
 | File | Contents |
 | --- | --- |
 | `omarchy-aarch64-edge.img.zst` | The disk image (20 GiB virtual, sparse) |
-| `factory.json` | Identity, versions, the image's digests, and the boot method |
+| `factory.json` | Identity, versions, the image's digests, the boot method, and the digest of each repository database it was built from |
 | `packages.txt` | Every installed package and version |
 | `unavailable.txt` | Default-set names the aarch64 repositories do not carry |
 | `packages/try-omarchy-*.pkg.tar.zst` | The integration package installed in the image |

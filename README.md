@@ -793,7 +793,9 @@ component command).
 The factory installs whatever Omarchy's edge repositories serve when it is
 built. After each build, `make build` prints whether Omarchy has moved since
 then, with the factory's age and the newer packages; `make refresh` rebuilds
-the factory from the latest Omarchy.
+the factory from the latest Omarchy. `make release` reuses the factory only
+when everything it was built from still matches upstream, and rebuilds it
+otherwise; `make release FORCE=1` always rebuilds it.
 
 Artifacts created before their `.build/state/` record exists are rebuilt once;
 the cache never adopts an output whose successful inputs it did not observe.
