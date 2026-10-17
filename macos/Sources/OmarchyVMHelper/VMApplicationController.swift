@@ -678,7 +678,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let reserve = (bundledMetrics?.sourceDiskBytes ?? 0) + StorageSpaceRequirement.headroomBytes
         let downloader = FactoryImageDownloader(manifest: manifest, directory: directory, reserveBytes: reserve)
         factoryDownloader = downloader
-        fputs("[download] Downloading the Omarchy image into \(directory.path)\n", stderr)
+        fputs("[download] Preparing the Omarchy image in \(directory.path)\n", stderr)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = Result {
                 try downloader.run { progress in
@@ -694,9 +694,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard factoryDownloader === downloader else { return }
         factoryDownloader = nil
         switch result {
-        case .success:
+        case .success(let image):
             startMenuWindow?.launchDidFinishDownload()
-            do { try launch(arguments: launchArguments()) } catch { failLaunch(error) }
+            do { try launch(arguments: launchArguments(), downloadedFactoryImage: image) } catch { failLaunch(error) }
         case .failure(FactoryDownloadError.cancelled):
             startMenuWindow?.launchDidAbort()
         case .failure(let error):
@@ -704,7 +704,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func launch(arguments: [String]) throws {
+    private func launch(arguments: [String], downloadedFactoryImage: URL? = nil) throws {
         var context = childLaunchContext()
         // The UI gate above normally resolves this first; failing closed here
         // too keeps a silent fallback impossible for any future caller.
@@ -720,9 +720,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             [URL(fileURLWithPath: $0, isDirectory: true)
                 .appendingPathComponent(VMWorkspaceTransfer.factoryCacheName, isDirectory: true)]
         } ?? []
-        if case .ready(let image?) = factoryImagePreparation(context) {
-            context.environment[QEMUGPURuntimeEnvironment.factoryImageKey] = image.path
-            launchedFactoryDirectories.append(image.deletingLastPathComponent())
+        var factoryImage = downloadedFactoryImage
+        if factoryImage == nil, case .ready(let image?) = factoryImagePreparation(context) {
+            factoryImage = image
+        }
+        if let factoryImage {
+            context.environment[QEMUGPURuntimeEnvironment.factoryImageKey] = factoryImage.path
+            launchedFactoryDirectories.append(factoryImage.deletingLastPathComponent())
         }
         activeStateRoot = context.stateRoot
         try supervisor.start(

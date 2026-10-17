@@ -51,10 +51,24 @@ neither prompts nor creates a tag.
 
 After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
 the GitHub release manually using that existing tag and attach
-`dist/TryOmarchy.dmg`. The filename stays the same for every release; the app
-inside is stamped with the version from the release tag. `make release` creates
-the local tag; pushing it, creating the GitHub release, and uploading the DMG
-remain manual.
+`dist/TryOmarchy.dmg` and every file in `dist/factory/`:
+
+```sh
+gh release upload vX.Y.Z dist/TryOmarchy.dmg dist/factory/*
+```
+
+The filename stays the same for every release; the app inside is stamped with
+the version from the release tag. `make release` creates the local tag;
+pushing it, creating the GitHub release, and uploading the assets remain manual.
+
+The compressed factory image is over GitHub's 2 GiB asset limit, so it is not
+inside the DMG. Production builds split it into 1 GiB parts in `dist/factory/`
+(`scripts/split-factory-image.py`) and give the app a manifest with each part's
+URL, size and SHA-256 digest. The URLs point at
+`https://github.com/omacom/try-omarchy/releases/download/vX.Y.Z/`, so the parts
+must be uploaded to the release with the same tag, under their generated names,
+before the release is published. A release without them cannot create a new
+VM; existing VMs are unaffected.
 
 Always upload the DMG as `TryOmarchy.dmg` so older app release checkers and the
 website's stable download link continue to work:

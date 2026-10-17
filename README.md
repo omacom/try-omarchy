@@ -20,6 +20,14 @@ Omarchy's trademark rights.
 2. Open the DMG and drag **Try Omarchy** to **Applications**.
 3. Launch **Try Omarchy** from Applications.
 
+The first launch downloads the Omarchy image (about 3 GB) from the same GitHub
+release before it creates the VM; the launch button shows its progress. An
+interrupted download, from a lost connection, sleep or quitting the app,
+continues where it stopped on the next launch, and every part is checked
+against its SHA-256 digest before it is used. The volume needs room for the
+image and the prepared disk (about 15 GB); the download stops with 1 GB still
+free rather than filling the disk.
+
 By default, every launch begins at the launcher. Enable **Skip launcher** to start Omarchy using your saved settings on subsequent launches. A confirmation explains how to return to the launcher; choose **OK** to enable **Skip launcher** or **Cancel** to leave it off. Hold **Option** while opening the app to show the launcher again and change settings or turn **Skip launcher** off. You can also open **Setup → Try Omarchy Settings** inside Omarchy. Skip launcher is saved with the VM workspace; deleting that workspace clears the choice. A missing VM disk always shows the launcher, even if its settings file remains. Reset requests still show the confirmation flow. Startup checks still show any error dialogs.
 
 While that menu is open, Try Omarchy behaves like a regular Mac app. **Try Omarchy → Settings…** (**Command-comma**) brings the launcher or its open editor forward without discarding drafts. The menus also provide standard text editing, Services, Hide Others, Show All, and window commands, including Bring All to Front. **Help** opens the user guide, maintenance and recovery notes, or the issue tracker in your browser. After the VM starts, that native app chrome steps aside for Omarchy. **Immersive** is on by default, so Omarchy opens Full Screen with the Mac menu bar and Dock hidden. Turn it off to open a resizable window; if you later enter Full Screen, the Mac menu bar and Dock remain available at the screen edges. Whenever the Omarchy window is focused, Command belongs to the guest as Super in either mode; Accessibility permission lets system shortcuts such as Command-Space reach it before macOS. Microphone and camera access are optional. The first launch takes longer while the app prepares Linux and starts Omarchy's account provisioning.
@@ -610,9 +618,9 @@ Normal launches keep one persistent VM under
 `~/Library/Application Support/Try Omarchy/VM/v1`: its disk and UEFI variables
 in `shell/`, and the decompressed factory disk, shared by every new VM, in
 `shell-factory/`. Removing or updating the app does not remove or replace this
-data. The VM boots its own kernel and updates itself. A newer app's bundled
-factory image is used only to create a new VM, after a confirmed **Reset
-Omarchy**, or for an ephemeral launch.
+data. The VM boots its own kernel and updates itself. A newer app's factory
+image is downloaded only to create a new VM, after a confirmed **Reset
+Omarchy**, or for an ephemeral launch, and removed once the VM has started.
 
 VMs created by earlier versions of the app, which booted a kernel from the Mac,
 are not launched by this version. Their files (`disks/`, `boot/`) stay in the
@@ -856,6 +864,7 @@ dist/
 ├── release.noindex/
 │   └── Try Omarchy.app     # production identity
 ├── TryOmarchy.dmg         # after make package or make release
+├── factory/               # the image's release assets, after make package or make release
 └── guest/                 # factory disk, factory.json, packages/
 ```
 

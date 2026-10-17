@@ -281,7 +281,21 @@ Normal launches keep one VM under
 | `shell/console.log` | The guest's virtio console, with the previous boot in `console.log.1` |
 | `shell/guest-status.json` | The guest's last status report |
 | `shell-factory/<sha256>.img` | The decompressed factory disk, kept once per factory |
+| `shell-factory/<sha256>.img.zst` | A release app's downloaded factory image (`.download` while incomplete), removed once the VM has started |
 | `network-identities/` | The bridged-mode MAC address |
+
+Development builds carry the compressed factory in `Resources/guest/`.
+Release builds carry `Resources/guest/download.json` instead: the compressed
+image is over GitHub's 2 GiB release-asset limit and only a new VM needs it,
+so it is published beside the DMG in 1 GiB parts. Before a launch that creates
+a VM without a decompressed factory to clone, the app downloads the parts into
+one `shell-factory/<sha256>.img.zst.download` file with HTTP range requests
+that start where the file ends, checks each part's SHA-256 digest (including
+parts already on disk when a download resumes), checks the whole image's
+digest, and renames the file into place. It passes the result to the launcher
+as `OMARCHY_QEMU_GPU_FACTORY_IMAGE`. Lost connections and server errors are
+retried with backoff; a download stops before the volume has less than 1 GB
+free. App instances share the download through a lock on `shell-factory/`.
 
 On the first launch of a factory, the launcher verifies the compressed disk's
 digest, decompresses it into `shell-factory/`, and returns its zero blocks to

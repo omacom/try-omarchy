@@ -159,7 +159,13 @@ workspace setting, but the missing disk forces the next launch through the
 launcher; deleting the whole workspace removes the setting too.
 
 Reset deletes the VM's disk, variable store and status without creating a
-replacement. On the first launch of a factory, the launcher verifies the
+replacement. A release app first downloads the compressed factory into
+`shell-factory/` when a new VM needs it (`FactoryImageDownload.swift`, see
+[VM storage](../docs/architecture.md#vm-storage)); development builds carry it.
+To test the download with a development build, pass
+`--factory-download-url http://127.0.0.1:PORT/` to `build-app.sh` and serve
+`dist/factory/` from a server that supports range requests.
+On the first launch of a factory, the launcher verifies the
 compressed disk's SHA-256 digest, checks free space, decompresses it into
 `shell-factory/`, and returns its zero blocks to APFS
 (`omarchy-vm-helper --sparsify`). Every new VM is an APFS clone of that file.
