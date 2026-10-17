@@ -44,6 +44,7 @@ cat >"$app/Contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 case $1 in
   --host-keyboard-geometry) echo jis ;;
+  --host-display-cutouts) printf '%s\n' "${FAKE_DISPLAY_CUTOUTS-3024x1964:64,2048x1330:44}" ;;
   --host-timezone) echo America/Sao_Paulo ;;
   --sparsify) exit 0 ;;
   *) exit 1 ;;
@@ -138,7 +139,7 @@ assert_contains "$output" "if=pflash,format=raw,readonly=on,file=$resources/firm
 assert_contains "$output" "if=pflash,format=raw,file=$state/shell/efi-vars.fd"
 assert_not_contains "$output" " -kernel "
 assert_not_contains "$output" " -append "
-host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo'
+host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo'
 assert_contains "$output" "host settings: $host_settings"
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.host=$(printf '%s' "$host_settings" | base64 | tr -d '\n')"
 package=$(printf '%s' try-omarchy-0.2.0-1-aarch64.pkg.tar.zst | base64 | tr -d '\n')
@@ -175,6 +176,24 @@ for forbidden in -no-reboot -no-shutdown ' -gdb ' ' -s '; do
   assert_not_contains "$output" "$forbidden"
 done
 assert_not_contains "$output" "qemu-xhci"
+
+# --- the camera housing reaches the guest only from a notched Mac --------------------
+output=$(FAKE_DISPLAY_CUTOUTS= launch)
+assert_contains "$output" "host settings: omarchy.qemu_virgl=1"
+assert_not_contains "$output" "tryomarchy.display_cutouts"
+output=$(TRYOMARCHY_NOTCH=0 launch)
+assert_not_contains "$output" "tryomarchy.display_cutouts"
+# The launcher's Camera notch setting, off.
+output=$(OMARCHY_QEMU_GPU_NOTCH=0 launch)
+assert_not_contains "$output" "tryomarchy.display_cutouts"
+output=$(OMARCHY_QEMU_GPU_NOTCH=1 launch)
+assert_contains "$output" "tryomarchy.display_cutouts=3024x1964:64,2048x1330:44"
+output=$(OMARCHY_QEMU_GPU_NOTCH=yes launch) && fail "an invalid notch setting launched"
+assert_contains "$output" "OMARCHY_QEMU_GPU_NOTCH must be 0 or 1"
+output=$(FAKE_DISPLAY_CUTOUTS='3024x1964:64 tryomarchy.ssh_from=any' launch)
+assert_contains "$output" "ignoring unexpected display cutouts"
+assert_not_contains "$(grep "host settings:" <<<"$output")" "tryomarchy.display_cutouts"
+assert_not_contains "$(grep "host settings:" <<<"$output")" "ssh_from"
 
 # --- the VM persists; the package offer can be turned off --------------------------
 printf 'guest data' | dd of="$state/shell/disk.img" conv=notrunc 2>/dev/null

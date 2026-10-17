@@ -7,7 +7,7 @@ usage() {
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
 Build the pinned QEMU/VirGL source stack for macOS 15.0 with Try Omarchy's Cocoa identity,
-dynamic-display, immersive-mode, pause-ownership, pinch-zoom, and ISO
+dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, and ISO
 keyboard patches, then relocate, sign, validate, and
 atomically stage it at:
   macos/.build/qemu-gpu-runtime
@@ -75,6 +75,7 @@ strchrnul_patch="$native_dir/patches/qemu-darwin-strchrnul-compat.patch"
 usb_exact_bus_patch="$native_dir/patches/qemu-usb-host-exact-bus.patch"
 minimum_guest_size_patch="$native_dir/patches/qemu-cocoa-minimum-guest-size.patch"
 no_app_nap_patch="$native_dir/patches/qemu-cocoa-no-app-nap.patch"
+notch_patch="$native_dir/patches/qemu-cocoa-notch.patch"
 hda_no_catch_up_patch="$native_dir/patches/qemu-hda-no-catch-up.patch"
 audio_capture_thread_patch="$native_dir/patches/qemu-sdl-audio-capture-thread.patch"
 audio_playback_thread_patch="$native_dir/patches/qemu-sdl-audio-playback-thread.patch"
@@ -117,6 +118,7 @@ strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
 no_app_nap_patch_sha256=af5f7c5c04da1293dcfcd752c60bfd258357bd72427492ea81c834ededa39967
+notch_patch_sha256=6b1a6bc134023ee9136d8b077f9663ed67259cb765653a2aaa63a5e31fb6d1c9
 hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
 audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
@@ -256,6 +258,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa minimum guest size patch: $minimum_guest_size_patch"
 [[ -f $no_app_nap_patch && ! -L $no_app_nap_patch ]] || \
   die "missing Cocoa App Nap patch: $no_app_nap_patch"
+[[ -f $notch_patch && ! -L $notch_patch ]] || \
+  die "missing Cocoa notch patch: $notch_patch"
 [[ -f $hda_no_catch_up_patch && ! -L $hda_no_catch_up_patch ]] || \
   die "missing HDA no-catch-up pacing patch: $hda_no_catch_up_patch"
 [[ -f $audio_capture_thread_patch && ! -L $audio_capture_thread_patch ]] || \
@@ -498,6 +502,8 @@ verify_file_sha "Try Omarchy Cocoa minimum guest size patch" \
   "$minimum_guest_size_patch" "$minimum_guest_size_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa App Nap patch" \
   "$no_app_nap_patch" "$no_app_nap_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa notch patch" \
+  "$notch_patch" "$notch_patch_sha256"
 verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
   "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
@@ -507,7 +513,7 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, and main-loop QoS patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, and notch patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -536,6 +542,7 @@ patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 patch -d "$source_dir" -p1 -f -i "$minimum_guest_size_patch"
 patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
 patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
+patch -d "$source_dir" -p1 -f -i "$notch_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

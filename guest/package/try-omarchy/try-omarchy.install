@@ -45,5 +45,11 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then
     _enable_ntp
   fi
+  # The app upgrades the package at boot, after the old host-config ran, and
+  # before the desktop starts: run the new one so this boot already has the
+  # camera cutouts it writes.
+  if [ "$(vercmp "$2" 0.1.0-24)" -lt 0 ]; then
+    systemctl try-restart try-omarchy-host-config.service >/dev/null 2>&1 || true
+  fi
   _reload_logind
 }

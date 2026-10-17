@@ -391,3 +391,9 @@ absent setting uses the live EDID's pixel density. If a resized display cannot
 represent the requested zoom exactly, the helper selects the nearest supported
 scale with integral logical dimensions. Explicit per-output monitor rules still
 take precedence over the helper's catch-all rule.
+
+On a MacBook with a camera notch, full screen covers the whole panel, the
+strip beside the housing included, and the guest describes the housing to
+Omarchy's bar through Omarchy's own `display-cutouts.json`, so the bar sits
+beside the camera and windows start below it. See
+[camera notch](camera-notch.md).

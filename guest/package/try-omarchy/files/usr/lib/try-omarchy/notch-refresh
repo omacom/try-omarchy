@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+# notch-refresh WIDTHxHEIGHT: called by omarchy-native-display-sync with each
+# mode it gives the VM's output.
+#
+# Omarchy's bar finds a screen's camera cutout by the mode Quickshell last read
+# from Hyprland, and Quickshell reads monitors again only when an output comes
+# or goes, on a config reload, or when one of Omarchy's overlays opens. The
+# mode set here brings none of those, so after the Mac's full screen starts or
+# ends covering the notch, the bar would keep the previous mode's layout
+# (docs/camera-notch.md). When the mode enters, leaves or moves between the
+# cutouts' modes, a headless output that comes and goes at once makes Quickshell
+# read every monitor again. Other mode changes, a window being resized for one,
+# and a Mac without a notch do nothing. Remove this once Omarchy's bar refreshes
+# Hyprland's monitors when its screen changes size.
+
+set -euo pipefail
+
+cutouts=${TRY_OMARCHY_DISPLAY_CUTOUTS:-/run/try-omarchy/display-cutouts.json}
+state=${TRY_OMARCHY_NOTCH_STATE:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/try-omarchy/notch-mode}
+output=TRYOMARCHY-REFRESH
+
+mode=${1:-}
+[[ $mode =~ ^[1-9][0-9]{0,4}x[1-9][0-9]{0,4}$ ]] || {
+  echo "usage: notch-refresh WIDTHxHEIGHT" >&2
+  exit 2
+}
+[[ -r $cutouts ]] || exit 0
+
+# host-config writes one panel per line, in this exact form.
+matched=0
+grep -qF "\"width\": ${mode%x*}, \"height\": ${mode#*x}," "$cutouts" && matched=1
+
+previous=""
+[[ -r $state ]] && previous=$(<"$state")
+install -d -m 0700 "${state%/*}"
+printf '%s %s\n' "$mode" "$matched" >"$state"
+
+if [[ $previous == "$mode $matched" ]] || { ((!matched)) && [[ $previous != *" 1" ]]; }; then
+  exit 0
+fi
+
+# Let Hyprland finish applying the mode before Quickshell asks for it.
+sleep 0.3
+hyprctl output create headless "$output" >/dev/null 2>&1 || exit 0
+sleep 0.2
+hyprctl output remove "$output" >/dev/null 2>&1 || true

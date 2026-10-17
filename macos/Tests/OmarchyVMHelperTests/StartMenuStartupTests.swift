@@ -156,8 +156,33 @@ struct StartMenuStartupTests {
         #expect(launchCount == 1)
     }
 
+    @Test("The camera notch setting shows only on a Mac with a notch and saves its choice")
+    func cameraNotchSetting() throws {
+        _ = NSApplication.shared
+        let plain = makeMenu(storageState: { .defaultLocation })
+        defer { plain.dismiss() }
+        plain.prepareForPresentation(visibleFrame: nil)
+        #expect(descendant(withIdentifier: "camera-notch-toggle", in: try #require(plain.window.contentView)) == nil)
+
+        var usesNotch = true
+        let notched = makeMenu(storageState: { .defaultLocation }, notchAvailable: { true },
+                               usesNotch: { usesNotch }, setUsesNotch: { usesNotch = $0 })
+        defer { notched.dismiss() }
+        notched.prepareForPresentation(visibleFrame: nil)
+        let content = try #require(notched.window.contentView)
+        let toggle = try #require(descendant(withIdentifier: "camera-notch-toggle", in: content) as? NSButton)
+        #expect(toggle.state == .on)
+        toggle.performClick(nil)
+        #expect(!usesNotch)
+        let caption = try #require(descendant(withIdentifier: "camera-notch-caption", in: content) as? NSTextField)
+        #expect(caption.stringValue == StartMenuPresentation.notchDetail(isEnabled: false))
+    }
+
     private func makeMenu(
         storageState: @escaping () -> StorageLocationMenuState,
+        notchAvailable: @escaping () -> Bool = { false },
+        usesNotch: @escaping () -> Bool = { true },
+        setUsesNotch: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
@@ -188,6 +213,9 @@ struct StartMenuStartupTests {
             portForwardingStatus: { [] },
             immersiveMode: { true },
             setImmersiveMode: { _ in },
+            notchAvailable: notchAvailable,
+            usesNotch: usesNotch,
+            setUsesNotch: setUsesNotch,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,

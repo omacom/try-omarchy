@@ -177,6 +177,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var networkEditor: NetworkEditor?
     private let immersiveMode: () -> Bool
     private let setImmersiveMode: (Bool) -> Void
+    private let notchAvailable: () -> Bool
+    private let usesNotch: () -> Bool
+    private let setUsesNotch: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
@@ -239,6 +242,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var usbDeviceEditor: USBDeviceEditor?
     private(set) var storageEditor: VMStorageEditor?
     private weak var immersiveCaption: NSTextField?
+    private weak var notchCaption: NSTextField?
     private var accessibilityRow: StartMenuPermissionRow?
     private var microphoneRow: StartMenuPermissionRow?
     private var cameraRow: StartMenuPermissionRow?
@@ -281,6 +285,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         networkIdentity: VMNetworkIdentityAccess = .unavailable,
         immersiveMode: @escaping () -> Bool = { true },
         setImmersiveMode: @escaping (Bool) -> Void = { _ in },
+        notchAvailable: @escaping () -> Bool = { false },
+        usesNotch: @escaping () -> Bool = { true },
+        setUsesNotch: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
@@ -324,6 +331,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.networkIdentity = networkIdentity
         self.immersiveMode = immersiveMode
         self.setImmersiveMode = setImmersiveMode
+        self.notchAvailable = notchAvailable
+        self.usesNotch = usesNotch
+        self.setUsesNotch = setUsesNotch
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
@@ -872,7 +882,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             actions: [],
             minimumHeight: 72
         ))
-        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow, automaticStartSettingRow()])
+        integrationRowViews.append(contentsOf: [resourceRow, networkingRow, portForwardingRow, usbRow, immersiveRow])
+        // Only a MacBook with a camera notch has the strip to use.
+        if notchAvailable() {
+            integrationRowViews.append(notchSettingRow(isEnabled: usesNotch()))
+        }
+        integrationRowViews.append(automaticStartSettingRow())
 
         var permissionRowsAndSeparators: [NSView] = []
         for (index, row) in permissionRowViews.enumerated() {
@@ -1388,6 +1403,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         return setting.row
     }
 
+    private func notchSettingRow(isEnabled: Bool) -> NSView {
+        let setting = toggleSettingRow(
+            titleText: "Camera notch",
+            detailText: StartMenuPresentation.notchDetail(isEnabled: isEnabled),
+            symbolName: "macbook",
+            identifier: "camera-notch",
+            accessibilityLabel: "Use the area beside the camera notch",
+            isEnabled: isEnabled,
+            action: #selector(changeNotchMode(_:))
+        )
+        notchCaption = setting.caption
+        return setting.row
+    }
+
     private func automaticStartSettingRow() -> NSView {
         let detail = virtualMachineRunning
             ? "Launch Omarchy with your saved settings. Open settings anytime from Omarchy’s Setup menu."
@@ -1735,6 +1764,24 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setImmersiveMode(isEnabled)
         let detailText = StartMenuPresentation.immersiveDetail(isEnabled: isEnabled)
         immersiveCaption?.stringValue = detailText
+        (sender as? OmarchyToggleButton)?.refreshAppearance()
+        sender.setAccessibilityHelp(detailText)
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: detailText,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
+    @objc private func changeNotchMode(_ sender: NSButton) {
+        guard !controlsBusy, !resetInProgress else { return }
+        let isEnabled = sender.state == .on
+        setUsesNotch(isEnabled)
+        let detailText = StartMenuPresentation.notchDetail(isEnabled: isEnabled)
+        notchCaption?.stringValue = detailText
         (sender as? OmarchyToggleButton)?.refreshAppearance()
         sender.setAccessibilityHelp(detailText)
         NSAccessibility.post(

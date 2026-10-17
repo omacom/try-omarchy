@@ -122,6 +122,19 @@ class UpstreamContracts(unittest.TestCase):
         self.assertIn("/etc/systemd/sleep.conf.d}/omarchy-sleep-disabled.conf", script)
         self.assertTrue((FILES / "etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf").is_file())
 
+    def test_bar_reads_the_camera_cutouts_host_config_writes(self):
+        # host-config writes {"panels": [{connector, width, height, top}]} for
+        # QEMU's Virtual-1, linked from the platform root Omarchy reads.
+        bar = (OMARCHY / "shell/plugins/bar/Bar.qml").read_text()
+        model = (OMARCHY / "shell/plugins/bar/BarModel.js").read_text()
+        self.assertIn('path: "/usr/share/omarchy-platform/display-cutouts.json"', bar)
+        self.assertIn("watchChanges: true", bar[bar.index("display-cutouts.json") - 400:])
+        self.assertIn("parsed.panels", model)
+        for field in ("panel.connector", "panel.width", "panel.height", "panel.top"):
+            self.assertIn(field, model)
+        self.assertIn("name.indexOf(panel.connector) !== 0", model)
+        self.assertIn("/run/try-omarchy/display-cutouts.json", (PACKAGE / "PKGBUILD").read_text())
+
     def test_hyprland_loads_every_lua_file_in_the_toggles_directory(self):
         toggles = (OMARCHY / "default/hypr/toggles.lua").read_text()
         self.assertIn('"/omarchy/toggles/hypr"', toggles)

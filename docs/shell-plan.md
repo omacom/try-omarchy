@@ -459,7 +459,9 @@ the user's files and reinstalls their packages there.
 
 - Publish an ARM nightly VM image from the existing `vm-seal` pipeline.
 - Accept `try-omarchy` in `omarchy-pkgs`, and whether a virtual platform may
-  provide `omarchy-platform`.
+  provide `omarchy-platform`. The package already links one file there,
+  `display-cutouts.json`, for the Mac's camera notch
+  ([camera notch](camera-notch.md)).
 - ~~Take the Hyprland border-coverage patch into the aarch64 Hyprland
   recipe~~: not needed; stock Hyprland renders cleanly in the VM.
 - A sanctioned place for a package to add Hyprland configuration and menu

@@ -332,9 +332,20 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 self?.fullscreenPreferenceStore.load().isImmersive ?? true
             },
             setImmersiveMode: { [weak self] isImmersive in
-                self?.fullscreenPreferenceStore.save(
-                    FullscreenPreferences(isImmersive: isImmersive)
-                )
+                guard let store = self?.fullscreenPreferenceStore else { return }
+                var preferences = store.load()
+                preferences.isImmersive = isImmersive
+                store.save(preferences)
+            },
+            notchAvailable: { HostDisplayCutouts.macHasNotch() },
+            usesNotch: { [weak self] in
+                self?.fullscreenPreferenceStore.load().usesNotch ?? true
+            },
+            setUsesNotch: { [weak self] usesNotch in
+                guard let store = self?.fullscreenPreferenceStore else { return }
+                var preferences = store.load()
+                preferences.usesNotch = usesNotch
+                store.save(preferences)
             },
             startAutomatically: { [weak self] in
                 guard let self else { return false }

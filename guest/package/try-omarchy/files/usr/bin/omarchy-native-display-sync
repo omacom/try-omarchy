@@ -4,6 +4,7 @@ set -euo pipefail
 
 drm_root=${OMARCHY_DISPLAY_SYNC_DRM_ROOT:-/sys/class/drm}
 monitor_config=${OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.lua}
+notch_refresh=${OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH:-/usr/lib/try-omarchy/notch-refresh}
 
 preferred_mode_from_edid() {
   python3 - "$1" "$monitor_config" <<'PY'
@@ -260,12 +261,14 @@ PY
 apply_preferred_modes() {
   local connector
   local connector_name
+  local height
   local mode
   local output
   local preferred
   local response
   local rule
   local scale
+  local width
 
   shopt -s nullglob
   for connector in "$drm_root"/card*-Virtual-*; do
@@ -295,6 +298,14 @@ apply_preferred_modes() {
     elif [[ $response != ok ]]; then
       printf 'omarchy-native-display-sync: Hyprland rejected %s for %s: %s\n' \
         "$mode" "$output" "$response" >&2
+    else
+      # The bar follows a camera notch only once Quickshell reads the new
+      # mode (notch-refresh). The modeline's third and seventh words are the
+      # active width and height.
+      read -r _ _ width _ _ _ height _ <<<"$mode"
+      if [[ $mode == "modeline "* && $width =~ ^[0-9]+$ && $height =~ ^[0-9]+$ ]]; then
+        "$notch_refresh" "${width}x$height" || true
+      fi
     fi
   done
   shopt -u nullglob

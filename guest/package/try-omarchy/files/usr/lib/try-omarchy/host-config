@@ -29,3 +29,41 @@ install -d -m 0755 "${output%/*}"
 printf '%s\n' "$value" >"$output.tmp"
 chmod 0644 "$output.tmp"
 mv -f "$output.tmp" "$output"
+
+# The Mac's camera housing, for Omarchy's bar. Omarchy reads a platform's
+# cutouts from /usr/share/omarchy-platform/display-cutouts.json, which this
+# package links here. tryomarchy.display_cutouts=WIDTHxHEIGHT:TOP,... names
+# the built-in panel's modes in pixels; the guest's output has one of them
+# exactly when the Mac's full screen covers the strip beside the housing, so
+# a window or an external display keeps Omarchy's usual bar.
+cutouts=${TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT:-/run/try-omarchy/display-cutouts.json}
+entry='[1-9][0-9]{0,4}x[1-9][0-9]{0,4}:[1-9][0-9]{0,3}'
+panels=()
+for token in $value; do
+  [[ $token == tryomarchy.display_cutouts=* ]] || continue
+  modes=${token#*=}
+  panels=()
+  if [[ ! $modes =~ ^$entry(,$entry){0,63}$ ]]; then
+    echo "try-omarchy-host-config: ignoring malformed display cutouts" >&2
+    continue
+  fi
+  IFS=, read -ra modes <<<"$modes"
+  for mode in "${modes[@]}"; do
+    size=${mode%:*} top=${mode#*:}
+    panels+=("{\"connector\": \"Virtual-1\", \"width\": ${size%x*}, \"height\": ${size#*x}, \"top\": $top}")
+  done
+done
+if ((${#panels[@]})); then
+  install -d -m 0755 "${cutouts%/*}"
+  {
+    printf '{ "panels": [\n'
+    for i in "${!panels[@]}"; do
+      printf '  %s%s\n' "${panels[$i]}" "$( ((i + 1 < ${#panels[@]})) && echo ,)"
+    done
+    printf '] }\n'
+  } >"$cutouts.tmp"
+  chmod 0644 "$cutouts.tmp"
+  mv -f "$cutouts.tmp" "$cutouts"
+else
+  rm -f "$cutouts"
+fi

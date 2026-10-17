@@ -43,6 +43,17 @@ class PackageLayout(unittest.TestCase):
             for forbidden in ("usr/share/omarchy/", "etc/skel/", "usr/share/omarchy-platform/"):
                 self.assertFalse(relative.startswith(forbidden), relative)
 
+    def test_platform_root_holds_only_the_camera_cutouts_link(self):
+        # Generic aarch64 registers no platform package; the one file the VM
+        # adds to Omarchy's platform root points at this boot's cutouts.
+        lines = [line.strip() for line in (PACKAGE / "PKGBUILD").read_text().splitlines()
+                 if "omarchy-platform" in line and not line.strip().startswith("#")]
+        self.assertEqual(lines, [
+            'install -d "$pkgdir/usr/share/omarchy-platform"',
+            'ln -s /run/try-omarchy/display-cutouts.json "$pkgdir/usr/share/omarchy-platform/display-cutouts.json"',
+        ])
+        self.assertIn("/run/try-omarchy/display-cutouts.json", (LIB / "host-config").read_text())
+
     def test_executables(self):
         for directory in ("usr/bin", "usr/lib/try-omarchy", "usr/lib/try-omarchy/shims", "usr/lib/try-omarchy/bin"):
             for path in (FILES / directory).iterdir():
@@ -131,7 +142,9 @@ class HostConfig(unittest.TestCase):
         self.credentials = self.tmp / "credentials"
         self.credentials.mkdir()
         self.output = self.tmp / "run/try-omarchy/cmdline"
-        self.env = {"CREDENTIALS_DIRECTORY": str(self.credentials), "TRY_OMARCHY_HOST_CONFIG_OUTPUT": str(self.output)}
+        self.cutouts = self.tmp / "run/try-omarchy/display-cutouts.json"
+        self.env = {"CREDENTIALS_DIRECTORY": str(self.credentials), "TRY_OMARCHY_HOST_CONFIG_OUTPUT": str(self.output),
+                    "TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT": str(self.cutouts)}
 
     def test_publishes_tokens(self):
         (self.credentials / "tryomarchy.host").write_text("omarchy.qemu_virgl=1 tryomarchy.keyboard=jis\n")
@@ -142,6 +155,32 @@ class HostConfig(unittest.TestCase):
     def test_without_credential_writes_nothing(self):
         run(LIB / "host-config", env=self.env)
         self.assertFalse(self.output.exists())
+        self.assertFalse(self.cutouts.exists())
+
+    def test_describes_the_macs_camera_housing_to_omarchy(self):
+        (self.credentials / "tryomarchy.host").write_text(
+            "omarchy.qemu_virgl=1 tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.keyboard=ansi\n")
+        run(LIB / "host-config", env=self.env)
+        # The schema Omarchy's bar parses (BarModel.parseCutouts): QEMU's
+        # first output, every panel mode with the housing in physical pixels.
+        self.assertEqual(json.loads(self.cutouts.read_text()), {"panels": [
+            {"connector": "Virtual-1", "width": 3024, "height": 1964, "top": 64},
+            {"connector": "Virtual-1", "width": 2048, "height": 1330, "top": 44},
+        ]})
+        self.assertEqual(stat.S_IMODE(self.cutouts.stat().st_mode), 0o644)
+
+    def test_no_housing_or_a_malformed_one_describes_none(self):
+        self.cutouts.parent.mkdir(parents=True)
+        for value in ("tryomarchy.keyboard=ansi",
+                      "tryomarchy.display_cutouts=3024x1964:64,",
+                      "tryomarchy.display_cutouts=3024x1964:0",
+                      'tryomarchy.display_cutouts=3024x1964:64"}]',
+                      "tryomarchy.display_cutouts=3024x1964"):
+            self.cutouts.write_text("stale\n")
+            (self.credentials / "tryomarchy.host").write_text(value + "\n")
+            run(LIB / "host-config", env=self.env)
+            self.assertFalse(self.cutouts.exists(), value)
+            self.assertEqual(self.output.read_text(), value + "\n")
 
     def test_rejects_control_characters_and_oversize(self):
         (self.credentials / "tryomarchy.host").write_bytes(b"a\x1bb")
@@ -149,6 +188,59 @@ class HostConfig(unittest.TestCase):
         (self.credentials / "tryomarchy.host").write_text("x" * 20000)
         self.assertNotEqual(run(LIB / "host-config", env=self.env, check=False).returncode, 0)
         self.assertFalse(self.output.exists())
+
+
+class NotchRefresh(unittest.TestCase):
+    """notch-refresh nudges Quickshell only when the cutout's answer can change."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.cutouts = self.tmp / "display-cutouts.json"
+        self.log = self.tmp / "hyprctl.log"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        (shims / "hyprctl").write_text('#!/bin/bash\necho "$*" >>"$HYPRCTL_LOG"\n')
+        (shims / "hyprctl").chmod(0o755)
+        self.env = {"PATH": f"{shims}:{os.environ['PATH']}", "HYPRCTL_LOG": str(self.log),
+                    "TRY_OMARCHY_DISPLAY_CUTOUTS": str(self.cutouts),
+                    "TRY_OMARCHY_NOTCH_STATE": str(self.tmp / "state/notch-mode")}
+
+    def nudges(self, mode):
+        before = self.log.read_text().count("create") if self.log.exists() else 0
+        run(LIB / "notch-refresh", mode, env=self.env)
+        return self.log.read_text().count("create") - before if self.log.exists() else 0
+
+    def test_only_entering_leaving_or_changing_a_notch_mode_nudges(self):
+        (self.credentials_dir() / "tryomarchy.host").write_text(
+            "tryomarchy.display_cutouts=3600x2338:77,3024x1964:64\n")
+        run(LIB / "host-config", env={"CREDENTIALS_DIRECTORY": str(self.credentials_dir()),
+                                     "TRY_OMARCHY_HOST_CONFIG_OUTPUT": str(self.tmp / "cmdline"),
+                                     "TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT": str(self.cutouts)})
+        self.assertEqual(self.nudges("1940x1260"), 0)   # a window at first
+        self.assertEqual(self.nudges("3024x1964"), 1)   # full screen covers the notch
+        self.assertEqual(self.nudges("3024x1964"), 0)   # nothing changed
+        self.assertEqual(self.nudges("3600x2338"), 1)   # another resolution
+        self.assertEqual(self.nudges("1940x1260"), 1)   # back to a window
+        self.assertEqual(self.nudges("1800x1100"), 0)   # a window resized
+        self.assertEqual(self.log.read_text().splitlines()[-2:],
+                         ["output create headless TRYOMARCHY-REFRESH", "output remove TRYOMARCHY-REFRESH"])
+
+    def test_a_mac_without_a_notch_or_a_bad_mode_does_nothing(self):
+        self.assertEqual(self.nudges("3024x1964"), 0)
+        result = run(LIB / "notch-refresh", "3024x1964;reboot", env=self.env, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.log.exists())
+
+    def test_display_sync_passes_each_applied_mode(self):
+        sync = (FILES / "usr/bin/omarchy-native-display-sync").read_text()
+        self.assertIn('"$notch_refresh" "${width}x$height" || true', sync)
+        # Only after Hyprland accepted the mode.
+        self.assertLess(sync.index('elif [[ $response != ok ]]'), sync.index('"$notch_refresh"'))
+
+    def credentials_dir(self):
+        path = self.tmp / "credentials"
+        path.mkdir(exist_ok=True)
+        return path
 
 
 class SshAccess(unittest.TestCase):
@@ -477,6 +569,30 @@ class Power(unittest.TestCase):
         post_upgrade = install[install.index("post_upgrade()"):]
         self.assertIn("_enable_ntp", post_install)
         self.assertIn('if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then\n    _enable_ntp', post_upgrade)
+
+    def test_upgrade_from_before_the_cutouts_reruns_host_config(self):
+        # The boot that upgrades an older VM ran the old host-config, which
+        # wrote no cutouts; the desktop starts after the upgrade.
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            log = tmp / "calls"
+            (tmp / "systemctl").write_text('#!/bin/bash\nprintf "%s\\n" "$*" >>"$TEST_LOG"\n')
+            (tmp / "vercmp").write_text('#!/usr/bin/python3\nimport re, sys\n'
+                                        'a, b = (tuple(map(int, re.split(r"[.-]", v))) for v in sys.argv[1:3])\n'
+                                        'print((a > b) - (a < b))\n')
+            for tool in ("systemctl", "vercmp"):
+                (tmp / tool).chmod(0o755)
+            for old, restarted in (("0.1.0-23", True), ("0.1.0-24", False)):
+                log.write_text("")
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-25 "$2"', "bash",
+                                str(PACKAGE / "try-omarchy.install"), old], check=True, env={
+                    **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log)})
+                self.assertEqual("try-restart try-omarchy-host-config.service" in log.read_text().splitlines(),
+                                 restarted, old)
+        unit = (PACKAGE / "files/usr/lib/systemd/system/try-omarchy-host-config.service").read_text()
+        self.assertIn("RemainAfterExit=yes", unit)
+        install = (PACKAGE / "files/usr/lib/systemd/system/try-omarchy-package-install.service").read_text()
+        self.assertIn("Before=display-manager.service", install)
 
 
 class ScreenRecording(unittest.TestCase):

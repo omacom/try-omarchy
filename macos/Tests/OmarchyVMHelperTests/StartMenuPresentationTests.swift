@@ -183,4 +183,12 @@ struct StartMenuPresentationTests {
             == "Omarchy opens in a window with the Mac menu bar and Dock available.")
     }
 
+    @Test("camera notch guidance says where Full Screen ends")
+    func notchGuidance() {
+        #expect(StartMenuPresentation.notchDetail(isEnabled: true)
+            == "Full Screen fills the area beside the notch, with Omarchy’s bar around it.")
+        #expect(StartMenuPresentation.notchDetail(isEnabled: false)
+            == "Full Screen stays below the notch, like other Mac apps.")
+    }
+
 }

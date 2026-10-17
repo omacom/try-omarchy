@@ -21,6 +21,27 @@ struct FullscreenPreferenceStoreTests {
         #expect(reopened.load() == FullscreenPreferences(isImmersive: false))
     }
 
+    @Test("The camera notch is used until the user turns it off")
+    func notchChoicePersists() {
+        let fixture = DefaultsFixture()
+        #expect(fixture.store.load().usesNotch)
+
+        fixture.store.save(FullscreenPreferences(isImmersive: true, usesNotch: false))
+        let reopened = FullscreenPreferenceStore(defaults: fixture.defaults)
+        #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesNotch: false))
+    }
+
+    @Test("Settings saved before the notch setting keep Immersive and use the notch")
+    func olderSettingsKeepTheirChoice() throws {
+        let fixture = DefaultsFixture()
+        let older = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": FullscreenPreferenceStore.schemaVersion,
+            "isImmersive": false,
+        ])
+        fixture.defaults.set(older, forKey: FullscreenPreferenceStore.key)
+        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: false, usesNotch: true))
+    }
+
     @Test("Invalid or future preferences fail safely")
     func invalidPreferencesUseDefault() throws {
         let fixture = DefaultsFixture()
@@ -74,5 +95,20 @@ struct FullscreenLaunchConfigurationTests {
         )
         #expect(windowed.environment["KEEP_ME"] == "yes")
         #expect(windowed.environment[FullscreenLaunchConfiguration.immersiveEnvironmentKey] == "0")
+    }
+
+    @Test("Publishes the camera notch choice and replaces an inherited value")
+    func publishesNotchChoice() {
+        let inherited = [FullscreenLaunchConfiguration.notchEnvironmentKey: "invalid"]
+        let using = FullscreenLaunchConfiguration.make(
+            baseEnvironment: inherited,
+            preferences: FullscreenPreferences(isImmersive: true, usesNotch: true)
+        )
+        #expect(using.environment[FullscreenLaunchConfiguration.notchEnvironmentKey] == "1")
+        let below = FullscreenLaunchConfiguration.make(
+            baseEnvironment: inherited,
+            preferences: FullscreenPreferences(isImmersive: true, usesNotch: false)
+        )
+        #expect(below.environment[FullscreenLaunchConfiguration.notchEnvironmentKey] == "0")
     }
 }
