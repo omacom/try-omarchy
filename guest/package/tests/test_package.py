@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -885,6 +886,57 @@ class Hyprland(unittest.TestCase):
         profile = (FILES / "usr/share/try-omarchy/hyprland.lua").read_text()
         handler = profile[profile.index('hl.on("window.destroy"'):]
         self.assertIn("invisible = true", handler[:200])
+
+
+LUA = next(filter(None, map(shutil.which, ("lua", "lua5.5", "lua5.4"))), None)
+
+# Runs the profile against Hyprland's input options (arg[3..], name=value) and
+# prints the input options it sets, one name=value line each.
+APPLE_KEYBOARD_HARNESS = r"""
+local cmdline, profile = arg[1], arg[2]
+local options = {}
+for index = 3, #arg do
+  local name, value = arg[index]:match("^([^=]+)=(.*)$")
+  options[name] = value
+end
+local open = io.open
+io.open = function(path, mode)
+  return open(path == "/run/try-omarchy/cmdline" and cmdline or path, mode)
+end
+hl = {
+  get_config = function(name) return options[name:match("^input%.(.+)$")] or "" end,
+  config = function(values)
+    for name, value in pairs(values.input) do print(name .. "=" .. value) end
+  end,
+}
+dofile(profile)
+"""
+
+
+@unittest.skipUnless(LUA, "needs a Lua interpreter")
+class AppleKeyboardInput(unittest.TestCase):
+    def apply(self, cmdline="tryomarchy.keyboard=iso", **options):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "cmdline").write_text(cmdline + "\n")
+        options = {"kb_layout": "us", "kb_variant": "", "kb_options": "omarchy:shift_caps_compose", **options}
+        result = subprocess.run([LUA, "-", str(tmp / "cmdline"), str(FILES / "usr/share/try-omarchy/apple-keyboard-input.lua"),
+                                 *(f"{name}={value}" for name, value in options.items())],
+                                input=APPLE_KEYBOARD_HARNESS, capture_output=True, text=True, check=True)
+        return dict(line.split("=", 1) for line in result.stdout.splitlines())
+
+    def test_italian_types_on_apples_current_qwerty_layout(self):
+        # XKB's Apple Italian is the old QZERTY layout, where M types a comma.
+        self.assertEqual(self.apply(kb_layout="it"), {"kb_model": "applealu_iso", "kb_variant": "basic"})
+        self.assertEqual(self.apply(kb_layout="us,it", kb_variant=","), {"kb_model": "applealu_iso", "kb_variant": ",basic"})
+        self.assertEqual(self.apply(kb_layout="it,us"), {"kb_model": "applealu_iso", "kb_variant": "basic,"})
+
+    def test_keeps_chosen_variants_keymaps_and_current_apple_layouts(self):
+        for options in ({"kb_layout": "it", "kb_variant": "mac"}, {"kb_layout": "it", "kb_file": "/tmp/custom.xkb"},
+                        {"kb_layout": "us"}, {"kb_layout": "fr,de", "kb_variant": ","}):
+            self.assertEqual(self.apply(**options), {"kb_model": "applealu_iso"}, options)
+
+    def test_does_nothing_without_the_mac_keyboard_geometry(self):
+        self.assertEqual(self.apply("omarchy.qemu_virgl=1", kb_layout="it"), {})
 
 
 class AuthenticationState(unittest.TestCase):
