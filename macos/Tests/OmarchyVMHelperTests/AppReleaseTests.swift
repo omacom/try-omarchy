@@ -118,6 +118,26 @@ struct AppReleaseTests {
         #expect(AppReleasePreferences(defaults: defaults).automaticChecks)
     }
 
+    @Test("the updates window mirrors the checker without acknowledging while hidden")
+    func updatesWindowMirrorsChecker() async throws {
+        let latest = try release()
+        await withPreferences { preferences in
+            preferences.latestRelease = latest
+            let checker = AppReleaseChecker(installed: installed("0.4.1"), preferences: preferences)
+            let window = AppReleaseWindow(checker: checker)
+            #expect(window.state.installedLabel == "Version 0.4.1 (321)")
+            #expect(window.state.checkState == .available(latest))
+            #expect(window.state.checkState.title == "Version 0.5.0 Available")
+            #expect(window.state.automaticChecks)
+            // Only reading the visible window counts as the update notification.
+            #expect(checker.automaticPromptRelease(presentationReady: true) == latest)
+
+            preferences.automaticChecks = false
+            window.refresh()
+            #expect(!window.state.automaticChecks)
+        }
+    }
+
     @Test("update prompts wait for the launcher and remind only once per newer release")
     func automaticPromptLifecycle() async throws {
         let latest = try release()

@@ -31,6 +31,7 @@ final class USBDeviceEditor: NSObject {
         super.init()
 
         alert.messageText = "USB device"
+        alert.icon = NativeSheetChrome.iconImage(symbol: "cable.connector", color: .systemGray)
         alert.informativeText = "Experimental. The chosen device applies the next time you start Omarchy."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
