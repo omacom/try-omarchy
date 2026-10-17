@@ -72,8 +72,15 @@ wait_for 60 outputs && ok "Hyprland is up with an output after $((SECONDS - star
 # No one types here: Omarchy's Stay Awake toggle keeps the screensaver and
 # the lock away for the rest of the run.
 omarchy-toggle-idle stay-awake >/dev/null 2>&1 && ok "Omarchy's Stay Awake toggle is on" || bad "omarchy-toggle-idle stay-awake failed"
+# The container has no keyboard, so the seat has none either until a wtype
+# connects one. Each wtype would then add a keyboard, press its keys and leave
+# before Omarchy's shell has bound it, losing them (the menu missed Escape).
+# An idle wtype keeps one keyboard on the seat for the whole run, as a real
+# machine has.
+wtype -s 3600000 2>/dev/null &
+keyboard=$!
 # Logs for people reading a failed run.
-trap 'journalctl --user -b --no-pager >/ci-run/user-journal.txt 2>&1; cp "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log /ci-run/ 2>/dev/null' EXIT
+trap 'kill "$keyboard" 2>/dev/null; journalctl --user -b --no-pager >/ci-run/user-journal.txt 2>&1; cp "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log /ci-run/ 2>/dev/null' EXIT
 
 errors=$(hc configerrors | sed '/^\s*$/d')
 if [[ -z $errors || $errors == "no errors"* ]]; then ok "Hyprland loaded Omarchy's and try-omarchy's configuration without errors"
@@ -173,15 +180,10 @@ if wait_for 30 layer omarchy-menu; then
   ok "Omarchy's menu opens (the command Super + Space runs)"
   sleep 1
   shot menu
-  # The virtual keyboard's first key can land before the menu takes the
-  # keyboard; a later press is the same check.
   no_menu() { ! layer omarchy-menu; }
-  for press in 1 2 3; do
-    wtype -k Escape 2>/dev/null
-    wait_for 5 no_menu && break
-  done
-  if no_menu; then
-    ok "Escape closes the menu$( ((press > 1)) && echo " (press $press)")"
+  wtype -k Escape 2>/dev/null
+  if wait_for 5 no_menu; then
+    ok "Escape closes the menu"
   else
     bad "Escape did not close the menu"
     run_cmd "omarchy-menu close" >/dev/null
