@@ -10,6 +10,8 @@ install running in the Mac app (see [the architecture](../../docs/architecture.m
 - the launcher's per-boot settings;
 - first-boot language seeding and the Mac JIS 英数/かな keys;
 - SSH on demand;
+- `try-omarchy-import-previous`, which copies files and packages from a VM of
+  an earlier direct-boot app version that the app attaches read-only;
 - root filesystem growth;
 - the Hyprland display and input profile for the VM;
 - the guest status reporter and the integration package installer.

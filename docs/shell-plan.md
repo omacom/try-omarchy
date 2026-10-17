@@ -429,8 +429,10 @@ kind `try-omarchy-windows` already has. The old disk stays until the user
 deletes it. Details are deferred until the new system is stable.
 
 The current implementation dropped the old launch path rather than keeping it:
-this version of the app ignores `disks/` and `boot/` and leaves them on disk
-untouched. Bringing old VMs forward is deferred.
+this version of the app does not boot `disks/` or `boot/` and leaves them on
+disk untouched. Instead of an export-and-import flow, the launcher attaches
+the old root read-only to the new VM, and `try-omarchy-import-previous` copies
+the user's files and reinstalls their packages there.
 
 ## Phases
 

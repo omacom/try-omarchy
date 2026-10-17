@@ -50,4 +50,5 @@ manifest requests.
 
 The app ships one factory and launches one VM per storage folder. VMs created
 by earlier direct-boot versions of the app (the pinned, patched image this
-directory used to build) are not launched; their disks are left untouched.
+directory used to build) are not launched; their disks are left untouched and
+attached read-only for `try-omarchy-import-previous`.

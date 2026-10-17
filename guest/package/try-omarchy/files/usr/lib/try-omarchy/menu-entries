@@ -84,6 +84,12 @@ ROWS = (
         "when": "[[ -x /opt/1Password/1password && -x /usr/bin/try-omarchy-onepassword-touch-id ]]",
         "checked": "/usr/bin/try-omarchy-onepassword-touch-id status --quiet",
         "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-onepassword-touch-id"})),
+    # Shown while the app attaches a VM from an earlier direct-boot version.
+    ("setup.import-previous-vm", 7, own({
+        "icon": "\U000f01da", "label": "Import Previous VM",
+        "description": "Copy files from the VM of an earlier Try Omarchy",
+        "when": "test -b /dev/disk/by-id/virtio-omarchy-previous",
+        "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-import-previous"})),
     # Omarchy's Timezone row opens the picker with Same as macOS first.
     ("update.timezone", 3, changed("update.timezone", set_action(TIMEZONE_ACTION))),
     # A direct UEFI entry would skip Limine and its snapshots; a VM has no
@@ -103,7 +109,7 @@ ROWS = (
     ("install.gaming.battlenet", 5, changed("install.gaming.battlenet", hide_unless("omarchy-hw-x86"))),
     ("install.gaming.lutris", 5, changed("install.gaming.lutris", hide_unless("omarchy-hw-x86"))),
 )
-RELEASE = 6
+RELEASE = 7
 
 # Rows earlier packages wrote with only the changed field, which Omarchy's
 # merge turned into rows without a label or an action. Still exactly as

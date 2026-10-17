@@ -292,7 +292,9 @@ disposable session clones the same file into its own temporary folder.
 The factory disk applies only when no VM exists, after a confirmed reset, or
 in ephemeral mode. An app update never replaces an existing VM's disk; the
 guest updates itself. Disks from earlier direct-boot versions of the app
-(`disks/`, `boot/`) are left untouched and are not launched.
+(`disks/`, `boot/`) are left untouched and are not launched; the old root is
+attached read-only so `try-omarchy-import-previous` in the guest can copy the
+user's files.
 
 Resources set the virtual disk capacity, 64 GiB by default. The launcher
 grows the disk file sparsely and never shrinks it;

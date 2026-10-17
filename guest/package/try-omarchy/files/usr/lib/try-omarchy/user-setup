@@ -55,3 +55,19 @@ done
 if ((changed)) && [[ ${1:-} == --reload && -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   hyprctl reload >/dev/null 2>&1 || true
 fi
+
+# Say once that a VM from an earlier version of the app is attached. The
+# Omarchy shell, which shows notifications, can still be starting at login.
+previous=${TRY_OMARCHY_PREVIOUS_DEVICE:-/dev/disk/by-id/virtio-omarchy-previous}
+marker=$state_home/try-omarchy/previous-vm-announced
+if [[ -b $previous && ! -e $marker ]]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if timeout 5 notify-send "Your previous Try Omarchy VM is attached" \
+      "Copy its files with Setup > Import Previous VM, or run try-omarchy-import-previous." 2>/dev/null; then
+      mkdir -p "${marker%/*}"
+      : >"$marker"
+      break
+    fi
+    sleep 1
+  done
+fi

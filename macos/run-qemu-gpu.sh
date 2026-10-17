@@ -493,6 +493,19 @@ else
   working_vars=$vars
 fi
 
+# A VM from an earlier direct-boot version of the app (a bare ext4 root in
+# disks/) is never booted. It is attached read-only so the guest's
+# try-omarchy-import-previous can copy the user's files into this VM; deleting
+# the disks folder detaches it.
+previous_disk=''
+if [[ $storage_mode == persistent && -d $state_root/disks && ! -L $state_root/disks ]]; then
+  for candidate in "$state_root/disks/current/rootfs.ext4" "$state_root"/disks/*/rootfs.ext4; do
+    [[ -f $candidate && ! -L $candidate && ! -L ${candidate%/*} ]] || continue
+    previous_disk=$candidate
+    break
+  done
+fi
+
 # Growing the disk file is enough: the guest grows its root partition and
 # btrfs to fill the disk at boot (try-omarchy-grow-root.service).
 if [[ -n $disk_capacity_gib ]]; then
@@ -606,6 +619,12 @@ if [[ -n $package_to_install ]]; then
     -device 'virtio-9p-pci,fsdev=omarchy-packages,mount_tag=tryomarchy-packages,romfile='
   )
 fi
+if [[ -n $previous_disk ]]; then
+  qemu_args+=(
+    -drive "if=none,id=omarchy-previous,file=${previous_disk//,/,,},format=raw,media=disk,readonly=on"
+    -device 'virtio-blk-pci,drive=omarchy-previous,serial=omarchy-previous'
+  )
+fi
 if [[ -n $shared_folder ]]; then
   qemu_args+=(
     -fsdev "local,id=omarchy-share,path=$shared_folder,security_model=none,multidevs=remap,guest_owner_uid=1000,guest_owner_gid=1000"
@@ -642,6 +661,7 @@ else
 fi
 echo "[qemu-gpu] Port forwarding: $port_forwarding_summary" >&2
 [[ -z $shared_folder ]] || echo "[qemu-gpu] Shared folder: $shared_folder (guest ~/$shared_folder_name)" >&2
+[[ -z $previous_disk ]] || echo "[qemu-gpu] Previous VM attached read-only: $previous_disk" >&2
 echo '[qemu-gpu] Launch phase: starting' >&2
 "$qemu_bin" "${qemu_args[@]}" &
 qemu_pid=$!

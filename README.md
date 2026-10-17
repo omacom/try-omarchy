@@ -616,8 +616,26 @@ Omarchy**, or for an ephemeral launch.
 
 VMs created by earlier versions of the app, which booted a kernel from the Mac,
 are not launched by this version. Their files (`disks/`, `boot/`) stay in the
-same folder untouched; moving them to the new system is planned but not
-available yet.
+same folder untouched, and the app attaches the old disk to the new VM
+read-only. Omarchy says so once after login; to bring your files over, choose
+**Setup > Import Previous VM** in the Omarchy menu, or run:
+
+```sh
+try-omarchy-import-previous --dry-run   # list what would be copied
+try-omarchy-import-previous             # copy it
+try-omarchy-import-previous --packages  # install the packages you had added
+try-omarchy-import-previous --open      # browse the old disk, --close when done
+```
+
+The import copies every visible file and folder in your old home folder, plus
+SSH and GnuPG keys, Git and GitHub CLI settings, fonts, `pass`, AWS and
+Kubernetes credentials, and never replaces a file that already exists. It
+leaves the old `~/.config` alone, since it was written for an older Omarchy;
+browse it with `--open` and copy what you want by hand. `--packages` installs
+the packages you installed yourself in the old VM; those not in Omarchy's
+repositories (from the AUR, say) are listed for `yay`. When you have
+everything, delete `disks/` and `boot/` from the storage folder to detach the
+old disk and free its space. **Reset Omarchy** leaves them alone.
 Before Reset is enabled, the confirmation sheet requires typing `Try Omarchy`
 exactly; cancelling the sheet returns to the start menu without changing the VM.
 

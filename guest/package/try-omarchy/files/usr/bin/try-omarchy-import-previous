@@ -1,0 +1,157 @@
+#!/bin/bash
+#
+# Copy files from a VM made by an earlier direct-boot version of Try Omarchy
+# into this one. The app attaches that VM's disk read-only (serial
+# omarchy-previous) while it is still in the storage folder; it is never
+# booted or changed.
+#
+#   try-omarchy-import-previous [--dry-run] [--from <user>]
+#   try-omarchy-import-previous --packages   install packages the old VM had
+#   try-omarchy-import-previous --open       mount it read-only to browse
+#   try-omarchy-import-previous --close
+#
+# Files are copied into the home folder and never replace one that exists:
+# every visible file and folder, plus SSH and GnuPG keys, Git and GitHub CLI
+# settings, fonts and a few credential folders. The old ~/.config is not
+# copied, since it was written for an older Omarchy; --open shows it, and
+# everything else, to copy by hand.
+
+set -euo pipefail
+
+device=${TRY_OMARCHY_PREVIOUS_DEVICE:-/dev/disk/by-id/virtio-omarchy-previous}
+mount_point=${TRY_OMARCHY_PREVIOUS_MOUNT:-/run/try-omarchy/previous-vm}
+sudo=${TRY_OMARCHY_SUDO-sudo}
+# Settings that do not depend on the Omarchy version, relative to the home.
+dotfiles=(.ssh .gnupg .gitconfig .config/git .config/gh .local/share/fonts .password-store .aws .kube)
+
+usage() {
+  sed -n '8,11s/^# \{0,3\}//p' "$0"
+  exit "${1:-0}"
+}
+
+action=import dry_run=0 from=''
+while (($#)); do
+  case $1 in
+    --dry-run) dry_run=1 ;;
+    --from) from=${2:-}; [[ -n $from ]] || usage 2; shift ;;
+    --packages) action=packages ;;
+    --open) action=open ;;
+    --close) action=close ;;
+    -h | --help) usage ;;
+    *) usage 2 ;;
+  esac
+  shift
+done
+
+say() { printf '%s\n' "$*"; }
+fail() { printf 'try-omarchy-import-previous: %s\n' "$*" >&2; exit 1; }
+
+((EUID != 0)) || fail "run this as yourself, not as root; it asks for sudo when it needs it"
+
+mounted() { findmnt -rn --mountpoint "$mount_point" >/dev/null 2>&1; }
+
+close() {
+  mounted || return 0
+  $sudo umount "$mount_point"
+}
+
+if [[ $action == close ]]; then
+  close
+  exit 0
+fi
+
+if ! mounted; then
+  [[ -b $device ]] || fail "no previous VM is attached. The Mac app attaches the VM from an earlier
+version when its disk (disks/current/rootfs.ext4) is in the VM storage folder."
+  $sudo mkdir -p "$mount_point"
+  # noload: the disk is read-only, so an unclean journal cannot be replayed.
+  $sudo mount -t ext4 -o ro,noload,nosuid,nodev,noexec "$device" "$mount_point" ||
+    fail "cannot mount the previous VM's disk"
+  [[ $action == open ]] || trap close EXIT
+fi
+
+if [[ $action == open ]]; then
+  say "The previous VM is mounted read-only at $mount_point"
+  say "Its home folder is under $mount_point/home. Run with --close when you are done."
+  exit 0
+fi
+
+# The previous VM had one user; pick it, or the one --from names.
+homes=()
+for home in "$mount_point"/home/*/; do
+  [[ -d $home && ! -L ${home%/} ]] && homes+=("${home%/}")
+done
+if [[ -n $from ]]; then
+  old_home="$mount_point/home/$from"
+  [[ $from != */* && -d $old_home ]] || fail "the previous VM has no user named $from"
+elif ((${#homes[@]} == 1)); then
+  old_home=${homes[0]}
+elif ((${#homes[@]} == 0)); then
+  fail "the previous VM has no home folders"
+else
+  fail "the previous VM has several users; choose one with --from: $(printf '%s ' "${homes[@]##*/}")"
+fi
+
+if [[ $action == packages ]]; then
+  # The packages the user chose: explicitly installed (no %REASON% 1) after
+  # the old owner's home folder was created, which leaves out the earlier
+  # image's own packages. Kernels belong to this VM's image.
+  since=$(stat -c %W "$old_home")
+  log=$mount_point/var/log/pacman.log
+  ((since > 0)) && [[ -f $log ]] || fail "cannot tell which packages you installed; see $log with --open"
+  explicit=$(awk 'function out() { if (name != "" && reason != "1") print name }
+    FNR == 1 { out(); name = ""; reason = "" }
+    /^%NAME%$/ { getline; name = $0 } /^%REASON%$/ { getline; reason = $0 }
+    END { out() }' "$mount_point"/var/lib/pacman/local/*/desc | sort -u)
+  chosen=()
+  for name in $explicit; do
+    [[ ! $name =~ ^linux(-aarch64)?(-headers)?$ && $name != try-omarchy* ]] || continue
+    when=$(grep -F "] [ALPM] installed $name (" "$log" | tail -n 1 | sed -n 's/^\[\([^]]*\)\].*/\1/p')
+    [[ -n $when ]] && (($(date -d "$when" +%s) > since)) && chosen+=("$name")
+  done
+  missing=$(comm -23 <(printf '%s\n' ${chosen[@]+"${chosen[@]}"}) <(pacman -Qq | sort -u))
+  available=$(comm -12 <(printf '%s\n' "$missing") <(pacman -Slq | sort -u))
+  other=$(comm -23 <(printf '%s\n' "$missing") <(printf '%s\n' "$available"))
+  if [[ -n $other ]]; then
+    say "Not in this VM's repositories (from the AUR or built by hand; try yay -S):"
+    printf '  %s\n' $other
+  fi
+  if [[ -z $available ]]; then
+    say "Every package you installed in the previous VM from the repositories is installed."
+    exit 0
+  fi
+  say "Installing packages you installed in the previous VM:"
+  printf '  %s\n' $available
+  ((dry_run)) && exit 0
+  # shellcheck disable=SC2086 # one package name per word
+  $sudo pacman -S --needed $available
+  exit 0
+fi
+
+# Visible top-level entries, minus links such as the old Mac shared-folder
+# link, plus the version-independent dotfiles. A destination that is a link
+# (this VM's own shared folder) is skipped rather than written through.
+items=()
+for path in "$old_home"/* "${dotfiles[@]/#/$old_home/}"; do
+  [[ -e $path && ! -L $path ]] || continue
+  relative=${path#"$old_home"/}
+  [[ ! -L $HOME/$relative && ! -L $HOME/${relative%%/*} ]] || continue
+  items+=("$old_home/./$relative")
+done
+((${#items[@]})) || { say "Nothing to copy from ${old_home##*/}'s home folder."; exit 0; }
+
+say "Copying from ${old_home##*/}'s home folder in the previous VM (existing files are kept):"
+printf '  ~/%s\n' "${items[@]#"$old_home"/./}"
+options=(-a --relative --ignore-existing --chown="$(id -un):$(id -gn)" --info=progress2,stats1)
+((dry_run)) && options+=(--dry-run)
+$sudo rsync "${options[@]}" "${items[@]}" "$HOME/"
+
+if ((dry_run)); then
+  say "Dry run: nothing was copied."
+  exit 0
+fi
+say
+say "Done. Packages the previous VM had can be installed with:"
+say "  try-omarchy-import-previous --packages"
+say "Its other settings stay readable with --open. Once you have everything,"
+say "delete the disks folder from the VM storage folder on the Mac to detach it."

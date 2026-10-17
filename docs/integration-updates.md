@@ -79,3 +79,8 @@ newer than the app's; the app then leaves it alone.
 
 VMs created by earlier direct-boot versions of the app are not launched or
 migrated by this version. Their disks stay in the storage folder untouched.
+The launcher attaches `disks/current/rootfs.ext4` (or another `disks/*/`
+root) to the persistent VM as a read-only virtio disk with serial
+`omarchy-previous`, and the package's `try-omarchy-import-previous` copies the
+user's files and lists or installs their packages from it. See the
+[README](../README.md#existing-vm-data).

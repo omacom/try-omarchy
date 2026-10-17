@@ -114,7 +114,8 @@ make release VERSION=vX.Y.Z \
 7. State in release notes that installing the app preserves existing VM
    contents and that Omarchy inside the VM updates through `omarchy update`.
    VMs created by earlier direct-boot releases are not launched by
-   this version; their disks stay in the storage folder.
+   this version; their disks stay in the storage folder, and **Setup > Import
+   Previous VM** copies their files into the new VM.
 8. Record SHA-256 digests for the final app archive/DMG and publish them with the
    release notes.
 

@@ -181,6 +181,18 @@ assert_not_contains "$output" "tryomarchy.package"
 assert_not_contains "$output" "tryomarchy.ssh_access"
 assert_not_contains "$output" "Launch phase: preparing"
 
+# --- a VM from an earlier direct-boot version is attached read-only ----------------
+assert_not_contains "$output" "omarchy-previous"
+mkdir -p "$state/disks/current"
+printf 'old vm' >"$state/disks/current/rootfs.ext4"
+launch_env=()
+output=$(launch)
+assert_contains "$output" "id=omarchy-previous,file=$state/disks/current/rootfs.ext4,format=raw,media=disk,readonly=on"
+assert_contains "$output" "virtio-blk-pci,drive=omarchy-previous,serial=omarchy-previous"
+[[ $(<"$state/disks/current/rootfs.ext4") == 'old vm' ]] || fail "the previous VM's disk changed"
+assert_not_contains "$(launch --ephemeral)" "omarchy-previous"
+rm -rf "$state/disks"
+
 # --- a real launch grows the disk, keeps the lock and cleans up --------------------
 # One run directory belongs to a launcher that is gone, the other to this shell.
 dead=$(mktemp -d '/private/tmp/omarchy-qemu-gpu.XXXXXX')

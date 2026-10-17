@@ -227,7 +227,8 @@ class MenuEntries(unittest.TestCase):
   "install.gaming.lutris": {"icon":"","label":"Lutris","disabled":"omarchy-pkg-present lutris","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-lutris"},
 }
 """
-    OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id"}
+    OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id",
+           "setup.import-previous-vm"}
     CHANGED = {"update.timezone", "setup.direct-boot", "update.firmware", "update.hardware.wifi",
                "update.hardware.bluetooth", "trigger.appearance.top-bar.indicators.battery-percentage",
                "install.gaming.geforce-now", "install.gaming.battlenet", "install.gaming.lutris"}
@@ -299,7 +300,8 @@ class MenuEntries(unittest.TestCase):
         parsed = self.parse(self.menu.read_text())
         self.assertEqual(parsed["update.firmware"]["label"], "Firmware")
         self.assertEqual(parsed["update.hardware.wifi"], {"when": "! omarchy-hw-vm", "label": "Mine"})
-        self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi"})  # nothing re-added
+        # Nothing re-added; only the newest release's row is new.
+        self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi", "setup.import-previous-vm"})
 
     def test_without_omarchys_menu_only_own_rows_are_added(self):
         self.omarchy.unlink()
@@ -313,9 +315,9 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries-v1").touch()
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
-                         {"setup.security.onepassword-touch-id"} | self.CHANGED)
+                         {"setup.security.onepassword-touch-id", "setup.import-previous-vm"} | self.CHANGED)
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 1 + len(self.CHANGED))
+        self.assertEqual(len(self.parse(self.menu.read_text())), 2 + len(self.CHANGED))
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
@@ -325,7 +327,7 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), self.CHANGED)
+        self.assertEqual(set(self.parse(text)), {"setup.import-previous-vm"} | self.CHANGED)
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
@@ -920,6 +922,76 @@ class OnePassword(unittest.TestCase):
         self.assertIn('unit="try-omarchy-onepassword-touch-id@$user.service"', command)
         self.assertTrue((FILES / "usr/lib/systemd/system/try-omarchy-onepassword-touch-id@.service").is_file())
         self.assertIn("sudo systemctl enable --now", command)
+
+
+class ImportPrevious(unittest.TestCase):
+    """try-omarchy-import-previous against a fake, already mounted old disk."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.old = self.tmp / "previous"
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        old_home = self.old / "home/dudas"
+        for path in ("Documents/notes.txt", "projects/app/main.go", ".ssh/id_ed25519", ".gitconfig",
+                     ".config/git/ignore", ".config/hypr/hyprland.conf", ".cache/big"):
+            (old_home / path).parent.mkdir(parents=True, exist_ok=True)
+            (old_home / path).write_text(path)
+        (old_home / "Mac").symlink_to("/mnt/mac")  # the old shared-folder link
+        (old_home / "Shared").mkdir()
+        (self.home / "Shared").symlink_to("/mnt/mac")  # this VM's shared-folder link
+        local = self.old / "var/lib/pacman/local"
+        # The earlier image's packages were installed before its owner's home
+        # existed (a birth time of 1000); the user's own after.
+        log = []
+        for name, reason, when in (("neovim", None, 2000), ("glibc", "1", 2000), ("htop", None, 2000),
+                                   ("spotify", None, 2000), ("vulkan-swrast", None, 500),
+                                   ("linux-aarch64", None, 2000), ("try-omarchy-runtime", None, 2000)):
+            (local / f"{name}-1").mkdir(parents=True)
+            desc = f"%NAME%\n{name}\n\n" + (f"%REASON%\n{reason}\n\n" if reason else "")
+            (local / f"{name}-1/desc").write_text(desc)
+            log.append(f"[{when}] [ALPM] installed {name} (1-1)\n")
+        (self.old / "var/log").mkdir(parents=True)
+        (self.old / "var/log/pacman.log").write_text("".join(log))
+        self.log = self.tmp / "log"
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        for name, body in (("findmnt", "exit 0"), ("rsync", 'printf "%s\\n" "$@" >>"$TEST_LOG"'),
+                           ("pacman", 'case $1 in -Qq) printf "glibc\\nneovim\\n" ;; -Slq) printf "htop\\nneovim\\n" ;;'
+                                      ' *) printf "pacman %s\\n" "$*" >>"$TEST_LOG" ;; esac'),
+                           # GNU stat's birth time and date -d, with plain seconds standing in for stamps.
+                           ("stat", 'echo 1000'), ("date", 'echo "$2"')):
+            (bin_dir / name).write_text(f"#!/bin/bash\n{body}\n")
+            (bin_dir / name).chmod(0o755)
+        self.env = {"HOME": str(self.home), "PATH": f"{bin_dir}:{os.environ['PATH']}", "TEST_LOG": str(self.log),
+                    "TRY_OMARCHY_SUDO": "", "TRY_OMARCHY_PREVIOUS_MOUNT": str(self.old)}
+
+    def run_import(self, *args):
+        return subprocess.run([str(FILES / "usr/bin/try-omarchy-import-previous"), *args], capture_output=True,
+                              text=True, check=True, env={**os.environ, **self.env})
+
+    def test_copies_visible_files_and_portable_settings_without_replacing(self):
+        self.run_import()
+        args = self.log.read_text().splitlines()
+        self.assertIn("--ignore-existing", args)
+        self.assertEqual(args[-1], f"{self.home}/")
+        old_home = self.old / "home/dudas"
+        copied = sorted(arg.removeprefix(f"{old_home}/./") for arg in args if arg.startswith(f"{old_home}/./"))
+        # Not the old Omarchy configuration, caches, nor through either shared-folder link.
+        self.assertEqual(copied, [".config/git", ".gitconfig", ".ssh", "Documents", "projects"])
+
+    def test_dry_run_and_user_choice(self):
+        self.run_import("--dry-run", "--from", "dudas")
+        self.assertIn("--dry-run", self.log.read_text().splitlines())
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_import("--from", "someone")
+
+    def test_packages_installs_only_what_the_user_installed(self):
+        result = self.run_import("--packages")
+        self.assertEqual(self.log.read_text(), "pacman -S --needed htop\n")
+        self.assertIn("spotify", result.stdout)
+        for name in ("try-omarchy-runtime", "linux-aarch64", "vulkan-swrast"):
+            self.assertNotIn(name, result.stdout)
 
 
 if __name__ == "__main__":
