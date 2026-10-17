@@ -8,11 +8,17 @@ Usage: macos/build-app.sh [--open] [--dmg] [--guest-dir DIR]
                                   [--configuration development|production]
                                   [--sign-identity IDENTITY]
                                   [--notarize-profile PROFILE]
+                                  [--factory-download-url URL]
 
 Build a self-contained Apple Silicon app. Development builds select a stable
 local signing certificate automatically. Production builds require an explicit
 signing identity. --dmg requires --configuration production.
 --notarize-profile implies --dmg and names a notarytool keychain profile.
+
+Development builds carry the compressed factory. Production builds, and any
+build given --factory-download-url, carry a download manifest instead and write
+the image's parts to dist/factory/ for upload beside the DMG. Production builds
+default to the GitHub release of HEAD's vX.Y.Z tag.
 EOF
   exit 64
 }
@@ -23,6 +29,7 @@ guest_dir=
 configuration=development
 sign_identity=${OMARCHY_CODESIGN_IDENTITY:-auto}
 notarize_profile=
+factory_download_url=
 while (($#)); do
   case "$1" in
     --open) open_app=1; shift ;;
@@ -46,6 +53,11 @@ while (($#)); do
       (($# >= 2)) || usage
       notarize_profile=$2
       build_dmg=1
+      shift 2
+      ;;
+    --factory-download-url)
+      (($# >= 2)) || usage
+      factory_download_url=$2
       shift 2
       ;;
     *) usage ;;
@@ -77,6 +89,14 @@ case "$configuration" in
       echo 'build-app: production requires --sign-identity (use - for an explicit ad-hoc test build)' >&2
       exit 1
     }
+    # The app downloads its factory from the release it ships in.
+    if [[ -z $factory_download_url ]]; then
+      release_tag=$(git -C "$repo_dir" describe --tags --exact-match --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null) || {
+        echo 'build-app: production downloads the factory from the release of HEAD'"'"'s vX.Y.Z tag; tag HEAD or pass --factory-download-url' >&2
+        exit 1
+      }
+      factory_download_url="https://github.com/omacom/try-omarchy/releases/download/$release_tag/"
+    fi
     ;;
   *) usage ;;
 esac
@@ -248,7 +268,18 @@ install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
 install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
 install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
 compressed_name=$(/usr/bin/plutil -extract compressed.path raw -o - "$guest_dir/factory.json")
-for guest_resource in factory.json packages.txt SHA256SUMS "$compressed_name"; do
+guest_resources=(factory.json packages.txt SHA256SUMS)
+if [[ -n $factory_download_url ]]; then
+  # The image is over GitHub's 2 GiB asset limit and is only needed for a new
+  # VM, so the app downloads it (FactoryImageDownload.swift).
+  python3 "$repo_dir/scripts/split-factory-image.py" \
+    --guest-dir "$guest_dir" --base-url "$factory_download_url" \
+    --output "$repo_dir/dist/factory" --manifest "$contents/Resources/guest/download.json"
+  chmod 0644 "$contents/Resources/guest/download.json"
+else
+  guest_resources+=("$compressed_name")
+fi
+for guest_resource in "${guest_resources[@]}"; do
   [[ -f $guest_dir/$guest_resource && ! -L $guest_dir/$guest_resource ]] || {
     echo "build-app: factory guest resource is missing or unsafe: $guest_resource" >&2
     exit 1

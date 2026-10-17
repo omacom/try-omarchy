@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -116,6 +117,25 @@ def verify_release_artifacts(root: Path, tag: str) -> None:
     if not dmg.is_file():
         raise ValueError(f"release DMG was not produced: {dmg}")
 
+    # The app downloads its factory from this release's assets.
+    try:
+        manifest = json.loads((app / "Contents/Resources/guest/download.json").read_text())
+        parts = manifest["parts"]
+    except (OSError, ValueError, KeyError) as error:
+        raise ValueError(f"the app has no factory download manifest: {error}") from error
+    prefix = f"https://github.com/omacom/try-omarchy/releases/download/{tag}/"
+    for part in parts:
+        name = part["url"].removeprefix(prefix)
+        if name == part["url"] or "/" in name:
+            raise ValueError(f"the factory download does not point at {tag}: {part['url']}")
+        asset = root / "dist/factory" / name
+        if not asset.is_file() or asset.stat().st_size != part["bytes"]:
+            raise ValueError(f"factory release asset is missing: {asset}")
+
+
+def release_assets(root: Path) -> list[Path]:
+    return [root / "dist/TryOmarchy.dmg", *sorted((root / "dist/factory").glob("*"))]
+
 
 def release(root: Path, make: str) -> None:
     identity = os.environ.get("RELEASE_SIGN_IDENTITY", "")
@@ -161,7 +181,9 @@ def release(root: Path, make: str) -> None:
         raise
     print(f"Release DMG: {root / 'dist' / 'TryOmarchy.dmg'}", flush=True)
     print(f"After verifying it, push the tag: git push origin {tag}", flush=True)
-    print("Then create the GitHub release and upload the DMG.", flush=True)
+    print("Then create the GitHub release and upload the DMG and the factory image parts:", flush=True)
+    assets = " ".join(str(path.relative_to(root)) for path in release_assets(root))
+    print(f"  gh release upload {tag} {assets}", flush=True)
 
 
 def main() -> None:
