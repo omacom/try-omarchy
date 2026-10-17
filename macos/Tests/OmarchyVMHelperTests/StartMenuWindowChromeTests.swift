@@ -5,7 +5,7 @@ import Testing
 @Suite("Start menu window chrome", .serialized)
 @MainActor
 struct StartMenuWindowChromeTests {
-    @Test("the custom heading hides the duplicate native title")
+    @Test("the launcher window uses native chrome and the system appearance")
     func windowChrome() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 760),
@@ -19,7 +19,8 @@ struct StartMenuWindowChromeTests {
         #expect(window.title == "Try Omarchy")
         #expect(window.titleVisibility == .hidden)
         #expect(window.titlebarAppearsTransparent)
-        #expect(window.isMovableByWindowBackground)
+        #expect(window.appearance == nil)
+        #expect(window.contentMinSize == StartMenuWindowChrome.minimumContentSize)
         #expect(!window.isReleasedWhenClosed)
         window.close()
 

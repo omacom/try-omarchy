@@ -1,5 +1,30 @@
 import AppKit
 
+enum OmarchyStartMenuTheme {
+    // The launcher uses the same terminal-first palette as the Omarchy site.
+    static let background = color(0x1A1B26)
+    static let darkBackground = color(0x24283B)
+    static let lighterBackground = color(0x414868)
+    static let foreground = color(0xC0CAF5)
+    static let accent = color(0x7AA2F7)
+    static let muted = accent.withAlphaComponent(0.78)
+    static let cyan = color(0x7DCFFF)
+    static let hover = color(0xB4F9F8)
+    static let success = color(0x9ECE6A)
+    static let danger = color(0xF7768E)
+    static let border = lighterBackground.withAlphaComponent(0.88)
+    static let separator = lighterBackground.withAlphaComponent(0.7)
+
+    private static func color(_ value: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+}
+
 enum OmarchyControlStyle {
     case primary
     case secondary
