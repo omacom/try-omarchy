@@ -149,9 +149,7 @@ manifest.write_text(json.dumps({"parts": [{"url": url, "bytes": 5}]}))
         app_info = plistlib.loads((self.root / "dist/release.noindex/Try Omarchy.app/Contents/Info.plist").read_bytes())
         self.assertEqual("1.2.3", app_info["CFBundleShortVersionString"])
         self.assertEqual("v1.2.3", app_info["TryOmarchyBuildDescribe"])
-        self.assertIn("git push origin v1.2.3", result.stdout)
-        self.assertIn("gh release upload v1.2.3 dist/TryOmarchy.dmg "
-                      "dist/factory/omarchy-aarch64-edge.img.zst.001", result.stdout)
+        self.assertIn("run make publish", result.stdout)
         self.assertNotIn("[y/N]", result.stdout)
         self.assertEqual("", self.git("status", "--porcelain"))
 

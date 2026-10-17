@@ -180,10 +180,8 @@ def release(root: Path, make: str) -> None:
         print(f"Local tag {tag} remains. Retry with make release VERSION={tag}", file=sys.stderr)
         raise
     print(f"Release DMG: {root / 'dist' / 'TryOmarchy.dmg'}", flush=True)
-    print(f"After verifying it, push the tag: git push origin {tag}", flush=True)
-    print("Then create the GitHub release and upload the DMG and the factory image parts:", flush=True)
-    assets = " ".join(str(path.relative_to(root)) for path in release_assets(root))
-    print(f"  gh release upload {tag} {assets}", flush=True)
+    print("After verifying it, run make publish to push the tag and attach the DMG and", flush=True)
+    print(f"factory image parts to the {tag} draft release.", flush=True)
 
 
 def main() -> None:

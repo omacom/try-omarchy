@@ -49,17 +49,25 @@ unambiguous.
 `make package` remains available for an already-tagged clean checkout. It
 neither prompts nor creates a tag.
 
-After verifying the DMG, push the tag with `git push origin vX.Y.Z`, then create
-the GitHub release manually using that existing tag and attach
-`dist/TryOmarchy.dmg` and every file in `dist/factory/`:
+After verifying the DMG, run:
 
 ```sh
-gh release upload vX.Y.Z dist/TryOmarchy.dmg dist/factory/*
+make publish
 ```
 
+It reads the version from the built app, checks that the DMG exists and that
+the app's download manifest points at that tag's parts in `dist/factory/`, and
+pushes the tag first, so the release
+points at the commit that was built rather than one GitHub would create from
+the draft's target branch. It refuses if origin already has the tag on another
+commit. It then uploads the DMG and the factory parts to the draft release with
+that tag, replacing earlier uploads; a draft named `vX.Y.Z` with no tag yet gets
+the tag selected. Without a draft it creates one. A published release is never
+changed. Review the draft on GitHub and publish it yourself: until then its
+assets are private and the app cannot download the image.
+
 The filename stays the same for every release; the app inside is stamped with
-the version from the release tag. `make release` creates the local tag;
-pushing it, creating the GitHub release, and uploading the assets remain manual.
+the version from the release tag.
 
 The compressed factory image is over GitHub's 2 GiB asset limit, so it is not
 inside the DMG. Production builds split it into 1 GiB parts in `dist/factory/`

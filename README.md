@@ -880,7 +880,9 @@ Both DMG targets create distributable artifacts:
   local release tag, and performs the same signing and notarization workflow with the
   release-specific credential variables.
   Use `make release VERSION=vX.Y.Z` to choose the version without prompting.
-  GitHub publishing remains manual.
+- `make publish` pushes that tag and attaches the DMG and the factory image
+  parts to its GitHub draft release, creating the draft if needed. Publishing
+  the draft remains manual.
 
 Maintainers should follow [`docs/releasing.md`](docs/releasing.md) for the full build, test, signing, license, corresponding-source, and verification checklist.
 

@@ -22,7 +22,7 @@ SHELL_TESTS := network-helper qemu-networking qemu-port-forwarding run-qemu-gpu 
 SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
-.PHONY: help doctor test guest guest-package refresh runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight clean clean-all clean-guest
+.PHONY: help doctor test guest guest-package refresh runtime firmware app build run run-ephemeral reset version-preflight package package-preflight release release-preflight publish clean clean-all clean-guest
 .PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
 .PHONY: test-upstream test-guest-install e2e
 
@@ -46,6 +46,7 @@ help:
 	  '  make package        Create a signed and notarized distribution DMG' \
 	  '  make release        Choose a version, tag, and build a notarized DMG (fresh factory)' \
 	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
+	  '  make publish        Push the release tag and attach the DMG and image to its GitHub draft' \
 	  '' \
 	  'Component builds:' \
 	  '  make guest          Ensure dist/guest (try-omarchy package and factory disk) is current (Docker)' \
@@ -98,6 +99,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-development-sign-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-app-version.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-release.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-publish.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-package-dmg.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-split-factory-image.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
@@ -207,6 +209,11 @@ release-preflight:
 release: export RELEASE_MAKE := $(MAKE)
 release: release-preflight
 	@python3 "$(ROOT)/scripts/release.py" --root "$(ROOT)"
+
+# Pushes the built release's tag, then uploads to the draft release with that
+# tag (or creates one). Publishing the draft stays manual.
+publish:
+	@python3 "$(ROOT)/scripts/publish.py" --root "$(ROOT)"
 
 clean:
 	@echo 'Removing repository build output and caches...'
