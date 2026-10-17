@@ -173,9 +173,19 @@ if wait_for 30 layer omarchy-menu; then
   ok "Omarchy's menu opens (the command Super + Space runs)"
   sleep 1
   shot menu
-  wtype -k Escape 2>/dev/null
+  # The virtual keyboard's first key can land before the menu takes the
+  # keyboard; a later press is the same check.
   no_menu() { ! layer omarchy-menu; }
-  wait_for 15 no_menu && ok "Escape closes the menu" || { bad "Escape did not close the menu"; run_cmd "omarchy-menu close" >/dev/null; }
+  for press in 1 2 3; do
+    wtype -k Escape 2>/dev/null
+    wait_for 5 no_menu && break
+  done
+  if no_menu; then
+    ok "Escape closes the menu$( ((press > 1)) && echo " (press $press)")"
+  else
+    bad "Escape did not close the menu"
+    run_cmd "omarchy-menu close" >/dev/null
+  fi
 else
   bad "Omarchy's menu did not open"
 fi
