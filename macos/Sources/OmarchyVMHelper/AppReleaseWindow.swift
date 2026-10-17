@@ -1,4 +1,6 @@
 import AppKit
+import Observation
+import SwiftUI
 
 @MainActor
 enum AppReleasePrompt {
@@ -13,59 +15,64 @@ enum AppReleasePrompt {
     }
 }
 
+/// What the updates window shows, copied from the checker on every change.
+@MainActor
+@Observable
+final class AppReleaseWindowState {
+    var installedLabel = ""
+    var checkState = AppReleaseCheckState.idle
+    var automaticChecks = false
+}
+
+@MainActor
+struct AppReleaseWindowActions {
+    var checkNow: () -> Void = {}
+    var openRelease: () -> Void = {}
+    var setAutomaticChecks: (Bool) -> Void = { _ in }
+}
+
 @MainActor
 final class AppReleaseWindow: NSObject {
+    static let contentSize = NSSize(width: 500, height: 440)
+
     private let checker: AppReleaseChecker
     private let window: NSWindow
-    private let status = NSTextField(wrappingLabelWithString: "")
-    private let checkButton = NSButton(title: "Check Now", target: nil, action: nil)
-    private let automatic = NSButton(checkboxWithTitle: "Automatically check for updates", target: nil, action: nil)
+    let state = AppReleaseWindowState()
 
     var isVisible: Bool { window.isVisible }
 
     init(checker: AppReleaseChecker) {
         self.checker = checker
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
+            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false
         )
         super.init()
         window.title = "Try Omarchy Updates"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
 
-        let installed = NSTextField(wrappingLabelWithString: checker.installed.label)
-        installed.font = .systemFont(ofSize: 16, weight: .semibold)
-        let explanation = NSTextField(wrappingLabelWithString: "Updates are downloaded from GitHub and installed manually. Shut down Omarchy before replacing the Mac app. Your existing VM and settings are preserved; the guest is updated separately.")
-        explanation.textColor = .secondaryLabelColor
-        let privacy = NSTextField(wrappingLabelWithString: "When enabled, checks contact GitHub at most once a day when you open the app. App updates aren’t downloaded or installed automatically.")
-        privacy.textColor = .secondaryLabelColor
-        privacy.font = .systemFont(ofSize: 11)
-        let releases = NSButton(title: "Release Notes & Download…", target: self, action: #selector(openRelease))
-        releases.bezelStyle = .rounded
-        checkButton.bezelStyle = .rounded
-        checkButton.target = self
-        checkButton.action = #selector(checkNow)
-        automatic.target = self
-        automatic.action = #selector(toggleAutomatic)
-        let actions = NSStackView(views: [checkButton, releases])
-        actions.spacing = 12
-        let stack = NSStackView(views: [installed, status, actions, automatic, privacy, explanation])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = window.contentView!
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -24),
-            installed.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            status.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            privacy.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            explanation.widthAnchor.constraint(equalTo: stack.widthAnchor),
-        ])
+        let actions = AppReleaseWindowActions(
+            checkNow: { [weak self] in self?.checker.check() },
+            openRelease: { [weak self] in
+                guard let self else { return }
+                NSWorkspace.shared.open(checker.state.releaseURL)
+            },
+            setAutomaticChecks: { [weak self] enabled in
+                guard let self else { return }
+                checker.preferences.automaticChecks = enabled
+                checker.checkAutomaticallyIfDue()
+                refresh()
+            }
+        )
+        let host = NSHostingController(rootView: AppReleaseView(state: state, actions: actions))
+        host.sceneBridgingOptions = []
+        host.sizingOptions = []
+        window.contentViewController = host
+        window.setContentSize(Self.contentSize)
         refresh()
     }
 
@@ -78,21 +85,127 @@ final class AppReleaseWindow: NSObject {
     }
 
     func refresh() {
-        status.stringValue = checker.state.message
-        checkButton.isEnabled = checker.state != .checking
-        automatic.state = checker.preferences.automaticChecks ? .on : .off
+        state.installedLabel = checker.installed.label
+        state.checkState = checker.state
+        state.automaticChecks = checker.preferences.automaticChecks
         // Reading the result here already serves as the update notification.
         if window.isVisible, case .available(let release) = checker.state {
             checker.acknowledgeRelease(release)
         }
     }
+}
 
-    @objc private func checkNow() { checker.check() }
+// MARK: - View
 
-    @objc private func toggleAutomatic() {
-        checker.preferences.automaticChecks = automatic.state == .on
-        checker.checkAutomaticallyIfDue()
+extension AppReleaseCheckState {
+    var title: String {
+        switch self {
+        case .idle: "Check for Updates"
+        case .checking: "Checking for Updates…"
+        case .available(let release): "Version \(release.version) Available"
+        case .current: "Try Omarchy Is Up to Date"
+        case .unknownInstalledVersion(let release): "Latest Release Is \(release.version)"
+        case .failed: "Couldn’t Check for Updates"
+        }
     }
 
-    @objc private func openRelease() { NSWorkspace.shared.open(checker.state.releaseURL) }
+    var detail: String {
+        switch self {
+        case .idle: "Looks for the latest stable release on GitHub."
+        case .checking: "Contacting GitHub…"
+        case .available: "Review its release notes and macOS requirements before downloading."
+        case .current: "No newer stable release was found."
+        case .unknownInstalledVersion:
+            "This build doesn’t identify its installed release reliably, so versions can’t be compared."
+        case .failed(let message): "\(message) You can still launch Omarchy."
+        }
+    }
+
+    var icon: SettingIcon {
+        switch self {
+        case .idle, .checking: SettingIcon("arrow.triangle.2.circlepath", .gray)
+        case .available: SettingIcon("arrow.down", .blue)
+        case .current: SettingIcon("checkmark", .green)
+        case .unknownInstalledVersion: SettingIcon("questionmark", .gray)
+        case .failed: SettingIcon("exclamationmark.triangle.fill", .orange)
+        }
+    }
+}
+
+struct AppReleaseView: View {
+    @Bindable var state: AppReleaseWindowState
+    let actions: AppReleaseWindowActions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                OmarchyAppTile(size: 72)
+                    .padding(.bottom, 6)
+                Text("Try Omarchy")
+                    .font(.title2.weight(.semibold))
+                Text(state.installedLabel)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            .padding(.top, 40)
+
+            Form {
+                Section {
+                    statusRow
+                    SettingRow(
+                        icon: SettingIcon("doc.text.fill", .gray),
+                        title: "Release Notes",
+                        detail: ["Changes, downloads and macOS requirements on GitHub."]
+                    ) {
+                        Button("View…", action: actions.openRelease)
+                            .accessibilityIdentifier("app-release-notes-button")
+                    }
+                }
+
+                Section {
+                    SettingRow(
+                        icon: SettingIcon("clock.arrow.circlepath", .blue),
+                        title: "Check Automatically",
+                        detail: ["At most once a day, when you open the app."]
+                    ) {
+                        Toggle("Check Automatically", isOn: Binding(
+                            get: { state.automaticChecks },
+                            set: { actions.setAutomaticChecks($0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityIdentifier("app-release-automatic-toggle")
+                    }
+                } footer: {
+                    SectionNote("Updates are never downloaded or installed automatically. To update, shut down Omarchy and replace the Mac app; your VM and settings are kept, and the guest updates separately.")
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .scrollDisabled(true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var statusRow: some View {
+        SettingRow(
+            icon: state.checkState.icon,
+            title: state.checkState.title,
+            detail: [state.checkState.detail]
+        ) {
+            switch state.checkState {
+            case .checking:
+                ProgressView().controlSize(.small)
+            case .available:
+                Button("Download…", action: actions.openRelease)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("app-release-download-button")
+            default:
+                Button("Check Now", action: actions.checkNow)
+                    .accessibilityIdentifier("app-release-check-button")
+            }
+        }
+    }
 }
