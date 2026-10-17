@@ -8,7 +8,7 @@
 
 pkgname=try-omarchy
 pkgver=0.1.0
-pkgrel=23
+pkgrel=24
 pkgdesc='Mac host integration for Omarchy running in Try Omarchy'
 arch=('aarch64')
 url='https://github.com/omacom/try-omarchy'

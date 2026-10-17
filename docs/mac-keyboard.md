@@ -4,7 +4,9 @@ Try Omarchy maps the host Mac keyboard class (ANSI / ISO / JIS) into the
 guest. That corrects the ISO Section / extra-ISO key inversion for every
 layout. For xkeyboard-config Mac vendor layouts (`ch de dk fi fr gb is it
 latam nl no pt se us` with an empty variant) it also selects Macintosh
-legends.
+legends, except for Italian: XKB's Macintosh Italian is the QZERTY
+typewriter layout of keyboards Apple no longer sells, so the guest uses the
+QWERTY Italian layout of current Apple keyboards instead.
 
 ## Host
 
@@ -18,9 +20,13 @@ when that value is `iso`. `--reset-storage-only` skips the probe.
 
 The `try-omarchy` package's Hyprland profile loads
 `/usr/share/try-omarchy/apple-keyboard-input.lua` on every configuration
-reload. It sets only `kb_model = "applealu_" .. geometry`. Layout and variant
-stay whatever Omarchy setup chose. A missing token is a no-op. The profile
-loads after the user's own configuration, so no user file is edited.
+reload. It sets `kb_model = "applealu_" .. geometry`. Layouts and variants
+stay whatever Omarchy setup chose, with one exception: an empty variant for
+`it` becomes `basic`, because the empty variant would select
+`macintosh_vndr/it`, where M types a comma. A variant set in
+`~/.config/hypr/input.lua` is kept, so `kb_variant = "mac"` still selects
+QZERTY. A missing token is a no-op. The profile loads after the user's own
+configuration, so no user file is edited.
 
 **Remove any local `frmac` (or similar) TLDE/LSGT symbol swap**, or the ISO
 keys invert again on top of the Cocoa swap.
