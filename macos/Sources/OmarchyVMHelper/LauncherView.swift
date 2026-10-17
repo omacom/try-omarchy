@@ -72,7 +72,6 @@ struct LauncherView: View {
             .disabled(state.permissionRequestInFlight)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .navigationTitle((state.selectedPane ?? .home).rawValue)
         .frame(minWidth: 760, minHeight: 500)
     }
 
@@ -270,7 +269,7 @@ private struct HomePane: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!state.launchEnabled)
                 .accessibilityIdentifier("launch-button")
-            Button("Restart…", action: actions.restart)
+            Button("Restart Omarchy…", action: actions.restart)
                 .controlSize(.large)
                 .disabled(!state.runningActionsEnabled)
                 .accessibilityIdentifier("restart-vm-button")

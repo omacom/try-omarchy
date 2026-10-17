@@ -159,7 +159,7 @@ port. The `dtc` mirror should be reverted once kernel.org returns.
 
 ## Virtual machine resources
 
-Choose **Resources → Configure…** on the start menu to adjust processor cores
+Choose **Resources → Configure…** on the launcher’s **Home** or **Virtual Machine** pane to adjust processor cores
 and memory, and set a maximum disk size for the next launch. Processor cores range from 4 to all the cores
 on this Mac; the default remains up to 8 cores. Memory defaults to 8 GiB on
 Macs with at least 16 GiB of RAM, and 4 GiB on smaller Macs. Custom allocations
@@ -212,11 +212,11 @@ something is copied.
 ## Sharing a folder with the Mac
 
 Folder sharing is off until you pick a folder. Use **Choose…** next to
-**Shared folder** on the start menu to select one Mac folder; Omarchy links it
+**Shared Folder** in the launcher’s **Sharing** pane to select one Mac folder; Omarchy links it
 into its home under the same name (`~/Work` on the Mac becomes `~/Work` in
 Omarchy) with full read and write access, so choose a folder you intend Linux
 software to modify. The whole home folder, `~/Library`, and system directories
-cannot be shared. **Turn Off** keeps the choice but stops exporting it on the
+cannot be shared. Turning its switch off keeps the choice but stops exporting it on the
 next launch; Omarchy then removes the link and gives back any standard folder
 such as `~/Documents` that the link had taken over. The share belongs to the
 first Omarchy account created during
@@ -232,8 +232,8 @@ how to verify it.
 ## Passing a USB device to Omarchy (experimental)
 
 Passthrough is off until you pick a device. Use **Choose…** next to **USB
-device** on the start menu to select one device currently attached to the Mac;
-the choice applies on the next launch, and **Turn On** / **Turn Off** keeps it
+Device** in the launcher’s **Sharing** pane to select one device currently attached to the Mac;
+the choice applies on the next launch, and its switch turns passthrough on or off
 without reselecting. Omarchy gets a USB 3 controller with that one device
 attached, matched on its vendor and product identifiers and its physical bus
 and port. The picker lists the bus and port for each device. The match stays
@@ -358,7 +358,7 @@ environment owns the choice and leaves its buttons disabled.
 
 ## Networking
 
-Use **Configure…** next to **Networking** on the start menu. **NAT** shares the
+Use **Configure…** next to **Network** in the launcher’s **Network** pane. **NAT** shares the
 Mac's connection and is the default. **Bridged** gives the VM its own LAN
 address through a selected eligible Mac interface. Changes take effect on the
 next launch. Bridging uses a networking helper approved once through macOS
@@ -413,7 +413,7 @@ automatically switch to NAT or another interface.
 
 ## Forwarding ports to Omarchy
 
-In NAT mode, use **Configure…** next to **Port forwarding** on the start menu to map a Mac
+In NAT mode, use **Configure…** next to **Port Forwarding** in the launcher’s **Network** pane to map a Mac
 localhost port to a service port in Omarchy. Each mapping can use TCP or UDP;
 the same Mac port may be used once for each protocol. Forwarded ports bind only
 to `127.0.0.1`, so other devices on the network cannot connect to them. The
@@ -523,7 +523,7 @@ Secure Enclave key representation.
 
 ## Giving Omarchy more memory
 
-Use **Resources → Configure…** on the start menu to pick how much of the Mac's
+Use **Resources → Configure…** in the launcher to pick how much of the Mac's
 RAM the guest boots with. Macs with at least 16 GiB default to 8 GiB; smaller
 Macs default to 4 GiB. The menu offers 4, 6, 8, 12 GiB and then continues in
 4 GiB steps, leaving at least 4 GiB for macOS. For example, a 16 GiB Mac can
@@ -696,7 +696,7 @@ started once. See [integration updates](docs/integration-updates.md).
 
 ### Choosing where the VM lives
 
-Open **Manage…** on the launcher's **Selected VM** row after shutting down
+Open **Manage…** on the **Selected VM** row of the launcher's **Virtual Machine** pane after shutting down
 Omarchy. The dialog shows the selected VM folder and explains what the next
 launch will do:
 

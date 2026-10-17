@@ -112,6 +112,7 @@ enum StartMenuWindowChrome {
         // Let the panes run under the toolbar instead of a separate gray band.
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
+        window.isMovableByWindowBackground = true
         window.contentMinSize = minimumContentSize
         // Follow the system Light or Dark appearance like other Mac apps.
         window.appearance = nil
@@ -299,8 +300,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.appVersionLabel = appVersionLabel
         actions = makeActions()
         let host = NSHostingController(rootView: LauncherView(state: state, actions: actions))
-        // The selected pane names the window in the Window menu.
-        host.sceneBridgingOptions = [.title]
+        // Panes draw their own titles; bridging would show a second one.
+        host.sceneBridgingOptions = []
         host.sizingOptions = []
         window.contentViewController = host
         StartMenuWindowChrome.apply(to: window)

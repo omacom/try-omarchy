@@ -46,7 +46,7 @@ systemctl status omarchy-native-mac-share.service --no-pager
 The mount should report source `mac` and `cache=readahead` or `cache=0x1`,
 never `cache=mmap` or `cache=0x5`.
 
-**Shared folder > Turn Off** applies to the next launch. Close applications
+Turning off the **Shared Folder** switch applies to the next launch. Close applications
 using the share and shut down Linux cleanly first. An app update does not
 change a currently mounted share.
 
