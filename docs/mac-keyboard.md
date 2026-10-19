@@ -20,13 +20,16 @@ when that value is `iso`. `--reset-storage-only` skips the probe.
 
 The `try-omarchy` package's Hyprland profile loads
 `/usr/share/try-omarchy/apple-keyboard-input.lua` on every configuration
-reload. It sets `kb_model = "applealu_" .. geometry`. Layouts and variants
-stay whatever Omarchy setup chose, with one exception: an empty variant for
-`it` becomes `basic`, because the empty variant would select
-`macintosh_vndr/it`, where M types a comma. A variant set in
-`~/.config/hypr/input.lua` is kept, so `kb_variant = "mac"` still selects
-QZERTY. A missing token is a no-op. The profile loads after the user's own
-configuration, so no user file is edited.
+reload. It sets only `kb_model = "applealu_" .. geometry`. Layout and variant
+stay whatever Omarchy setup chose. A missing token is a no-op. The profile
+loads after the user's own configuration, so no user file is edited.
+
+For Italian, the package ships `/etc/xkb/symbols/macintosh_vndr/it`, which
+libxkbcommon reads before xkeyboard-config's copy. It is the standard
+`it(basic)` layout, so an Apple model with Italian types QWERTY in any
+position of a multi-layout list, and `kb_variant` stays what Omarchy set (its
+keyboard layout picker reads it back). `kb_variant = "mac"` still selects
+QZERTY.
 
 **Remove any local `frmac` (or similar) TLDE/LSGT symbol swap**, or the ISO
 keys invert again on top of the Cocoa swap.

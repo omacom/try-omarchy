@@ -59,10 +59,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Guest package tests
-        run: |
-          # The Hyprland profile's tests run it in Lua, as Hyprland does.
-          command -v lua5.4 >/dev/null || { sudo apt-get update -q && sudo apt-get install -yq lua5.4; }
-          make test-guest
+        run: make test-guest
 
       - name: Guest shell scripts (bash -n, ShellCheck errors)
         run: |

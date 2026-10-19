@@ -34,7 +34,9 @@ not ignore, so caches and other local files never reach the package.
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
   from), `/etc/sudoers.d/try-omarchy-timezone` and
-  `/etc/profile.d/try-omarchy.sh`. Nothing goes
+  `/etc/profile.d/try-omarchy.sh`, and the Italian Apple keyboard layout
+  `/etc/xkb/symbols/macintosh_vndr/it` (see
+  [Mac keyboard geometry](../../docs/mac-keyboard.md)). Nothing goes
   under `/usr/local`, `/usr/share/omarchy` or `/etc/skel`. Customisation uses
   systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
   extension, plus one loader in the user's Omarchy toggles directory.

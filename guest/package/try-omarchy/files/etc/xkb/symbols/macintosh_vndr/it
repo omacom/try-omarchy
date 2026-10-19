@@ -1,0 +1,11 @@
+// Try Omarchy: Italian on an Apple keyboard model (kb_model applealu_*).
+// xkeyboard-config's macintosh_vndr/it is the QZERTY typewriter layout of
+// keyboards Apple no longer sells, where M types a comma. Current Apple Italian
+// keyboards and macOS's default Italian input source are QWERTY, so this copy,
+// which libxkbcommon reads before the system one, uses the standard layout.
+// The "mac" variant (it(mac)) still selects QZERTY. Drop this file once
+// xkeyboard-config's Apple Italian is QWERTY.
+default
+xkb_symbols "basic" {
+    include "it(basic)"
+};

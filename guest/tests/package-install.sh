@@ -100,6 +100,24 @@ preset_units() { # system|user
   awk '$1 == "enable" { print $2 }' "/usr/lib/systemd/$1-preset/80-try-omarchy.preset"
 }
 
+# The M key (<AB07>) of an Apple ISO keyboard with these layouts.
+apple_m_key() { # layout [variant]
+  xkbcli compile-keymap --model applealu_iso --layout "$1" --variant "${2:-}" |
+    awk '/key <AB07>/ { found = 1 } found { printf "%s", $0 } found && /};/ { exit }' | tr -d ' \t'
+}
+
+# Apple Italian keyboards are QWERTY (etc/xkb/symbols/macintosh_vndr/it).
+italian_is_qwerty() {
+  local layout key
+  for layout in it us,it it,us; do
+    key=$(apple_m_key "$layout")
+    [[ $key == *"[m,M"* && $key != *comma* ]] || { echo "$layout: $key"; return 1; }
+  done
+  # it(mac) still selects QZERTY.
+  key=$(apple_m_key it mac)
+  [[ $key == *comma* ]] || { echo "it(mac): $key"; return 1; }
+}
+
 check_installed() { # label
   local label=$1 release unit missing=() module
   check "$label: pacman's file check" pacman -Qkk try-omarchy
@@ -163,6 +181,7 @@ rm -f /etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service
 if install_package "$new" /tmp/install.log; then
   ok "fresh install of $new_version with its dependencies"
   check_installed install
+  check "install: Italian on an Apple keyboard types QWERTY" italian_is_qwerty
 else
   die "fresh install of $new_version"
 fi
