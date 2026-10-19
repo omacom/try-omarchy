@@ -44,8 +44,9 @@ help:
 	  '  make run DEVELOPMENT_SIGN_IDENTITY="Apple Development: ..."' \
 	  '                      Choose a certificate when several are available' \
 	  '  make package        Create a signed and notarized distribution DMG' \
-	  '  make release        Choose a version, tag, and build a notarized DMG (fresh factory)' \
+	  '  make release        Choose a version, tag, and build a notarized DMG (latest factory)' \
 	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
+	  '  make release FORCE=1  Rebuild the factory even if it matches upstream' \
 	  '  make publish        Push the release tag and attach the DMG and image to its GitHub draft' \
 	  '' \
 	  'Component builds:' \
@@ -208,6 +209,7 @@ release-preflight:
 	@[[ -n "$(strip $(RELEASE_NOTARY_PROFILE))" ]] || { echo 'error: RELEASE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 
 release: export RELEASE_MAKE := $(MAKE)
+release: export RELEASE_FORCE := $(FORCE)
 release: release-preflight
 	@python3 "$(ROOT)/scripts/release.py" --root "$(ROOT)"
 

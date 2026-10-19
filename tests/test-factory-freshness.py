@@ -82,6 +82,49 @@ class FactoryFreshnessTests(unittest.TestCase):
         self.assertIn("Built 8 d 2 h ago", stale[0])
         self.assertIn("Run `make refresh`", stale[1])
 
+    def write_upstream(self, databases: dict[str, bytes], node: str) -> tuple[dict[str, str], str]:
+        urls = {}
+        for name, data in databases.items():
+            path = self.root / "upstream" / f"{name}.db"
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(data)
+            urls[name] = path.as_uri()
+        index = self.root / "upstream/SHASUMS256.txt"
+        index.write_text(f"{'1' * 64}  node-v26.12.0-darwin-arm64.tar.gz\n{node}  node-v26.12.0-linux-arm64.tar.gz\n")
+        return urls, index.as_uri()
+
+    def record(self, databases: dict[str, bytes]) -> None:
+        factory = json.loads((self.guest / "factory.json").read_text())
+        factory["repositories"] = {name: hashlib.sha256(data).hexdigest() for name, data in databases.items()}
+        factory["node"] = {"file": "node-v26.12.0-linux-arm64.tar.gz", "sha256": "a" * 64}
+        (self.guest / "factory.json").write_text(json.dumps(factory))
+
+    def test_check_passes_only_when_every_repository_and_node_match(self) -> None:
+        databases = {"omarchy": self.built_with, "core": b"core", "extra": b"extra"}
+        self.record(databases)
+        urls, node = self.write_upstream(databases, "a" * 64)
+        self.assertEqual([], freshness.check(self.root, urls, node, timeout=1))
+
+        moved = dict(databases, extra=b"extra moved")
+        urls, node = self.write_upstream(moved, "b" * 64)
+        self.assertEqual(["[extra] changed since the factory was built",
+                          "Node.js node-v26.12.0-linux-arm64.tar.gz replaced node-v26.12.0-linux-arm64.tar.gz"],
+                         freshness.check(self.root, urls, node, timeout=1))
+
+    def test_check_fails_closed_when_unrecorded_or_unreachable(self) -> None:
+        databases = {"omarchy": self.built_with}
+        urls, node = self.write_upstream(databases, "a" * 64)
+        # A factory built before repositories were recorded is rebuilt once.
+        self.assertIn("does not record the [omarchy] database",
+                      freshness.check(self.root, urls, node, timeout=1)[0])
+        self.record(databases)
+        reasons = freshness.check(self.root, {"omarchy": "file:///nonexistent/omarchy.db"},
+                                  "file:///nonexistent/SHASUMS256.txt", timeout=1)
+        self.assertTrue(reasons[0].startswith("could not check [omarchy]"), reasons)
+        self.assertTrue(reasons[1].startswith("could not check the latest Node.js release"), reasons)
+        (self.guest / "factory.json").unlink()
+        self.assertEqual(["no factory has been built"], freshness.check(self.root, urls, node, timeout=1))
+
     def test_no_factory_prints_nothing(self) -> None:
         (self.guest / "factory.json").unlink()
         self.assertEqual(self.report(self.built_with, timedelta(hours=1)), [])

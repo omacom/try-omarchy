@@ -146,7 +146,8 @@ package=$(printf '%s' try-omarchy-0.2.0-1-aarch64.pkg.tar.zst | base64 | tr -d '
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.package=$package"
 assert_contains "$output" "mount_tag=tryomarchy-packages"
 assert_contains "$output" "hostfwd=tcp:127.0.0.1:2222-:22"
-assert_contains "$output" "Nested virtualization is unavailable"
+assert_contains "$output" "Nested virtualization is off"
+assert_not_contains "$output" "virtualization=on"
 assert_contains "$output" "-add-fd fd=9,set=77,opaque=omarchy-persistent-lock"
 # The app accepts only this QMP path shape (QEMUGPULauncher.qmpSocketPath).
 [[ $output =~ unix:/tmp/omarchy-qemu-gpu\.[A-Za-z0-9]{6}/qmp\.sock, ]] || fail "the QMP socket path is not one the app accepts"
@@ -166,6 +167,19 @@ done
 [[ $(stat -f %Lp "$state/shell/disk.img") == 600 && $(stat -f %Lp "$state") == 700 ]] || fail "the VM is not private"
 [[ $(<"$state/.omarchy-qemu-storage") == omarchy-qemu-storage-root-v1 ]] || fail "no storage-root marker"
 qemu_ran && fail "a dry run started QEMU"
+
+# Opting in probes EL2 on macOS 26 or newer and falls back when the probe fails.
+cat >"$shims/sw_vers" <<'SH'
+#!/bin/bash
+echo 26.6.2
+SH
+chmod 755 "$shims/sw_vers"
+launch_env=(OMARCHY_QEMU_GPU_NESTED_VIRT=1)
+output=$(launch)
+assert_contains "$output" "Nested virtualization is unavailable"
+assert_not_contains "$output" "virtualization=on"
+rm "$shims/sw_vers"
+launch_env=()
 
 # QEMU's reboot, shutdown and monitor policy: one QMP controller, no debugger.
 [[ $(grep -o -- "-action reboot=reset,shutdown=poweroff" <<<"$output" | wc -l | tr -d ' ') == 1 ]] ||
@@ -317,6 +331,7 @@ for setting in OMARCHY_QEMU_GPU_CPUS=2 OMARCHY_QEMU_GPU_MEMORY_MIB=1024 OMARCHY_
   OMARCHY_QEMU_GPU_DISK_GIB=0 OMARCHY_QEMU_GPU_DISK_GIB=9000 OMARCHY_QEMU_GPU_LOCALE=xx_XX.UTF-8 \
   'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac,romfile=/etc/hosts' 'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac -s' \
   OMARCHY_QEMU_GPU_HVF_TRACE_LOG=relative.log OMARCHY_QEMU_GPU_IMMERSIVE=2 OMARCHY_QEMU_GPU_DRY_RUN=2 \
+  OMARCHY_QEMU_GPU_NESTED_VIRT=yes \
   OMARCHY_QEMU_GPU_SHARED_FOLDER=/etc,x OMARCHY_SHELL_INSTALL_PACKAGE=/etc/hosts OMARCHY_NETWORK_MODE=vmnet \
   OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:22:22:22; do
   launch_env=("$setting" OMARCHY_QEMU_GPU_STATE_ROOT="$untouched")

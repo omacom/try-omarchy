@@ -30,16 +30,18 @@ not ignore, so caches and other local files never reach the package.
 - **No file another package owns is edited.** The package installs under
   `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
   `/etc/chromium-flags.conf` and
-  `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` (both pacman
-  `backup` files), Omarchy's sleep switch
+  `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` and
+  `50-try-omarchy-cpu.conf` (all pacman `backup` files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
-  from), `/etc/sudoers.d/try-omarchy-timezone` and
-  `/etc/profile.d/try-omarchy.sh`, and one link in Omarchy's platform root,
-  `/usr/share/omarchy-platform/display-cutouts.json`, to this boot's
-  `/run/try-omarchy/display-cutouts.json` (plain `aarch64` has no platform
-  package). Nothing goes under `/usr/local`, `/usr/share/omarchy` or
-  `/etc/skel`. Customisation uses
+  from), `/etc/sudoers.d/try-omarchy-timezone`,
+  `/etc/profile.d/try-omarchy.sh`, the Italian Apple keyboard layout
+  `/etc/xkb/symbols/macintosh_vndr/it` (see
+  [Mac keyboard geometry](../../docs/mac-keyboard.md)), and one link in
+  Omarchy's platform root, `/usr/share/omarchy-platform/display-cutouts.json`,
+  to this boot's `/run/try-omarchy/display-cutouts.json` (plain `aarch64` has
+  no platform package). Nothing goes under `/usr/local`, `/usr/share/omarchy`
+  or `/etc/skel`. Customisation uses
   systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
   extension, plus one loader in the user's Omarchy toggles directory.
 - **No kernel command line from the host.** The guest owns its boot. The app
@@ -160,6 +162,13 @@ and repeats `console=tty0`, so the screen stays `/dev/console`. Kernel and
 boot messages then also reach the VM's virtio console, which the app keeps as
 `console.log`. It takes effect when Limine's entries are next rebuilt, which
 the factory build does and every kernel update does.
+
+`/etc/limine-entry-tool.d/50-try-omarchy-cpu.conf` adds `arm64.nosme`. The
+M4 reports SME without SVE, and QEMU under HVF cannot hide SME, so programs
+that run an SVE instruction outside streaming mode crash with SIGILL. Chips
+before the M4 have no SME. It takes effect the same way as the console, and
+the upgrade that adds it also rebuilds Limine's entries once on a guest that
+still shows SME, so existing M4 VMs pick it up at their next boot.
 
 ## Hyprland
 

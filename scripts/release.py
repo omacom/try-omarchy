@@ -137,6 +137,24 @@ def release_assets(root: Path) -> list[Path]:
     return [root / "dist/TryOmarchy.dmg", *sorted((root / "dist/factory").glob("*"))]
 
 
+def prepare_factory(root: Path, make: str, force: bool) -> None:
+    """A release ships a factory built from what upstream serves now. The
+    cached one is reused only when every repository and the Node.js release
+    it was built from still match; otherwise, or with FORCE=1, it is rebuilt."""
+    guest = [make, "--no-print-directory", "-C", str(root), "guest"]
+    if force:
+        print("[factory] FORCE=1: rebuilding the factory from the latest upstream", flush=True)
+        subprocess.run([*guest, "FORCE=1"], check=True)
+        return
+    # Rebuilds only if the factory's own inputs changed.
+    subprocess.run([*guest, "FORCE=0"], check=True)
+    current = subprocess.run(
+        [sys.executable, str(root / "scripts/factory-freshness.py"), "--root", str(root), "--check"])
+    if current.returncode != 0:
+        print("[factory] Rebuilding the factory from the latest upstream", flush=True)
+        subprocess.run([*guest, "FORCE=1"], check=True)
+
+
 def release(root: Path, make: str) -> None:
     identity = os.environ.get("RELEASE_SIGN_IDENTITY", "")
     profile = os.environ.get("RELEASE_NOTARY_PROFILE", "")
@@ -155,10 +173,9 @@ def release(root: Path, make: str) -> None:
             raise ValueError("release cancelled; no builds or tag changes were made")
     clean_head(root, head)
     print(f"Preparing {tag} from {head[:12]}", flush=True)
-    # A release ships a factory built from what Omarchy's edge serves now; the
-    # cached one may be days behind upstream.
-    subprocess.run([make, "--no-print-directory", "-C", str(root), "guest", "FORCE=1"], check=True)
-    subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime"], check=True)
+    prepare_factory(root, make, force=os.environ.get("RELEASE_FORCE") == "1")
+    # The runtime is pinned by checksum: FORCE=1 would rebuild the same QEMU.
+    subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime", "FORCE=0"], check=True)
     clean_head(root, head)
     if validate_tag(root, tag, head):
         print(f"Reusing {tag}", flush=True)

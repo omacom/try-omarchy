@@ -17,6 +17,18 @@ _enable_ntp() {
   systemctl enable --now systemd-timesyncd.service >/dev/null 2>&1 || true
 }
 
+# The kernel command line is built into Limine's boot image, so a drop-in
+# added by an upgrade (arm64.nosme) waits for the next rebuild. Rebuild once
+# where the running kernel still shows SME; it takes effect at the next boot.
+_hide_sme() {
+  local cpuinfo=${1:-/proc/cpuinfo} cmdline=${2:-/proc/cmdline} limine=${3:-/boot/limine.conf}
+  grep -qw sme "$cpuinfo" 2>/dev/null || return 0
+  ! grep -qw arm64.nosme "$cmdline" 2>/dev/null || return 0
+  # Containers (the package tests) have no Limine boot partition.
+  [ -f "$limine" ] && command -v limine-update >/dev/null 2>&1 || return 0
+  limine-update >/dev/null 2>&1 || true
+}
+
 post_install() {
   systemctl preset $_units >/dev/null 2>&1 || true
   _enable_ntp
@@ -45,10 +57,13 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then
     _enable_ntp
   fi
+  if [ "$(vercmp "$2" 0.1.0-27)" -lt 0 ]; then
+    _hide_sme
+  fi
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
   # camera cutouts it writes.
-  if [ "$(vercmp "$2" 0.1.0-24)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-28)" -lt 0 ]; then
     systemctl try-restart try-omarchy-host-config.service >/dev/null 2>&1 || true
   fi
   _reload_logind

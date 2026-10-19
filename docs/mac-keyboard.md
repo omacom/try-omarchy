@@ -4,7 +4,9 @@ Try Omarchy maps the host Mac keyboard class (ANSI / ISO / JIS) into the
 guest. That corrects the ISO Section / extra-ISO key inversion for every
 layout. For xkeyboard-config Mac vendor layouts (`ch de dk fi fr gb is it
 latam nl no pt se us` with an empty variant) it also selects Macintosh
-legends.
+legends, except for Italian: XKB's Macintosh Italian is the QZERTY
+typewriter layout of keyboards Apple no longer sells, so the guest uses the
+QWERTY Italian layout of current Apple keyboards instead.
 
 ## Host
 
@@ -21,6 +23,13 @@ The `try-omarchy` package's Hyprland profile loads
 reload. It sets only `kb_model = "applealu_" .. geometry`. Layout and variant
 stay whatever Omarchy setup chose. A missing token is a no-op. The profile
 loads after the user's own configuration, so no user file is edited.
+
+For Italian, the package ships `/etc/xkb/symbols/macintosh_vndr/it`, which
+libxkbcommon reads before xkeyboard-config's copy. It is the standard
+`it(basic)` layout, so an Apple model with Italian types QWERTY in any
+position of a multi-layout list, and `kb_variant` stays what Omarchy set (its
+keyboard layout picker reads it back). `kb_variant = "mac"` still selects
+QZERTY.
 
 **Remove any local `frmac` (or similar) TLDE/LSGT symbol swap**, or the ISO
 keys invert again on top of the Cocoa swap.
