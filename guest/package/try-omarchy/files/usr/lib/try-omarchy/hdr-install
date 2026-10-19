@@ -1,0 +1,64 @@
+#!/bin/bash
+# Run outside pacman, before desktop login or in the factory chroot.
+set -euo pipefail
+defer_initramfs=0
+case ${1:-} in
+  '') ;;
+  --defer-initramfs) defer_initramfs=1 ;;
+  *) echo 'Usage: hdr-install [--defer-initramfs]' >&2; exit 64 ;;
+esac
+bundle=${TRY_OMARCHY_HDR_BUNDLE:-/usr/share/try-omarchy/hdr}
+[[ -d $bundle ]] || exit 0
+driver=${TRY_OMARCHY_HDR_DRIVER:-/usr/src/try-omarchy-virtio-gpu-hdr-1.0.0}
+state=${TRY_OMARCHY_HDR_STATE:-/var/lib/try-omarchy/hdr-installed.sha256}
+shopt -s nullglob
+archives=("$bundle"/hyprland-*.pkg.tar.zst)
+((${#archives[@]} == 1)) || { echo 'HDR: expected one compositor archive' >&2; exit 1; }
+(cd "$bundle" && sha256sum -c SHA256SUMS >/dev/null)
+read -r expected_name expected_version < "$bundle/version"
+read -r name offered < <(pacman -Qp "${archives[0]}")
+[[ $name == hyprland && $name == "$expected_name" && $offered == "$expected_version" && $offered == 0.56.2-* ]] || {
+  echo 'HDR: unexpected compositor identity' >&2; exit 1;
+}
+# Preflight every installed guest kernel before changing the compositor.
+directories=("${TRY_OMARCHY_HDR_MODULES:-/usr/lib/modules}"/*-omarchy)
+((${#directories[@]})) || { echo 'HDR: no supported kernel is installed' >&2; exit 1; }
+kernels=()
+for directory in "${directories[@]}"; do
+  kernel=${directory##*/}
+  [[ $kernel =~ ^7[.]2[.]8-[0-9]+-omarchy$ ]] || {
+    echo "HDR: kernel $kernel requires a source adaptation" >&2; exit 1;
+  }
+  kernels+=("$kernel")
+done
+signature=$({ cat "$bundle/SHA256SUMS" "$driver/SHA256SUMS"; printf '%s\n' "$offered" "${kernels[@]}"; } | sha256sum | cut -d' ' -f1)
+installed=$(pacman -Q hyprland | awk '{print $2}')
+selected=1
+for kernel in "${kernels[@]}"; do
+  module=$(modinfo -k "$kernel" -n virtio_gpu 2>/dev/null) || module=''
+  [[ $module == */updates/dkms/virtio-gpu.ko* ]] || selected=0
+done
+if [[ $installed == "$offered" && -f $state && $(<"$state") == "$signature" && $selected == 1 ]]; then
+  exit 0
+fi
+if [[ $installed != "$offered" ]]; then
+  # Never downgrade a newer Omarchy compositor or perform a partial ABI upgrade.
+  [[ $installed == 0.56.2-* ]] && (( $(vercmp "$installed" "$offered") < 0 )) || {
+    echo "HDR: compositor $installed is outside this bundle's supported upgrade range" >&2
+    exit 1
+  }
+  pacman -U --noconfirm --needed "${archives[0]}"
+fi
+(cd "$driver" && sha256sum -c SHA256SUMS >/dev/null)
+for kernel in "${kernels[@]}"; do
+  # A changed source fingerprint must also rebuild an already registered version.
+  dkms build --force -m try-omarchy-virtio-gpu-hdr -v 1.0.0 -k "$kernel"
+  dkms install --force -m try-omarchy-virtio-gpu-hdr -v 1.0.0 -k "$kernel"
+  depmod -a "$kernel"
+  module=$(modinfo -k "$kernel" -n virtio_gpu)
+  [[ $module == */updates/dkms/virtio-gpu.ko* ]] || { echo 'HDR: patched module was not selected' >&2; exit 1; }
+done
+if (( ! defer_initramfs )); then mkinitcpio -P; fi
+install -d -m0755 "${state%/*}"
+printf '%s\n' "$signature" > "$state.tmp"
+mv -f "$state.tmp" "$state"

@@ -56,6 +56,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let portForwardingStore: PortForwardingPreferenceStore
     private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
+    private let hdrPreferenceStore: HDRPreferenceStore
     private let startupPreferenceStore: StartupPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
@@ -112,6 +113,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         portForwardingStore: PortForwardingPreferenceStore = PortForwardingPreferenceStore(),
         networkStore: VMNetworkPreferenceStore = VMNetworkPreferenceStore(),
         fullscreenPreferenceStore: FullscreenPreferenceStore = FullscreenPreferenceStore(),
+        hdrPreferenceStore: HDRPreferenceStore = HDRPreferenceStore(),
         startupPreferenceStore: StartupPreferenceStore = StartupPreferenceStore(),
         resourcePreferenceStore: VMResourcePreferenceStore = VMResourcePreferenceStore(),
         resourceLimits: VMResourceLimits = .current,
@@ -134,6 +136,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.portForwardingStore = portForwardingStore
         self.networkStore = networkStore
         self.fullscreenPreferenceStore = fullscreenPreferenceStore
+        self.hdrPreferenceStore = hdrPreferenceStore
         self.startupPreferenceStore = startupPreferenceStore
         self.resourcePreferenceStore = resourcePreferenceStore
         self.resourceLimits = resourceLimits
@@ -346,6 +349,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 var preferences = store.load()
                 preferences.usesNotch = usesNotch
                 store.save(preferences)
+            },
+            hdrMode: { [weak self] in
+                self?.hdrPreferenceStore.load().isEnabled ?? false
+            },
+            setHDRMode: { [weak self] isEnabled in
+                self?.hdrPreferenceStore.save(HDRPreferences(isEnabled: isEnabled))
             },
             startAutomatically: { [weak self] in
                 guard let self else { return false }
@@ -619,8 +628,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             baseEnvironment: forwarding.environment,
             preferences: fullscreenPreferenceStore.load()
         )
-        let resources = VMResourceLaunchConfiguration.make(
+        let hdr = HDRLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
+            preferences: hdrPreferenceStore.load()
+        )
+        let resources = VMResourceLaunchConfiguration.make(
+            baseEnvironment: hdr.environment,
             preferences: resolvedResources(),
             limits: resourceLimits
         )

@@ -1,0 +1,52 @@
+--- a/video/out/wayland_common.c
++++ b/video/out/wayland_common.c
+@@ -4340,7 +4340,9 @@
+         wl->color_surface_feedback = wp_color_manager_v1_get_surface_feedback(wl->color_manager, wl->callback_surface);
+         wp_color_management_surface_feedback_v1_add_listener(wl->color_surface_feedback, &surface_feedback_listener, wl);
+         // Only bind color surface to vo_dmabuf_wayland for now to avoid conflicting with graphics drivers
+-        if (!strcmp(wl->vo->driver->name, "dmabuf-wayland"))
++        if (!strcmp(wl->vo->driver->name, "dmabuf-wayland") ||
++            (!strcmp(wl->vo->driver->name, "gpu-next") &&
++             getenv("MPV_WAYLAND_OPENGL_COLOR_MANAGEMENT")))
+             wl->color_surface = wp_color_manager_v1_get_surface(wl->color_manager, wl->callback_surface);
+     } else {
+         MP_VERBOSE(wl, "Compositor doesn't support the %s protocol!\n",
+--- a/video/out/opengl/context_wayland.c
++++ b/video/out/opengl/context_wayland.c
+@@ -62,6 +62,20 @@
+     return vo_wayland_check_visible(ctx->vo);
+ }
+ 
++static bool wayland_egl_pass_colorspace(struct ra_ctx *ctx)
++{
++#if HAVE_WAYLAND_PROTOCOLS_1_41
++    return ctx->vo->wl->color_surface != NULL;
++#else
++    return false;
++#endif
++}
++
++static pl_color_space_t wayland_egl_preferred_csp(struct ra_ctx *ctx)
++{
++    return vo_wayland_preferred_csp(ctx->vo);
++}
++
+ static void wayland_egl_swap_buffers(struct ra_ctx *ctx)
+ {
+     struct priv *p = ctx->priv;
+@@ -108,6 +122,7 @@
+ 
+     struct ra_ctx_params params = {
+         .check_visible      = wayland_egl_check_visible,
++        .preferred_csp      = wayland_egl_preferred_csp,
+         .swap_buffers       = wayland_egl_swap_buffers,
+         .get_vsync          = wayland_egl_get_vsync,
+     };
+@@ -223,6 +238,7 @@
+     .type               = "opengl",
+     .name               = "wayland",
+     .description        = "Wayland/EGL",
++    .pass_colorspace    = wayland_egl_pass_colorspace,
+     .reconfig           = wayland_egl_reconfig,
+     .control            = wayland_egl_control,
+     .wakeup             = wayland_egl_wakeup,

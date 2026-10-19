@@ -181,3 +181,13 @@ hides the guest cursor (Cocoa draws the Mac's) and hides it again whenever a
 window closes, since Omarchy's screensaver shows it as it exits. It also keeps
 the mode in sync with the window through EDID, and applies the pinch and Apple
 keyboard input rules.
+
+## Draft HDR integration
+
+This branch adds a source-built Hyprland companion archive as package-owned
+data and Linux 7.2.8 HDR virtio GPU sources for DKMS. The normal factory and
+pre-login integration update invoke `hdr-install` outside pacman's install
+hooks. The compositor is installed through pacman, preserving its package
+ownership and dependency checks. See the [HDR build contract](../../docs/native-opengl-hdr-build.md)
+for supported versions, restart requirements and the explicit HDR launch opt-in.
+Storage and previous-VM import are unchanged from upstream.

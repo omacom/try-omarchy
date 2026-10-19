@@ -1,0 +1,76 @@
+From: Scott Jones <scottajones@gmail.com>
+Subject: [PATCH] render: detect software rendering from the GL renderer (0.56.2 backport)
+
+Backport-of: 61d0ff60a7547d49229714a68b7ca9c0b6658727
+Backport-of: c3dcabc15ba7b71bd1bcd880e9f543909dd9372d
+Upstream-PR: https://github.com/hyprwm/Hyprland/pull/16343
+Co-authored-by: Eryk Wieliczko <44800858+erykwieliczko@users.noreply.github.com>
+
+Adapt constructor and logger-context differences against v0.56.2 while
+preserving the GL classification behavior. v0.56.2 has no
+StringUtils.hpp, so the ASCII case-insensitive matcher lives as a
+file-local helper in GLRenderer.cpp. Remove this backport once the
+packaged upstream version includes this behavior.
+
+--- a/src/render/GLRenderer.cpp
++++ b/src/render/GLRenderer.cpp
+@@ -22,6 +22,7 @@
+ #include "./gl/GLTexture.hpp"
+ 
+ #include <cstdint>
++#include <string_view>
+ #include <hyprutils/memory/SharedPtr.hpp>
+ #include <hyprutils/memory/UniquePtr.hpp>
+ #include <hyprutils/utils/ScopeGuard.hpp>
+@@ -36,7 +37,30 @@ extern "C" {
+ #include <xf86drm.h>
+ }
+ 
+-CHyprGLRenderer::CHyprGLRenderer() : IHyprRenderer(), m_elementRenderer(makeUnique<CGLElementRenderer>()) {}
++// Whether haystack contains needle, ignoring ASCII case only; all other bytes must match exactly.
++static bool containsCaseInsensitive(const std::string_view haystack, const std::string_view needle) {
++    const auto lower = [](const unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
++
++    for (size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
++        size_t j = 0;
++        while (j < needle.size() && lower(haystack[i + j]) == lower(needle[j]))
++            ++j;
++
++        if (j == needle.size())
++            return true;
++    }
++
++    return false;
++}
++
++CHyprGLRenderer::CHyprGLRenderer() : IHyprRenderer(), m_elementRenderer(makeUnique<CGLElementRenderer>()) {
++    // KMS can be display-only; classify the active GL renderer instead of the DRM driver.
++    g_pHyprOpenGL->makeEGLCurrent();
++    if (const auto* renderer = rc<const char*>(glGetString(GL_RENDERER))) {
++        const std::string_view name{renderer};
++        m_software = containsCaseInsensitive(name, "llvmpipe") || containsCaseInsensitive(name, "softpipe") || containsCaseInsensitive(name, "Software Rasterizer");
++    }
++}
+ 
+ IHyprRenderer::eType CHyprGLRenderer::type() {
+     return RT_GL;
+--- a/src/render/Renderer.cpp
++++ b/src/render/Renderer.cpp
+@@ -104,8 +104,6 @@ IHyprRenderer::IHyprRenderer() {
+                 m_nvidia = true;
+             else if (name.contains("i915"))
+                 m_intel = true;
+-            else if (name.contains("softpipe") || name.contains("Software Rasterizer") || name.contains("llvmpipe"))
+-                m_software = true;
+ 
+             Log::logger->log(Log::DEBUG, "DRM driver information: {} v{}.{}.{} from {} description {}", name, DRMV->version_major, DRMV->version_minor, DRMV->version_patchlevel,
+                              std::string{DRMV->date, DRMV->date_len}, std::string{DRMV->desc, DRMV->desc_len});
+@@ -126,8 +124,6 @@ IHyprRenderer::IHyprRenderer() {
+                 m_nvidia = true;
+             else if (name.contains("i915"))
+                 m_intel = true;
+-            else if (name.contains("softpipe") || name.contains("Software Rasterizer") || name.contains("llvmpipe"))
+-                m_software = true;
+ 
+             Log::logger->log(Log::DEBUG, "Primary DRM driver information: {} v{}.{}.{} from {} description {}", name, DRMV->version_major, DRMV->version_minor,
+                              DRMV->version_patchlevel, std::string{DRMV->date, DRMV->date_len}, std::string{DRMV->desc, DRMV->desc_len});

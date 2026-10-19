@@ -1,0 +1,44 @@
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -190,6 +190,7 @@
+                             DisplaySurface *new_surface);
+ 
+ #include "ui/cocoa-gl-hdr.h"
++#include "ui/cocoa-hdr-reference.h"
+ static bool hdr_enabled;
+ static CocoaGLHDRShader hdr_shader;
+ static QemuHDRMetadata hdr_metadata;
+@@ -226,6 +227,12 @@
+         [self setAsynchronous:NO];
+         if (hdr_enabled) {
+             self.wantsExtendedDynamicRangeContent = YES;
++#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
++            if (@available(macOS 26.0, *)) {
++                self.preferredDynamicRange = CADynamicRangeHigh;
++                self.contentsHeadroom = 1000.0 / COCOA_HDR_REFERENCE_WHITE_NITS;
++            }
++#endif
+             CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearITUR_2020);
+             self.colorspace = space;
+             CGColorSpaceRelease(space);
+@@ -911,6 +918,10 @@
+ 
+         info.sdr_white_nits = cocoa_sdr_white_nits([[self window] screen]);
+ #ifdef CONFIG_OPENGL
++        if (hdr_enabled) {
++            /* This is the paired PQ/EDR encoding reference, not the panel's SDR cap. */
++            info.sdr_white_nits = COCOA_HDR_REFERENCE_WHITE_NITS;
++        }
+         hdr_sdr_white_nits = info.sdr_white_nits ? info.sdr_white_nits : 100;
+ #endif
+ 
+diff --git a/ui/cocoa-hdr-reference.h b/ui/cocoa-hdr-reference.h
+--- /dev/null
++++ b/ui/cocoa-hdr-reference.h
+@@ -0,0 +1,5 @@
++#ifndef COCOA_HDR_REFERENCE_H
++#define COCOA_HDR_REFERENCE_H
++/* Keep PQ desktop white and the linear EDR unit on the same reference. */
++#define COCOA_HDR_REFERENCE_WHITE_NITS 100
++#endif

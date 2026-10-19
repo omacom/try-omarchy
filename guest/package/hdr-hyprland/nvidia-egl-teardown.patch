@@ -1,0 +1,25 @@
+--- a/src/render/OpenGL.cpp
++++ b/src/render/OpenGL.cpp
+@@ -451,14 +451,20 @@
+ }
+ 
+ CHyprOpenGLImpl::~CHyprOpenGLImpl() {
++    // Release the context before destroying it and terminating the display:
++    // NVIDIA's EGL crashes in eglReleaseThread() if the thread still holds a
++    // context of a terminated display.
++    if (m_eglDisplay)
++        eglMakeCurrent(m_eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
++
+     if (m_eglDisplay && m_eglContext != EGL_NO_CONTEXT)
+         eglDestroyContext(m_eglDisplay, m_eglContext);
+ 
++    eglReleaseThread();
++
+     if (m_eglDisplay)
+         eglTerminate(m_eglDisplay);
+ 
+-    eglReleaseThread();
+-
+     if (m_gbmDevice)
+         gbm_device_destroy(m_gbmDevice);
+ }

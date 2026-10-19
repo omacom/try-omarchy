@@ -286,6 +286,8 @@ enum StartMenuPresentation {
             : "Omarchy opens in a window with the Mac menu bar and Dock available."
     }
 
+    static let hdrDetail =
+        "Enable HDR on supported Mac displays. Requires HDR guest integrations. Applies next VM start."
     static func notchDetail(isEnabled: Bool) -> String {
         isEnabled
             ? "Full Screen fills the area beside the notch, with Omarchy’s bar around it."

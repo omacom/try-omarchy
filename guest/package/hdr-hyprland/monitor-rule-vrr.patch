@@ -1,0 +1,43 @@
+Apply a monitor rule's vrr when the config is reloaded
+
+Comparing a monitor rule with the active one ignored vrr, so a rule that
+changed only vrr counted as unchanged and the active rule kept the old value.
+And a config reload runs ensureVRR before the deferred monitor-rule pass has
+updated the active rule, so even a rule that did change took effect only on
+the reload after. Turning VRR on for a monitor took a mode change and two
+reloads, or a new session.
+
+Count vrr as a soft difference, and run ensureVRR for every monitor the
+deferred pass refreshed.
+
+Not yet upstream.
+
+--- a/src/config/shared/monitor/MonitorRule.cpp
++++ b/src/config/shared/monitor/MonitorRule.cpp
+@@ -26,8 +26,9 @@
+     const auto SAME_AUTO_DIR  = m_autoDir == other.m_autoDir;
+     const auto SAME_RESERVED  = m_reservedArea == other.m_reservedArea;
+     const auto SAME_MIRROR    = m_mirrorOf == other.m_mirrorOf;
++    const auto SAME_VRR       = m_vrr == other.m_vrr;
+ 
+-    if (!SAME_CM || !SAME_POS || !SAME_TRANSFORM || !SAME_AUTO_DIR || !SAME_RESERVED || !SAME_MIRROR)
++    if (!SAME_CM || !SAME_POS || !SAME_TRANSFORM || !SAME_AUTO_DIR || !SAME_RESERVED || !SAME_MIRROR || !SAME_VRR)
+         return COMPARISON_SOFT_MISMATCH;
+ 
+     return COMPARISON_FULL_MATCH;
+--- a/src/config/shared/monitor/MonitorRuleManager.cpp
++++ b/src/config/shared/monitor/MonitorRuleManager.cpp
+@@ -187,6 +187,13 @@
+             m->m_activeMonitorRule.m_disabled ? m->onDisconnect() : m->onConnect(true);
+     }
+ 
++    // a rule's vrr only takes effect through ensureVRR, which a config reload runs
++    // before this deferred apply has updated the active rule
++    for (const auto& m : monsForRefresh) {
++        if (m->m_output && m->m_enabled)
++            ensureVRR(m);
++    }
++
+     for (auto const& w : Desktop::windowState()->windows()) {
+         w->updateSurfaceScaleTransformDetails();
+     }

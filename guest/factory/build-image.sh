@@ -260,6 +260,10 @@ if ((${#extra_packages[@]})); then
   pacstrap -C "$builder_conf" -G -M -c -U "$target" "${extra_packages[@]}"
 fi
 
+# The same package-owned companion used by the pre-login integration update.
+# This does not alter the disk layout, owner provisioning or import workflow.
+arch-chroot "$target" /usr/lib/try-omarchy/hdr-install --defer-initramfs
+
 # --- boot configuration --------------------------------------------------------
 log "Configuring Limine"
 # The ESP, written once the packages exist. The firmware boots the removable

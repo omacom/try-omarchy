@@ -1,0 +1,490 @@
+/*
+ * Copyright (C) 2015 Red Hat, Inc.
+ * All Rights Reserved.
+ *
+ * Authors:
+ *    Dave Airlie
+ *    Alon Levy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE COPYRIGHT HOLDER(S) OR AUTHOR(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR
+ * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+#include <drm/drm_atomic_helper.h>
+#include <drm/drm_damage_helper.h>
+#include <drm/drm_edid.h>
+#include <drm/drm_fourcc.h>
+#include <drm/drm_gem_framebuffer_helper.h>
+#include <drm/drm_print.h>
+#include <drm/drm_probe_helper.h>
+#include <drm/drm_simple_kms_helper.h>
+#include <drm/drm_vblank.h>
+#include <drm/drm_vblank_helper.h>
+
+#include "virtgpu_drv.h"
+
+#define XRES_MIN    32
+#define YRES_MIN    32
+
+#define XRES_DEF  1024
+#define YRES_DEF   768
+
+#define XRES_MAX  8192
+#define YRES_MAX  8192
+
+#define drm_connector_to_virtio_gpu_output(x) \
+	container_of(x, struct virtio_gpu_output, conn)
+
+static const struct drm_crtc_funcs virtio_gpu_crtc_funcs = {
+	.set_config             = drm_atomic_helper_set_config,
+	.destroy                = drm_crtc_cleanup,
+
+	.page_flip              = drm_atomic_helper_page_flip,
+	.reset                  = drm_atomic_helper_crtc_reset,
+	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
+	.atomic_destroy_state   = drm_atomic_helper_crtc_destroy_state,
+	DRM_CRTC_VBLANK_TIMER_FUNCS,
+};
+
+static const struct drm_framebuffer_funcs virtio_gpu_fb_funcs = {
+	.create_handle = drm_gem_fb_create_handle,
+	.destroy = drm_gem_fb_destroy,
+	.dirty = drm_atomic_helper_dirtyfb,
+};
+
+static int
+virtio_gpu_framebuffer_init(struct drm_device *dev,
+			    struct virtio_gpu_framebuffer *vgfb,
+			    const struct drm_format_info *info,
+			    const struct drm_mode_fb_cmd2 *mode_cmd,
+			    struct drm_gem_object *obj)
+{
+	int ret;
+
+	vgfb->base.obj[0] = obj;
+
+	drm_helper_mode_fill_fb_struct(dev, &vgfb->base, info, mode_cmd);
+
+	ret = drm_framebuffer_init(dev, &vgfb->base, &virtio_gpu_fb_funcs);
+	if (ret) {
+		vgfb->base.obj[0] = NULL;
+		return ret;
+	}
+	return 0;
+}
+
+static void virtio_gpu_crtc_mode_set_nofb(struct drm_crtc *crtc)
+{
+	struct drm_device *dev = crtc->dev;
+	struct virtio_gpu_device *vgdev = dev->dev_private;
+	struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+
+	output->hdr_initialized = false;
+	virtio_gpu_cmd_set_scanout(vgdev, output->index, 0,
+				   crtc->mode.hdisplay,
+				   crtc->mode.vdisplay, 0, 0);
+	virtio_gpu_notify(vgdev);
+}
+
+static void virtio_gpu_crtc_atomic_enable(struct drm_crtc *crtc,
+					  struct drm_atomic_commit *state)
+{
+	drm_crtc_vblank_on(crtc);
+}
+
+static void virtio_gpu_crtc_atomic_disable(struct drm_crtc *crtc,
+					   struct drm_atomic_commit *state)
+{
+	struct drm_device *dev = crtc->dev;
+	struct virtio_gpu_device *vgdev = dev->dev_private;
+	struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+
+	drm_crtc_vblank_off(crtc);
+
+	output->hdr_initialized = false;
+	virtio_gpu_cmd_set_scanout(vgdev, output->index, 0, 0, 0, 0, 0);
+	virtio_gpu_notify(vgdev);
+}
+
+static int virtio_gpu_crtc_atomic_check(struct drm_crtc *crtc,
+					struct drm_atomic_commit *state)
+{
+	return 0;
+}
+
+static void virtio_gpu_crtc_atomic_flush(struct drm_crtc *crtc,
+					 struct drm_atomic_commit *state)
+{
+	struct drm_device *dev = crtc->dev;
+	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
+	struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+	struct drm_pending_vblank_event *event;
+
+	/*
+	 * virtio-gpu can't do modeset and plane update operations
+	 * independent from each other.  So the actual modeset happens
+	 * in the plane update callback, and here we just check
+	 * whenever we must force the modeset.
+	 */
+	if (drm_atomic_crtc_needs_modeset(crtc_state))
+		output->needs_modeset = true;
+
+	spin_lock_irq(&dev->event_lock);
+
+	event = crtc_state->event;
+	crtc_state->event = NULL;
+
+	if (event) {
+		if (drm_crtc_vblank_get(crtc) == 0)
+			drm_crtc_arm_vblank_event(crtc, event);
+		else
+			drm_crtc_send_vblank_event(crtc, event);
+	}
+
+	spin_unlock_irq(&dev->event_lock);
+}
+
+static void virtio_gpu_crtc_atomic_begin(struct drm_crtc *crtc,
+                                         struct drm_atomic_commit *state)
+{
+ struct virtio_gpu_device *vgdev = crtc->dev->dev_private;
+ struct virtio_gpu_output *output = drm_crtc_to_virtio_gpu_output(crtc);
+ struct drm_connector_state *conn = output->conn.state;
+ struct virtio_gpu_omarchy_hdr cmd = {};
+ const struct hdr_metadata_infoframe *m = NULL;
+ unsigned int i;
+ if (!vgdev->has_omarchy_hdr || !conn) return;
+ cmd.magic = cpu_to_le32(OMARCHY_HDR_MAGIC);
+ cmd.version = cpu_to_le32(1);
+ cmd.scanout_id = cpu_to_le32(output->index);
+ cmd.colorspace = cpu_to_le32(conn->colorspace);
+ if (conn->hdr_output_metadata)
+  m = &((struct hdr_output_metadata *)conn->hdr_output_metadata->data)->hdmi_metadata_type1;
+ if (m) {
+  cmd.eotf = cpu_to_le32(m->eotf);
+  for (i = 0; i < 3; ++i) {
+   cmd.primaries[i*2] = cpu_to_le32(m->display_primaries[i].x);
+   cmd.primaries[i*2+1] = cpu_to_le32(m->display_primaries[i].y);
+  }
+  cmd.whitepoint[0] = cpu_to_le32(m->white_point.x);
+  cmd.whitepoint[1] = cpu_to_le32(m->white_point.y);
+  cmd.min_luminance = cpu_to_le32(m->min_display_mastering_luminance);
+  cmd.max_luminance = cpu_to_le32(m->max_display_mastering_luminance);
+  cmd.max_cll = cpu_to_le32(m->max_cll);
+  cmd.max_fall = cpu_to_le32(m->max_fall);
+ }
+ /* Compare metadata before binding it to this commit's scanout resource. */
+ if (output->hdr_initialized && !memcmp(&cmd, &output->last_hdr, sizeof(cmd))) return;
+ output->last_hdr = cmd;
+ output->hdr_initialized = true;
+ if (crtc->primary->state->fb)
+  cmd.resource_id = cpu_to_le32(gem_to_virtio_gpu_obj(crtc->primary->state->fb->obj[0])->hw_res_handle);
+ virtio_gpu_cmd_omarchy_hdr(vgdev, &cmd);
+ virtio_gpu_notify(vgdev);
+}
+
+static const struct drm_crtc_helper_funcs virtio_gpu_crtc_helper_funcs = {
+	.atomic_begin = virtio_gpu_crtc_atomic_begin,
+	.mode_set_nofb = virtio_gpu_crtc_mode_set_nofb,
+	.atomic_check  = virtio_gpu_crtc_atomic_check,
+	.atomic_flush  = virtio_gpu_crtc_atomic_flush,
+	.atomic_enable = virtio_gpu_crtc_atomic_enable,
+	.atomic_disable = virtio_gpu_crtc_atomic_disable,
+};
+
+static void virtio_gpu_enc_mode_set(struct drm_encoder *encoder,
+				    struct drm_display_mode *mode,
+				    struct drm_display_mode *adjusted_mode)
+{
+}
+
+static void virtio_gpu_enc_enable(struct drm_encoder *encoder)
+{
+}
+
+static void virtio_gpu_enc_disable(struct drm_encoder *encoder)
+{
+}
+
+static int virtio_gpu_conn_get_modes(struct drm_connector *connector)
+{
+	struct virtio_gpu_output *output =
+		drm_connector_to_virtio_gpu_output(connector);
+	struct drm_display_mode *mode = NULL;
+	int count, width, height;
+
+	count = drm_edid_connector_add_modes(connector);
+	if (count)
+		return count;
+
+	width  = le32_to_cpu(output->info.r.width);
+	height = le32_to_cpu(output->info.r.height);
+	count = drm_add_modes_noedid(connector, XRES_MAX, YRES_MAX);
+
+	if (width == 0 || height == 0) {
+		drm_set_preferred_mode(connector, XRES_DEF, YRES_DEF);
+	} else {
+		DRM_DEBUG("add mode: %dx%d\n", width, height);
+		mode = drm_cvt_mode(connector->dev, width, height, 60,
+				    false, false, false);
+		if (!mode)
+			return count;
+		mode->type |= DRM_MODE_TYPE_PREFERRED;
+		drm_mode_probed_add(connector, mode);
+		count++;
+	}
+
+	return count;
+}
+
+static enum drm_mode_status virtio_gpu_conn_mode_valid(struct drm_connector *connector,
+				      const struct drm_display_mode *mode)
+{
+	struct virtio_gpu_output *output =
+		drm_connector_to_virtio_gpu_output(connector);
+	int width, height;
+
+	width  = le32_to_cpu(output->info.r.width);
+	height = le32_to_cpu(output->info.r.height);
+
+	if (!(mode->type & DRM_MODE_TYPE_PREFERRED))
+		return MODE_OK;
+	if (mode->hdisplay == XRES_DEF && mode->vdisplay == YRES_DEF)
+		return MODE_OK;
+	if (mode->hdisplay <= width  && mode->hdisplay >= width - 16 &&
+	    mode->vdisplay <= height && mode->vdisplay >= height - 16)
+		return MODE_OK;
+
+	DRM_DEBUG("del mode: %dx%d\n", mode->hdisplay, mode->vdisplay);
+	return MODE_BAD;
+}
+
+static const struct drm_encoder_helper_funcs virtio_gpu_enc_helper_funcs = {
+	.mode_set   = virtio_gpu_enc_mode_set,
+	.enable     = virtio_gpu_enc_enable,
+	.disable    = virtio_gpu_enc_disable,
+};
+
+static int virtio_gpu_conn_atomic_check(struct drm_connector *connector,
+                                       struct drm_atomic_commit *state)
+{
+ struct drm_connector_state *conn = drm_atomic_get_new_connector_state(state, connector);
+ struct drm_property_blob *blob = conn->hdr_output_metadata;
+ const struct hdr_output_metadata *m;
+ struct drm_crtc_state *crtc;
+ if (blob) {
+  if (blob->length != sizeof(*m)) return -EINVAL;
+  m = blob->data;
+  if (m->metadata_type || m->hdmi_metadata_type1.metadata_type ||
+      (m->hdmi_metadata_type1.eotf != 0 && m->hdmi_metadata_type1.eotf != 2)) return -EINVAL;
+  if (m->hdmi_metadata_type1.eotf == 2 && conn->colorspace != DRM_MODE_COLORIMETRY_BT2020_RGB) return -EINVAL;
+ }
+ if (conn->crtc && (!drm_connector_atomic_hdr_metadata_equal(connector->state, conn) ||
+                   connector->state->colorspace != conn->colorspace)) {
+  crtc = drm_atomic_get_crtc_state(state, conn->crtc);
+  if (IS_ERR(crtc)) return PTR_ERR(crtc);
+  crtc->color_mgmt_changed = true;
+  return drm_atomic_add_affected_planes(state, conn->crtc);
+ }
+ return 0;
+}
+
+static const struct drm_connector_helper_funcs virtio_gpu_conn_helper_funcs = {
+	.atomic_check = virtio_gpu_conn_atomic_check,
+	.get_modes    = virtio_gpu_conn_get_modes,
+	.mode_valid   = virtio_gpu_conn_mode_valid,
+};
+
+static enum drm_connector_status virtio_gpu_conn_detect(
+			struct drm_connector *connector,
+			bool force)
+{
+	struct virtio_gpu_output *output =
+		drm_connector_to_virtio_gpu_output(connector);
+
+	if (output->info.enabled)
+		return connector_status_connected;
+	else
+		return connector_status_disconnected;
+}
+
+static void virtio_gpu_conn_destroy(struct drm_connector *connector)
+{
+	drm_connector_unregister(connector);
+	drm_connector_cleanup(connector);
+}
+
+static const struct drm_connector_funcs virtio_gpu_connector_funcs = {
+	.detect = virtio_gpu_conn_detect,
+	.fill_modes = drm_helper_probe_single_connector_modes,
+	.destroy = virtio_gpu_conn_destroy,
+	.reset = drm_atomic_helper_connector_reset,
+	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
+};
+
+static int vgdev_output_init(struct virtio_gpu_device *vgdev, int index)
+{
+	struct drm_device *dev = vgdev->ddev;
+	struct virtio_gpu_output *output = vgdev->outputs + index;
+	struct drm_connector *connector = &output->conn;
+	struct drm_encoder *encoder = &output->enc;
+	struct drm_crtc *crtc = &output->crtc;
+	struct drm_plane *primary, *cursor;
+	int ret;
+
+	output->index = index;
+	if (index == 0) {
+		output->info.enabled = cpu_to_le32(true);
+		output->info.r.width = cpu_to_le32(XRES_DEF);
+		output->info.r.height = cpu_to_le32(YRES_DEF);
+	}
+
+	primary = virtio_gpu_plane_init(vgdev, DRM_PLANE_TYPE_PRIMARY, index);
+	if (IS_ERR(primary))
+		return PTR_ERR(primary);
+	cursor = virtio_gpu_plane_init(vgdev, DRM_PLANE_TYPE_CURSOR, index);
+	if (IS_ERR(cursor))
+		return PTR_ERR(cursor);
+	ret = drm_crtc_init_with_planes(dev, crtc, primary, cursor,
+					&virtio_gpu_crtc_funcs, NULL);
+	if (ret)
+		return ret;
+	drm_crtc_helper_add(crtc, &virtio_gpu_crtc_helper_funcs);
+
+	drm_connector_init(dev, connector, &virtio_gpu_connector_funcs,
+			   DRM_MODE_CONNECTOR_VIRTUAL);
+	drm_connector_helper_add(connector, &virtio_gpu_conn_helper_funcs);
+	if (vgdev->has_edid)
+		drm_connector_attach_edid_property(connector);
+
+	if (vgdev->has_omarchy_hdr) {
+		drm_connector_attach_hdr_output_metadata_property(connector);
+		ret = drm_mode_create_hdmi_colorspace_property(connector,
+			BIT(DRM_MODE_COLORIMETRY_DEFAULT) | BIT(DRM_MODE_COLORIMETRY_BT2020_RGB));
+		if (ret)
+			return ret;
+		ret = drm_connector_attach_colorspace_property(connector);
+		if (ret)
+			return ret;
+	}
+
+	drm_simple_encoder_init(dev, encoder, DRM_MODE_ENCODER_VIRTUAL);
+	drm_encoder_helper_add(encoder, &virtio_gpu_enc_helper_funcs);
+	encoder->possible_crtcs = 1 << index;
+
+	drm_connector_attach_encoder(connector, encoder);
+	drm_connector_register(connector);
+	return 0;
+}
+
+static struct drm_framebuffer *
+virtio_gpu_user_framebuffer_create(struct drm_device *dev,
+				   struct drm_file *file_priv,
+				   const struct drm_format_info *info,
+				   const struct drm_mode_fb_cmd2 *mode_cmd)
+{
+	struct drm_gem_object *obj = NULL;
+	struct virtio_gpu_framebuffer *virtio_gpu_fb;
+	int ret;
+
+	struct virtio_gpu_device *vgdev = dev->dev_private;
+	bool hdr_format = vgdev->has_omarchy_hdr &&
+		(mode_cmd->pixel_format == DRM_FORMAT_XRGB2101010 ||
+		 mode_cmd->pixel_format == DRM_FORMAT_XBGR2101010);
+
+	if (!hdr_format && mode_cmd->pixel_format != DRM_FORMAT_HOST_XRGB8888 &&
+	    mode_cmd->pixel_format != DRM_FORMAT_HOST_ARGB8888)
+		return ERR_PTR(-ENOENT);
+
+	/* lookup object associated with res handle */
+	obj = drm_gem_object_lookup(file_priv, mode_cmd->handles[0]);
+	if (!obj)
+		return ERR_PTR(-EINVAL);
+
+	/* 10-bit scanout requires a VirGL texture; 2D/dumb transport stays 8-bit. */
+	if (hdr_format && gem_to_virtio_gpu_obj(obj)->dumb) {
+		drm_gem_object_put(obj);
+		return ERR_PTR(-EINVAL);
+	}
+
+	virtio_gpu_fb = kzalloc_obj(*virtio_gpu_fb);
+	if (virtio_gpu_fb == NULL) {
+		drm_gem_object_put(obj);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	ret = virtio_gpu_framebuffer_init(dev, virtio_gpu_fb, info, mode_cmd, obj);
+	if (ret) {
+		kfree(virtio_gpu_fb);
+		drm_gem_object_put(obj);
+		return ERR_PTR(ret);
+	}
+
+	return &virtio_gpu_fb->base;
+}
+
+static const struct drm_mode_config_funcs virtio_gpu_mode_funcs = {
+	.fb_create = virtio_gpu_user_framebuffer_create,
+	.atomic_check = drm_atomic_helper_check,
+	.atomic_commit = drm_atomic_helper_commit,
+};
+
+int virtio_gpu_modeset_init(struct virtio_gpu_device *vgdev)
+{
+	int i, ret;
+
+	if (!vgdev->num_scanouts)
+		return 0;
+
+	ret = drmm_mode_config_init(vgdev->ddev);
+	if (ret)
+		return ret;
+
+	vgdev->ddev->mode_config.quirk_addfb_prefer_host_byte_order = true;
+	vgdev->ddev->mode_config.funcs = &virtio_gpu_mode_funcs;
+
+	/* modes will be validated against the framebuffer size */
+	vgdev->ddev->mode_config.min_width = XRES_MIN;
+	vgdev->ddev->mode_config.min_height = YRES_MIN;
+	vgdev->ddev->mode_config.max_width = XRES_MAX;
+	vgdev->ddev->mode_config.max_height = YRES_MAX;
+
+	vgdev->ddev->mode_config.fb_modifiers_not_supported = true;
+
+	for (i = 0 ; i < vgdev->num_scanouts; ++i)
+		vgdev_output_init(vgdev, i);
+
+	ret = drm_vblank_init(vgdev->ddev, vgdev->num_scanouts);
+	if (ret)
+		return ret;
+
+	drm_mode_config_reset(vgdev->ddev);
+	return 0;
+}
+
+void virtio_gpu_modeset_fini(struct virtio_gpu_device *vgdev)
+{
+	int i;
+
+	if (!vgdev->num_scanouts)
+		return;
+
+	for (i = 0 ; i < vgdev->num_scanouts; ++i)
+		drm_edid_free(vgdev->outputs[i].drm_edid);
+}

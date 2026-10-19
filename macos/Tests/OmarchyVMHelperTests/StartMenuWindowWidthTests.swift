@@ -8,6 +8,36 @@ import Testing
 @Suite("Start menu layout", .serialized)
 @MainActor
 struct StartMenuWindowWidthTests {
+    @Test("HDR toggle saves the next-start choice without launching the VM")
+    func hdrToggleSavesWithoutLaunching() throws {
+        _ = NSApplication.shared
+        var hdrEnabled = false
+        var launchCount = 0
+        let menu = makeMenu(
+            storageState: { StorageLocationMenuState(
+                containerPath: nil, stateRoot: nil, displayPath: "Default",
+                volumeName: nil, isDefault: true, isExternal: false, problem: nil,
+                warning: nil, isEnvironmentOverride: false
+            ) },
+            hdrMode: { hdrEnabled },
+            setHDRMode: { hdrEnabled = $0 },
+            launch: { launchCount += 1 }
+        )
+        menu.prepareForPresentation(visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+        defer { menu.dismiss() }
+        let content = try #require(menu.window.contentView)
+        let toggle = try #require(descendant(withIdentifier: "hdr-toggle", in: content) as? NSButton)
+        #expect(toggle.state == .off)
+        #expect(toggle.accessibilityLabel() == "HDR display")
+        toggle.performClick(nil)
+        #expect(hdrEnabled)
+        #expect(toggle.state == .on)
+        toggle.performClick(nil)
+        #expect(!hdrEnabled)
+        #expect(toggle.state == .off)
+        #expect(launchCount == 0)
+    }
+
     @Test("Reset and deletion require the exact application name", arguments: [VMDestructiveConfirmationPrompt.Action.reset, .delete])
     func destructiveConfirmationIsTypedAndExact(action: VMDestructiveConfirmationPrompt.Action) {
         let prompt = VMDestructiveConfirmationPrompt(detail: "Selected VM details", action: action)
@@ -280,7 +310,10 @@ struct StartMenuWindowWidthTests {
         accessibilityStatus: (() -> Bool)? = nil,
         microphoneStatus: (() -> MicrophoneAuthorizationState)? = nil,
         cameraStatus: (() -> CameraAuthorizationState)? = nil,
-        requestPermission: ((@escaping (Bool) -> Void) -> Void)? = nil
+        requestPermission: ((@escaping (Bool) -> Void) -> Void)? = nil,
+        hdrMode: @escaping () -> Bool = { false },
+        setHDRMode: @escaping (Bool) -> Void = { _ in },
+        launch: @escaping () -> Void = {}
     ) -> StartMenuWindow {
         var requestFinished = false
         return StartMenuWindow(
@@ -330,7 +363,9 @@ struct StartMenuWindowWidthTests {
             portForwardingStatus: { [] },
             immersiveMode: { true },
             setImmersiveMode: { _ in },
-            launch: {}
+            hdrMode: hdrMode,
+            setHDRMode: setHDRMode,
+            launch: launch
         )
     }
 

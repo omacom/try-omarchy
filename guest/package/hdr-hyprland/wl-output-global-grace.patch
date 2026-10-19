@@ -1,0 +1,192 @@
+Keep a removed wl_output global alive while clients can still bind it
+
+wl_global_remove only announces that a global is going away; a client that
+has not read the announcement yet can still send a bind for it, and binding
+a destroyed global is a fatal protocol error ("global wl_output (N) is
+unavailable"). Hyprland destroyed a retired output global at once whenever
+nothing was bound to it yet. Every client binds a new wl_output the moment
+it is announced, so an output that was added, removed and added again within
+a roundtrip -- a dock's connector flapping while its tunnel comes up --
+disconnected every client at once: Xwayland, the shell, portals, the input
+method and every app.
+
+Keep removed globals for five seconds before destroying them, as wlroots
+does, and drain resources bound to a global whose monitor is already gone.
+
+Not yet upstream.
+
+--- a/src/managers/ProtocolManager.cpp
++++ b/src/managers/ProtocolManager.cpp
+@@ -93,6 +93,8 @@
+ // them server-side makes each client's in-flight wl_output.release an "invalid object"
+ // protocol error, fatally disconnecting every bound client (mass client kill on a fast
+ // monitor unplug/replug, e.g. a power blip on an external screen).
++// Nor may it be destroyed while clients can still be binding it, even with nothing bound
++// yet: see CWLOutputProtocol::remove(). The old global drops out on its own once both hold.
+ static void retireOutputGlobal(const std::string& name) {
+     if (!PROTO::outputs.contains(name))
+         return;
+@@ -103,8 +105,7 @@
+     if (!old->isDefunct())
+         old->remove();
+ 
+-    if (old->hasBoundResources())
+-        PROTO::defunctOutputs.emplace_back(old);
++    PROTO::defunctOutputs.emplace_back(old);
+ }
+ 
+ void CProtocolManager::onMonitorModeChange(PHLMONITOR pMonitor) {
+--- a/src/protocols/core/Output.cpp
++++ b/src/protocols/core/Output.cpp
+@@ -2,6 +2,7 @@
+ #include "Compositor.hpp"
+ #include "../../Compositor.hpp"
+ #include "../../output/Monitor.hpp"
++#include "../../managers/eventLoop/EventLoopManager.hpp"
+ 
+ CWLOutputResource::CWLOutputResource(SP<CWlOutput> resource_, PHLMONITOR pMonitor) : m_monitor(pMonitor), m_resource(resource_) {
+     if UNLIKELY (!good())
+@@ -11,12 +12,10 @@
+ 
+     m_client = m_resource->client();
+ 
+-    if (!m_monitor)
+-        return;
+-
+     // route through the owning protocol object, not a name lookup: after a monitor
+     // unplug/replug PROTO::outputs.at(name) is a *new* global, and releases meant for the
+-    // old defunct one would never drain it.
++    // old defunct one would never drain it. Hooked up even without a monitor, since a client
++    // can bind a removed global after its monitor is gone, and that resource must drain too.
+     m_resource->setOnDestroy([this](CWlOutput* r) {
+         if (m_owner)
+             m_owner->destroyResource(this);
+@@ -26,6 +25,9 @@
+             m_owner->destroyResource(this);
+     });
+ 
++    if (!m_monitor)
++        return;
++
+     if (m_resource->version() >= 4) {
+         m_resource->sendName(m_monitor->m_name.c_str());
+         m_resource->sendDescription(m_monitor->m_description.c_str());
+@@ -98,6 +100,11 @@
+     });
+ }
+ 
++CWLOutputProtocol::~CWLOutputProtocol() {
++    if (m_removeTimer && g_pEventLoopManager)
++        g_pEventLoopManager->removeTimer(m_removeTimer);
++}
++
+ void CWLOutputProtocol::bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id) {
+     if UNLIKELY (m_defunct)
+         Log::logger->log(Log::WARN, "[wl_output] Binding a wl_output that's inert?? Possible client bug.");
+@@ -118,15 +125,21 @@
+ void CWLOutputProtocol::destroyResource(CWLOutputResource* resource) {
+     std::erase_if(m_outputs, [&](const auto& other) { return other.get() == resource; });
+ 
+-    if (m_outputs.empty() && m_defunct) {
+-        // only erase the map entry if it is actually us: a new global with the same name may
+-        // have replaced us (monitor replug), in which case we live in defunctOutputs.
+-        // NOTE: either erase drops the last ref to `this` — nothing may run after it.
+-        if (PROTO::outputs.contains(m_name) && PROTO::outputs.at(m_name).get() == this)
+-            PROTO::outputs.erase(m_name);
+-        else
+-            std::erase_if(PROTO::defunctOutputs, [this](const auto& other) { return other.get() == this; });
+-    }
++    // NOTE: may drop the last ref to `this` — nothing may run after it.
++    dropIfUnused();
++}
++
++void CWLOutputProtocol::dropIfUnused() {
++    if (!m_outputs.empty() || !m_defunct || m_removeTimer)
++        return;
++
++    // only erase the map entry if it is actually us: a new global with the same name may
++    // have replaced us (monitor replug), in which case we live in defunctOutputs.
++    // NOTE: either erase drops the last ref to `this` — nothing may run after it.
++    if (PROTO::outputs.contains(m_name) && PROTO::outputs.at(m_name).get() == this)
++        PROTO::outputs.erase(m_name);
++    else
++        std::erase_if(PROTO::defunctOutputs, [this](const auto& other) { return other.get() == this; });
+ }
+ 
+ bool CWLOutputProtocol::hasBoundResources() {
+@@ -152,6 +165,26 @@
+ 
+     m_defunct = true;
+     removeGlobal();
++
++    // wl_global_remove only tells clients the global is going away. One that has not read
++    // that yet can still be binding it, and binding a destroyed global is a protocol error
++    // that fatally disconnects the client. Every client binds a new wl_output as soon as it
++    // is announced, so a monitor that comes and goes within a roundtrip (a flapping connector
++    // or a quick replug) would take every client down. Keep the global alive long enough for
++    // those binds to land, as wlroots does.
++    m_removeTimer = makeShared<CEventLoopTimer>(
++        std::chrono::seconds(5),
++        [self = m_self](SP<CEventLoopTimer> timer, void* data) {
++            const auto PSELF = self.lock();
++            if (!PSELF)
++                return;
++
++            g_pEventLoopManager->removeTimer(timer);
++            PSELF->m_removeTimer.reset();
++            PSELF->dropIfUnused();
++        },
++        nullptr);
++    g_pEventLoopManager->addTimer(m_removeTimer);
+ }
+ 
+ bool CWLOutputProtocol::isDefunct() {
+--- a/src/protocols/core/Output.hpp
++++ b/src/protocols/core/Output.hpp
+@@ -7,6 +7,7 @@
+ #include "../../helpers/signal/Signal.hpp"
+ 
+ class CWLOutputProtocol;
++class CEventLoopTimer;
+ 
+ class CWLOutputResource {
+   public:
+@@ -32,6 +33,7 @@
+ class CWLOutputProtocol : public IWaylandProtocol {
+   public:
+     CWLOutputProtocol(const wl_interface* iface, const int& ver, const std::string& name, PHLMONITOR pMonitor);
++    virtual ~CWLOutputProtocol();
+ 
+     virtual void                       bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
+ 
+@@ -41,7 +43,7 @@
+     PHLMONITORREF                      m_monitor;
+     WP<CWLOutputProtocol>              m_self;
+ 
+-    // will mark the protocol for removal, will be removed when no. of bound outputs is 0 (or when overwritten by a new global)
++    // will mark the protocol for removal, will be removed when no. of bound outputs is 0 and clients have had time to stop binding it
+     void remove();
+     bool isDefunct();         // true if above was called
+     bool hasBoundResources(); // true if any client still holds a wl_output resource of ours
+@@ -52,11 +54,13 @@
+ 
+   private:
+     void destroyResource(CWLOutputResource* resource);
++    void dropIfUnused();
+ 
+     //
+     std::vector<SP<CWLOutputResource>> m_outputs;
+     bool                               m_defunct = false;
+     std::string                        m_name    = "";
++    SP<CEventLoopTimer>                m_removeTimer; // set while removed clients may still be binding us
+ 
+     struct {
+         CHyprSignalListener modeChanged;
+@@ -70,6 +74,6 @@
+     // defunct globals that are gone but not yet unref'd by all clients. Destroying their
+     // still-bound resources server-side would fatally error the clients ("invalid object"
+     // on their in-flight wl_output.release); they are kept here until every client has
+-    // released, then drop out via destroyResource.
++    // released and the removal grace period is over, then drop out via dropIfUnused.
+     inline std::vector<SP<CWLOutputProtocol>> defunctOutputs;
+ };

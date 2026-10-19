@@ -108,7 +108,7 @@ password="e2e-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf 'CI_USER=%s\nCI_PASSWORD=%s\n' "$user" "$password" >"$inject/ci-run/answers"
 cp "$repo"/guest/tests/desktop/provision-seeded.sh "$repo"/guest/tests/desktop/system-checks.sh \
   "$repo"/guest/tests/desktop/session-checks.sh "$repo"/tests/e2e/vm-checks.sh \
-  "$repo"/guest/package/tests/virgl-smoke.c "$repo"/tests/e2e/hypr-state.sh "$inject/ci/"
+  "$repo"/guest/package/tests/virgl-smoke.c "$repo"/tests/e2e/hypr-state.sh "$repo"/tests/e2e/hdr-checks.sh "$inject/ci/"
 : >"$inject/ci/container-expected"
 share_token="from-the-mac-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf '%s' "$share_token" >"$share/e2e-from-mac.txt"
@@ -180,6 +180,9 @@ installs_list=${CI_INSTALLS-ghostty kitty 1password vscode signal}
 quoted=""
 for app in "$@"; do quoted="$quoted $(printf '%q' "$app")"; done
 guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus CI_INSTALLS='$installs_list' /ci/session-checks.sh$quoted" 2>&1 | record
+if [[ ${OMARCHY_NATIVE_OPENGL_HDR:-0} == 1 && ${TRY_OMARCHY_HDR_EXPECT_AFTER_REBOOT:-0} != 1 ]]; then
+  guest "/ci/hdr-checks.sh $user" 2>&1 | record
+fi
 # Omarchy's keybindings, pressed on the VM's keyboard through QEMU (the path a
 # Mac keyboard takes), which the session checks cannot do from inside.
 log "Keybindings on the VM's keyboard"
@@ -255,6 +258,9 @@ guest test -e /var/lib/omarchy/provisioning/pending && miss "first-boot setup is
 hypr() { guest "ls /run/user/$uid/hypr/*/.socket.sock" >/dev/null 2>&1; }
 for _ in $(seq 1 90); do hypr && break; sleep 1; done
 hypr && pass "the desktop starts again on the second boot ($((SECONDS - boot_start)) s)" || miss "no desktop on the second boot"
+if [[ ${OMARCHY_NATIVE_OPENGL_HDR:-0} == 1 ]]; then
+  guest "/ci/hdr-checks.sh $user" 2>&1 | record
+fi
 guest journalctl -b --no-pager >"$out/journal-2.txt" 2>&1 || true
 
 # --- results ----------------------------------------------------------------------------------

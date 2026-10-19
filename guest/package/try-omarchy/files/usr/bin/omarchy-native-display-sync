@@ -265,6 +265,7 @@ apply_preferred_modes() {
   local mode
   local output
   local preferred
+  local color_policy
   local response
   local rule
   local scale
@@ -291,7 +292,8 @@ apply_preferred_modes() {
     # command. Update Omarchy's single-output catch-all mode and dynamic scale;
     # its placement, color, and other policy remain intact, while an explicit
     # per-output user rule still wins.
-    rule="hl.monitor({ output = \"\", mode = \"$mode\", scale = \"$scale\" })"
+    color_policy=$(/usr/lib/try-omarchy/hdr-monitor-policy "$connector/edid")
+    rule="hl.monitor({ output = \"\", mode = \"$mode\", scale = \"$scale\", $color_policy })"
     if ! response=$(hyprctl eval "$rule" 2>&1); then
       printf 'omarchy-native-display-sync: failed to apply %s to %s: %s\n' \
         "$mode" "$output" "$response" >&2

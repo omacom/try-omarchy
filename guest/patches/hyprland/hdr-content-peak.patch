@@ -1,0 +1,19 @@
+--- a/src/render/Renderer.cpp
++++ b/src/render/Renderer.cpp
+@@ -1938,9 +1938,13 @@
+ 
+     const bool  needsSDRmod     = modifySDR && isSDR2HDR(imageDescription->value(), targetImageDescription->value());
+     const bool  needsHDRmod     = !needsSDRmod && isHDR2SDR(imageDescription->value(), targetImageDescription->value());
+-    const float maxLuminance    = needsHDRmod ?
+-        imageDescription->value().getTFMaxLuminance(-1) :
+-        (imageDescription->value().luminances.max > 0 ? imageDescription->value().luminances.max : imageDescription->value().luminances.reference);
++    const auto& sourceDescription = imageDescription->value();
++    const float signalMaxLuminance = needsHDRmod ? sourceDescription.getTFMaxLuminance(-1) :
++        (sourceDescription.luminances.max > 0 ? sourceDescription.luminances.max : sourceDescription.luminances.reference);
++    const auto contentPeak = sourceDescription.maxCLL > 0 ? sourceDescription.maxCLL : sourceDescription.masteringLuminances.max;
++    // PQ's 10000-nit encoding range is not the content's peak luminance.
++    const float maxLuminance = sourceDescription.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ && contentPeak > 0 ?
++        std::min(signalMaxLuminance, static_cast<float>(contentPeak)) : signalMaxLuminance;
+     const auto  dstMaxLuminance = targetImageDescription->value().luminances.max > 0 ? targetImageDescription->value().luminances.max : 10000;
+ 
+     auto        matrix = imageDescription->getPrimaries()->convertMatrix(targetImageDescription->getPrimaries());

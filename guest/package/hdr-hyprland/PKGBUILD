@@ -1,0 +1,128 @@
+# Maintainer: Caleb Maclennan <caleb@alerque.com>
+# Contributor: ThatOneCalculator <kainoa@t1c.dev>
+# Contributor: Brenno Lemos <brenno@syndel.is>
+# Contributor: Gabriel Fox <inbox@gabrielfox.dev>
+
+pkgname=(hyprland hyprpm)
+pkgver=0.56.2
+pkgrel=7.323
+pkgdesc='a highly customizable dynamic tiling Wayland compositor'
+arch=(aarch64)
+url="https://github.com/hyprwm/${pkgname^}"
+license=(BSD-3-Clause)
+depends=(cairo # libcairo.so
+         aquamarine libaquamarine.so
+         libgcc # libgcc_s.so
+         'libstdc++' # libstdc++.so
+         glibc # libc.so libm.so
+         glib2 libgio-2.0.so libgobject-2.0.so
+         glslang # libglslang-default-resource-limits.so libglslang.so
+         hyprcursor libhyprcursor.so
+         hyprgraphics libhyprgraphics.so
+         hyprland-guiutils
+         hyprlang libhyprlang.so
+         hyprutils libhyprutils.so
+         hyprwire libhyprwire.so
+         lcms2 liblcms2.so
+         libdrm # libdrm.so
+         libglvnd libEGL.so libGLESv2.so
+         libinput # libinput.so
+         libx11
+         libxcb # libxcb-dri3.so libxcb-present.so libxcb-render.so libxcb-res.so libxcb-shm.so libxcb.so libxcb-xfixes.so libxcb-xinput.so
+         libxcomposite # libxcb-composite.so
+         libxcursor # libXcursor.so
+         libxfixes
+         libxkbcommon libxkbcommon.so
+         libxrender
+         lua # liblua.so
+         mesa # libgbm.so
+         muparser # libmuparser.so
+         opengl-driver
+         pango libpango-1.0.so libpangocairo-1.0.so
+         pixman libpixman-1.so
+         re2 libre2.so
+         tomlplusplus libtomlplusplus.so
+         util-linux-libs libuuid.so
+         wayland libwayland-server.so
+         wayland-protocols
+         xcb-proto
+         xcb-util
+         xcb-util-errors # libxcb-errors.so
+         xcb-util-image
+         xcb-util-keysyms
+         xcb-util-renderutil # libxcb-render-util.so
+         xcb-util-wm # libxcb-ewmh.so  libxcb-icccm.so
+         xorg-xwayland)
+makedepends=(cmake
+             glaze
+             hyprland-protocols
+             hyprwayland-scanner
+             meson
+             ninja
+             xorgproto)
+optdepends=('hyprpm: build and install plugins'
+            'hyprshutdown: clean logout and shutdown helper'
+            'xdg-desktop-portal-hyprland: xdg-desktop-portal backend for hyprland')
+provides=(wayland-compositor)
+_archive="${pkgname^}-$pkgver"
+source=("$_archive.tar.gz::$url/releases/download/v$pkgver/source-v$pkgver.tar.gz"
+        software-renderer.patch
+        nvidia-egl-teardown.patch
+        wl-output-global-grace.patch
+        monitor-rule-vrr.patch
+        client-sdr-white.patch
+        hdr-content-peak.patch)
+sha256sums=('03ad3f5ef152ff44116ffd56fcf808486211ecabf4f0ba567108ee746ba5cd2e'
+            '380bb6d61c36d6c68bcccf242131f5b259734e8570ea39b3bc519b9ed137eddd'
+            'd656c405de1334b0a783e71de3ed9fde50b4d6848a2a4c5ae0036256787e58cf'
+            'e685bf9358418f1c9c0b9b2a4551f81c3f8fb051bd604d27b6b27bc3f2b6262a'
+            '9d3c30fdde6c6a2341af6366712395b822e4112619408354aabebb81723c944c'
+            'e0ee4857e88043f8ff11eaf421d7c54f8c0955d1331e329873fbd85caf7a7a56'
+            '9b5b5b3b9d377cda55b78eed401717fc24ce7d02ec9c92476f42ee81fbbc98ef')
+
+prepare() {
+	ln -sf hyprland-source "$_archive"
+	cd "$_archive"
+	# Backport of hyprwm/Hyprland#16343; drop once the packaged release includes it
+	patch -Np1 --fuzz=0 -i "$srcdir/software-renderer.patch"
+	# Release the EGL context before teardown; NVIDIA's EGL crashes on exit otherwise
+	patch -Np1 --fuzz=0 -i "$srcdir/nvidia-egl-teardown.patch"
+	# Destroying a wl_output global that clients may still be binding kills every client
+	# when a dock's output flaps; wait before destroying it, as wlroots does
+	patch -Np1 --fuzz=0 -i "$srcdir/wl-output-global-grace.patch"
+	# A reload ignored a monitor rule's vrr unless something else about the rule changed
+	patch -Np1 --fuzz=0 -i "$srcdir/monitor-rule-vrr.patch"
+	patch -Np1 --fuzz=0 -i "$srcdir/client-sdr-white.patch"
+	patch -Np1 --fuzz=0 -i "$srcdir/hdr-content-peak.patch"
+	sed -i -e '/^release:/{n;s/-D/-DCMAKE_SKIP_RPATH=ON -D/}' Makefile
+	sed -i -e '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
+}
+
+build() {
+	cd "$_archive"
+	make release PREFIX=/usr CMAKE_BUILD_PARALLEL_LEVEL=4
+}
+
+package_hyprland() {
+	cd "$_archive"
+	make DESTDIR="$pkgdir" install
+	rm -fv "$pkgdir/usr/include/hyprland/src/version.h.in"
+	find $pkgdir -name '*hyprpm*' -delete
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}
+
+package_hyprpm() {
+	pkgdesc='Plugin manager for Hyprland'
+	depends=(cmake
+	         cpio
+	         glaze
+	         hyprland
+	         hyprland-protocols
+	         hyprwayland-scanner
+	         meson)
+	cd "$_archive"
+	make DESTDIR="$pkgdir" install
+	find $pkgdir -type f,l -not -name '*hyprpm*' -delete
+	find $pkgdir -type d -empty -delete
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}

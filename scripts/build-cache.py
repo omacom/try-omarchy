@@ -92,7 +92,7 @@ def regular_files(
 # package before first-boot setup, so a package change rebuilds only the
 # package. The factory also installs the package's dependencies; those enter
 # its fingerprint through package_dependencies().
-GUEST_PACKAGE_FACTORY_INPUTS = ("try-omarchy/files/etc/limine-entry-tool.d",)
+GUEST_PACKAGE_FACTORY_INPUTS = ("try-omarchy/files/etc/limine-entry-tool.d", "hdr-hyprland", "try-omarchy/hdr-driver", "try-omarchy/files/usr/lib/try-omarchy/hdr-install")
 
 
 def guest_package_files(root: Path) -> list[Path]:
@@ -206,6 +206,11 @@ def context(component: str, root: Path | None = None) -> dict[str, str]:
         "architecture": command_output(["uname", "-m"]),
         "macOS": command_output(["sw_vers", "-productVersion"]),
     }
+    if component == "guest-package" and root is not None and (root / "guest/package/hdr-hyprland").is_dir():
+        image = os.environ.get("GUEST_BUILDER_IMAGE", "try-omarchy-guest-builder")
+        hdr_image = os.environ.get("GUEST_HDR_BUILDER_IMAGE", image)
+        values["guest-builder-image"] = command_output(["docker", "image", "inspect", "--format", "{{.Id}}", image])
+        values["hdr-builder-image"] = command_output(["docker", "image", "inspect", "--format", "{{.Id}}", hdr_image])
     if component == "guest" and root is not None:
         values["package-dependencies"] = package_dependencies(root)
     if component == "runtime":

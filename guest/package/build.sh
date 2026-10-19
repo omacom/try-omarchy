@@ -36,6 +36,15 @@ builder_image=${GUEST_BUILDER_IMAGE:-try-omarchy-guest-builder}
 [[ -n ${GUEST_BUILDER_IMAGE:-} ]] ||
   docker build --quiet --platform linux/arm64 -f "$repo_dir/guest/factory/Containerfile" -t "$builder_image" "$repo_dir" >/dev/null
 
+# Build the pinned HDR compositor before packing the integration archive. It is
+# package-owned data, applied by the normal pre-login installer, never by a
+# nested pacman invocation from an install hook.
+hdr_output=""
+if [[ -d $package_dir/hdr-hyprland ]]; then
+  hdr_output=$(mktemp -d "${TMPDIR:-/tmp}/try-omarchy-hdr-package.XXXXXX")
+  "$package_dir/build-hdr.sh" --output "$hdr_output"
+fi
+
 # The recipe goes in as an archive of the files git knows about (tracked, or
 # new and not ignored), so caches and other local files never reach the
 # package. The repository license sits beside the PKGBUILD.
@@ -52,6 +61,10 @@ trap 'rm -rf "$recipe"' EXIT
     COPYFILE_DISABLE=1 tar -c "${tar_flags[@]}" --null -T - -f "$recipe/recipe.tar"
 )
 COPYFILE_DISABLE=1 tar -r "${tar_flags[@]}" -f "$recipe/recipe.tar" -C "$repo_dir" LICENSE
+
+if [[ -n $hdr_output ]]; then
+  COPYFILE_DISABLE=1 tar -r "${tar_flags[@]}" -f "$recipe/recipe.tar" -C "$hdr_output" hdr-packages
+fi
 
 # makepkg refuses root: build as an unprivileged user from a copy of the recipe.
 docker run --rm -i --platform linux/arm64 --entrypoint /bin/bash \

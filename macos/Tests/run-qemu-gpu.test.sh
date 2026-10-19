@@ -168,6 +168,18 @@ done
 [[ $(<"$state/.omarchy-qemu-storage") == omarchy-qemu-storage-root-v1 ]] || fail "no storage-root marker"
 qemu_ran && fail "a dry run started QEMU"
 
+# HDR changes only the GPU/display contract, retaining UEFI and storage.
+launch_env=(OMARCHY_NATIVE_OPENGL_HDR=1)
+output=$(launch)
+assert_contains "$output" "x-omarchy-hdr=on"
+assert_contains "$output" "cocoa,gl=on,hdr=on"
+assert_not_contains "$output" " -kernel "
+assert_not_contains "$output" " -append "
+launch_env=()
+output=$(launch)
+assert_not_contains "$output" "x-omarchy-hdr=on"
+assert_not_contains "$output" "hdr=on"
+
 # Opting in probes EL2 on macOS 26 or newer and falls back when the probe fails.
 cat >"$shims/sw_vers" <<'SH'
 #!/bin/bash

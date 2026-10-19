@@ -550,6 +550,16 @@ patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
 patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
 patch -d "$source_dir" -p1 -f -i "$notch_patch"
 
+
+verify_file_sha "Native HDR qemu-hdr-protocol.patch" "$native_dir/patches/qemu-hdr-protocol.patch" "2a99ed9c418d1d9f9151507c326696da96cb4a50edb565d0caa6f4b3a1877b07"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-hdr-protocol.patch"
+verify_file_sha "Native HDR qemu-cocoa-sdr-white.patch" "$native_dir/patches/qemu-cocoa-sdr-white.patch" "02e6b16284a9a7f36077788405d59f16979e83f533b8463252cd9506b508cdb2"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-cocoa-sdr-white.patch"
+verify_file_sha "Native HDR qemu-cocoa-native-hdr.patch" "$native_dir/patches/qemu-cocoa-native-hdr.patch" "23d8707c8374cef086d18a014f9b97861a0f197cf2b5f2a9fb42349ff978ec94"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-cocoa-native-hdr.patch"
+verify_file_sha "Native HDR qemu-cocoa-hdr-reference-white.patch" "$native_dir/patches/qemu-cocoa-hdr-reference-white.patch" "c9e7660200201467f8349a67e6d48bd20374ca003685b1791b7561c2f60f8cc6"
+patch -d "$source_dir" -p1 -f -i "$native_dir/patches/qemu-cocoa-hdr-reference-white.patch"
+
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
 epoxy_root="$dependency_root/libepoxy/$epoxy_version"

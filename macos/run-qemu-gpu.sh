@@ -13,6 +13,14 @@
 
 set -euo pipefail
 
+gpu_device='virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080,romfile='
+cocoa_hdr=''
+case ${OMARCHY_NATIVE_OPENGL_HDR:-0} in
+  0) ;;
+  1) gpu_device+=',x-omarchy-hdr=on'; cocoa_hdr=',hdr=on' ;;
+  *) echo 'OMARCHY_NATIVE_OPENGL_HDR must be 0 or 1' >&2; exit 64 ;;
+esac
+
 usage() {
   echo "Usage: run-qemu-gpu.sh [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR]" >&2
   exit 64
@@ -631,8 +639,8 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -drive "if=none,id=omarchy-root,file=${working_disk//,/,,},format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root,bootindex=0'
-  -device 'virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080,romfile='
-  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
+  -device "$gpu_device"
+  -display "cocoa,gl=on${cocoa_hdr},show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='

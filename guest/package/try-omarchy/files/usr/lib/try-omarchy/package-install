@@ -31,6 +31,10 @@ installed=$(pacman -Q try-omarchy 2>/dev/null | awk '{ print $2 }' || true)
 offered=${name#try-omarchy-}
 offered=${offered%-*.pkg.tar.zst}
 if [[ -n $installed ]] && (($(vercmp "$installed" "$offered") >= 0)); then
+  if ! /usr/lib/try-omarchy/hdr-install; then
+    record failed "HDR companion installation failed; see the package installer journal"
+    exit 1
+  fi
   record current "try-omarchy $installed is installed"
   exit 0
 fi
@@ -41,6 +45,10 @@ trap 'umount "$mount_point" 2>/dev/null || true' EXIT
 [[ -f $mount_point/$name ]] || { record failed "the app did not share $name"; exit 1; }
 
 if output=$(pacman -U --noconfirm --needed "$mount_point/$name" 2>&1); then
+  if ! /usr/lib/try-omarchy/hdr-install; then
+    record failed "HDR companion installation failed; see the package installer journal"
+    exit 1
+  fi
   record installed "try-omarchy $offered"
   systemctl daemon-reload
 else

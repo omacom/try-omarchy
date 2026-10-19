@@ -1,3 +1,8 @@
+> Draft HDR exception: this branch adds a source-built compositor package and
+> an out-of-tree driver through the existing package/factory flow. See the
+> [HDR build contract](native-opengl-hdr-build.md). Storage and migration stay
+> on the upstream flow described here.
+
 # Architecture
 
 Try Omarchy packages four pieces into one macOS app:

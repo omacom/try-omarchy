@@ -1,3 +1,7 @@
+> This HDR draft retains this factory/storage/provisioning flow while adding
+> a package-built compositor companion and DKMS driver. See the
+> [integrated HDR build contract](../../docs/native-opengl-hdr-build.md).
+
 # Factory image
 
 This directory builds the factory disk the app ships, as described in
