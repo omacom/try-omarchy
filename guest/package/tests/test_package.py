@@ -12,6 +12,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 PACKAGE = Path(__file__).resolve().parents[1] / "try-omarchy"
 FILES = PACKAGE / "files"
@@ -548,6 +549,30 @@ def load(path, name):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
+
+
+class ClockRecovery(unittest.TestCase):
+    def recover(self, rtc_name):
+        module = load(LIB / "guest-clock-recover", "guest_clock_recover")
+        files = {"/run/try-omarchy/cmdline": "omarchy.qemu_virgl=1\n",
+                 "/sys/class/rtc/rtc0/name": rtc_name,
+                 "/sys/class/rtc/rtc0/since_epoch": "1792335311\n"}
+        with mock.patch("os.geteuid", return_value=0), \
+             mock.patch("pathlib.Path.read_text", autospec=True, side_effect=lambda p: files[str(p)]), \
+             mock.patch("time.time", return_value=1792335311 - 3600), \
+             mock.patch("time.monotonic", side_effect=[100, 100.1]), \
+             mock.patch("time.clock_settime", create=True) as step, \
+             mock.patch("subprocess.run"):
+            return module.recover(), step.called
+
+    def test_steps_forward_from_the_pl031_under_either_driver(self):
+        # UEFI boots reach the PL031 through firmware runtime services (#389).
+        for name in ("rtc-pl031 9010000.pl031\n", "rtc-efi rtc-efi.0\n"):
+            with self.subTest(name=name):
+                self.assertEqual(self.recover(name), (True, True))
+
+    def test_other_clocks_are_not_trusted(self):
+        self.assertEqual(self.recover("rtc-cmos 00:01\n"), (False, False))
 
 
 class Power(unittest.TestCase):

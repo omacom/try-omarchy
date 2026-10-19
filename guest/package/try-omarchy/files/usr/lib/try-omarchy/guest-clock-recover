@@ -17,7 +17,9 @@ def recover():
         raise PermissionError("clock recovery requires root")
     if "omarchy.qemu_virgl=1" not in Path("/run/try-omarchy/cmdline").read_text().split():
         return False
-    if not (RTC / "name").read_text().startswith("rtc-pl031 "):
+    # QEMU's PL031, which tracks host time across a pause. UEFI boots reach it
+    # through the firmware's runtime services, so Linux names it rtc-efi.
+    if not (RTC / "name").read_text().startswith(("rtc-pl031 ", "rtc-efi ")):
         return False
 
     start = time.monotonic()

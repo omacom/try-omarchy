@@ -13,8 +13,9 @@ recovery shortly after wake; it is not an instantaneous host wake notification.
 The service also runs shortly after guest boot.
 
 The helper only acts with the Try Omarchy host marker and the expected PL031
-RTC. It reads the RTC through sysfs and advances system time only when it is more
-than five seconds behind. Whole-second RTC precision and slow samples are
+RTC, which Linux reaches through the UEFI firmware as `rtc-efi`. It reads the
+RTC through sysfs and advances system time only when it is more than five
+seconds behind. Whole-second RTC precision and slow samples are
 accounted for; samples taking over two seconds are rejected. It never writes to
 the RTC or moves system time backward. Small offsets and backward corrections
 remain the responsibility of network time synchronization. Following a forward
