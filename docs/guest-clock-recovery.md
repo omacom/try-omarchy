@@ -7,10 +7,14 @@ network synchronization. Signed Touch ID approvals then appear to come from the
 future and are correctly rejected. Network timers and other applications can
 also be affected.
 
-The guest clock recovery timer checks every ten seconds of guest runtime, with
-one second of timer accuracy allowance. On a normally scheduled guest this gives
-recovery shortly after wake; it is not an instantaneous host wake notification.
-The service also runs shortly after guest boot.
+When the Mac wakes, the app posts a local wake notification and the time zone
+bridge forwards `{"type":"wake"}` on the guest's time zone channel. The guest's
+time zone agent starts the recovery service right away. QEMU holds a message sent
+while the VM is still paused until it continues. The message only triggers the
+check; it carries no time. A guest package that predates it rejects the message
+and logs it, and older apps never send it. The guest clock recovery timer still
+checks every ten seconds of guest runtime, with one second of timer accuracy
+allowance, as a fallback. The service also runs shortly after guest boot.
 
 The helper only acts with the Try Omarchy host marker and the expected PL031
 RTC, which Linux reaches through the UEFI firmware as `rtc-efi`. It reads the
@@ -19,7 +23,16 @@ seconds behind. Whole-second RTC precision and slow samples are
 accounted for; samples taking over two seconds are rejected. It never writes to
 the RTC or moves system time backward. Small offsets and backward corrections
 remain the responsibility of network time synchronization. Following a forward
-step, it requests a restart of the already-running time-sync service.
+step, it requests a restart of the already-running time-sync service and starts
+`try-omarchy-clock-refresh.service`.
+
+The refresh redraws Omarchy's bar clock in each desktop session
+(`omarchy-shell -q omarchy.clock refresh`), immediately and again just after
+the next minute. The bar's clock timer counts monotonic time. After the step,
+it can wait out the delay it armed before the step and miss that one minute.
+After that, it is aligned with the new time. The refresh runs as its own unit
+because it needs `runuser` and the user's Omarchy directory, which the recovery
+sandbox does not allow.
 
 This relies on the VM's virtual hardware clock tracking host time. It does not
 establish an independent trusted time source if the Mac clock is wrong. No
@@ -41,7 +54,7 @@ Check the result with:
 date
 timedatectl show -p TimeUSec -p RTCTimeUSec -p NTPSynchronized
 systemctl status try-omarchy-clock-recovery.timer
-journalctl -u try-omarchy-clock-recovery.service -b
+journalctl -u try-omarchy-clock-recovery.service -u try-omarchy-clock-refresh.service -b
 ```
 
 After a real Mac sleep/wake cycle, compare system time with the hardware clock

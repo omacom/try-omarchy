@@ -40,7 +40,9 @@ The zone determines regional display and daylight-saving rules. Clock accuracy
 is independent: `systemd-timesyncd` remains enabled and uses the guest's network
 connection for NTP. The virtual RTC stays on its normal UTC policy, and
 [clock recovery after Mac sleep](guest-clock-recovery.md) remains responsible
-for recovering lost elapsed time. The time-zone channel never sets system time.
+for recovering lost elapsed time. The time-zone channel never sets system time;
+its only other message, sent after the Mac wakes, makes the guest check its
+clock against the virtual RTC right away.
 
 Check the guest with:
 

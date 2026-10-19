@@ -21,6 +21,8 @@ HOST_CMDLINE = Path("/run/try-omarchy/cmdline")
 TIMEDATECTL = "/usr/bin/timedatectl"
 PROVISIONING_PENDING = Path("/var/lib/omarchy/provisioning/pending")
 FOLLOW_MAC_LABEL = "Same as macOS"
+CLOCK_REFRESH = "/usr/lib/try-omarchy/clock-refresh"
+CLOCK_RECOVERY = "try-omarchy-clock-recovery.service"
 
 
 def zone_path(zone, zoneinfo=ZONEINFO):
@@ -178,22 +180,26 @@ def follow(zone=None, force=False, selection=None):
 def refresh_desktops():
     # The current Quickshell clock caches its zone; ask each logged-in user
     # session to refresh using the same action as Omarchy's timezone picker.
-    import pwd
-    for user in pwd.getpwall():
-        runtime = Path(f"/run/user/{user.pw_uid}")
-        if 1000 <= user.pw_uid < 65534 and runtime.is_dir():
-            omarchy = Path(user.pw_dir) / ".local/share/omarchy"
-            if not omarchy.is_dir():
-                omarchy = Path("/usr/share/omarchy")
-            try:
-                subprocess.run(["runuser", "-u", user.pw_name, "--", "env",
-                                f"XDG_RUNTIME_DIR={runtime}",
-                                f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus",
-                                f"OMARCHY_PATH={omarchy}",
-                                "omarchy-shell", "-q", "omarchy.clock", "refresh"],
-                               check=False, timeout=5)
-            except (OSError, subprocess.TimeoutExpired) as error:
-                print(f"Could not refresh {user.pw_name}'s clock: {error}", file=sys.stderr, flush=True)
+    try:
+        subprocess.run([CLOCK_REFRESH], check=False, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"Could not refresh the clock: {error}", file=sys.stderr, flush=True)
+
+
+def handle(message, recover=None):
+    if message == {"type": "wake"}:
+        # The Mac woke, so a paused guest's clock is behind. The recovery
+        # reads the RTC; this message carries no time.
+        (recover or start_clock_recovery)()
+        return
+    if not isinstance(message, dict) or set(message) != {"type", "zone"} or message["type"] != "timezone":
+        raise ValueError("unexpected time zone message")
+    if follow(message["zone"]):
+        refresh_desktops()
+
+
+def start_clock_recovery():
+    subprocess.run(["/usr/bin/systemctl", "--no-block", "start", CLOCK_RECOVERY], check=False, timeout=5)
 
 
 def main():
@@ -232,11 +238,7 @@ def main():
             if len(line) > 4096 or not line.endswith(b"\n"):
                 raise ValueError("oversized time zone message")
             try:
-                message = json.loads(line)
-                if not isinstance(message, dict) or set(message) != {"type", "zone"} or message["type"] != "timezone":
-                    raise ValueError("unexpected time zone message")
-                if follow(message["zone"]):
-                    refresh_desktops()
+                handle(json.loads(line))
             except (ValueError, KeyError) as error:
                 print(f"Rejected time zone message: {error}", file=sys.stderr, flush=True)
 

@@ -1,0 +1,47 @@
+#!/usr/bin/python3 -I
+"""Redraw Omarchy's bar clock in every desktop session."""
+
+from pathlib import Path
+import pwd
+import subprocess
+import sys
+import time
+
+# Past the minute, so the time Omarchy formats is already the new minute.
+MINUTE_MARGIN_SECONDS = 0.25
+
+
+def refresh_desktops():
+    # The same action as Omarchy's timezone picker, in each user session.
+    for user in pwd.getpwall():
+        runtime = Path(f"/run/user/{user.pw_uid}")
+        if 1000 <= user.pw_uid < 65534 and runtime.is_dir():
+            omarchy = Path(user.pw_dir) / ".local/share/omarchy"
+            if not omarchy.is_dir():
+                omarchy = Path("/usr/share/omarchy")
+            try:
+                subprocess.run(["runuser", "-u", user.pw_name, "--", "env",
+                                f"XDG_RUNTIME_DIR={runtime}",
+                                f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus",
+                                f"OMARCHY_PATH={omarchy}",
+                                "omarchy-shell", "-q", "omarchy.clock", "refresh"],
+                               check=False, timeout=5)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Could not refresh {user.pw_name}'s clock: {error}", file=sys.stderr, flush=True)
+
+
+def main(arguments, refresh=refresh_desktops, sleep=time.sleep):
+    if arguments not in ([], ["--after-step"]):
+        raise SystemExit("usage: clock-refresh [--after-step]")
+    refresh()
+    if arguments:
+        # Quickshell's SystemClock still waits out the delay it armed before
+        # the clock stepped, up to a minute of monotonic time, and so can miss
+        # the next minute. Redraw on that minute too; by its following tick
+        # the clock has realigned itself.
+        sleep(60 - time.time() % 60 + MINUTE_MARGIN_SECONDS)
+        refresh()
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

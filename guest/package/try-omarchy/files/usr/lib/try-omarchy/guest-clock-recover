@@ -36,6 +36,9 @@ def recover():
     # back to it; it is the independent host-time reference across a VM pause.
     time.clock_settime(time.CLOCK_REALTIME, rtc_seconds + elapsed)
     print(f"Recovered guest clock forward by approximately {gap:.0f} seconds.", flush=True)
+    # Restarted, so a refresh still waiting for its minute starts over now.
+    subprocess.run(["/usr/bin/systemctl", "--no-block", "restart",
+                    "try-omarchy-clock-refresh.service"], check=True, timeout=5)
     subprocess.run(["/usr/bin/systemctl", "--no-block", "try-restart",
                     "systemd-timesyncd.service"], check=True, timeout=5)
     return True

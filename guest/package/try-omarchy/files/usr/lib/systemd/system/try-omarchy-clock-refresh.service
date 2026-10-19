@@ -1,0 +1,7 @@
+[Unit]
+Description=Redraw Omarchy's clock after Try Omarchy recovers guest time
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/try-omarchy/clock-refresh --after-step
+TimeoutStartSec=90

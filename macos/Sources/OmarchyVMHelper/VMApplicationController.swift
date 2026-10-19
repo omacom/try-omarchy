@@ -1142,6 +1142,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private func beginResumeAfterHostWake() {
         cancelHostWakeRetry()
         resumeAfterHostWake()
+        // The guest clock stood still while the Mac slept, paused or not; the
+        // time zone bridge prompts the guest to recover it now.
+        HostWake.post()
     }
 
     private func resumeAfterHostWake() {
