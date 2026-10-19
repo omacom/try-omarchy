@@ -24,7 +24,8 @@
 # The VM's window opens on this Mac while the run lasts (about ten minutes).
 # The checks: guest/tests/desktop's system and session checks, plus Omarchy's
 # keybindings pressed on the VM's keyboard (qmp-keys.py), the Mac integrations
-# (vm-checks.sh), the shutdown and a second boot that keeps the user's files.
+# (vm-checks.sh), the clock after a paused VM continues (qmp-pause.py), the
+# shutdown and a second boot that keeps the user's files.
 # Exits 1 when a check fails.
 
 set -euo pipefail
@@ -226,6 +227,16 @@ log "Mac integrations"
 guest /ci/vm-checks.sh "$user" "$mac_zone" "$share_token" 2>&1 | record
 [[ $(cat "$share/e2e-from-guest.txt" 2>/dev/null) == "$share_token" ]] && pass "the Mac reads what the guest wrote to the share" ||
   miss "the Mac does not see the guest's file in the shared folder"
+# The app pauses QEMU across a Mac sleep and posts the wake after cont; the
+# paused guest's clock is behind until it reads its RTC.
+if /usr/bin/python3 "$repo/tests/e2e/qmp-pause.py" "$qmp" 30 && notifyutil -p dev.tryomarchy.host-wake; then
+  sleep 2
+  behind=$(($(date +%s) - $(guest date +%s)))
+  ((behind <= 1)) && pass "the guest clock recovers right after a Mac wake" ||
+    miss "the guest clock is $behind s behind 2 s after a Mac wake"
+else
+  miss "the VM could not be paused and continued"
+fi
 status_file="$state/shell/guest-status.json"
 if [[ -s $status_file ]]; then pass "the app receives guest status: $(tr -d '\n' <"$status_file" | cut -c1-140)"
 else miss "no guest status report at $status_file"; fi
