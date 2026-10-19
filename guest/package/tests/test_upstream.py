@@ -117,6 +117,17 @@ class UpstreamContracts(unittest.TestCase):
             if unit.startswith("omarchy-") or self.full_system:
                 self.assertTrue(unit in shipped, f"{drop_in.relative_to(FILES)} extends a unit nothing ships")
 
+    def test_bar_clock_still_answers_the_refresh_we_send(self):
+        # clock-refresh redraws the bar after a time zone change or a clock
+        # step; without the target the bar can show the old time for a minute.
+        refresh = (FILES / "usr/lib/try-omarchy/clock-refresh").read_text()
+        self.assertIn('"omarchy-shell", "-q", "omarchy.clock", "refresh"', refresh)
+        targets = [block for path in (OMARCHY / "shell").rglob("*.qml")
+                   for block in re.findall(r"ShellIpc \{(.*?)\n  \}", path.read_text(), re.S)
+                   if re.search(r'target: "omarchy\.clock"', block)]
+        self.assertTrue(any(re.search(r"function refresh\(\)", block) for block in targets),
+                        "Omarchy's shell no longer answers omarchy.clock refresh")
+
     def test_sleep_switch_is_the_file_omarchy_checks(self):
         script = (ROOT / "usr/bin/omarchy-sleep-disabled").read_text()
         self.assertIn("/etc/systemd/sleep.conf.d}/omarchy-sleep-disabled.conf", script)
