@@ -339,7 +339,8 @@ regular file, checks for source and destination changes,
 flushes files and directories, and atomically publishes the copy. Only success
 changes the saved boot location. Phase and measured verification progress
 stream to the management sheet, which stays open until the transaction ends.
-The original is retained as a recovery copy;
+After success the management sheet sends the original to Trash through the
+same identity-checked `--trash-vm` helper that deletion uses;
 unrecognized host files are never replaced. The lock file is recreated rather
 than opened for copying, because closing any descriptor for a locked inode
 would release the helper process's POSIX lock.

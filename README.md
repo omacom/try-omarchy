@@ -703,11 +703,12 @@ launch will do:
 - **Switch to another VM → Choose Existing VM…** selects a saved VM in another
   folder. Choose the complete folder containing `shell`.
   Files stay where they are; this changes which VM the app will launch.
-- **Move the selected VM → Choose Destination…** copies that VM into a completely
-  empty APFS folder, verifies every file, and selects the copy only after
-  success. The decompressed factory copy is not moved; the next launch rebuilds
-  it. The dialog shows copy and verification progress, then the new selected
-  folder and the original recovery-copy path. The original is kept.
+- **Move the selected VM → Choose Destination…** asks you to confirm, copies
+  that VM into a completely empty APFS folder, verifies every file, and selects
+  the copy only after success. Then the original moves to macOS Trash, where
+  you can recover it until you empty Trash. The decompressed factory copy is
+  not moved; the next launch rebuilds it. The dialog shows copy and
+  verification progress, then the new selected folder.
 - **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
   fresh VM, created on the next launch. The previously selected VM is kept.
 - **Delete the selected VM → Delete VM…** shows the exact folder and asks you to
@@ -736,12 +737,11 @@ lock as the launcher, refuses an open VM and unsafe links, and never
 replaces files at the destination. Same-volume copies use APFS clones;
 cross-volume copies preserve sparse capacity. Leave enough free space for the
 VM's allocated data plus 1 GiB of headroom. If copying or verification fails,
-the original and the selected boot location stay unchanged. Do not delete the
-original until you have booted and checked the relocated VM. Once you have
-checked your files and settings, you can delete that old workspace, or retain
-it as a recovery copy. For the default location, delete only `VM/v1`, keeping
-the surrounding `Try Omarchy` Application Support folder: it also stores the
-host Touch ID keys used by the relocated VM.
+the original and the selected boot location stay unchanged. After a verified
+move, only the original VM folder goes to Trash. For the default location that
+is `VM/v1`; the surrounding `Try Omarchy` Application Support folder stays,
+because it also stores the host Touch ID keys used by the relocated VM. Keep
+the original in Trash until you have booted and checked the relocated VM.
 
 - Do not disconnect the drive while Omarchy is running. macOS refuses a normal
   eject while the VM holds the disk, but pulling the cable can damage it. If the

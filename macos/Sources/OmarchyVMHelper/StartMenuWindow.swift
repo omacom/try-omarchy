@@ -171,6 +171,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let validateStorageLocation: (String) -> String?
     private let chooseStorageLocation: (String) -> String?
     private let deleteStorageLocation: VMStorageEditor.Delete
+    private let discardStorageLocation: VMStorageEditor.Delete
     private let moveStorageLocation: VMStorageEditor.Move
     private let useDefaultStorageLocation: () -> Void
 
@@ -217,6 +218,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         useDefaultStorageLocation: @escaping () -> Void,
         resetStorage: @escaping () -> Void,
         deleteStorageLocation: @escaping VMStorageEditor.Delete = { _, _, completion in completion("VM deletion is unavailable.") },
+        discardStorageLocation: @escaping VMStorageEditor.Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         moveStorageLocation: @escaping VMStorageEditor.Move = { _, _, _, completion in completion("VM relocation is unavailable.") },
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
         chooseSharedFolder: @escaping (String) -> String?,
@@ -265,6 +267,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.validateStorageLocation = validateStorageLocation
         self.chooseStorageLocation = chooseStorageLocation
         self.deleteStorageLocation = deleteStorageLocation
+        self.discardStorageLocation = discardStorageLocation
         self.moveStorageLocation = moveStorageLocation
         self.useDefaultStorageLocation = useDefaultStorageLocation
         self.resetStorage = resetStorage
@@ -776,6 +779,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                     completion(error)
                 }
             },
+            discardPrevious: { [weak self] source, identity, completion in
+                guard let self else { completion("The launcher was closed."); return }
+                self.state.storageMoveInProgress = true
+                self.discardStorageLocation(source, identity) { [weak self] error in
+                    self?.state.storageMoveInProgress = false
+                    completion(error)
+                }
+            },
             didClose: { [weak self] in
                 self?.storageEditor = nil
                 self?.refresh()
@@ -789,8 +800,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private func beginSharedFolderSelection() {
         guard !controlsBusy, !state.resetInProgress, !state.permissionRequestInFlight else { return }
         let panel = NSOpenPanel()
-        panel.title = "Choose a folder to share with Omarchy"
-        panel.message = "Omarchy will be able to read and change everything inside this folder, linked as ~/<folder name>."
         panel.prompt = "Share"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

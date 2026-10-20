@@ -16,7 +16,9 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private let useDefault: () -> Void
     private let move: Move
     private let delete: Delete
+    private let discardPrevious: Delete
     private let confirmation: ((URL) -> Bool)?
+    private let moveConfirmation: ((URL, URL) -> Bool)?
     private(set) var deletionPrompt: VMDestructiveConfirmationPrompt?
     private var deletedRoot: String?
     private var confirmingDeletion = false
@@ -48,6 +50,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         chooseFolder: ((Choice, URL?) -> URL?)? = nil,
         delete: @escaping Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         confirmDeletion: ((URL) -> Bool)? = nil,
+        discardPrevious: @escaping Delete = { _, _, completion in completion("VM deletion is unavailable.") },
+        confirmMove: ((URL, URL) -> Bool)? = nil,
         didClose: @escaping () -> Void
     ) {
         self.selectedRoot = selectedRoot
@@ -57,7 +61,9 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         self.useDefault = useDefault
         self.move = move
         self.delete = delete
+        self.discardPrevious = discardPrevious
         confirmation = confirmDeletion
+        moveConfirmation = confirmMove
         picker = chooseFolder
         closeHandler = didClose
         super.init()
@@ -125,18 +131,9 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         if let picker { return picker(choice, source) }
         let panel = NSOpenPanel()
         switch choice {
-        case .existing:
-            panel.title = "Switch to another VM"
-            panel.message = "Choose an existing VM's complete folder, containing its shell folder. This changes which VM the app launches. Files stay where they are."
-            panel.prompt = "Select This VM"
-        case .new:
-            panel.title = "Choose a folder for a new VM"
-            panel.message = "Choose or create an empty folder on an APFS drive. The next launch creates a separate VM here. Your current VM stays where it is."
-            panel.prompt = "Select Folder"
-        case .move:
-            panel.title = "Move the selected VM"
-            panel.message = "Source: \(source?.path ?? "")\n\nChoose a completely empty folder on an APFS drive. The VM is copied and verified, then the new folder is selected. The original remains a recovery copy."
-            panel.prompt = "Copy and Switch"
+        case .existing: panel.prompt = "Select This VM"
+        case .new: panel.prompt = "Select Folder"
+        case .move: panel.prompt = "Move Here"
         }
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -179,6 +176,29 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         do { try VMWorkspaceTransfer.requireExistingVM(source.path) }
         catch { showStatus(error.localizedDescription, error: true); return }
         guard let destination = chooseFolder(.move, source: source) else { return }
+        if let moveConfirmation {
+            if moveConfirmation(source, destination) { beginMove(source, to: destination) }
+            return
+        }
+        // Moving always retires the original to Trash, so say so before
+        // anything is copied.
+        let alert = NSAlert()
+        alert.messageText = "Move this VM?"
+        alert.informativeText = "Omarchy copies your VM to \(display(destination)) and verifies it, then moves the original at \(display(source)) to Trash. You can recover it until you empty Trash."
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+        confirmingDeletion = true
+        refreshSelection()
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            confirmingDeletion = false
+            refreshSelection()
+            guard response == .alertFirstButtonReturn else { return }
+            beginMove(source, to: destination)
+        }
+    }
+
+    private func beginMove(_ source: URL, to destination: URL) {
         moving = true
         refreshSelection()
         receiveProgress(VMTransferProgress(phase: .checking))
@@ -191,8 +211,33 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             self.progressBar.isHidden = true
             self.refreshSelection()
             if let error { self.showStatus(error, error: true); return }
-            self.showStatus("Copied and verified. The next launch uses \(self.display(destination)). Recovery copy: \(self.display(source)). These copies now evolve independently.")
+            guard let identity = try? VMWorkspaceTransfer.deletionIdentity(source.path) else {
+                self.showStatus("Moved to \(self.display(destination)), but the previous copy could not be identified, so it stays at \(self.display(source)).", error: true)
+                return
+            }
+            self.discardPreviousCopy(source, identity: identity, movedTo: destination)
         })
+    }
+
+    private func discardPreviousCopy(_ source: URL, identity: String, movedTo destination: URL) {
+        deleting = true
+        refreshSelection()
+        showStatus("Moving the previous copy to Trash…")
+        progressBar.isHidden = false
+        progressBar.isIndeterminate = true
+        progressBar.startAnimation(nil)
+        discardPrevious(source.path, identity) { [weak self] error in
+            guard let self else { return }
+            deleting = false
+            progressBar.stopAnimation(nil)
+            progressBar.isHidden = true
+            refreshSelection()
+            if let error {
+                showStatus("Moved to \(display(destination)), but the previous copy stays at \(display(source)): \(error)", error: true)
+                return
+            }
+            showStatus("Moved and verified. The next launch uses \(display(destination)). The previous copy is in Trash.")
+        }
     }
 
     @objc func deleteSelectedVM() {
@@ -244,11 +289,11 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             progressBar.stopAnimation(nil)
             progressBar.isIndeterminate = false
             progressBar.doubleValue = fraction * 100
-            statusLabel.stringValue = "\(update.title) \(Int(fraction * 100))%\nThe original VM is kept. Please wait before closing this dialog."
+            statusLabel.stringValue = "\(update.title) \(Int(fraction * 100))%\nThe original stays until the copy is verified. Please wait before closing this dialog."
         } else {
             progressBar.isIndeterminate = true
             progressBar.startAnimation(nil)
-            statusLabel.stringValue = "\(update.title)\nThe original VM is kept. Please wait before closing this dialog."
+            statusLabel.stringValue = "\(update.title)\nThe original stays until the copy is verified. Please wait before closing this dialog."
         }
         statusLabel.textColor = .labelColor
     }
@@ -301,7 +346,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
             ),
             NativeSheetChrome.row(
                 title: "Move the selected VM",
-                detail: "Copy this VM to a new folder, verify it, and switch to the copy. The original remains a recovery copy.",
+                detail: "Copy this VM to a new folder, verify it, and switch to the copy. The original moves to Trash.",
                 control: moveButton
             ),
             NativeSheetChrome.row(

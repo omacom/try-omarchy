@@ -36,15 +36,17 @@ struct VMStorageEditorTests {
         return root
     }
 
-    @Test("Copy remains open with Done and selection disabled, then reports success in the same dialog")
+    @Test("A confirmed move stays open while copying, then sends the original to Trash")
     func moveLifecycle() throws {
         _ = NSApplication.shared
         let original = try savedVM()
         defer { try? FileManager.default.removeItem(at: original) }
         let destination = original.deletingLastPathComponent().appendingPathComponent("new-vm")
         var selected = original
+        var confirmed = false
         var progress: ((VMTransferProgress) -> Void)?
         var complete: ((String?) -> Void)?
+        var discarded: [String] = []
         var closed = false
         let editor = VMStorageEditor(selectedRoot: { selected }, isDefault: { false }, validate: { _ in nil },
             select: { _ in nil }, useDefault: {}, move: { source, target, onProgress, onComplete in
@@ -52,8 +54,23 @@ struct VMStorageEditorTests {
                 #expect(target == destination.path)
                 progress = onProgress
                 complete = onComplete
-            }, chooseFolder: { _, _ in destination }, didClose: { closed = true })
+            }, chooseFolder: { _, _ in destination },
+            discardPrevious: { source, identity, completion in
+                #expect(identity == (try? VMWorkspaceTransfer.deletionIdentity(original.path)))
+                discarded.append(source)
+                completion(nil)
+            },
+            confirmMove: { source, target in
+                #expect(source.path == original.path)
+                #expect(target.path == destination.path)
+                return confirmed
+            },
+            didClose: { closed = true })
         defer { editor.dismiss() }
+        editor.moveSelectedVM()
+        #expect(!editor.moving)
+        #expect(complete == nil)
+        confirmed = true
         editor.moveSelectedVM()
         #expect(editor.moving)
         #expect(!button("vm-storage-done", in: editor).isEnabled)
@@ -67,7 +84,8 @@ struct VMStorageEditorTests {
         #expect(!editor.moving)
         #expect(button("vm-storage-done", in: editor).isEnabled)
         #expect(text("vm-storage-selected-path", in: editor).contains("new-vm"))
-        #expect(text("vm-storage-status", in: editor).contains("Recovery copy:"))
+        #expect(discarded == [original.path])
+        #expect(text("vm-storage-status", in: editor).contains("previous copy is in Trash"))
         editor.dismiss()
         #expect(closed)
     }
@@ -79,7 +97,9 @@ struct VMStorageEditorTests {
         var closed = false
         let editor = VMStorageEditor(selectedRoot: { original }, isDefault: { false }, validate: { _ in nil },
             select: { _ in nil }, useDefault: {}, move: { _, _, _, completion in completion("Disk is open; shut down first.") },
-            chooseFolder: { _, _ in original.appendingPathComponent("target") }, didClose: { closed = true })
+            chooseFolder: { _, _ in original.appendingPathComponent("target") },
+            discardPrevious: { _, _, _ in Issue.record("A failed move must keep the original") },
+            confirmMove: { _, _ in true }, didClose: { closed = true })
         defer { editor.dismiss() }
         editor.moveSelectedVM()
         #expect(text("vm-storage-status", in: editor) == "Disk is open; shut down first.")

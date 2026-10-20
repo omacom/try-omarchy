@@ -284,6 +284,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             deleteStorageLocation: { [weak self] source, identity, completion in
                 self?.deleteStorageLocation(source, identity: identity, completion: completion)
             },
+            discardStorageLocation: { [weak self] source, identity, completion in
+                self?.discardPreviousStorageLocation(source, identity: identity, completion: completion)
+            },
             moveStorageLocation: { [weak self] source, path, progress, completion in
                 self?.moveStorageLocation(from: source, to: path, progress: progress, completion: completion)
             },
@@ -1010,6 +1013,25 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         guard !childRunning, workspaceTransferProcess == nil, storageEnvironmentOverride == nil,
               startupPreferenceRoot()?.path == source, let executable = Bundle.main.executableURL else {
             completion("Shut down Omarchy before deleting its VM. The selected VM must match the confirmed folder.")
+            return
+        }
+        trashWorkspace(source, identity: identity, completion: completion)
+    }
+
+    /// The copy a move left behind. It is never the selected VM, so trashing
+    /// it cannot strand the next launch.
+    private func discardPreviousStorageLocation(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
+        guard !childRunning, workspaceTransferProcess == nil, storageEnvironmentOverride == nil,
+              let selected = startupPreferenceRoot(), selected.path != source else {
+            completion("Shut down Omarchy before deleting the previous copy.")
+            return
+        }
+        trashWorkspace(source, identity: identity, completion: completion)
+    }
+
+    private func trashWorkspace(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
+        guard let executable = Bundle.main.executableURL else {
+            completion("Could not move this VM to Trash.")
             return
         }
         let process = Process()
