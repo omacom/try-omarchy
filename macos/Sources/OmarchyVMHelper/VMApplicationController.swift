@@ -367,6 +367,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 self?.appReleaseChecker.menuTitle ?? "Check for Updates…"
             },
             checkForAppUpdates: { [weak self] in self?.checkForAppUpdates(nil) },
+            permissionPromptShown: { UserDefaults.standard.bool(forKey: Self.permissionPromptShownKey) },
+            setPermissionPromptShown: { UserDefaults.standard.set(true, forKey: Self.permissionPromptShownKey) },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }
@@ -860,6 +862,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         lifecycle.requestQuit()
         supervisor.forward(signal: SIGTERM)
     }
+
+    private static let permissionPromptShownKey = "LauncherPermissionPromptShown"
 
     private static var homeDirectory: String {
         FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path

@@ -12,11 +12,19 @@ enum LauncherPane: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+/// A Mac permission Omarchy works best with. Home asks for the unanswered
+/// ones, and the first launch offers them once more.
+enum LauncherPermission: String, CaseIterable, Identifiable {
+    case accessibility, microphone, camera
+
+    var id: Self { self }
+}
+
 /// Something worth fixing before a launch. Home lists these and the sidebar
 /// badges the pane that fixes each one.
 struct LauncherAttentionItem: Identifiable, Equatable {
     enum Kind: String {
-        case accessibility, storage, network, usb, sharedFolder
+        case storage, network, usb, sharedFolder
     }
 
     let kind: Kind
@@ -27,7 +35,6 @@ struct LauncherAttentionItem: Identifiable, Equatable {
 
     var pane: LauncherPane {
         switch kind {
-        case .accessibility: .permissions
         case .storage: .virtualMachine
         case .network: .network
         case .usb, .sharedFolder: .sharing
@@ -92,6 +99,8 @@ final class LauncherState {
     var guest = ShellGuestPresentation.make(record: nil, bundledPackage: nil)
     var guestReported = false
 
+    var permissionPromptPresented = false
+
     var immersive = true
     /// Only a MacBook with a camera notch has the strip to use.
     var notchAvailable = false
@@ -139,15 +148,18 @@ final class LauncherState {
             && storage?.isEnvironmentOverride == false
     }
 
+    /// Permissions still waiting for an answer. macOS never reports a
+    /// declined Accessibility request, so that one stays until it is allowed.
+    var pendingPermissions: [LauncherPermission] {
+        var permissions: [LauncherPermission] = []
+        if !accessibility.isGranted { permissions.append(.accessibility) }
+        if microphone.action == .request { permissions.append(.microphone) }
+        if camera.action == .request { permissions.append(.camera) }
+        return permissions
+    }
+
     var attentionItems: [LauncherAttentionItem] {
         var items: [LauncherAttentionItem] = []
-        if !accessibility.isGranted {
-            items.append(LauncherAttentionItem(
-                kind: .accessibility,
-                title: "Allow Accessibility",
-                detail: "Needed for Super shortcuts and the native keyboard experience."
-            ))
-        }
         if let problem = storage?.problem {
             items.append(LauncherAttentionItem(kind: .storage, title: "Selected VM unavailable", detail: problem))
         }
@@ -172,6 +184,7 @@ final class LauncherState {
 
     func attentionCount(for pane: LauncherPane) -> Int {
         attentionItems.filter { $0.pane == pane }.count
+            + (pane == .permissions ? pendingPermissions.count : 0)
     }
 
     // MARK: Builders

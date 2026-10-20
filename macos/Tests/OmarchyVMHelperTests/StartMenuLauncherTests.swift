@@ -206,7 +206,7 @@ struct StartMenuLauncherTests {
         let host = try #require(menu.window.contentViewController)
         let initialReads = storageReads
         let frame = menu.window.frame
-        #expect(menu.state.attentionItems.map(\.kind) == [.accessibility])
+        #expect(menu.state.pendingPermissions == [.accessibility])
         #expect(menu.state.attentionCount(for: .permissions) == 1)
 
         for _ in 0..<10 { menu.applicationDidBecomeActive() }
@@ -217,7 +217,57 @@ struct StartMenuLauncherTests {
         #expect(menu.window.frame == frame)
         #expect(menu.window.contentViewController === host)
         #expect(menu.state.accessibility.isGranted)
-        #expect(menu.state.attentionItems.isEmpty)
+        #expect(menu.state.pendingPermissions.isEmpty)
+        #expect(menu.state.attentionCount(for: .permissions) == 0)
+    }
+
+    @Test("the first launch with unanswered permissions offers them once before starting")
+    func firstLaunchPermissionPrompt() {
+        _ = NSApplication.shared
+        var launchCount = 0
+        var promptShown = false
+        let menu = makeMenu(
+            accessibilityStatus: { false },
+            microphoneStatus: { .notDetermined },
+            cameraStatus: { .denied },
+            permissionPromptShown: { promptShown },
+            setPermissionPromptShown: { promptShown = true },
+            launch: { launchCount += 1 }
+        )
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        // A denied camera was answered, so only the open questions remain.
+        #expect(menu.state.pendingPermissions == [.accessibility, .microphone])
+        #expect(menu.state.attentionCount(for: .permissions) == 2)
+
+        menu.actions.launchOrDone()
+        #expect(menu.state.permissionPromptPresented)
+        #expect(promptShown)
+        #expect(launchCount == 0)
+
+        menu.actions.dismissPermissionPrompt()
+        #expect(!menu.state.permissionPromptPresented)
+        menu.actions.launchOrDone()
+        #expect(!menu.state.permissionPromptPresented)
+        #expect(launchCount == 1)
+    }
+
+    @Test("launching anyway from the permission prompt starts Omarchy")
+    func permissionPromptLaunchAnyway() {
+        _ = NSApplication.shared
+        var launchCount = 0
+        let menu = makeMenu(
+            microphoneStatus: { .notDetermined },
+            permissionPromptShown: { false },
+            launch: { launchCount += 1 }
+        )
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        menu.actions.launchOrDone()
+        #expect(menu.state.permissionPromptPresented)
+        menu.actions.launchAnyway()
+        #expect(!menu.state.permissionPromptPresented)
+        #expect(launchCount == 1)
     }
 
     @Test("permission completion updates in place and never resurrects a hidden launcher",
@@ -451,6 +501,8 @@ struct StartMenuLauncherTests {
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
+        permissionPromptShown: @escaping () -> Bool = { true },
+        setPermissionPromptShown: @escaping () -> Void = {},
         launch: @escaping () -> Void = {}
     ) -> StartMenuWindow {
         let request: (@escaping (Bool) -> Void) -> Void = { completion in
@@ -488,6 +540,8 @@ struct StartMenuLauncherTests {
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,
             confirmAutomaticStartup: confirmAutomaticStartup,
+            permissionPromptShown: permissionPromptShown,
+            setPermissionPromptShown: setPermissionPromptShown,
             launch: launch
         )
     }

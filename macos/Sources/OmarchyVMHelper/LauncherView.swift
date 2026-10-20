@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 struct LauncherActions {
     var launchOrDone: () -> Void = {}
+    var launchAnyway: () -> Void = {}
+    var dismissPermissionPrompt: () -> Void = {}
     var accessibilityAction: () -> Void = {}
     var microphoneAction: () -> Void = {}
     var cameraAction: () -> Void = {}
@@ -42,7 +44,6 @@ extension LauncherPane {
 extension LauncherAttentionItem {
     var icon: SettingIcon {
         switch kind {
-        case .accessibility: SettingIcon("accessibility", .blue)
         case .storage: SettingIcon("externaldrive.fill", .gray)
         case .network: SettingIcon("network", .blue)
         case .usb: SettingIcon("cable.connector", .gray)
@@ -73,6 +74,9 @@ struct LauncherView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 760, minHeight: 500)
+        .sheet(isPresented: $state.permissionPromptPresented) {
+            PermissionPromptSheet(state: state, actions: actions)
+        }
     }
 
     /// The pane title shares the title bar row with the window buttons, with
@@ -135,8 +139,6 @@ private struct LauncherSidebar: View {
             Section {
                 row(.permissions)
                 row(.sharing)
-            }
-            Section {
                 row(.network)
                 row(.virtualMachine)
             }
@@ -203,6 +205,16 @@ private struct HomePane: View {
                 }
                 .padding(.vertical, 14)
                 .padding(.horizontal, 8)
+            }
+
+            if !state.pendingPermissions.isEmpty {
+                Section {
+                    PermissionRows(state: state, actions: actions, permissions: state.pendingPermissions)
+                } header: {
+                    Text("Get Started")
+                } footer: {
+                    SectionNote("Omarchy runs without these, but your Mac keyboard, microphone, and camera won’t fully work inside it.")
+                }
             }
 
             if !state.attentionItems.isEmpty {
@@ -375,6 +387,101 @@ private struct PermissionsSection: View {
         } footer: {
             SectionNote("Microphone and camera are optional. Change these anytime in System Settings › Privacy & Security.")
         }
+    }
+}
+
+/// Requests that bring the Mac keyboard, microphone, and camera into
+/// Omarchy, shared by Home and the first-launch prompt.
+private struct PermissionRows: View {
+    let state: LauncherState
+    let actions: LauncherActions
+    let permissions: [LauncherPermission]
+
+    var body: some View {
+        ForEach(permissions) { permission in
+            switch permission {
+            case .accessibility:
+                SettingRow(
+                    icon: SettingIcon("keyboard.fill", .blue),
+                    title: "Accessibility",
+                    detail: ["Use Super shortcuts and your full Mac keyboard inside Omarchy."]
+                ) {
+                    PermissionControl(presentation: state.accessibility, action: actions.accessibilityAction)
+                }
+            case .microphone:
+                SettingRow(
+                    icon: SettingIcon("mic.fill", .orange),
+                    title: "Microphone",
+                    detail: ["Use your Mac microphone in Omarchy apps."]
+                ) {
+                    PermissionControl(
+                        presentation: state.microphone,
+                        waiting: state.microphoneRequestInFlight,
+                        action: actions.microphoneAction
+                    )
+                }
+            case .camera:
+                SettingRow(
+                    icon: SettingIcon("camera.fill", .green),
+                    title: "Camera",
+                    detail: ["Use your Mac camera in Omarchy apps."]
+                ) {
+                    PermissionControl(
+                        presentation: state.camera,
+                        waiting: state.cameraRequestInFlight,
+                        action: actions.cameraAction
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// Offered once, on the first launch that still has unanswered permissions.
+private struct PermissionPromptSheet: View {
+    let state: LauncherState
+    let actions: LauncherActions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                OmarchyAppTile(size: 64)
+                    .accessibilityHidden(true)
+                Text("Get the Full Experience")
+                    .font(.title2.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text("Allow these so your Mac keyboard, microphone, and camera work inside Omarchy. You can change them anytime in Permissions.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 28)
+
+            Form {
+                Section {
+                    PermissionRows(state: state, actions: actions, permissions: LauncherPermission.allCases)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .scrollContentBackground(.hidden)
+            .frame(height: 230)
+
+            HStack {
+                Button("Cancel", action: actions.dismissPermissionPrompt)
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(state.pendingPermissions.isEmpty ? "Launch Omarchy" : "Launch Anyway", action: actions.launchAnyway)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("permission-prompt-launch")
+            }
+            .controlSize(.large)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 520)
+        .disabled(state.permissionRequestInFlight)
     }
 }
 

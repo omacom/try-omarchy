@@ -158,6 +158,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
     private let launch: () -> Void
+    private let permissionPromptShown: () -> Bool
+    private let setPermissionPromptShown: () -> Void
     private let appReleaseActionTitle: () -> String
     private let checkForAppUpdates: () -> Void
     private let canResetStorage: Bool
@@ -176,7 +178,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
         window.isKeyWindow && !controlsBusy && !state.resetInProgress
-            && !state.permissionRequestInFlight
+            && !state.permissionRequestInFlight && !state.permissionPromptPresented
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
     }
@@ -241,6 +243,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
+        permissionPromptShown: @escaping () -> Bool = { true },
+        setPermissionPromptShown: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -285,6 +289,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.presentStartupSaveError = presentStartupSaveError
         self.confirmAutomaticStartup = confirmAutomaticStartup
         self.launch = launch
+        self.permissionPromptShown = permissionPromptShown
+        self.setPermissionPromptShown = setPermissionPromptShown
         self.appReleaseActionTitle = appReleaseActionTitle
         self.checkForAppUpdates = checkForAppUpdates
 
@@ -315,8 +321,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         LauncherActions(
             launchOrDone: { [weak self] in
                 guard let self else { return }
-                if state.isRunning { closeSettings() } else { launchOmarchy() }
+                if state.isRunning { closeSettings() } else { requestLaunch() }
             },
+            launchAnyway: { [weak self] in
+                guard let self else { return }
+                state.permissionPromptPresented = false
+                launchOmarchy()
+            },
+            dismissPermissionPrompt: { [weak self] in self?.state.permissionPromptPresented = false },
             accessibilityAction: { [weak self] in self?.beginAccessibilityRequest() },
             microphoneAction: { [weak self] in
                 guard let self else { return }
@@ -973,6 +985,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         } else {
             state.startAutomatically = enabled
         }
+    }
+
+    /// Without these permissions Omarchy loses the Mac keyboard, microphone,
+    /// and camera, so the first launch that still lacks one offers them once.
+    private func requestLaunch() {
+        guard !prelaunchControlsLocked,
+              !state.resetInProgress,
+              !state.permissionRequestInFlight else { return }
+        if !state.pendingPermissions.isEmpty, !permissionPromptShown() {
+            setPermissionPromptShown()
+            state.permissionPromptPresented = true
+            return
+        }
+        launchOmarchy()
     }
 
     @objc func launchOmarchy() {
