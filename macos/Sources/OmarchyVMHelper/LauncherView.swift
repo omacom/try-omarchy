@@ -133,8 +133,14 @@ private struct LauncherSidebar: View {
             // atop System Settings.
             Section { row(.home) }
             Section {
-                ForEach(LauncherPane.allCases.filter { $0 != .home }) { row($0) }
+                row(.permissions)
+                row(.sharing)
             }
+            Section {
+                row(.network)
+                row(.virtualMachine)
+            }
+            Section { row(.startup) }
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 0) { Color.clear.frame(height: 44) }
