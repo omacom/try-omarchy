@@ -7,7 +7,7 @@ usage() {
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
 Build the pinned QEMU/VirGL source stack for macOS 15.0 with Try Omarchy's Cocoa identity,
-dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, and ISO
+dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, touch-scroll, and ISO
 keyboard patches, then relocate, sign, validate, and
 atomically stage it at:
   macos/.build/qemu-gpu-runtime
@@ -64,6 +64,7 @@ reenable_patch="$native_dir/patches/qemu-cocoa-full-grab-reenable.patch"
 pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
 pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 precise_scroll_patch="$native_dir/patches/qemu-cocoa-precise-scroll.patch"
+touch_scroll_patch="$native_dir/patches/qemu-cocoa-touch-scroll.patch"
 iso_swap_patch="$native_dir/patches/qemu-cocoa-iso-section-grave-swap.patch"
 injected_text_patch="$native_dir/patches/qemu-cocoa-injected-text.patch"
 command_chord_patch="$native_dir/patches/qemu-cocoa-command-chord-hold.patch"
@@ -105,6 +106,7 @@ reenable_patch_sha256=e331f329afd45d61b130037119bd4099e0f618b42313f0f712ca40ab25
 pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95aebd49c78a8f0
 pinch_patch_sha256=37acb8895dddd35fc66812d0c49ec5fc697f9127e9e12ed2e60d17999bf32aee
 precise_scroll_patch_sha256=54252b3b19358aa7e2c75d5f50775a7f488ef2d8b4db8723ba4768b56316a78f
+touch_scroll_patch_sha256=3379fd41ec4bdb97c6e35cdf50554eea03b16e240f8df99d9dc3116dd957bbf5
 iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284cf2387
 injected_text_patch_sha256=18d64d52f715d0cf1b2b6d1761059371e1859ee61faf3cc4800e2effc1ed4dd1
 command_chord_patch_sha256=d2a6cc3827ddac15f5baa063b36ab857b9571221ca1ce4ef25896cae914ff9f6
@@ -246,6 +248,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa pinch-zoom patch: $pinch_patch"
 [[ -f $precise_scroll_patch && ! -L $precise_scroll_patch ]] || \
   die "missing Cocoa precise-scroll patch: $precise_scroll_patch"
+[[ -f $touch_scroll_patch && ! -L $touch_scroll_patch ]] || \
+  die "missing Cocoa touch-scroll patch: $touch_scroll_patch"
 [[ -f $iso_swap_patch && ! -L $iso_swap_patch ]] || \
   die "missing Cocoa ISO Section/Grave swap patch: $iso_swap_patch"
 [[ -f $audio_device_patch && ! -L $audio_device_patch ]] || \
@@ -488,6 +492,8 @@ verify_file_sha "Try Omarchy Cocoa pinch-zoom patch" \
   "$pinch_patch" "$pinch_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa precise-scroll patch" \
   "$precise_scroll_patch" "$precise_scroll_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa touch-scroll patch" \
+  "$touch_scroll_patch" "$touch_scroll_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa ISO Section/Grave swap patch" \
   "$iso_swap_patch" "$iso_swap_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa injected-text patch" \
@@ -523,7 +529,7 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, and notch patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, and touch-scroll patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -554,6 +560,7 @@ patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
 patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
 patch -d "$source_dir" -p1 -f -i "$notch_patch"
 patch -d "$source_dir" -p1 -f -i "$command_chord_patch"
+patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

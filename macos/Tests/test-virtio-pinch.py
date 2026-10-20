@@ -134,14 +134,15 @@ class VirtioPinchTests(unittest.TestCase):
         self.assertEqual(self.config(1).rstrip(b"\0"), b"QEMU Virtio Pinch Touchpad")
         self.assertEqual(int.from_bytes(self.config(0x10), "little"), 1)  # POINTER
         keys = int.from_bytes(self.config(0x11, 1), "little")
-        for key in (0x110, 0x145, 0x14a, 0x14d):  # LEFT, FINGER, TOUCH, DOUBLETAP
+        # LEFT, FINGER, TOUCH, DOUBLETAP, TRIPLETAP
+        for key in (0x110, 0x145, 0x14a, 0x14d, 0x14e):
             self.assertTrue(keys & (1 << key))
         axes = int.from_bytes(self.config(0x11, 3), "little")
         for axis in (0, 1, 0x2f, 0x35, 0x36, 0x39):
             self.assertTrue(axes & (1 << axis))
         for axis in (0, 1, 0x35, 0x36):
             self.assertEqual(struct.unpack("<5I", self.config(0x12, axis)),
-                             (0, 32767, 0, 0, 327))
+                             (0, 32767, 0, 0, 41))
 
         common = self.caps[1]
         self.qt(f"writeb {common + 20:#x} 3")

@@ -17,7 +17,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 ## Display, power and time
 
 - **The notch:** in full screen on a MacBook with a notch, Omarchy uses the whole screen, and its bar sits beside the notch like the macOS menu bar. Turn off **Camera notch** in the launcher to keep Omarchy below the notch.
-- **Trackpad:** pinch to zoom works.
+- **Trackpad:** pinch to zoom works, and a two-finger swipe goes back or forward in browsers.
 - **Battery:** the Mac's battery and charging state show in Omarchy's bar. Power profiles change nothing, because macOS manages power.
 - **Time:** Omarchy follows the Mac's time zone unless you choose another one. Its clock catches up after the Mac sleeps.
 - **Memory:** memory Omarchy isn't using goes back to macOS.

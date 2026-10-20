@@ -31,8 +31,8 @@ edited and resetting the user's Hyprland configuration keeps the rule.
 ## Input behavior
 
 Cocoa provides relative magnification, not raw finger positions. The bridge
-reconstructs two symmetric contacts on a 100 mm virtual sensor, with a fixed
-center so the gesture does not intentionally pan the pointer. Contact spacing
+reconstructs two symmetric contacts 25 mm apart on the touchpad's 800 mm virtual
+sensor, with a fixed center so the gesture does not intentionally pan the pointer. Contact spacing
 accumulates continuously, bounded to 0.125–3.5 times the initial spacing per
 gesture to stay within the advertised sensor. Lift and pinch again to continue
 beyond those bounds. libinput still applies its normal gesture recognition.
@@ -46,8 +46,9 @@ VM state changes clear the local gesture. Resuming also emits a release frame,
 because QEMU drops normal input while stopped and a release during that time
 may not have reached the guest.
 
-This adds magnification only. Rotation, raw trackpad passthrough, and
-three/four-finger gestures are outside this change. Applications must support
+Two-finger scrolling also uses this device; see
+[trackpad scrolling](trackpad-scrolling.md). Rotation, raw trackpad passthrough,
+and three/four-finger gestures are outside this change. Applications must support
 pinch gestures; this does not add zoom behavior to every Linux application.
 
 ## Validation

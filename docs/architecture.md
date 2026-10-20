@@ -82,7 +82,9 @@ Trackpad magnification uses a dedicated indirect virtio touchpad alongside the
 ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each
 pinch and releases them on cancellation or focus loss; the guest disables
 tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
-input contract and integration validation.
+input contract and integration validation. Precise two-finger scrolling drives
+the same touchpad, so the guest sees finger scrolling; see
+[trackpad scrolling](trackpad-scrolling.md).
 
 ## Host settings and the guest package
 
