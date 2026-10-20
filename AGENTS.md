@@ -24,6 +24,14 @@ The full version is in [CONTRIBUTING.md](CONTRIBUTING.md#principles).
   Add a guide when a procedure is worth repeating. Keep this file high level.
 - **Looking for work?** Look at the open [issues](https://github.com/omacom/try-omarchy/issues) and the backlog in [docs/vm-issues.md](docs/vm-issues.md).
 
+## Documentation layout
+
+- **`manual/`:** guides for users, covering only what's specific to Try Omarchy. Omarchy's own manual covers Omarchy.
+- **`docs/`:** how Try Omarchy works and why, for contributors.
+- **`agents/skills/`:** step-by-step guides for specific tasks.
+
+When users will notice a change, update the manual. When the design changes, update `docs/`.
+
 ## Rules
 
 - **Never edit files owned by Omarchy or other packages.** Extend Omarchy through the `try-omarchy` package, using the mechanisms Omarchy and systemd provide.

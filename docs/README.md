@@ -1,15 +1,11 @@
 # Docs
 
-## Using Try Omarchy
-
-- [User guide](user-guide.md): settings, integrations, data, updates, and recovery
-- [Ghostty](ghostty.md)
-- [Japanese input](japanese-input.md)
-- [Touch ID for 1Password](onepassword-touch-id.md)
+How Try Omarchy works, for contributors. User guides are in the [manual](../manual/README.md).
 
 ## How it works
 
 - [Architecture](architecture.md)
+- Guest specifics: [Ghostty](ghostty.md), [Japanese input](japanese-input.md), [Touch ID for 1Password](onepassword-touch-id.md)
 - [App updates](app-updates.md) and [integration updates](integration-updates.md)
 - Integrations:
   - [audio continuity](audio-continuity.md)

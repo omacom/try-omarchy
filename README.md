@@ -46,15 +46,24 @@ You need an Apple Silicon Mac with macOS 15 or newer and about 15 GB of free spa
 - Vulkan is not available.
 - Nested virtualization is opt-in.
 
-## Settings
+## Manual
 
-Settings are in the launcher, which opens when you start the app. Once Omarchy is running, open them from **Setup → Try Omarchy Settings** inside Omarchy. They cover CPU, memory, disk size, the shared folder, networking, ports, camera and microphone access, and full-screen mode. A change takes effect at the next launch.
+Settings live in the launcher. Once Omarchy is running, open them with **Setup → Try Omarchy Settings**.
 
-The [user guide](docs/user-guide.md) covers each setting, data and reset, and recovery.
+The [manual](manual/README.md) covers what's specific to running Omarchy in Try Omarchy:
+
+- [Getting started](manual/getting-started.md)
+- [Omarchy on a Mac](manual/omarchy-on-a-mac.md)
+- [Files, network and devices](manual/files-network-devices.md)
+- [Touch ID](manual/touch-id.md)
+- [Updates and your data](manual/updates-and-data.md)
+- [Troubleshooting](manual/troubleshooting.md)
+
+For Omarchy itself, see [the Omarchy manual](https://learn.omacom.io/2/the-omarchy-manual).
 
 ## Help
 
-- **Problems with Try Omarchy:** open an [issue](https://github.com/omacom/try-omarchy/issues).
+- **Problems with Try Omarchy:** see [troubleshooting](manual/troubleshooting.md), or open an [issue](https://github.com/omacom/try-omarchy/issues).
 - **Problems in Omarchy itself:** if it also happens on real hardware, report it to [Omarchy](https://github.com/omacom/omarchy).
 - **Security issues:** follow [SECURITY.md](SECURITY.md).
 
@@ -63,7 +72,7 @@ The [user guide](docs/user-guide.md) covers each setting, data and reset, and re
 - [Architecture](docs/architecture.md): how the app, QEMU, the image and the guest package fit together.
 - [Contributing](CONTRIBUTING.md): principles, building from source, tests and CI.
 - [AGENTS.md](AGENTS.md): instructions for coding agents.
-- [docs/](docs/README.md): design notes for each integration.
+- [docs/](docs/README.md): how each part works.
 
 ## License
 

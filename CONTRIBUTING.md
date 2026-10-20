@@ -30,7 +30,7 @@ Try Omarchy runs stock Omarchy on an Apple Silicon Mac and bridges it to macOS. 
 - **One concern per PR.** A fix and a cleanup are two PRs. Small fixes don't need an issue. For larger behavioural or architecture changes, open an issue first.
 - **Commit subjects and PR titles say what changes for the user.**
 - **Use the [PR template](.github/pull_request_template.md).** Say what you tested, and what you couldn't.
-- **Update the docs** when behaviour or requirements change.
+- **Update the docs:** the [manual](manual/README.md) when users will notice the change, and [docs/](docs/README.md) when the design changes.
 - **Coding agents are welcome.** You still own every line they write, and you must have tested it.
 
 ## Writing
