@@ -302,7 +302,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let host = NSHostingController(rootView: LauncherView(state: state, actions: actions))
         // Panes draw their own titles; bridging would show a second one.
         host.sceneBridgingOptions = []
-        host.sizingOptions = []
+        // The window ignores contentMinSize under a hosting controller, so the
+        // view's own minimum frame keeps panes from collapsing.
+        host.sizingOptions = [.minSize]
         window.contentViewController = host
         StartMenuWindowChrome.apply(to: window)
         window.setContentSize(StartMenuWindowChrome.contentSize)

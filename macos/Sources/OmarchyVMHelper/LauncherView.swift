@@ -129,14 +129,11 @@ private struct LauncherSidebar: View {
 
     var body: some View {
         List(selection: $state.selectedPane) {
-            ForEach(LauncherPane.allCases) { pane in
-                Label {
-                    Text(pane.rawValue)
-                } icon: {
-                    pane.icon.environment(\.settingIconSize, 20)
-                }
-                .badge(pane == .home ? 0 : state.attentionCount(for: pane))
-                .tag(pane)
+            // Home stands apart from the settings panes, like the account row
+            // atop System Settings.
+            Section { row(.home) }
+            Section {
+                ForEach(LauncherPane.allCases.filter { $0 != .home }) { row($0) }
             }
         }
         .listStyle(.sidebar)
@@ -158,6 +155,18 @@ private struct LauncherSidebar: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
         }
+    }
+
+    private func row(_ pane: LauncherPane) -> some View {
+        Label {
+            Text(pane.rawValue)
+        } icon: {
+            pane.icon.environment(\.settingIconSize, 20)
+        }
+        // Roomier rows than the default sidebar are easier to click.
+        .padding(.vertical, 5)
+        .badge(pane == .home ? 0 : state.attentionCount(for: pane))
+        .tag(pane)
     }
 }
 
