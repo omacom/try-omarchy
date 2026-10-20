@@ -369,6 +369,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             checkForAppUpdates: { [weak self] in self?.checkForAppUpdates(nil) },
             permissionPromptShown: { UserDefaults.standard.bool(forKey: Self.permissionPromptShownKey) },
             setPermissionPromptShown: { UserDefaults.standard.set(true, forKey: Self.permissionPromptShownKey) },
+            firstBootCompleted: { UserDefaults.standard.bool(forKey: Self.firstBootCompletedKey) },
+            setFirstBootCompleted: { UserDefaults.standard.set(true, forKey: Self.firstBootCompletedKey) },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }
@@ -864,6 +866,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private static let permissionPromptShownKey = "LauncherPermissionPromptShown"
+    private static let firstBootCompletedKey = "LauncherFirstBootCompleted"
 
     private static var homeDirectory: String {
         FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path

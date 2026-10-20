@@ -160,6 +160,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let launch: () -> Void
     private let permissionPromptShown: () -> Bool
     private let setPermissionPromptShown: () -> Void
+    private let firstBootCompleted: () -> Bool
+    private let setFirstBootCompleted: () -> Void
     private let appReleaseActionTitle: () -> String
     private let checkForAppUpdates: () -> Void
     private let canResetStorage: Bool
@@ -245,6 +247,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         checkForAppUpdates: @escaping () -> Void = {},
         permissionPromptShown: @escaping () -> Bool = { true },
         setPermissionPromptShown: @escaping () -> Void = {},
+        firstBootCompleted: @escaping () -> Bool = { false },
+        setFirstBootCompleted: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -291,6 +295,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.launch = launch
         self.permissionPromptShown = permissionPromptShown
         self.setPermissionPromptShown = setPermissionPromptShown
+        self.firstBootCompleted = firstBootCompleted
+        self.setFirstBootCompleted = setFirstBootCompleted
         self.appReleaseActionTitle = appReleaseActionTitle
         self.checkForAppUpdates = checkForAppUpdates
 
@@ -371,6 +377,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     ) {
         state.launchInProgress = false
         state.isRunning = true
+        if !state.firstBootCompleted {
+            state.firstBootCompleted = true
+            setFirstBootCompleted()
+        }
         closeRunningSettings = closeSettings
         self.requestSettingsAction = requestSettingsAction
         // The VM has its own Cocoa process and may occupy a fullscreen Space.
@@ -649,6 +659,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             record: record, bundledPackage: ShellGuestPresentation.bundledPackageVersion()
         )
 
+        state.firstBootCompleted = firstBootCompleted()
         state.immersive = immersiveMode()
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()

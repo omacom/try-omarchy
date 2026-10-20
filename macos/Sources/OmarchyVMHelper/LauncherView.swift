@@ -207,9 +207,9 @@ private struct HomePane: View {
                 .padding(.horizontal, 8)
             }
 
-            if !state.pendingPermissions.isEmpty {
+            if !state.getStartedPermissions.isEmpty {
                 Section {
-                    PermissionRows(state: state, actions: actions, permissions: state.pendingPermissions)
+                    PermissionRows(state: state, actions: actions, permissions: state.getStartedPermissions)
                 } header: {
                     Text("Get Started")
                 } footer: {
@@ -412,7 +412,7 @@ private struct PermissionRows: View {
                 SettingRow(
                     icon: SettingIcon("mic.fill", .orange),
                     title: "Microphone",
-                    detail: ["Use your Mac microphone in Omarchy apps."]
+                    detail: ["Use your microphones inside Omarchy."]
                 ) {
                     PermissionControl(
                         presentation: state.microphone,
@@ -424,7 +424,7 @@ private struct PermissionRows: View {
                 SettingRow(
                     icon: SettingIcon("camera.fill", .green),
                     title: "Camera",
-                    detail: ["Use your Mac camera in Omarchy apps."]
+                    detail: ["Use your cameras inside Omarchy."]
                 ) {
                     PermissionControl(
                         presentation: state.camera,

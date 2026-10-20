@@ -250,6 +250,13 @@ struct StartMenuLauncherTests {
         menu.actions.launchOrDone()
         #expect(!menu.state.permissionPromptPresented)
         #expect(launchCount == 1)
+        #expect(menu.state.getStartedPermissions == [.accessibility, .microphone])
+
+        // After the first boot, Home stops walking through permissions and
+        // only missing Accessibility keeps the Permissions badge.
+        menu.virtualMachineDidStart {}
+        #expect(menu.state.getStartedPermissions.isEmpty)
+        #expect(menu.state.attentionCount(for: .permissions) == 1)
     }
 
     @Test("launching anyway from the permission prompt starts Omarchy")

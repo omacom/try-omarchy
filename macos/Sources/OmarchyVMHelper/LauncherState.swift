@@ -100,6 +100,7 @@ final class LauncherState {
     var guestReported = false
 
     var permissionPromptPresented = false
+    var firstBootCompleted = false
 
     var immersive = true
     /// Only a MacBook with a camera notch has the strip to use.
@@ -158,6 +159,12 @@ final class LauncherState {
         return permissions
     }
 
+    /// Home walks a new user through these until Omarchy first boots; after
+    /// that they live in Permissions.
+    var getStartedPermissions: [LauncherPermission] {
+        firstBootCompleted ? [] : pendingPermissions
+    }
+
     var attentionItems: [LauncherAttentionItem] {
         var items: [LauncherAttentionItem] = []
         if let problem = storage?.problem {
@@ -184,7 +191,12 @@ final class LauncherState {
 
     func attentionCount(for pane: LauncherPane) -> Int {
         attentionItems.filter { $0.pane == pane }.count
-            + (pane == .permissions ? pendingPermissions.count : 0)
+            + (pane == .permissions ? unansweredPermissionCount : 0)
+    }
+
+    /// Once Omarchy has booted, only missing Accessibility keeps asking.
+    private var unansweredPermissionCount: Int {
+        firstBootCompleted ? (accessibility.isGranted ? 0 : 1) : pendingPermissions.count
     }
 
     // MARK: Builders
