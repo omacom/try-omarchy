@@ -136,7 +136,7 @@ class CocoaCommandChordTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), digest[1])
         self.assertIn('"$command_chord_patch" "$command_chord_patch_sha256"', builder)
         chord = builder.index('patch -d "$source_dir" -p1 -f -i "$command_chord_patch"')
-        for earlier in ("iso_swap_patch", "injected_text_patch"):
+        for earlier in ("iso_swap_patch", "injected_text_patch", "notch_patch"):
             self.assertLess(builder.index(f'patch -d "$source_dir" -p1 -f -i "${earlier}"'), chord)
 
     def replay(self, scenario: str) -> str:

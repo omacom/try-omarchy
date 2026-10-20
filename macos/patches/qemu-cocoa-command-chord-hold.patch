@@ -1,7 +1,7 @@
 From: Try Omarchy contributors
 Subject: [PATCH] cocoa: hold guest Super for the whole Command chord
 
-Applies after the Try Omarchy Cocoa input patches, including injected text.
+Applies after the other Try Omarchy Cocoa patches.
 
 With full-grab, the HID event tap consumes Command's flagsChanged before
 AppKit records it. The next key can then arrive without
@@ -20,7 +20,7 @@ next Command event or focus change. See omacom/try-omarchy#181.
 diff --git a/ui/cocoa.m b/ui/cocoa.m
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -105,16 +105,33 @@ static void cocoa_switch(DisplayChangeListener *dcl,
+@@ -106,16 +106,33 @@ static void cocoa_switch(DisplayChangeListener *dcl,
      .dpy_cursor_define = cocoa_cursor_define,
  };
  static DisplayChangeListener dcl;
@@ -49,32 +49,32 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  static bool swap_opt_cmd;
  static bool full_grab_enabled;
  static bool immersive_mode_enabled = true;
+ static bool notch_panel_enabled = true;
+ @class QemuCocoaView;
+ extern QemuCocoaView *cocoaView;
  static NSMenuItem *fullScreenMenuItem;
  
- static bool zoom_interpolation;
- static NSTextField *pauseLabel;
- 
-@@ -422,16 +439,19 @@ @interface QemuCocoaView : NSView
-     CGColorSpaceRef colorspace;
-     CALayer *cursorLayer;
-     QEMUCursor *cursor;
-     int mouseX;
+@@ -437,16 +454,19 @@ @interface QemuCocoaView : NSView
      int mouseY;
      bool mouseOn;
      CocoaPinch pinch;
      CocoaScroll scroll;
+     CocoaReveal notchReveal;
+     bool notchCovered;
+     bool notchLeaving;
+     bool menuTracking;
 +    /* Host Command keys currently held down in the guest. */
 +    BOOL leftCommandGuestDown;
 +    BOOL rightCommandGuestDown;
  }
+ - (bool) coversNotch;
+ - (void) updateNotchLevel;
+ - (void) updateNotchReveal;
+ - (void) setNotchLeaving:(bool)leaving;
+ - (void) setMenuTracking:(bool)tracking;
  - (void) grabMouse;
  - (void) ungrabMouse;
- - (void) setFullGrab:(id)sender;
- - (void) handleMonitorInput:(NSEvent *)event;
- - (bool) handleEvent:(NSEvent *)event;
- - (bool) handleEventLocked:(NSEvent *)event;
- - (void) notifyMouseModeChange;
-@@ -959,16 +979,28 @@ - (void) setFullGrab:(id)sender
+@@ -1208,16 +1228,28 @@ - (void) setFullGrab:(id)sender
      CFRunLoopAddSource(runLoop, tapEventsSrc, kCFRunLoopDefaultMode);
      CFRelease(tapEventsSrc);
  }
@@ -103,7 +103,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
      // if the control key is down
      if ([event modifierFlags] & NSEventModifierFlagControl) {
-@@ -1230,24 +1262,35 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -1479,24 +1511,35 @@ - (bool) handleEventLocked:(NSEvent *)event
          if (swap_opt_cmd) {
              qkbd_state_key_event(kbd, KEY_LEFTMETA, false);
              qkbd_state_key_event(kbd, KEY_RIGHTMETA, false);
@@ -140,7 +140,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
      switch ([event type]) {
          case NSEventTypeFlagsChanged:
-@@ -1291,39 +1334,39 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -1540,39 +1583,39 @@ - (bool) handleEventLocked:(NSEvent *)event
                          if (swap_opt_cmd) {
                              [self toggleKey:KEY_RIGHTMETA];
                          } else {
@@ -198,7 +198,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
              // Keep Command chords with the host unless the focused guest
              // captured the keyboard.
              if (![self isKeyboardCaptured] &&
-@@ -1621,16 +1664,18 @@ - (void) reenableEventTap
+@@ -1888,16 +1931,18 @@ - (void) reenableEventTap
   * key up events for those keys after we have lost focus.
   */
  - (void) raiseAllKeys
