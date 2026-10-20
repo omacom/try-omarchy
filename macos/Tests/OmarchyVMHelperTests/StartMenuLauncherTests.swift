@@ -140,7 +140,6 @@ struct StartMenuLauncherTests {
         menu.changeStartAutomatically(false)
         #expect(!automaticStart)
         #expect(menu.state.runningActionsEnabled)
-        #expect(!menu.state.resetEnabled)
         #expect(!menu.state.manageStorageEnabled)
 
         menu.shutdownDidBegin()
@@ -406,7 +405,6 @@ struct StartMenuLauncherTests {
         defer { menu.dismiss() }
         menu.prepareForPresentation(visibleFrame: nil)
         #expect(!menu.state.manageStorageEnabled)
-        #expect(menu.state.resetEnabled)
 
         status = StorageLocationMenuState(
             containerPath: "/Volumes/Gone/vm", stateRoot: nil, displayPath: "/Volumes/Gone/vm", volumeName: nil,
@@ -434,63 +432,32 @@ struct StartMenuLauncherTests {
             == "Networking helper setup required")
     }
 
-    @Test("a reset request opens the virtual machine pane and locks launching")
-    func resetLocksLaunch() {
-        _ = NSApplication.shared
-        var resets = 0
-        let menu = makeMenu(
-            storageState: {
-                StorageLocationMenuState(
-                    containerPath: "/Volumes/Gone/vm", stateRoot: nil, displayPath: "/Volumes/Gone/vm",
-                    volumeName: nil, isDefault: false, isExternal: true,
-                    problem: "The drive is not connected.", warning: nil, isEnvironmentOverride: false
-                )
-            },
-            resetStorage: { resets += 1 }
-        )
-        defer { menu.dismiss() }
-        menu.prepareForPresentation(visibleFrame: nil)
-        // An unreachable chosen folder goes straight to the controller.
-        menu.promptForReset()
-        #expect(menu.state.selectedPane == .virtualMachine)
-        #expect(resets == 1)
-        #expect(menu.state.resetInProgress)
-        #expect(!menu.state.launchEnabled)
-        menu.resetDidProgress(to: .deleting)
-        #expect(menu.state.resetPhase == .deleting)
-        menu.resetDidAbort()
-        #expect(!menu.state.resetInProgress)
-        #expect(menu.state.launchEnabled)
-    }
-
-    @Test("reset asks once without typed confirmation and only resets when confirmed", arguments: [false, true])
-    func resetConfirmation(confirmed: Bool) {
+    @Test("reset settings asks once and keeps settings when cancelled", arguments: [false, true])
+    func settingsReset(confirmed: Bool) {
         _ = NSApplication.shared
         var resets = 0
         var shown: [String] = []
         let menu = makeMenu(
-            resetStorage: { resets += 1 },
-            presentResetConfirmation: { alert, _, decide in
+            resetSettings: { resets += 1 },
+            presentSettingsResetConfirmation: { alert, _, decide in
                 shown.append(alert.messageText)
-                #expect(alert.accessoryView == nil)
                 decide(confirmed)
             }
         )
         defer { menu.dismiss() }
         menu.prepareForPresentation(visibleFrame: nil)
-        menu.actions.reset()
-        #expect(shown == ["Reset Omarchy to factory settings?"])
+        menu.actions.resetSettings()
+        #expect(shown == ["Reset all settings?"])
         #expect(resets == (confirmed ? 1 : 0))
-        #expect(menu.state.resetInProgress == confirmed)
+        #expect(menu.state.settingsEnabled)
     }
 
-    @Test("a disposable VM cannot be reset and hides its location")
+    @Test("a disposable VM cannot be managed and hides its location")
     func disposableVM() {
         _ = NSApplication.shared
         let menu = makeMenu(canResetStorage: false, storageLocation: { nil })
         defer { menu.dismiss() }
         menu.prepareForPresentation(visibleFrame: nil)
-        #expect(!menu.state.resetEnabled)
         #expect(menu.state.storage == nil)
         #expect(!menu.state.manageStorageEnabled)
     }
@@ -504,7 +471,7 @@ struct StartMenuLauncherTests {
         cameraStatus: @escaping () -> CameraAuthorizationState = { .authorized },
         requestPermission: ((@escaping (Bool) -> Void) -> Void)? = nil,
         usbState: @escaping () -> USBDeviceMenuState = { .disabled },
-        resetStorage: @escaping () -> Void = {},
+        resetSettings: @escaping () -> Void = {},
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
@@ -512,7 +479,7 @@ struct StartMenuLauncherTests {
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
-        presentResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { _, _, _ in },
+        presentSettingsResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { _, _, _ in },
         permissionPromptShown: @escaping () -> Bool = { true },
         setPermissionPromptShown: @escaping () -> Void = {},
         launch: @escaping () -> Void = {}
@@ -530,12 +497,11 @@ struct StartMenuLauncherTests {
             canResetStorage: canResetStorage,
             storageLocation: storageLocation ?? { storageState().displayPath ?? "~/Library/Application Support/Try Omarchy" },
             storageLocationURL: { storageState().containerPath.map { URL(fileURLWithPath: $0) } },
-            storageSpaceEstimate: { nil },
             storageLocationStatus: storageState,
             validateStorageLocation: { _ in nil },
             chooseStorageLocation: { _ in nil },
             useDefaultStorageLocation: {},
-            resetStorage: resetStorage,
+            resetSettings: resetSettings,
             sharedFolderStatus: { .disabled },
             chooseSharedFolder: { _ in nil },
             setSharedFolderEnabled: { _ in },
@@ -552,7 +518,7 @@ struct StartMenuLauncherTests {
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,
             confirmAutomaticStartup: confirmAutomaticStartup,
-            presentResetConfirmation: presentResetConfirmation,
+            presentSettingsResetConfirmation: presentSettingsResetConfirmation,
             permissionPromptShown: permissionPromptShown,
             setPermissionPromptShown: setPermissionPromptShown,
             launch: launch

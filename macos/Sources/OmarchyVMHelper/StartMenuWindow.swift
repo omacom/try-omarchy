@@ -32,8 +32,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let requestAccessibility: () -> Void
     private let requestMicrophone: (@escaping (Bool) -> Void) -> Void
     private let requestCamera: (@escaping (Bool) -> Void) -> Void
-    private let storageSpaceEstimate: () -> String?
-    private let resetStorage: () -> Void
+    private let resetSettings: () -> Void
     private let sharedFolderStatus: () -> SharedFolderMenuState
     private let chooseSharedFolder: (String) -> String?
     private let setSharedFolderEnabled: (Bool) -> Void
@@ -59,7 +58,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
     private let confirmAutomaticStartup: (NSAlert) -> NSApplication.ModalResponse
-    private let presentResetConfirmation: (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void
+    private let presentSettingsResetConfirmation: (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void
     private let launch: () -> Void
     private let permissionPromptShown: () -> Bool
     private let setPermissionPromptShown: () -> Void
@@ -73,6 +72,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let storageLocationStatus: () -> StorageLocationMenuState
     private let validateStorageLocation: (String) -> String?
     private let chooseStorageLocation: (String) -> String?
+    private let deleteStorageLocation: VMStorageEditor.Delete
     private let discardStorageLocation: VMStorageEditor.Delete
     private let moveStorageLocation: VMStorageEditor.Move
     private let useDefaultStorageLocation: () -> Void
@@ -82,7 +82,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private var controlsBusy: Bool { state.controlsBusy }
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
-        window.isKeyWindow && !controlsBusy && !state.resetInProgress
+        window.isKeyWindow && !controlsBusy
             && !state.permissionRequestInFlight && !state.permissionPromptPresented
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
@@ -92,8 +92,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         onAppReleasePromptOpportunity?()
     }
     private var prelaunchControlsLocked: Bool { state.prelaunchLocked }
-    private var pendingResetSpaceEstimate: String?
-    private var resetConfirmation: NSAlert?
+    private var settingsResetConfirmation: NSAlert?
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
     private(set) var usbDeviceEditor: USBDeviceEditor?
@@ -113,12 +112,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         canResetStorage: Bool,
         storageLocation: @escaping () -> String?,
         storageLocationURL: @escaping () -> URL?,
-        storageSpaceEstimate: @escaping () -> String?,
         storageLocationStatus: @escaping () -> StorageLocationMenuState,
         validateStorageLocation: @escaping (String) -> String?,
         chooseStorageLocation: @escaping (String) -> String?,
         useDefaultStorageLocation: @escaping () -> Void,
-        resetStorage: @escaping () -> Void,
+        resetSettings: @escaping () -> Void = {},
+        deleteStorageLocation: @escaping VMStorageEditor.Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         discardStorageLocation: @escaping VMStorageEditor.Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         moveStorageLocation: @escaping VMStorageEditor.Move = { _, _, _, completion in completion("VM relocation is unavailable.") },
         sharedFolderStatus: @escaping () -> SharedFolderMenuState,
@@ -145,7 +144,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() },
-        presentResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { alert, window, decide in
+        presentSettingsResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { alert, window, decide in
             alert.beginSheetModal(for: window) { decide($0 == .alertFirstButtonReturn) }
         },
         appVersionLabel: String = InstalledAppRelease.current.label,
@@ -166,14 +165,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.canResetStorage = canResetStorage
         self.storageLocation = storageLocation
         self.storageLocationURL = storageLocationURL
-        self.storageSpaceEstimate = storageSpaceEstimate
         self.storageLocationStatus = storageLocationStatus
         self.validateStorageLocation = validateStorageLocation
         self.chooseStorageLocation = chooseStorageLocation
+        self.deleteStorageLocation = deleteStorageLocation
         self.discardStorageLocation = discardStorageLocation
         self.moveStorageLocation = moveStorageLocation
         self.useDefaultStorageLocation = useDefaultStorageLocation
-        self.resetStorage = resetStorage
+        self.resetSettings = resetSettings
         self.sharedFolderStatus = sharedFolderStatus
         self.chooseSharedFolder = chooseSharedFolder
         self.setSharedFolderEnabled = setSharedFolderEnabled
@@ -198,7 +197,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
         self.confirmAutomaticStartup = confirmAutomaticStartup
-        self.presentResetConfirmation = presentResetConfirmation
+        self.presentSettingsResetConfirmation = presentSettingsResetConfirmation
         self.launch = launch
         self.permissionPromptShown = permissionPromptShown
         self.setPermissionPromptShown = setPermissionPromptShown
@@ -271,7 +270,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
-            reset: { [weak self] in self?.confirmReset() },
+            resetSettings: { [weak self] in self?.confirmSettingsReset() },
             restart: { [weak self] in self?.requestShutdown(.restart) },
             shutDown: { [weak self] in self?.requestShutdown(.manage) },
             checkForUpdates: { [weak self] in self?.checkForAppUpdates() }
@@ -316,7 +315,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         alert.messageText = action == .restart ? "Restart Try Omarchy?" : "Shut down Omarchy to manage this VM?"
         alert.informativeText = action == .restart
             ? "Save your work first. Omarchy will shut down and start again with your saved settings."
-            : "Save your work first. The settings window will stay open so you can change the VM location or reset it."
+            : "Save your work first. The settings window will stay open so you can manage this VM."
         alert.addButton(withTitle: action == .restart ? "Restart" : "Shut Down")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -366,7 +365,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func refreshPermissionStatus() {
-        guard !controlsBusy, !state.resetInProgress else { return }
+        guard !controlsBusy else { return }
         updatePermissionState()
     }
 
@@ -392,18 +391,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
     }
 
-    func promptForReset() {
+    /// A reset requested on the command line opens Manage VMs and asks to
+    /// move the selected VM to Trash, so the next launch starts fresh.
+    func promptForDeletion() {
         guard canResetStorage else { return }
         state.selectedPane = .virtualMachine
         window.makeKeyAndOrderFront(nil)
-        confirmReset()
+        showStorageActions()
+        storageEditor?.deleteSelectedVM()
     }
 
     func dismiss() {
-        if let sheet = resetConfirmation?.window, sheet.sheetParent != nil {
+        if let sheet = settingsResetConfirmation?.window, sheet.sheetParent != nil {
             window.endSheet(sheet, returnCode: .cancel)
         }
-        resetConfirmation = nil
+        settingsResetConfirmation = nil
         portForwardingEditor?.dismiss()
         portForwardingEditor = nil
         resourceEditor?.dismiss()
@@ -435,12 +437,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.launchDownload = nil
     }
 
-    func resetDidProgress(to phase: VMResetPhase) {
-        guard state.resetInProgress, state.resetPhase != phase else { return }
-        state.resetPhase = phase
-        announce(phase.buttonTitle)
-    }
-
     private func announce(_ text: String) {
         NSAccessibility.post(
             element: window,
@@ -452,29 +448,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
     }
 
-    func resetDidFinish(errorMessage: String?) {
-        guard state.resetInProgress else { return }
-        state.resetInProgress = false
-        refresh()
-
-        let alert = NSAlert()
-        if let errorMessage {
-            alert.alertStyle = .critical
-            alert.messageText = "Omarchy couldn’t be reset"
-            alert.informativeText = errorMessage
-        } else {
-            alert.alertStyle = .informational
-            alert.messageText = "Try Omarchy has been reset"
-            alert.informativeText = "The previous VM is in Trash. A fresh VM will be prepared on the next launch."
-            if let estimate = pendingResetSpaceEstimate {
-                alert.informativeText += " Empty Trash to free up to \(estimate)."
-            }
-        }
-        pendingResetSpaceEstimate = nil
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: window)
-    }
-
     /// Clears the launching state when the controller stopped before the
     /// launcher was ever started. The controller presents its own explanation.
     func launchDidAbort() {
@@ -482,16 +455,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.launchInProgress = false
         state.launchDownload = nil
         show()
-    }
-
-    /// Clears the resetting state when the controller refused to start the
-    /// reset at all. Deliberately silent, and deliberately not
-    /// `resetDidFinish(errorMessage: nil)` — nothing was erased, so claiming
-    /// "Try Omarchy has been reset" would be a lie about a destructive action.
-    func resetDidAbort() {
-        guard state.resetInProgress else { return }
-        state.resetInProgress = false
-        refresh()
     }
 
     func launchDidFail(errorMessage: String) {
@@ -660,7 +623,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func showStorageActions() {
-        guard canResetStorage, !prelaunchControlsLocked, !state.resetInProgress,
+        guard canResetStorage, !prelaunchControlsLocked,
               !storageLocationStatus().isEnvironmentOverride, storageEditor == nil else { return }
         let editor = VMStorageEditor(
             selectedRoot: storageLocationURL,
@@ -672,6 +635,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 guard let self else { completion("The launcher was closed."); return }
                 self.state.storageMoveInProgress = true
                 self.moveStorageLocation(source, destination, progress) { [weak self] error in
+                    self?.state.storageMoveInProgress = false
+                    completion(error)
+                }
+            },
+            delete: { [weak self] source, identity, completion in
+                guard let self else { completion("The launcher was closed."); return }
+                self.state.storageMoveInProgress = true
+                self.deleteStorageLocation(source, identity) { [weak self] error in
                     self?.state.storageMoveInProgress = false
                     completion(error)
                 }
@@ -695,7 +666,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func beginSharedFolderSelection() {
-        guard !controlsBusy, !state.resetInProgress, !state.permissionRequestInFlight else { return }
+        guard !controlsBusy, !state.permissionRequestInFlight else { return }
         let panel = NSOpenPanel()
         panel.prompt = "Share"
         panel.canChooseDirectories = true
@@ -721,13 +692,13 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func changeSharedFolderEnabled(_ isEnabled: Bool) {
-        guard !controlsBusy, !state.resetInProgress else { return }
+        guard !controlsBusy else { return }
         setSharedFolderEnabled(isEnabled)
         refresh()
     }
 
     private func beginUSBDeviceSelection() {
-        guard !controlsBusy, !state.resetInProgress, !state.permissionRequestInFlight,
+        guard !controlsBusy, !state.permissionRequestInFlight,
               usbDeviceEditor == nil, window.attachedSheet == nil else { return }
         let usbState = usbDeviceStatus()
         let editor = USBDeviceEditor(
@@ -744,13 +715,13 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func changeUSBDeviceEnabled(_ isEnabled: Bool) {
-        guard !controlsBusy, !state.resetInProgress, let device = usbDeviceStatus().device else { return }
+        guard !controlsBusy, let device = usbDeviceStatus().device else { return }
         saveUSBDevice(USBDevicePreference(device: device, isEnabled: isEnabled))
         refresh()
     }
 
     private func beginNetworkConfiguration() {
-        guard !controlsBusy, !state.resetInProgress, networkEditor == nil else { return }
+        guard !controlsBusy, networkEditor == nil else { return }
         let editor = NetworkEditor(preferences: networkPreferences(), interfaces: VMBridgeInterfaces.available(),
             identity: networkIdentity, save: saveNetworkPreferences, didClose: { [weak self] in
                 self?.networkEditor = nil
@@ -761,7 +732,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func beginPortForwardingConfiguration() {
-        guard !controlsBusy, !state.resetInProgress, portForwardingEditor == nil else { return }
+        guard !controlsBusy, portForwardingEditor == nil else { return }
         let editor = PortForwardingEditor(
             mappings: portForwardingStatus(),
             save: { [weak self] mappings in
@@ -781,7 +752,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func beginResourceConfiguration() {
-        guard !controlsBusy, !state.resetInProgress, !state.permissionRequestInFlight,
+        guard !controlsBusy, !state.permissionRequestInFlight,
               resourceEditor == nil, window.attachedSheet == nil else { return }
         let editor = VMResourceEditor(
             resources: resources(),
@@ -798,7 +769,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func changeImmersiveMode(_ isEnabled: Bool) {
-        guard !controlsBusy, !state.resetInProgress else { return }
+        guard !controlsBusy else { return }
         setImmersiveMode(isEnabled)
         state.immersive = isEnabled
         NSAccessibility.post(
@@ -812,7 +783,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func changeNotchMode(_ isEnabled: Bool) {
-        guard !controlsBusy, !state.resetInProgress else { return }
+        guard !controlsBusy else { return }
         setUsesNotch(isEnabled)
         state.usesNotch = isEnabled
         NSAccessibility.post(
@@ -825,62 +796,32 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
     }
 
-    private func confirmReset() {
-        guard canResetStorage,
-              !prelaunchControlsLocked,
-              !state.resetInProgress,
-              !state.permissionRequestInFlight,
-              resetConfirmation == nil,
+    /// Settings return to their defaults; the VM and which VM is selected
+    /// stay as they are.
+    private func confirmSettingsReset() {
+        guard state.settingsEnabled,
+              settingsResetConfirmation == nil,
               window.attachedSheet == nil else { return }
-        let location = storageLocationStatus()
-        if !location.isDefault, location.problem != nil {
-            // The chosen folder cannot be reached, so which VM a reset would
-            // erase is exactly what is in doubt. Hand straight to the
-            // controller, which owns the preference and can explain and offer
-            // to switch, rather than asking the user to confirm erasing a
-            // workspace we would only be guessing the identity of.
-            beginReset(estimate: nil)
-            return
-        }
-        // Reset only moves the VM to Trash, so a plain confirmation is enough;
-        // a mistaken reset is recovered from Trash.
-        let estimate = storageSpaceEstimate()
-        var detail = "Your VM, with its apps, files, and accounts, moves to Trash. The next launch starts a fresh Omarchy. Your launcher settings are kept."
-        // With a chosen data folder there can be more than one workspace on the
-        // Mac, so say which one is about to be reset.
-        if !location.isDefault, let displayPath = location.displayPath {
-            let volume = location.volumeName.map { "\($0), " } ?? ""
-            detail += " This resets the VM stored at \(volume)\(displayPath)."
-        }
-        if let estimate {
-            detail += " Empty Trash to free up to \(estimate)."
-        }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Reset Omarchy to factory settings?"
-        alert.informativeText = detail
-        let reset = alert.addButton(withTitle: "Reset")
+        alert.messageText = "Reset all settings?"
+        alert.informativeText = "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, and Skip Launcher return to their defaults. Your VM and its files are not changed."
+        let reset = alert.addButton(withTitle: "Reset Settings")
         reset.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
-        resetConfirmation = alert
-        presentResetConfirmation(alert, window) { [weak self, weak alert] confirmed in
-            guard let self, let alert, resetConfirmation === alert else { return }
-            resetConfirmation = nil
-            guard confirmed else { return }
-            beginReset(estimate: estimate)
+        settingsResetConfirmation = alert
+        presentSettingsResetConfirmation(alert, window) { [weak self, weak alert] confirmed in
+            guard let self, let alert, settingsResetConfirmation === alert else { return }
+            settingsResetConfirmation = nil
+            guard confirmed, state.settingsEnabled else { return }
+            resetSettings()
+            refresh()
+            announce("Settings reset to their defaults.")
         }
-    }
-
-    private func beginReset(estimate: String?) {
-        pendingResetSpaceEstimate = estimate
-        state.resetPhase = .checking
-        state.resetInProgress = true
-        refresh()
-        resetStorage()
     }
 
     func changeStartAutomatically(_ enabled: Bool) {
-        guard !controlsBusy, !state.resetInProgress else { return }
+        guard !controlsBusy else { return }
         if enabled {
             // Keep the preference off until the user confirms.
             let alert = NSAlert()
@@ -896,7 +837,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             state.automaticStartupConfirmationInProgress = true
             let confirmed = confirmAutomaticStartup(alert) == .alertFirstButtonReturn
             state.automaticStartupConfirmationInProgress = false
-            guard confirmed, !controlsBusy, !state.resetInProgress else {
+            guard confirmed, !controlsBusy else {
                 state.startAutomatically = startAutomatically()
                 return
             }
@@ -916,7 +857,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     /// and camera, so the first launch that still lacks one offers them once.
     private func requestLaunch() {
         guard !prelaunchControlsLocked,
-              !state.resetInProgress,
               !state.permissionRequestInFlight else { return }
         if !state.pendingPermissions.isEmpty, !permissionPromptShown() {
             setPermissionPromptShown()
@@ -928,7 +868,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     @objc func launchOmarchy() {
         guard !prelaunchControlsLocked,
-              !state.resetInProgress,
               !state.permissionRequestInFlight else { return }
         state.launchPhase = .checking
         state.launchDownload = nil

@@ -133,5 +133,43 @@ struct VMStorageEditorTests {
         #expect(selected.path == other.path)
         #expect(selectionCount == 1)
     }
-
+    @Test("Deletion requires confirmation, disables choices while running, and reports the result")
+    func deletionLifecycle() throws {
+        let original = try savedVM()
+        defer { try? FileManager.default.removeItem(at: original) }
+        var confirmed = false
+        var complete: ((String?) -> Void)?
+        var closed = false
+        let editor = VMStorageEditor(selectedRoot: { original }, isDefault: { false }, validate: { _ in nil },
+            select: { _ in nil }, useDefault: {}, move: { _, _, _, _ in },
+            delete: { source, identity, completion in
+                #expect(source == original.path)
+                #expect(identity == (try? VMWorkspaceTransfer.deletionIdentity(original.path)))
+                complete = completion
+            }, confirmDeletion: { url in #expect(url.path == original.path); return confirmed },
+            didClose: { closed = true })
+        defer { editor.dismiss() }
+        editor.deleteSelectedVM()
+        #expect(complete == nil)
+        #expect(!editor.deleting)
+        confirmed = true
+        editor.deleteSelectedVM()
+        #expect(editor.deleting)
+        #expect(!button("vm-storage-done", in: editor).isEnabled)
+        #expect(!button("vm-storage-existing", in: editor).isEnabled)
+        #expect(!button("vm-storage-delete", in: editor).isEnabled)
+        editor.dismiss()
+        #expect(!closed)
+        complete?("Trash is unavailable")
+        #expect(!editor.deleting)
+        #expect(text("vm-storage-status", in: editor) == "Trash is unavailable")
+        #expect(button("vm-storage-delete", in: editor).isEnabled)
+        editor.deleteSelectedVM()
+        try FileManager.default.removeItem(at: original)
+        complete?(nil)
+        #expect(text("vm-storage-status", in: editor).contains("VM moved to Trash"))
+        #expect(text("vm-storage-selection-detail", in: editor).contains("moved to Trash"))
+        #expect(!button("vm-storage-delete", in: editor).isEnabled)
+        #expect(button("vm-storage-done", in: editor).isEnabled)
+    }
 }

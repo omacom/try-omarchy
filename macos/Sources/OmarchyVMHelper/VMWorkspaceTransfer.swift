@@ -152,47 +152,6 @@ enum VMWorkspaceTransfer {
         try recycle(URL(fileURLWithPath: source, isDirectory: true))
     }
 
-    /// Reset keeps the folder and its factory cache but sends the VM itself
-    /// to Trash, wrapped with the folder marker so the recovered copy opens
-    /// again with Choose Existing VM. The next launch creates a fresh VM.
-    static func trashForReset(_ path: String, expectedIdentity: String, now: Date = Date(),
-        recycle: (URL) throws -> Void = { url in
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-        }) throws {
-        let source = try StorageLocationPolicy.validate(path, metrics: nil, probe: URLVolumeProbe()).stateRoot
-        let lock = try acquireWorkspaceLock(source)
-        defer { close(lock) }
-        _ = try manifest(root: source)
-        guard try deletionIdentity(source) == expectedIdentity else {
-            throw HelperError.io("The selected VM changed after confirmation. Nothing was reset. Review it and try again.")
-        }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        let root = URL(fileURLWithPath: source, isDirectory: true)
-        let wrapper = root.appendingPathComponent("Omarchy VM \(formatter.string(from: now))", isDirectory: true)
-        let shell = root.appendingPathComponent("shell", isDirectory: true)
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: wrapper, withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o700])
-        do {
-            try fileManager.copyItem(at: root.appendingPathComponent(StorageLocationPolicy.rootMarkerName),
-                to: wrapper.appendingPathComponent(StorageLocationPolicy.rootMarkerName))
-            try fileManager.moveItem(at: shell, to: wrapper.appendingPathComponent("shell"))
-        } catch {
-            try? fileManager.removeItem(at: wrapper)
-            throw HelperError.io("Could not prepare the VM for Trash. Nothing was reset. (\(error.localizedDescription))")
-        }
-        do {
-            try recycle(wrapper)
-        } catch {
-            // Leave the VM exactly where the launcher expects it.
-            try? fileManager.moveItem(at: wrapper.appendingPathComponent("shell"), to: shell)
-            try? fileManager.removeItem(at: wrapper)
-            throw HelperError.io("Could not move the VM to Trash. Nothing was reset. (\(error.localizedDescription))")
-        }
-    }
-
     /// Takes the launcher's lock (run-qemu-gpu.sh holds it with lockf, which
     /// conflicts with this fcntl lock), so a running VM is never copied or moved.
     private static func acquireWorkspaceLock(_ source: String) throws -> Int32 {

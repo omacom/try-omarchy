@@ -28,13 +28,13 @@ against its SHA-256 digest before it is used. The volume needs room for the
 image and the prepared disk (about 15 GB); the download stops with 1 GB still
 free rather than filling the disk.
 
-By default, every launch begins at the launcher. Enable **Skip launcher** to start Omarchy using your saved settings on subsequent launches. A confirmation explains how to return to the launcher; choose **OK** to enable **Skip launcher** or **Cancel** to leave it off. Hold **Option** while opening the app to show the launcher again and change settings or turn **Skip launcher** off. You can also open **Setup → Try Omarchy Settings** inside Omarchy. Skip launcher is saved with the VM workspace; deleting that workspace clears the choice. A missing VM disk always shows the launcher, even if its settings file remains. Reset requests still show the confirmation flow. Startup checks still show any error dialogs.
+By default, every launch begins at the launcher. Enable **Skip launcher** to start Omarchy using your saved settings on subsequent launches. A confirmation explains how to return to the launcher; choose **OK** to enable **Skip launcher** or **Cancel** to leave it off. Hold **Option** while opening the app to show the launcher again and change settings or turn **Skip launcher** off. You can also open **Setup → Try Omarchy Settings** inside Omarchy. Skip launcher is saved with the VM workspace; deleting that workspace clears the choice. A missing VM disk always shows the launcher, even if its settings file remains. Reset requests still open **Manage VMs** to confirm deleting the VM. Startup checks still show any error dialogs.
 
 While that menu is open, Try Omarchy behaves like a regular Mac app. **Try Omarchy → Settings…** (**Command-comma**) brings the launcher or its open editor forward without discarding drafts. The menus also provide standard text editing, Services, Hide Others, Show All, and window commands, including Bring All to Front. **Help** opens the user guide, maintenance and recovery notes, or the issue tracker in your browser. After the VM starts, that native app chrome steps aside for Omarchy. **Immersive** is on by default, so Omarchy opens Full Screen with the Mac menu bar and Dock hidden. Turn it off to open a resizable window; if you later enter Full Screen, the Mac menu bar and Dock remain available at the screen edges. Whenever the Omarchy window is focused, Command belongs to the guest as Super in either mode; Accessibility permission lets system shortcuts such as Command-Space reach it before macOS. Microphone and camera access are optional. The first launch takes longer while the app prepares Linux and starts Omarchy's account provisioning.
 
 Inside Omarchy, choose **Setup → Try Omarchy Settings**, search for **Try Omarchy Settings**, or run `omarchy-native-settings` to reopen the Mac settings window. You can change **Skip launcher**, permissions, CPU, memory, sharing, port forwarding, and immersive mode here. CPU, memory, sharing, ports, and immersive mode are saved for the next launch; **Restart Omarchy** shuts down Linux and starts a new VM process to apply them. Save your work first. A disposable VM keeps its disk across this restart until you close the app.
 
-For VM location and reset, choose **Shut Down**. The settings window stays open even with **Skip launcher** enabled; reset still asks for confirmation. **Done** or closing the running settings window returns to Omarchy without stopping it.
+To move, switch, or delete the VM, choose **Shut Down**. The settings window stays open even with **Skip launcher** enabled; deleting still asks for confirmation. **Done** or closing the running settings window returns to Omarchy without stopping it.
 
 Restarting from inside Omarchy reboots the guest in the same Try Omarchy app.
 Shutting down Omarchy closes the app and leaves it closed.
@@ -458,7 +458,7 @@ You can then use `ssh omarchy`, and the same alias works with `scp`, `rsync`,
 Git, and VS Code Remote SSH. If you edit the preset's Mac port, substitute that
 port in every command.
 
-Factory Reset creates a new guest host key, and every ephemeral VM has its own
+A fresh VM after deletion creates a new guest host key, and every ephemeral VM has its own
 disposable host key. If OpenSSH reports that the key for the reused endpoint
 changed, remove only that endpoint's old entry and reconnect to verify the new
 fingerprint:
@@ -516,7 +516,7 @@ prompts are canceled after 55 seconds, before the guest's 65-second timeout.
 Late responses are discarded without extending the current request's deadline.
 
 Enrollment persists across guest and Mac restarts for the same persistent VM,
-Mac, and macOS account. Factory Reset, moving the VM to another Mac or account,
+Mac, and macOS account. Deleting the VM for a fresh one, moving the VM to another Mac or account,
 or changing the enrolled Touch ID fingerprint set requires re-pairing. Disabling
 removes the guest enrollment and, while the host bridge is available, its wrapped
 Secure Enclave key representation.
@@ -620,8 +620,8 @@ Normal launches keep one persistent VM under
 in `shell/`, and the decompressed factory disk, shared by every new VM, in
 `shell-factory/`. Removing or updating the app does not remove or replace this
 data. The VM boots its own kernel and updates itself. A newer app's factory
-image is downloaded only to create a new VM, after a confirmed **Reset
-Omarchy**, or for an ephemeral launch, and removed once the VM has started.
+image is downloaded only to create a new VM, after the VM is deleted, or for
+an ephemeral launch, and removed once the VM has started.
 
 VMs created by earlier versions of the app, which booted a kernel from the Mac,
 are not launched by this version. Their files (`disks/`, `boot/`) stay in the
@@ -644,9 +644,7 @@ browse it with `--open` and copy what you want by hand. `--packages` installs
 the packages you installed yourself in the old VM; those not in Omarchy's
 repositories (from the AUR, say) are listed for `yay`. When you have
 everything, delete `disks/` and `boot/` from the storage folder to detach the
-old disk and free its space. **Reset Omarchy** leaves them alone.
-Reset asks for confirmation once; cancelling returns to the start menu without
-changing the VM.
+old disk and free its space. Deleting the VM leaves them alone.
 
 ### Guest console log
 
@@ -681,11 +679,13 @@ menu so you can roll back. `omarchy-channel-set` switches channels when
 Omarchy publishes another one for ARM. Updating the Mac app does not change
 these.
 
-A confirmed reset is the deliberate way to start again from the newest
-bundled factory. Reset moves the saved VM to macOS Trash as an `Omarchy VM …`
-folder, keeping the launcher settings stored beside it; the next launch prepares
-its replacement. To undo a mistaken reset, drag that folder out of Trash and
-select it with **Choose Existing VM…**. Empty Trash to free its space.
+To start again from the newest bundled factory, delete the VM in **Manage
+VMs**; the next launch in the default folder prepares its replacement. Deleting
+moves the VM to macOS Trash, so **Put Back** restores a mistake until you empty
+Trash. **Virtual Machine → Reset Settings…** is separate: it returns resources,
+networking, port forwarding, the shared folder, USB device, audio devices,
+Immersive Mode, Camera Notch, and Skip Launcher to their defaults and leaves
+the VM untouched.
 
 ### Updating integrations
 
@@ -713,6 +713,10 @@ launch will do:
   verification progress, then the new selected folder.
 - **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
   fresh VM, created on the next launch. The previously selected VM is kept.
+- **Delete the selected VM → Delete VM…** asks once, then moves the whole VM
+  folder to macOS Trash; restore it with **Put Back**. In the default folder the
+  next launch starts a fresh Omarchy; otherwise choose another VM or an empty
+  folder to continue. A running VM cannot be deleted.
 - **Use Default Folder** selects
   `~/Library/Application Support/Try Omarchy/VM/v1` again. If that VM has been
   deleted, the next launch creates a fresh VM there.
@@ -744,9 +748,9 @@ the original in Trash until you have booted and checked the relocated VM.
   eject while the VM holds the disk, but pulling the cable can damage it. If the
   volume does disappear, Omarchy shuts the VM down instead of writing on.
 - **If the drive is not connected, Omarchy will not quietly use the default VM
-  instead.** Launching offers to switch back to the default folder; resetting
-  refuses outright, so a reset can never erase a workspace other than the one
-  you confirmed. Opening the folder from the start menu will not recreate it on
+  instead.** Launching offers to switch back to the default folder; deleting
+  refuses outright, so it can never trash a workspace other than the one you
+  confirmed. Opening the folder from the start menu will not recreate it on
   your startup disk either.
 
 ## Development requirements

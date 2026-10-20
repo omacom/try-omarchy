@@ -66,8 +66,6 @@ final class LauncherState {
     var launchPhase = VMLaunchPhase.checking
     /// Set while the factory image downloads, before the launcher runs.
     var launchDownload: FactoryDownloadProgress?
-    var resetInProgress = false
-    var resetPhase = VMResetPhase.checking
     var shutdownInProgress = false
     var storageMoveInProgress = false
     var storageEditorOpen = false
@@ -124,11 +122,11 @@ final class LauncherState {
     var prelaunchLocked: Bool { controlsBusy || isRunning }
 
     /// A system permission prompt freezes every control until it answers.
-    var settingsEnabled: Bool { !controlsBusy && !resetInProgress && !permissionRequestInFlight }
+    var settingsEnabled: Bool { !controlsBusy && !permissionRequestInFlight }
 
     var launchEnabled: Bool {
         guard !permissionRequestInFlight, !storageEditorOpen, !storageMoveInProgress else { return false }
-        return isRunning || (!launchInProgress && !resetInProgress)
+        return isRunning || !launchInProgress
     }
 
     var launchStatus: String { launchDownload?.title ?? launchPhase.buttonTitle }
@@ -138,14 +136,11 @@ final class LauncherState {
         return launchInProgress ? launchStatus : "Launch Omarchy"
     }
 
-    var resetEnabled: Bool {
-        canResetStorage && !prelaunchLocked && !resetInProgress && !permissionRequestInFlight
-    }
 
     var runningActionsEnabled: Bool { !controlsBusy && !permissionRequestInFlight }
 
     var manageStorageEnabled: Bool {
-        canResetStorage && !prelaunchLocked && !resetInProgress && !permissionRequestInFlight
+        canResetStorage && !prelaunchLocked && !permissionRequestInFlight
             && storage?.isEnvironmentOverride == false
     }
 

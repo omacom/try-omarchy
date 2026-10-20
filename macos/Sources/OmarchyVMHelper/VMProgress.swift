@@ -8,7 +8,7 @@ enum VMResetPhase: String, CaseIterable, Sendable {
     var buttonTitle: String {
         switch self {
         case .checking: "Checking VM…"
-        case .deleting: "Moving VM to Trash…"
+        case .deleting: "Deleting VM…"
         case .finishing: "Finishing reset…"
         }
     }

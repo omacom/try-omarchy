@@ -22,7 +22,7 @@ struct LauncherActions {
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
-    var reset: () -> Void = {}
+    var resetSettings: () -> Void = {}
     var restart: () -> Void = {}
     var shutDown: () -> Void = {}
     var checkForUpdates: () -> Void = {}
@@ -276,8 +276,6 @@ private struct HomePane: View {
                 }
             } else if state.launchInProgress {
                 Text(state.launchStatus)
-            } else if state.resetInProgress {
-                Text(state.resetPhase.buttonTitle)
             } else if state.attentionItems.isEmpty {
                 Text("Ready to launch")
             } else {
@@ -318,7 +316,7 @@ private struct HomePane: View {
             .disabled(!state.launchEnabled)
             .accessibilityLabel(state.launchTitle)
             .accessibilityIdentifier("launch-button")
-            if state.launchInProgress || state.resetInProgress { ProgressView().controlSize(.small) }
+            if state.launchInProgress { ProgressView().controlSize(.small) }
         }
     }
 }
@@ -699,34 +697,16 @@ private struct ResetSection: View {
     var body: some View {
         Section {
             SettingRow(
-                icon: SettingIcon("arrow.counterclockwise", .red),
-                title: "Reset Omarchy",
-                detail: [state.isRunning
-                    ? "Shut down Omarchy to change the VM location or reset it to factory settings."
-                    : (state.canResetStorage
-                        ? "Move this VM to Trash. The next launch starts a fresh Omarchy in the same folder."
-                        : "Reset is unavailable for a disposable VM.")]
+                icon: SettingIcon("arrow.counterclockwise", .gray),
+                title: "Reset Settings",
+                detail: ["Return every launcher setting to its default. Your VM and its files are kept."]
             ) {
-                if state.resetInProgress {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(state.resetPhase.buttonTitle).foregroundStyle(.secondary)
-                    }
-                } else if state.isRunning {
-                    if state.canResetStorage {
-                        Button("Shut Down…", action: actions.shutDown)
-                            .disabled(!state.runningActionsEnabled)
-                    }
-                } else {
-                    Button("Reset…", role: .destructive, action: actions.reset)
-                        .foregroundStyle(.red)
-                        .disabled(!state.resetEnabled)
-                        .help(state.canResetStorage
-                            ? "Move this VM to Trash and start a fresh one in the same folder"
-                            : "Reset is unavailable for a disposable VM")
-                        .accessibilityIdentifier("reset-button")
-                }
+                Button("Reset Settings…", action: actions.resetSettings)
+                    .disabled(!state.settingsEnabled)
+                    .accessibilityIdentifier("reset-settings-button")
             }
+        } footer: {
+            SectionNote("To start over with a fresh Omarchy, delete the VM in Manage VMs.")
         }
     }
 }

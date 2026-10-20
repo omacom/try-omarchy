@@ -259,13 +259,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                     preference: self.storageLocationStore.load()
                 )
             },
-            storageSpaceEstimate: { [weak self] in
-                guard let self else { return nil }
-                return QEMUGPUStorageSpaceEstimate.formattedReclaimableSpace(
-                    environment: self.baseEnvironment,
-                    preference: self.storageLocationStore.load()
-                )
-            },
             storageLocationStatus: { [weak self] in
                 self?.storageLocationMenuState() ?? .defaultLocation
             },
@@ -278,8 +271,11 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             useDefaultStorageLocation: { [weak self] in
                 self?.useDefaultStorageLocation()
             },
-            resetStorage: { [weak self] in
-                self?.resetVirtualMachine()
+            resetSettings: { [weak self] in
+                self?.resetSettings()
+            },
+            deleteStorageLocation: { [weak self] source, identity, completion in
+                self?.deleteStorageLocation(source, identity: identity, completion: completion)
             },
             discardStorageLocation: { [weak self] source, identity, completion in
                 self?.discardPreviousStorageLocation(source, identity: identity, completion: completion)
@@ -383,7 +379,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         } else {
             startMenu.show()
             if honorInitialReset && initialResetRequested {
-                startMenu.promptForReset()
+                startMenu.promptForDeletion()
             }
         }
     }
@@ -450,37 +446,18 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         return arguments
     }
 
-    private func resetVirtualMachine() {
-        // Unlike launch, a reset that lands on the default workspace after the
-        // chosen drive went missing would erase a VM the user never confirmed.
-        // Switching the setting is allowed; erasing on that same click is not,
-        // so the reset is abandoned and they get an accurate confirmation the
-        // next time they ask for one.
-        guard resolveStorageLocationAvailability(forReset: true) == .available else {
-            startMenuWindow?.resetDidAbort()
-            return
-        }
-        let context = childLaunchContext(forReset: true)
-        if let reason = context.storageUnavailableReason {
-            startMenuWindow?.resetDidFinish(errorMessage: reason)
-            return
-        }
-        guard let root = context.stateRoot,
-              QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: root) else {
-            // Nothing has booted here yet, so the next launch already starts fresh.
-            startMenuWindow?.resetDidFinish(errorMessage: nil)
-            return
-        }
-        let identity: String
-        do { identity = try VMWorkspaceTransfer.deletionIdentity(root) }
-        catch {
-            startMenuWindow?.resetDidFinish(errorMessage: error.localizedDescription)
-            return
-        }
-        startMenuWindow?.resetDidProgress(to: .deleting)
-        runWorkspaceHelper(["--reset-vm", root, identity],
-            failure: "Could not move this VM to Trash. Nothing was reset.") { [weak self] error in
-            self?.startMenuWindow?.resetDidFinish(errorMessage: error)
+    /// Every launcher setting returns to its default. Which VM is selected,
+    /// the VM itself, and permission choices stay.
+    private func resetSettings() {
+        preferenceStore.save(.systemDefaults)
+        sharedFolderStore.save(.disabled)
+        usbDeviceStore.save(.disabled)
+        try? portForwardingStore.save([])
+        try? networkStore.save(VMNetworkPreferences())
+        fullscreenPreferenceStore.save(.defaults)
+        resourcePreferenceStore.clear()
+        if let root = startupPreferenceRoot() {
+            try? startupPreferenceStore.save(false, storageRoot: root)
         }
     }
 
@@ -975,6 +952,15 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 completion(self.chooseStorageLocation(path))
             }
         }
+    }
+
+    private func deleteStorageLocation(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
+        guard storageEnvironmentOverride == nil, startupPreferenceRoot()?.path == source else {
+            completion("Shut down Omarchy before deleting its VM. The selected VM must match the confirmed folder.")
+            return
+        }
+        runWorkspaceHelper(["--trash-vm", source, identity],
+            failure: "Could not move this VM to Trash. The selected folder was retained.", completion: completion)
     }
 
     /// The copy a move left behind. It is never the selected VM, so trashing

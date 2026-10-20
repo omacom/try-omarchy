@@ -116,6 +116,13 @@ struct VMResourcePreferenceStore {
         return payload.resources
     }
 
+    /// Back to the host defaults, including the older memory-only preference
+    /// that `load()` would otherwise adopt again.
+    func clear() {
+        defaults.removeObject(forKey: Self.key)
+        defaults.removeObject(forKey: MemoryPreferenceStore.key)
+    }
+
     func save(_ resources: VMResources) {
         let payload = Payload(schemaVersion: Self.schemaVersion, resources: resources)
         guard let data = try? JSONEncoder().encode(payload) else { return }

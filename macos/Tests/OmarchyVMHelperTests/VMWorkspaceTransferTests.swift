@@ -280,38 +280,6 @@ struct VMWorkspaceTransferTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).isEmpty)
     }
 
-    @Test("Reset sends only the VM to Trash as a reopenable workspace and keeps the folder's settings")
-    func resetRecyclesVM() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let identity = try VMWorkspaceTransfer.deletionIdentity(fixture.source.path)
-        let recovery = fixture.root.appendingPathComponent("reset-recovery")
-        var recycledName: String?
-        try VMWorkspaceTransfer.trashForReset(fixture.source.path, expectedIdentity: identity) { url in
-            recycledName = url.lastPathComponent
-            try FileManager.default.moveItem(at: url, to: recovery)
-        }
-        #expect(recycledName?.hasPrefix("Omarchy VM ") == true)
-        #expect(!FileManager.default.fileExists(atPath: fixture.source.appendingPathComponent("shell").path))
-        #expect(try String(contentsOf: fixture.source.appendingPathComponent("launcher-settings.json"), encoding: .utf8) == "saved startup settings")
-        #expect(StorageLocationPolicy.hasValidRootMarker(in: fixture.source))
-        try VMWorkspaceTransfer.requireExistingVM(recovery.path)
-    }
-
-    @Test("A failed reset Trash leaves the VM where the launcher expects it")
-    func failedResetKeepsVM() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        let identity = try VMWorkspaceTransfer.deletionIdentity(fixture.source.path)
-        #expect(throws: (any Error).self) {
-            try VMWorkspaceTransfer.trashForReset(fixture.source.path, expectedIdentity: identity) { _ in
-                throw HelperError.io("Trash is unavailable")
-            }
-        }
-        try VMWorkspaceTransfer.requireExistingVM(fixture.source.path)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.source.path).allSatisfy { !$0.hasPrefix("Omarchy VM ") })
-    }
-
     @Test("Deletion refuses a changed confirmed disk or an unsafe workspace", arguments: [false, true])
     func refuseUnsafeDeletion(unsafe: Bool) throws {
         let fixture = try Fixture()

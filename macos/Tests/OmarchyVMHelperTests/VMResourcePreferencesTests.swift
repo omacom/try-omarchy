@@ -58,6 +58,15 @@ struct VMResourcePreferencesTests {
         #expect(small.resolve(VMResources(cpuCount: -1, memoryGiB: Int.max)) == VMResources(cpuCount: 8, memoryGiB: 8))
     }
 
+    @Test("Clearing returns to host defaults without readopting the older memory choice")
+    func clearing() {
+        let fixture = DefaultsFixture()
+        MemoryPreferenceStore(defaults: fixture.defaults).save(MemoryPreferences(memoryMiB: 12288))
+        fixture.store.save(VMResources(cpuCount: 4, memoryGiB: 6))
+        fixture.store.clear()
+        #expect(fixture.store.load() == nil)
+    }
+
     @Test("Saved choices survive reopening and resolution does not rewrite them")
     func persistence() {
         let fixture = DefaultsFixture()
