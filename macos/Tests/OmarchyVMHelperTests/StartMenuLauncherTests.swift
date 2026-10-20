@@ -8,23 +8,6 @@ import Testing
 @Suite("Start menu launcher", .serialized)
 @MainActor
 struct StartMenuLauncherTests {
-    @Test("Reset and deletion require the exact application name", arguments: [VMDestructiveConfirmationPrompt.Action.reset, .delete])
-    func destructiveConfirmationIsTypedAndExact(action: VMDestructiveConfirmationPrompt.Action) {
-        let prompt = VMDestructiveConfirmationPrompt(detail: "Selected VM details", action: action)
-        #expect(prompt.confirmationField.identifier?.rawValue == "\(action.rawValue)-confirmation-field")
-        #expect(!prompt.actionButton.isEnabled)
-
-        for invalidValue in ["try omarchy", "TRY OMARCHY", "Try Omarchy ", " Try Omarchy"] {
-            prompt.confirmationField.stringValue = invalidValue
-            NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: prompt.confirmationField)
-            #expect(!prompt.actionButton.isEnabled)
-        }
-
-        prompt.confirmationField.stringValue = "Try Omarchy"
-        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: prompt.confirmationField)
-        #expect(prompt.actionButton.isEnabled)
-    }
-
     @Test("the launcher is a native window that follows the system appearance")
     func nativeWindow() throws {
         _ = NSApplication.shared
@@ -480,6 +463,27 @@ struct StartMenuLauncherTests {
         #expect(menu.state.launchEnabled)
     }
 
+    @Test("reset asks once without typed confirmation and only resets when confirmed", arguments: [false, true])
+    func resetConfirmation(confirmed: Bool) {
+        _ = NSApplication.shared
+        var resets = 0
+        var shown: [String] = []
+        let menu = makeMenu(
+            resetStorage: { resets += 1 },
+            presentResetConfirmation: { alert, _, decide in
+                shown.append(alert.messageText)
+                #expect(alert.accessoryView == nil)
+                decide(confirmed)
+            }
+        )
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        menu.actions.reset()
+        #expect(shown == ["Reset Omarchy to factory settings?"])
+        #expect(resets == (confirmed ? 1 : 0))
+        #expect(menu.state.resetInProgress == confirmed)
+    }
+
     @Test("a disposable VM cannot be reset and hides its location")
     func disposableVM() {
         _ = NSApplication.shared
@@ -508,6 +512,7 @@ struct StartMenuLauncherTests {
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
+        presentResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { _, _, _ in },
         permissionPromptShown: @escaping () -> Bool = { true },
         setPermissionPromptShown: @escaping () -> Void = {},
         launch: @escaping () -> Void = {}
@@ -547,6 +552,7 @@ struct StartMenuLauncherTests {
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,
             confirmAutomaticStartup: confirmAutomaticStartup,
+            presentResetConfirmation: presentResetConfirmation,
             permissionPromptShown: permissionPromptShown,
             setPermissionPromptShown: setPermissionPromptShown,
             launch: launch

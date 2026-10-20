@@ -15,15 +15,11 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private let select: (String) -> String?
     private let useDefault: () -> Void
     private let move: Move
-    private let delete: Delete
     private let discardPrevious: Delete
-    private let confirmation: ((URL) -> Bool)?
     private let moveConfirmation: ((URL, URL) -> Bool)?
-    private(set) var deletionPrompt: VMDestructiveConfirmationPrompt?
-    private var deletedRoot: String?
-    private var confirmingDeletion = false
+    private var confirming = false
     private(set) var deleting = false
-    private var busy: Bool { moving || deleting || confirmingDeletion }
+    private var busy: Bool { moving || deleting || confirming }
     private let closeHandler: () -> Void
     private let picker: ((Choice, URL?) -> URL?)?
     private var closed = false
@@ -36,7 +32,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private var existingButton: NSButton!
     private var moveButton: NSButton!
     private var newButton: NSButton!
-    private var deleteButton: NSButton!
     private var defaultButton: NSButton!
     private var doneButton: NSButton!
 
@@ -48,8 +43,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         useDefault: @escaping () -> Void,
         move: @escaping Move,
         chooseFolder: ((Choice, URL?) -> URL?)? = nil,
-        delete: @escaping Delete = { _, _, completion in completion("VM deletion is unavailable.") },
-        confirmDeletion: ((URL) -> Bool)? = nil,
         discardPrevious: @escaping Delete = { _, _, completion in completion("VM deletion is unavailable.") },
         confirmMove: ((URL, URL) -> Bool)? = nil,
         didClose: @escaping () -> Void
@@ -60,9 +53,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         self.select = select
         self.useDefault = useDefault
         self.move = move
-        self.delete = delete
         self.discardPrevious = discardPrevious
-        confirmation = confirmDeletion
         moveConfirmation = confirmMove
         picker = chooseFolder
         closeHandler = didClose
@@ -102,8 +93,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         } ?? false
         if hasVM {
             selectionLabel.stringValue = "Your next launch will boot the VM in this folder."
-        } else if let root, deletedRoot == root.path, !FileManager.default.fileExists(atPath: root.path) {
-            selectionLabel.stringValue = "The selected VM was moved to Trash. Choose another VM or an empty folder."
         } else if let root, !isDefault(), !FileManager.default.fileExists(atPath: root.path) {
             selectionLabel.stringValue = "This folder is unavailable. Reconnect its drive or choose another VM."
         } else if unsafeDisk {
@@ -114,7 +103,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         existingButton.isEnabled = !busy
         newButton.isEnabled = !busy
         moveButton.isEnabled = !busy && hasVM
-        deleteButton.isEnabled = !busy && hasVM
         defaultButton.isEnabled = !busy && !isDefault()
         doneButton.isEnabled = !busy
         doneButton.keyEquivalent = busy ? "" : "\r"
@@ -187,11 +175,11 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         alert.informativeText = "Omarchy copies your VM to \(display(destination)) and verifies it, then moves the original at \(display(source)) to Trash. You can recover it until you empty Trash."
         alert.addButton(withTitle: "Move")
         alert.addButton(withTitle: "Cancel")
-        confirmingDeletion = true
+        confirming = true
         refreshSelection()
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
-            confirmingDeletion = false
+            confirming = false
             refreshSelection()
             guard response == .alertFirstButtonReturn else { return }
             beginMove(source, to: destination)
@@ -240,48 +228,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         }
     }
 
-    @objc func deleteSelectedVM() {
-        guard !busy, let source = selectedRoot() else { return }
-        let identity: String
-        do { identity = try VMWorkspaceTransfer.deletionIdentity(source.path) }
-        catch { showStatus(error.localizedDescription, error: true); return }
-        confirmingDeletion = true
-        refreshSelection()
-        if let confirmation {
-            finishDeletionConfirmation(confirmation(source), source: source, identity: identity)
-        } else {
-            let detail = "Move this entire VM folder to macOS Trash:\n\n\(source.path)\n\nIt contains this VM's apps, files, accounts, and settings. Other VM copies are kept. You can recover it from Trash until you empty Trash."
-            let prompt = VMDestructiveConfirmationPrompt(detail: detail, action: .delete)
-            deletionPrompt = prompt
-            prompt.present(for: window) { [weak self, weak prompt] confirmed in
-                guard let self, let prompt, self.deletionPrompt === prompt else { return }
-                self.deletionPrompt = nil
-                self.finishDeletionConfirmation(confirmed, source: source, identity: identity)
-            }
-        }
-    }
-
-    private func finishDeletionConfirmation(_ confirmed: Bool, source: URL, identity: String) {
-        confirmingDeletion = false
-        guard confirmed, selectedRoot()?.path == source.path else { refreshSelection(); return }
-        deleting = true
-        refreshSelection()
-        showStatus("Moving the selected VM to Trash…")
-        progressBar.isHidden = false
-        progressBar.isIndeterminate = true
-        progressBar.startAnimation(nil)
-        delete(source.path, identity) { [weak self] error in
-            guard let self else { return }
-            self.deleting = false
-            self.progressBar.stopAnimation(nil)
-            self.progressBar.isHidden = true
-            if error == nil { self.deletedRoot = source.path }
-            self.refreshSelection()
-            if let error { self.showStatus(error, error: true); return }
-            self.showStatus("VM moved to Trash from \(self.display(source)). Choose another VM or an empty folder to continue. Other VM copies are kept.")
-        }
-    }
-
     func receiveProgress(_ update: VMTransferProgress) {
         guard moving else { return }
         progressBar.isHidden = false
@@ -300,10 +246,8 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
 
     @objc private func done() { dismiss() }
 
-    private func button(_ title: String, action: Selector, id: String, danger: Bool = false) -> NSButton {
-        let control = danger
-            ? NativeSheetChrome.destructiveButton(title, target: self, action: action)
-            : NativeSheetChrome.button(title, target: self, action: action)
+    private func button(_ title: String, action: Selector, id: String) -> NSButton {
+        let control = NativeSheetChrome.button(title, target: self, action: action)
         control.identifier = NSUserInterfaceItemIdentifier("vm-storage-" + id)
         return control
     }
@@ -327,7 +271,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
         existingButton = button("Choose Existing VM…", action: #selector(chooseExistingVM), id: "existing")
         moveButton = button("Choose Destination…", action: #selector(moveSelectedVM), id: "move")
         newButton = button("Choose Empty Folder…", action: #selector(chooseNewVM), id: "new")
-        deleteButton = button("Delete VM…", action: #selector(deleteSelectedVM), id: "delete", danger: true)
         defaultButton = button("Use Default Folder", action: #selector(selectDefault), id: "default")
         doneButton = button("Done", action: #selector(done), id: "done")
 
@@ -353,11 +296,6 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
                 title: "Create a separate VM",
                 detail: "Choose an empty folder. A new VM is created on the next launch; the selected VM is kept.",
                 control: newButton
-            ),
-            NativeSheetChrome.row(
-                title: "Delete the selected VM",
-                detail: "Move this VM folder to macOS Trash. Other VM copies are kept. You can recover it until Trash is emptied.",
-                control: deleteButton
             ),
         ])
         progressBar.controlSize = .small

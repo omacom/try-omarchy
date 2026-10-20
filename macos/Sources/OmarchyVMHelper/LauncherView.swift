@@ -704,7 +704,7 @@ private struct ResetSection: View {
                 detail: [state.isRunning
                     ? "Shut down Omarchy to change the VM location or reset it to factory settings."
                     : (state.canResetStorage
-                        ? "Permanently erase this VM. The next launch creates a fresh one in the same folder."
+                        ? "Move this VM to Trash. The next launch starts a fresh Omarchy in the same folder."
                         : "Reset is unavailable for a disposable VM.")]
             ) {
                 if state.resetInProgress {
@@ -722,7 +722,7 @@ private struct ResetSection: View {
                         .foregroundStyle(.red)
                         .disabled(!state.resetEnabled)
                         .help(state.canResetStorage
-                            ? "Permanently erase this VM and create a fresh one in the same folder"
+                            ? "Move this VM to Trash and start a fresh one in the same folder"
                             : "Reset is unavailable for a disposable VM")
                         .accessibilityIdentifier("reset-button")
                 }

@@ -340,15 +340,17 @@ flushes files and directories, and atomically publishes the copy. Only success
 changes the saved boot location. Phase and measured verification progress
 stream to the management sheet, which stays open until the transaction ends.
 After success the management sheet sends the original to Trash through the
-same identity-checked `--trash-vm` helper that deletion uses;
+identity-checked `--trash-vm` helper below;
 unrecognized host files are never replaced. The lock file is recreated rather
 than opened for copying, because closing any descriptor for a locked inode
 would release the helper process's POSIX lock.
 
-Deletion runs a separate `--trash-vm` helper process. Confirmation captures the
-selected folder and disk identity. The helper validates the workspace, holds the
-launcher lock, rejects a changed disk or unsafe tree, and moves the complete
-folder to macOS Trash. Preferences and other VM copies are kept; failures never
+Workspace changes that send a VM to Trash run in a separate helper process
+bound to the folder and disk identity. The helper validates the workspace,
+holds the launcher lock, rejects a changed disk or unsafe tree, and moves the
+VM to macOS Trash: `--trash-vm` moves a whole workspace (the original after a
+move), and `--reset-vm` moves only `shell/`, wrapped with the workspace marker,
+so Reset keeps the folder's settings and decompressed factory. Failures never
 fall back to permanent removal.
 
 ## Build layout

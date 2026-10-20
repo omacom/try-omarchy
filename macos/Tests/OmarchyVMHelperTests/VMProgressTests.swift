@@ -49,7 +49,7 @@ struct VMProgressTests {
     @Test("the button names the work currently happening")
     func buttonFeedback() {
         #expect(VMResetPhase.checking.buttonTitle == "Checking VM…")
-        #expect(VMResetPhase.deleting.buttonTitle == "Deleting VM…")
+        #expect(VMResetPhase.deleting.buttonTitle == "Moving VM to Trash…")
         #expect(VMLaunchPhase.preparing.buttonTitle == "Preparing image…")
         #expect(VMLaunchPhase.finishing.buttonTitle == "Finishing setup…")
         #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy…")

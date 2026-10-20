@@ -645,8 +645,8 @@ the packages you installed yourself in the old VM; those not in Omarchy's
 repositories (from the AUR, say) are listed for `yay`. When you have
 everything, delete `disks/` and `boot/` from the storage folder to detach the
 old disk and free its space. **Reset Omarchy** leaves them alone.
-Before Reset is enabled, the confirmation sheet requires typing `Try Omarchy`
-exactly; cancelling the sheet returns to the start menu without changing the VM.
+Reset asks for confirmation once; cancelling returns to the start menu without
+changing the VM.
 
 ### Guest console log
 
@@ -681,9 +681,11 @@ menu so you can roll back. `omarchy-channel-set` switches channels when
 Omarchy publishes another one for ARM. Updating the Mac app does not change
 these.
 
-A confirmed reset is the deliberate, destructive way to start again from the
-newest bundled factory. Reset deletes the saved VM; the next launch prepares
-its replacement.
+A confirmed reset is the deliberate way to start again from the newest
+bundled factory. Reset moves the saved VM to macOS Trash as an `Omarchy VM …`
+folder, keeping the launcher settings stored beside it; the next launch prepares
+its replacement. To undo a mistaken reset, drag that folder out of Trash and
+select it with **Choose Existing VM…**. Empty Trash to free its space.
 
 ### Updating integrations
 
@@ -711,17 +713,12 @@ launch will do:
   verification progress, then the new selected folder.
 - **Create a separate VM → Choose Empty Folder…** selects an empty folder for a
   fresh VM, created on the next launch. The previously selected VM is kept.
-- **Delete the selected VM → Delete VM…** shows the exact folder and asks you to
-  type `Try Omarchy` to confirm,
-  then moves the whole VM to macOS Trash. Other VM copies are kept. Recover
-  it from Trash before emptying Trash, or choose another VM or an empty folder
-  to continue. A running VM cannot be deleted.
 - **Use Default Folder** selects
   `~/Library/Application Support/Try Omarchy/VM/v1` again. If that VM has been
   deleted, the next launch creates a fresh VM there.
 
 Choices are saved immediately. **Done** returns to the launcher; press
-**Launch** there to start the selected VM. During copying, verification, or deletion,
+**Launch** there to start the selected VM. During copying, verification, or Trash,
 **Done** and the other choices are disabled. Errors stay in the dialog. Failed operations keep the selected VM intact.
 
 Moving always acts on the VM selected in the dialog. To move a different saved

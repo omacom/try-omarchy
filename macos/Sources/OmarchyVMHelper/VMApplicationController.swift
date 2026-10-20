@@ -281,9 +281,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             resetStorage: { [weak self] in
                 self?.resetVirtualMachine()
             },
-            deleteStorageLocation: { [weak self] source, identity, completion in
-                self?.deleteStorageLocation(source, identity: identity, completion: completion)
-            },
             discardStorageLocation: { [weak self] source, identity, completion in
                 self?.discardPreviousStorageLocation(source, identity: identity, completion: completion)
             },
@@ -453,12 +450,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         return arguments
     }
 
-    private func resetArguments() -> [String] {
-        var arguments = launchArguments()
-        arguments.insert(QEMUGPUStorageOption.resetStorageOnly.rawValue, at: 0)
-        return arguments
-    }
-
     private func resetVirtualMachine() {
         // Unlike launch, a reset that lands on the default workspace after the
         // chosen drive went missing would erase a VM the user never confirmed.
@@ -469,50 +460,27 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             startMenuWindow?.resetDidAbort()
             return
         }
-        do {
-            let context = childLaunchContext(forReset: true)
-            guard context.storageUnavailableReason == nil else {
-                startMenuWindow?.resetDidFinish(
-                    errorMessage: context.storageUnavailableReason
-                )
-                return
-            }
-            activeStateRoot = context.stateRoot
-            try supervisor.start(
-                executableURL: launcherURL,
-                arguments: resetArguments(),
-                environment: QEMUGPURuntimeEnvironment.sanitizedForReset(context.environment),
-                launchEvent: { [weak self] event in
-                    if case .resetProgress(let phase) = event {
-                        self?.startMenuWindow?.resetDidProgress(to: phase)
-                    }
-                }
-            ) { [weak self] status in
-                self?.resetDidExit(status: status)
-            }
-            childRunning = true
-        } catch {
-            startMenuWindow?.resetDidFinish(errorMessage: error.localizedDescription)
+        let context = childLaunchContext(forReset: true)
+        if let reason = context.storageUnavailableReason {
+            startMenuWindow?.resetDidFinish(errorMessage: reason)
+            return
         }
-    }
-
-    private func resetDidExit(status: Int32) {
-        guard childRunning else { return }
-        childRunning = false
-        cancelHostWakeRetry()
-        hostSleepCoordinator.disconnect()
-        let wasStopping = lifecycle.isStopping
-        lifecycle.childExited()
-        if applicationTerminationPending {
-            NSApp.reply(toApplicationShouldTerminate: true)
-        } else if wasStopping {
-            finish(status: status)
-        } else if status == 0 {
+        guard let root = context.stateRoot,
+              QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: root) else {
+            // Nothing has booted here yet, so the next launch already starts fresh.
             startMenuWindow?.resetDidFinish(errorMessage: nil)
-        } else {
-            startMenuWindow?.resetDidFinish(
-                errorMessage: "The VM disk could not be reset. Try again, or reinstall the latest Try Omarchy app."
-            )
+            return
+        }
+        let identity: String
+        do { identity = try VMWorkspaceTransfer.deletionIdentity(root) }
+        catch {
+            startMenuWindow?.resetDidFinish(errorMessage: error.localizedDescription)
+            return
+        }
+        startMenuWindow?.resetDidProgress(to: .deleting)
+        runWorkspaceHelper(["--reset-vm", root, identity],
+            failure: "Could not move this VM to Trash. Nothing was reset.") { [weak self] error in
+            self?.startMenuWindow?.resetDidFinish(errorMessage: error)
         }
     }
 
@@ -1009,15 +977,6 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func deleteStorageLocation(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
-        guard !childRunning, workspaceTransferProcess == nil, storageEnvironmentOverride == nil,
-              startupPreferenceRoot()?.path == source, let executable = Bundle.main.executableURL else {
-            completion("Shut down Omarchy before deleting its VM. The selected VM must match the confirmed folder.")
-            return
-        }
-        trashWorkspace(source, identity: identity, completion: completion)
-    }
-
     /// The copy a move left behind. It is never the selected VM, so trashing
     /// it cannot strand the next launch.
     private func discardPreviousStorageLocation(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
@@ -1026,17 +985,22 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             completion("Shut down Omarchy before deleting the previous copy.")
             return
         }
-        trashWorkspace(source, identity: identity, completion: completion)
+        runWorkspaceHelper(["--trash-vm", source, identity],
+            failure: "Could not move the previous copy to Trash.", completion: completion)
     }
 
-    private func trashWorkspace(_ source: String, identity: String, completion: @escaping (String?) -> Void) {
-        guard let executable = Bundle.main.executableURL else {
-            completion("Could not move this VM to Trash.")
+    /// Runs a workspace change in a separate helper process, which owns the
+    /// POSIX lock so unrelated UI file reads cannot release it.
+    private func runWorkspaceHelper(_ arguments: [String], failure: String,
+        completion: @escaping (String?) -> Void) {
+        guard !childRunning, workspaceTransferProcess == nil,
+              let executable = Bundle.main.executableURL else {
+            completion("Shut down Omarchy before changing its VM.")
             return
         }
         let process = Process()
         process.executableURL = executable
-        process.arguments = ["--trash-vm", source, identity]
+        process.arguments = arguments
         let errors = Pipe()
         process.standardError = errors
         process.standardOutput = FileHandle.nullDevice
@@ -1050,8 +1014,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             process.waitUntilExit()
             DispatchQueue.main.async { [weak self] in
                 self?.workspaceTransferProcess = nil
-                completion(process.terminationStatus == 0 ? nil :
-                    (message.isEmpty ? "Could not move this VM to Trash. The selected folder was retained." : message))
+                completion(process.terminationStatus == 0 ? nil : (message.isEmpty ? failure : message))
             }
         }
     }

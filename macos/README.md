@@ -108,17 +108,21 @@ current factory or `make run-ephemeral` to test that factory without retaining
 its disk. VMs left by earlier direct-boot versions (`disks/`, `boot/`) are
 ignored.
 
-Reset Omarchy is a confirmed, user-facing flow.
-That destructive flow keeps **Reset** disabled until the user types
-`Try Omarchy` exactly in a native sheet. Cancelling or dismissing the sheet
-returns control without invoking the storage reset. During reset, the disabled
-button names the current phase: checking the VM, deleting it, then finishing
-the reset. The next launch prepares a new disk if needed, with its button
+Reset Omarchy is a confirmed, user-facing flow. A native alert names the VM
+being reset; cancelling it returns control without invoking the storage reset.
+Reset runs `--reset-vm ROOT CONFIRMED_IDENTITY` in a separate process, which
+holds the launcher lock, refuses a running or changed VM, wraps `shell/` with
+the workspace marker in an `Omarchy VM …` folder, and moves that to macOS Trash,
+so the recovered copy opens again with **Choose Existing VM…**. The workspace
+folder, its launcher settings, and the decompressed factory stay. A Trash
+failure puts `shell/` back and never removes anything permanently. During
+reset, the disabled button names the current phase: checking the VM, moving it
+to Trash, then finishing the reset. The next launch prepares a new disk if needed, with its button
 showing checking, image preparation, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
 The launcher's **Selected VM → Manage…** sheet shows the current selection,
-explains switching, moving, creating a separate VM, and deletion, and returns to the
+explains switching, moving, and creating a separate VM, and returns to the
 launcher with **Done**. Selection is saved immediately but does not start a
 VM. New selection requires an empty folder; existing selection requires a
 VM disk (`shell/disk.img`) and workspace marker.
@@ -129,17 +133,12 @@ binds it to the source displayed in the sheet, holds the launcher's lock on
 `shell-factory/` cache, and verifies every file with SHA-256
 before atomic publication. Structured stderr records report copy phases and
 actual hashed-byte verification progress. The sheet remains open, disables
-Done and selection while busy, and displays errors or the final selected and
-recovery paths inline. The original is retained; the preference changes only
-on success. APFS clones are used on the same volume, and sparse copying across
+Done and selection while busy, and displays errors or the final selected path
+inline. The preference changes only on success; the sheet then moves the
+original workspace to Trash with `--trash-vm`, after the user confirmed the
+move up front. APFS clones are used on the same volume, and sparse copying across
 volumes. Both locations must be local APFS folders. Symlinks, hard links,
 special files, occupied destinations, and changes during copying are refused.
-
-**Delete VM…** uses the same danger styling and typed `Try Omarchy` confirmation
-as Reset, and confirms the exact selected folder and moves its complete workspace
-into macOS Trash under the same launcher lock. It keeps other VM copies and
-refuses a running or changed VM. The folder remains selected, so choose another
-VM or an empty folder afterward. Trash errors never trigger permanent removal.
 
 The choice is stored in `UserDefaults` and published to the launcher as
 `OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value still wins and disables
