@@ -1,9 +1,8 @@
 # Shell plan: run upstream Omarchy inside a thin shell
 
-Status: plan of record, 2026-10-15, now implemented on branch
-`upstream-shell` (see [Implementation status](#implementation-status)). It
+Status: implemented in #358 (2026-10-17), and kept as the design record. It
 supersedes the earlier research proposal. Facts about upstream were checked
-against the repositories and the live package databases on this date.
+against the repositories and the live package databases on 2026-10-15.
 
 ## Summary
 

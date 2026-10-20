@@ -1,5 +1,8 @@
 # Architecture
 
+The principles behind these choices are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#principles).
+
 Try Omarchy packages four pieces into one macOS app:
 
 1. A small Swift/AppKit launcher for the macOS side.

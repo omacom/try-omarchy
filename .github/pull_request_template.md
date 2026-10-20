@@ -1,13 +1,13 @@
-## What changed and why
+## What and why
 
-<!-- Describe the problem, what changes for the user, and why.
-     Link a related issue if there is one. -->
+<!-- What changes for the user, and why. Link the issue if there is one. -->
 
-## Testing
+## Tested
 
-<!-- Describe the commands or manual steps you used and their results.
-     Mention anything you could not test.
-     Add screenshots or a short video here if they help explain a UI change. -->
+<!-- Exact commands and results, your Mac and macOS version, and what you
+     could not check. Screenshots or a short video for visual changes. -->
 
-- [ ] `make e2e` passes on an Apple Silicon Mac (recommended for changes to
-      the app, the runtime, the launcher or the bridges, which CI cannot boot)
+- [ ] One concern
+- [ ] No files owned by Omarchy are edited. If the guest package changed, its `pkgrel` is bumped
+- [ ] `make e2e` passes, if this changes the app, runtime, launcher or bridges (CI cannot boot the VM)
+- [ ] No secrets or personal data in the code, logs or captures

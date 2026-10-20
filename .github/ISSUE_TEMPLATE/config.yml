@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Problem in Omarchy itself
+    url: https://github.com/omacom/omarchy/issues
+    about: If it also happens on real hardware, report it to Omarchy.
+  - name: Security vulnerability
+    url: https://github.com/omacom/try-omarchy/security/advisories/new
+    about: Report it privately, not in a public issue.
