@@ -162,6 +162,8 @@ is reading the camera. Camera permission, capture failure, or device removal is
 non-fatal to the VM; the launcher can restart the optional bridge without
 restarting Omarchy.
 
+An opt-in [FIDO bridge](fido.md) temporarily assigns one explicitly selected USB FIDO interface to the guest through `dev.tryomarchy.fido`. It uses a private host socket and a temporary guest UHID device, and releases the interface when the lease ends. It is disabled by default and does not promise simultaneous Mac FIDO use.
+
 A further virtio-serial port (`dev.tryomarchy.battery`) mirrors the Mac's
 battery into the guest. A Swift bridge watches IOKit power sources and sends
 complete JSON snapshots — percentage, charge state, AC presence, time

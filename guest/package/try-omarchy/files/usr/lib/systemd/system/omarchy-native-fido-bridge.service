@@ -1,0 +1,18 @@
+[Unit]
+Description=Forward the selected Mac FIDO interface into Omarchy
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.fido
+StartLimitIntervalSec=0
+
+[Service]
+ExecStartPre=/usr/bin/modprobe uhid
+ExecStart=/usr/lib/try-omarchy/fido-bridge
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

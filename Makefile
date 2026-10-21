@@ -129,6 +129,7 @@ test-contracts:
 
 test-guest:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_package.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_fido.py"
 
 # The package's contracts with the Omarchy the factory installs today.
 test-upstream:
