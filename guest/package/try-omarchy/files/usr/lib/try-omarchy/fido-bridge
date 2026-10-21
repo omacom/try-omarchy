@@ -158,12 +158,10 @@ def main():
         relay(port, uhid)
     finally:
         try:
-            os.write(port, message(BYE))
-        except OSError:
-            pass
-        if uhid is not None:
-            os.close(uhid)
-        os.close(port)
+            if uhid is not None:
+                os.close(uhid)
+        finally:
+            os.close(port)
 
 
 def interrupt(_signal, _frame):
