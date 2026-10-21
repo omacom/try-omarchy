@@ -1,62 +1,22 @@
 From: Try Omarchy contributors
 Subject: [PATCH] cocoa: forward trackpad scrolling as touchpad finger scrolling
 
-Applies after the pinch-zoom and precise-scroll patches. Precise,
-non-momentum scrolling in the focused guest view drives two contacts on the
-pinch touchpad, so libinput reports finger scrolling and Linux applications
-can recognize swipe navigation. The gesture follows AppKit's scroll phases
-and the pinch bridge's release rules. Momentum scrolling, discrete mouse
-wheels and scrolling outside the focused view keep the tablet's wheel path.
-The touchpad grows to an 800 mm sensor so one contact can carry a whole
-swipe; pinch geometry keeps its size in millimetres. The touchpad also
-advertises BTN_TOOL_TRIPLETAP.
+Applies after the pinch-zoom and precise-scroll patches. Precise scrolling
+in the focused guest view drives two contacts on the pinch touchpad, so
+libinput reports finger scrolling and Linux applications can recognize
+swipe navigation. The gesture follows AppKit's scroll phases and the pinch
+bridge's release rules, with fresh tracking IDs for every landing. macOS
+momentum after such a gesture is dropped, because the guest starts its own
+kinetic scrolling when the fingers lift. Discrete mouse wheels, scrolling
+outside the focused view and momentum of other gestures keep the tablet's
+wheel path. Pinch and finger scrolling share one touchpad frame sender.
 
-diff --git a/hw/input/virtio-input-hid.c b/hw/input/virtio-input-hid.c
-index 1e5bec1..d495334 100644
---- a/hw/input/virtio-input-hid.c
-+++ b/hw/input/virtio-input-hid.c
-@@ -627,6 +627,7 @@ static void virtio_pinch_init(Object *obj)
-     VirtIOInput *vinput = VIRTIO_INPUT(obj);
-     const unsigned short keys[] = {
-         BTN_LEFT, BTN_TOUCH, BTN_TOOL_FINGER, BTN_TOOL_DOUBLETAP,
-+        BTN_TOOL_TRIPLETAP,
-     };
-     /* ABS_X and INPUT_PROP_POINTER are zero: the bitmap helper skips zero. */
-     const unsigned short axes[] = {
-@@ -684,9 +685,12 @@ static void virtio_pinch_init(Object *obj)
-     config.subsel = ABS_MT_TRACKING_ID;
-     config.u.abs.max = const_le32(65535);
-     virtio_input_add_config(vinput, &config);
--    /* A 100 mm square sensor, with explicit resolution for libinput. */
-+    /*
-+     * An 800 mm square sensor, with explicit resolution for libinput. Its
-+     * size gives finger scrolling room for a whole swipe in one contact.
-+     */
-     config.u.abs.max = const_le32(INPUT_EVENT_ABS_MAX);
--    config.u.abs.res = const_le32(327);
-+    config.u.abs.res = const_le32(41);
-     for (int i = 0; i < ARRAY_SIZE(position_axes); i++) {
-         config.subsel = position_axes[i];
-         virtio_input_add_config(vinput, &config);
-diff --git a/include/ui/cocoa-pinch.h b/include/ui/cocoa-pinch.h
-index b562853..8998c23 100644
---- a/include/ui/cocoa-pinch.h
-+++ b/include/ui/cocoa-pinch.h
-@@ -15,7 +15,7 @@ typedef struct CocoaPinch {
- 
- enum {
-     COCOA_PINCH_CENTER = 16384,
--    COCOA_PINCH_RADIUS = 4096,
-+    COCOA_PINCH_RADIUS = 513,
-     COCOA_PINCH_AXIS_MAX = 32767,
- };
- 
 diff --git a/include/ui/cocoa-touch-scroll.h b/include/ui/cocoa-touch-scroll.h
 new file mode 100644
-index 0000000..2534952
+index 0000000..e81aafb
 --- /dev/null
 +++ b/include/ui/cocoa-touch-scroll.h
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,192 @@
 +/*
 + * Cocoa precise scrolling as two touchpad contacts, independent of AppKit
 + * for deterministic testing.
@@ -66,12 +26,12 @@ index 0000000..2534952
 +#define QEMU_COCOA_TOUCH_SCROLL_H
 +
 +#include <stdbool.h>
-+#include <stdlib.h>
 +#include <math.h>
 +
 +/*
-+ * The pinch touchpad is 32768 units across at 41 units/mm. Contacts stay
-+ * 12.5% inside every edge, clear of libinput's palm edge zones.
++ * Positions use the pinch touchpad's 0-32767 axes, 41 units/mm. Contacts sit
++ * 12.5 mm apart and stay 100 mm inside every edge, well clear of libinput's
++ * palm zones (8 mm at the sides, 5% at the top).
 + */
 +enum {
 +    COCOA_TOUCH_SCROLL_AXIS_MAX = 32767,
@@ -83,22 +43,25 @@ index 0000000..2534952
 +};
 +
 +/*
-+ * Five units (0.12 mm) per point makes libinput's finger scroll roughly match
-+ * the previous wheel speed under Omarchy's touchpad scroll factor.
++ * 0.12 mm per point. The guest's touchpad scroll factor tunes the speed, as
++ * on real hardware.
 + */
 +#define COCOA_TOUCH_SCROLL_UNITS_PER_POINT 5.0
 +
 +typedef struct CocoaTouchScroll {
 +    bool active;
++    /* The current AppKit gesture reached the guest as finger scrolling. */
++    bool owns_momentum;
++    unsigned gesture;
 +    double x;
 +    double y;
-+    double units_per_point;
 +} CocoaTouchScroll;
 +
 +typedef struct CocoaTouchScrollFrame {
 +    bool down;
 +    int x[2];
 +    int y;
++    int id[2];
 +} CocoaTouchScrollFrame;
 +
 +typedef void (*CocoaTouchScrollEmit)(void *opaque,
@@ -108,22 +71,19 @@ index 0000000..2534952
 +    COCOA_TOUCH_SCROLL_BEGIN = 1,
 +    COCOA_TOUCH_SCROLL_END = 2,
 +    COCOA_TOUCH_SCROLL_CANCEL = 4,
++    COCOA_TOUCH_SCROLL_MOMENTUM = 8,
++    COCOA_TOUCH_SCROLL_MOMENTUM_END = 16,
 +};
 +
-+/* TRYOMARCHY_TRACKPAD_SCROLL_SPEED scales the default, from 0.1 to 10. */
-+static inline double cocoa_touch_scroll_units_per_point(const char *speed)
++/*
++ * Every landing gets fresh tracking IDs, never the pinch bridge's 0 and 1.
++ * A release dropped by a full guest queue then reads as a new touch rather
++ * than as the old contacts jumping.
++ */
++static inline int cocoa_touch_scroll_id(const CocoaTouchScroll *scroll,
++                                        int slot)
 +{
-+    char *end;
-+    double factor;
-+
-+    if (!speed || !*speed) {
-+        return COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
-+    }
-+    factor = strtod(speed, &end);
-+    if (*end || !isfinite(factor) || factor < 0.1 || factor > 10.0) {
-+        return COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
-+    }
-+    return COCOA_TOUCH_SCROLL_UNITS_PER_POINT * factor;
++    return 2 + 2 * (int)(scroll->gesture % 32767) + slot;
 +}
 +
 +static inline void cocoa_touch_scroll_emit(const CocoaTouchScroll *scroll,
@@ -135,22 +95,18 @@ index 0000000..2534952
 +        .down = scroll->active,
 +        .x = { x - COCOA_TOUCH_SCROLL_SPREAD, x + COCOA_TOUCH_SCROLL_SPREAD },
 +        .y = (int)lround(scroll->y),
++        .id = { cocoa_touch_scroll_id(scroll, 0),
++                cocoa_touch_scroll_id(scroll, 1) },
 +    };
 +    emit(opaque, &frame);
-+}
-+
-+static inline bool cocoa_touch_scroll_end(CocoaTouchScroll *scroll)
-+{
-+    bool active = scroll->active;
-+    scroll->active = false;
-+    return active;
 +}
 +
 +static inline void cocoa_touch_scroll_cancel(CocoaTouchScroll *scroll,
 +                                             CocoaTouchScrollEmit emit,
 +                                             void *opaque)
 +{
-+    if (cocoa_touch_scroll_end(scroll)) {
++    if (scroll->active) {
++        scroll->active = false;
 +        cocoa_touch_scroll_emit(scroll, emit, opaque);
 +    }
 +}
@@ -161,6 +117,8 @@ index 0000000..2534952
 +                                            void *opaque)
 +{
 +    scroll->active = true;
++    scroll->owns_momentum = true;
++    scroll->gesture++;
 +    scroll->x = x;
 +    scroll->y = y;
 +    cocoa_touch_scroll_emit(scroll, emit, opaque);
@@ -181,8 +139,8 @@ index 0000000..2534952
 +                                           CocoaTouchScrollEmit emit,
 +                                           void *opaque)
 +{
-+    double x = scroll->x - dx * scroll->units_per_point;
-+    double y = scroll->y - dy * scroll->units_per_point;
++    double x = scroll->x - dx * COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
++    double y = scroll->y - dy * COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
 +
 +    if (cocoa_touch_scroll_inside(x) && cocoa_touch_scroll_inside(y)) {
 +        scroll->x = x;
@@ -205,6 +163,8 @@ index 0000000..2534952
 +/*
 + * Returns false when the wheel path should handle the event: outside the
 + * focused guest view, invalid deltas, or a gesture that began elsewhere.
++ * Momentum after finger scrolling is dropped: the guest starts its own
++ * kinetic scrolling when the fingers lift, as on real hardware.
 + */
 +static inline bool cocoa_touch_scroll_event(CocoaTouchScroll *scroll,
 +                                            unsigned phase, bool eligible,
@@ -212,6 +172,17 @@ index 0000000..2534952
 +                                            CocoaTouchScrollEmit emit,
 +                                            void *opaque)
 +{
++    if (phase & COCOA_TOUCH_SCROLL_MOMENTUM) {
++        bool owned = scroll->owns_momentum;
++
++        if (phase & COCOA_TOUCH_SCROLL_MOMENTUM_END) {
++            scroll->owns_momentum = false;
++        }
++        return owned;
++    }
++    if (phase & COCOA_TOUCH_SCROLL_BEGIN) {
++        scroll->owns_momentum = false;
++    }
 +    if (!eligible || !isfinite(dx) || !isfinite(dy)) {
 +        cocoa_touch_scroll_cancel(scroll, emit, opaque);
 +        return false;
@@ -239,7 +210,7 @@ index 0000000..2534952
 +
 +#endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index 47c50ca..4c5d794 100644
+index 47c50ca..5c0b066 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
 @@ -40,6 +40,7 @@
@@ -275,37 +246,63 @@ index 47c50ca..4c5d794 100644
  }
  
  
-@@ -535,6 +540,25 @@ static void cocoa_pinch_send_frame(void *opaque, const CocoaPinchFrame *frame)
+@@ -517,24 +522,41 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+     return cgEvent;
+ }
+ 
+-/* Called under the same BQL as normal Cocoa input. */
+-static void cocoa_pinch_send_frame(void *opaque, const CocoaPinchFrame *frame)
++/*
++ * Called under the same BQL as normal Cocoa input. Pinch and finger scrolling
++ * share the touchpad's two slots, so only one gesture owns them at a time.
++ */
++static void cocoa_touchpad_send(bool down, const int x[2], int y,
++                                const int id[2])
+ {
+     for (int slot = 0; slot < 2; slot++) {
+         qemu_input_queue_mtt(dcl.con,
+-                            frame->down ? INPUT_MULTI_TOUCH_TYPE_UPDATE :
+-                                          INPUT_MULTI_TOUCH_TYPE_END,
+-                            slot, frame->down ? slot : -1);
+-        if (frame->down) {
+-            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_X, frame->x[slot], 0,
+-                                    COCOA_PINCH_AXIS_MAX, slot, slot);
+-            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_Y, COCOA_PINCH_CENTER, 0,
+-                                    COCOA_PINCH_AXIS_MAX, slot, slot);
++                            down ? INPUT_MULTI_TOUCH_TYPE_UPDATE :
++                                   INPUT_MULTI_TOUCH_TYPE_END,
++                            slot, down ? id[slot] : -1);
++        if (down) {
++            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_X, x[slot], 0,
++                                    COCOA_PINCH_AXIS_MAX, slot, id[slot]);
++            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_Y, y, 0,
++                                    COCOA_PINCH_AXIS_MAX, slot, id[slot]);
+         }
+     }
      qemu_input_event_sync();
  }
  
-+/* Shares the pinch touchpad's two slots, so only one gesture owns them. */
++static void cocoa_pinch_send_frame(void *opaque, const CocoaPinchFrame *frame)
++{
++    static const int ids[2] = { 0, 1 };
++
++    cocoa_touchpad_send(frame->down, frame->x, COCOA_PINCH_CENTER, ids);
++}
++
 +static void cocoa_touch_scroll_send_frame(void *opaque,
 +                                          const CocoaTouchScrollFrame *frame)
 +{
-+    for (int slot = 0; slot < 2; slot++) {
-+        qemu_input_queue_mtt(dcl.con,
-+                            frame->down ? INPUT_MULTI_TOUCH_TYPE_UPDATE :
-+                                          INPUT_MULTI_TOUCH_TYPE_END,
-+                            slot, frame->down ? slot : -1);
-+        if (frame->down) {
-+            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_X, frame->x[slot], 0,
-+                                    COCOA_TOUCH_SCROLL_AXIS_MAX, slot, slot);
-+            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_Y, frame->y, 0,
-+                                    COCOA_TOUCH_SCROLL_AXIS_MAX, slot, slot);
-+        }
-+    }
-+    qemu_input_event_sync();
++    cocoa_touchpad_send(frame->down, frame->x, frame->y, frame->id);
 +}
 +
  /*
   * The strip AppKit keeps clear of a camera housing at the top of this screen,
   * in points, or 0: external displays, Macs without a notch and the built-in
-@@ -1344,6 +1368,45 @@ - (bool) handlePinchLocked:(NSEvent *)event
+@@ -1344,6 +1366,47 @@ - (bool) handlePinchLocked:(NSEvent *)event
                              cocoa_pinch_send_frame, NULL);
  }
  
-+/* The VM state handler and resume release frame belong to the pinch bridge. */
++/* The pinch bridge's VM state handler also releases these contacts on resume. */
 +- (void) endTouchScrollLocked
 +{
 +    cocoa_touch_scroll_cancel(&touchScroll, cocoa_touch_scroll_send_frame, NULL);
@@ -314,20 +311,16 @@ index 47c50ca..4c5d794 100644
 +- (bool) handleTouchScrollLocked:(NSEvent *)event
 +{
 +    NSEventPhase phase = [event phase];
++    NSEventPhase momentum = [event momentumPhase];
 +    NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
 +    unsigned action = 0;
 +    bool eligible = [event hasPreciseScrollingDeltas] &&
-+                    [event momentumPhase] == NSEventPhaseNone &&
 +                    [event window] == [self window] &&
 +                    [[self window] isKeyWindow] &&
 +                    NSPointInRect(point, [self bounds]) &&
 +                    qemu_console_is_graphic(dcl.con) &&
 +                    runstate_is_running();
 +
-+    if (!touchScroll.units_per_point) {
-+        touchScroll.units_per_point = cocoa_touch_scroll_units_per_point(
-+            getenv("TRYOMARCHY_TRACKPAD_SCROLL_SPEED"));
-+    }
 +    if (phase & NSEventPhaseBegan) {
 +        action |= COCOA_TOUCH_SCROLL_BEGIN;
 +        [self endPinchLocked];
@@ -337,6 +330,12 @@ index 47c50ca..4c5d794 100644
 +    }
 +    if (phase & NSEventPhaseCancelled) {
 +        action |= COCOA_TOUCH_SCROLL_CANCEL;
++    }
++    if (momentum != NSEventPhaseNone) {
++        action |= COCOA_TOUCH_SCROLL_MOMENTUM;
++    }
++    if (momentum & (NSEventPhaseEnded | NSEventPhaseCancelled)) {
++        action |= COCOA_TOUCH_SCROLL_MOMENTUM_END;
 +    }
 +    return cocoa_touch_scroll_event(&touchScroll, action, eligible,
 +                                    [event scrollingDeltaX],

@@ -150,6 +150,13 @@ int main(void)
                            check=True)
             subprocess.run([str(work / "test")], check=True)
 
+    def test_sensor_keeps_pinch_spacing_in_millimetres(self):
+        source = PATCH.read_text()
+        self.assertIn("+    config.u.abs.res = const_le32(41);", source)
+        radius = int(re.search(r"COCOA_PINCH_RADIUS = (\d+),", source)[1])
+        # Contacts start 25 mm apart; finger scrolling needs the 800 mm sensor.
+        self.assertAlmostEqual(2 * radius / 41, 25.0, delta=0.1)
+
     def test_builder_verifies_exact_patch(self):
         builder = (ROOT / "macos/build-qemu-gpu-runtime.sh").read_text()
         expected = re.search(r"^pinch_patch_sha256=([a-f0-9]{64})$", builder, re.M)
