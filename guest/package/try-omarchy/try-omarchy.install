@@ -70,6 +70,11 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-31)" -lt 0 ]; then
     systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
   fi
+  if [ "$(vercmp "$2" 0.1.0-32)" -lt 0 ]; then
+    if [ "$(systemctl is-enabled omarchy-native-fido-bridge.service 2>/dev/null)" = enabled ]; then
+      systemctl start --no-block omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
+    fi
+  fi
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
   # camera cutouts, the display layout and the panel's output it writes.

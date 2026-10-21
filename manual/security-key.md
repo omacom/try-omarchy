@@ -31,6 +31,8 @@ Quitting the VM releases the interface. To stop forwarding while the VM stays op
 sudo systemctl stop omarchy-native-fido-bridge.service
 ```
 
+The guest's virtual device closes immediately. The Mac may retain the interface until its ten-second lease expires after the last guest activity. Allow for release before trying host authentication again; physical-key recovery still needs validation on the target builds.
+
 For a later session without forwarding, launch Try Omarchy normally without the environment variable. The selection is not saved as a preference. After unplugging a key, list devices again and explicitly choose its new ID before launching another session. The app never substitutes another key for a missing selection.
 
 See [FIDO bridge design and remaining hardware acceptance](../docs/fido.md) for current limits. Physical registration, authentication, recovery and cross-vendor compatibility must be validated on the target app and guest builds.

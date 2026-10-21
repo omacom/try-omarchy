@@ -12,6 +12,8 @@ The launcher adds `dev.tryomarchy.fido` only for an explicit selection. Its host
 
 The guest helper opens the root-only virtio port and `/dev/uhid`, creates one temporary FIDO device, and permanently drops supplementary groups, GID and UID to `nobody` before handling the host stream. A device-specific udev rule grants the virtual hidraw device to the active local session. The package does not widen access to `/dev/uhid`. Closing the retained UHID descriptor destroys the virtual device.
 
+The upgrade that introduces the service applies its preset. Upgrades from before `0.1.0-32` also request a start when the service is enabled, so it can run in the same boot. Disabled and masked services are not started, and later upgrades leave their state alone. The service's port condition skips it when an older app exposes no FIDO channel.
+
 ## Protocol 1
 
 Each frame has an eight-byte header: ASCII `TOFD`, version `1`, a one-byte kind, and a two-byte unsigned big-endian payload length. Report frames carry exactly 64 bytes; every other kind has an empty payload. Unknown versions, kinds or lengths end the session before an advertised payload is allocated.
@@ -29,6 +31,8 @@ The initial handshake has a 30-second timeout. After negotiation, the guest send
 
 Shutdown, peer failure, lease expiry, device removal and Mac sleep end the host lease. Before closing the interface, the host attempts CTAPHID cancellation for outstanding CBOR requests and channel resynchronization for outstanding requests. This cleanup is best effort; physical-key recovery still needs hardware acceptance. Reconnects must negotiate again and can only acquire the same selected registry entry. The existing launcher limits host helper restarts; failure remains local to FIDO forwarding.
 
+When the guest helper stops or fails, it closes the virtual device and transport without flushing queued reports or appending a release frame. A report may have been only partly transmitted, so a release header could be mistaken for its remaining payload. If closing the guest port does not reach the host as a disconnect, the ten-second host lease bounds release after the last guest activity.
+
 ## Acceptance
 
 Synthetic tests cover descriptor and exact-device selection, fragmented and malformed frames, queue limits, negotiation before acquisition, control messages, guest privilege-drop ordering, pending-response cleanup and device release. These checks do not establish physical touch, browser or kernel behavior.
@@ -39,6 +43,7 @@ Before upstream submission, run `make test` and `make e2e`, then record this mat
 - Cancel a browser request while the key awaits touch. Let another request time out. Verify another request succeeds afterward.
 - Unplug during a request, reconnect, and explicitly select the new registry ID. Verify an identical unselected key is never acquired.
 - Stop the guest service, kill each helper, and quit the guest. Verify the virtual device disappears and host FIDO authentication succeeds after release.
+- For guest-service stop, measure physical-interface release against the ten-second lease plus a two-second observation allowance. Confirm that allowance on the target builds.
 - Close the Mac lid during an idle session and during a pending request, then wake it. Verify release, bounded recovery and normal host use.
 - Try concurrent Mac FIDO access while the VM owns the interface. Verify the documented exclusive behavior and host recovery afterward.
 - Test app-before-package and package-before-app updates, malformed peer input, a missing key and an unsupported descriptor. The VM must remain usable.
