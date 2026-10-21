@@ -1,0 +1,182 @@
+#!/usr/bin/python3
+import errno
+import os
+import pwd
+import select
+import signal
+import struct
+import sys
+import time
+
+
+PORT = "/dev/virtio-ports/dev.tryomarchy.fido"
+DESCRIPTOR = bytes.fromhex("06d0f10901a1010920150026ff007508954081020921150026ff00750895409102c0")
+HELLO, READY, REPORT, PING, PONG, BYE = range(1, 7)
+QUEUE_LIMIT = 64 * 256
+
+
+def message(kind, payload=b""):
+    return b"TOFD" + bytes([1, kind]) + len(payload).to_bytes(2, "big") + payload
+
+
+class FrameReader:
+    def __init__(self):
+        self.buffer = bytearray()
+
+    def feed(self, chunk):
+        if len(chunk) > 4096:
+            raise ValueError("FIDO read exceeds 4 KiB")
+        self.buffer.extend(chunk)
+        frames = []
+        while len(self.buffer) >= 8:
+            header = self.buffer[:8]
+            kind = header[5]
+            size = int.from_bytes(header[6:8], "big")
+            if header[:5] != b"TOFD\x01" or kind not in range(1, 7) or size != (64 if kind == REPORT else 0):
+                raise ValueError("Invalid FIDO frame")
+            if len(self.buffer) < 8 + size:
+                break
+            frames.append((kind, bytes(self.buffer[8:8 + size])))
+            del self.buffer[:8 + size]
+        return frames
+
+    def finish(self):
+        if self.buffer:
+            raise ConnectionError("FIDO host disconnected mid-frame")
+
+
+def emit(fd, kind, payload=b""):
+    event = struct.pack("<I", kind) + payload
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            if os.write(fd, event) != len(event):
+                raise OSError("Short UHID event write")
+            return
+        except (BlockingIOError, InterruptedError):
+            if time.monotonic() >= deadline:
+                raise TimeoutError("UHID device is not draining reports")
+            select.select([], [fd], [], 0.1)
+
+
+def create_device(fd):
+    payload = struct.pack("<128s64s64sHHIIII", b"Mac FIDO key", b"try-omarchy",
+                          b"try-omarchy-fido", len(DESCRIPTOR), 3, 0, 0, 1, 0) + DESCRIPTOR
+    emit(fd, 11, payload)
+
+
+def drop_privileges(account):
+    os.setgroups([])
+    os.setgid(account.pw_gid)
+    os.setuid(account.pw_uid)
+    if os.geteuid() != account.pw_uid or os.getuid() != account.pw_uid:
+        raise PermissionError("Could not drop FIDO setup privileges")
+
+
+def output_report(event):
+    if len(event) < 4103:
+        raise ValueError("Truncated UHID output")
+    size, = struct.unpack_from("<H", event, 4100)
+    if event[4102] != 1 or size not in (64, 65):
+        raise ValueError("Unsupported UHID report")
+    report = event[4:4 + size]
+    if size == 65:
+        if report[0] != 0:
+            raise ValueError("Unsupported FIDO report ID")
+        report = report[1:]
+    return report
+
+
+def relay(port, uhid, *, clock=time.monotonic, wait=select.select):
+    reader = FrameReader()
+    outgoing = bytearray(message(HELLO))
+    ready = False
+    deadline = clock() + 30
+    heartbeat = clock() + 2
+    while True:
+        now = clock()
+        if now >= deadline:
+            raise TimeoutError("FIDO host lease expired")
+        if ready and now >= heartbeat:
+            outgoing.extend(message(PING))
+            heartbeat = now + 2
+        if len(outgoing) > QUEUE_LIMIT:
+            raise BufferError("FIDO host is not draining reports")
+        readable, writable, _ = wait([port, uhid] if ready else [port],
+                                      [port] if outgoing else [], [], 0.1)
+        if port in readable:
+            chunk = os.read(port, 4096)
+            if not chunk:
+                reader.finish()
+                raise ConnectionError("FIDO host disconnected")
+            for kind, payload in reader.feed(chunk):
+                if not ready:
+                    if kind != READY:
+                        raise ValueError("FIDO host must negotiate before reports")
+                    ready = True
+                elif kind == REPORT:
+                    emit(uhid, 12, struct.pack("<H", 64) + payload)
+                elif kind == BYE:
+                    raise ConnectionError("FIDO host released the key")
+                elif kind != PONG:
+                    raise ValueError("Unexpected FIDO host message")
+                deadline = clock() + 10
+        if uhid in readable:
+            event = os.read(uhid, 4380)
+            if len(event) < 4:
+                raise OSError("UHID device closed")
+            kind, = struct.unpack_from("<I", event)
+            if kind == 6:
+                outgoing.extend(message(REPORT, output_report(event)))
+            elif kind in (9, 13):
+                if len(event) < 8:
+                    raise ValueError("Truncated UHID control request")
+                request_id, = struct.unpack_from("<I", event, 4)
+                if kind == 9:
+                    emit(uhid, 10, struct.pack("<IHH", request_id, errno.EIO, 0))
+                else:
+                    emit(uhid, 14, struct.pack("<IH", request_id, errno.EIO))
+        if port in writable and outgoing:
+            count = os.write(port, outgoing)
+            if count <= 0:
+                raise ConnectionError("FIDO channel closed")
+            del outgoing[:count]
+
+
+def main():
+    if os.geteuid() != 0:
+        raise PermissionError("FIDO setup must run through its system service")
+    account = pwd.getpwnam("nobody")
+    if account.pw_uid <= 0:
+        raise PermissionError("No unprivileged FIDO bridge account")
+    port = os.open(PORT, os.O_RDWR | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC)
+    uhid = None
+    try:
+        uhid = os.open("/dev/uhid", os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
+        create_device(uhid)
+        drop_privileges(account)
+        relay(port, uhid)
+    finally:
+        try:
+            os.write(port, message(BYE))
+        except OSError:
+            pass
+        if uhid is not None:
+            os.close(uhid)
+        os.close(port)
+
+
+def interrupt(_signal, _frame):
+    raise KeyboardInterrupt
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, interrupt)
+    signal.signal(signal.SIGINT, interrupt)
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except (OSError, ValueError) as error:
+        print(f"FIDO bridge: {error}", file=sys.stderr)
+        sys.exit(1)

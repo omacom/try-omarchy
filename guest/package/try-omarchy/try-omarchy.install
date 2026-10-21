@@ -1,7 +1,7 @@
 # Units are enabled through presets on first install; later upgrades keep the
 # administrator's choices. systemd and udev reload through their own pacman hooks.
 _units='try-omarchy-host-config.service try-omarchy-grow-root.service try-omarchy-ssh-access.service try-omarchy-guest-status.service
-try-omarchy-package-install.service omarchy-native-battery-bridge.service omarchy-native-mac-share.service
+try-omarchy-package-install.service omarchy-native-battery-bridge.service omarchy-native-fido-bridge.service omarchy-native-mac-share.service
 try-omarchy-locale.service try-omarchy-timezone.service try-omarchy-clock-recovery.timer'
 _user_units='omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service
 omarchy-native-clipboard-bridge.service omarchy-native-mac-share-link.service try-omarchy-session.service'
@@ -66,6 +66,9 @@ post_upgrade() {
   fi
   if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then
     _remove_factory_boot_entry
+  fi
+  if [ "$(vercmp "$2" 0.1.0-31)" -lt 0 ]; then
+    systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
   fi
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
