@@ -37,6 +37,8 @@ When the guest helper stops or fails, it closes the virtual device and transport
 
 Synthetic tests cover descriptor and exact-device selection, fragmented and malformed frames, queue limits, negotiation before acquisition, control messages, guest privilege-drop ordering, pending-response cleanup and device release. These checks do not establish physical touch, browser or kernel behavior.
 
+The `make test-fido-simulated` target runs the focused suites without a key or VM. See [the generated cases and their limits](fido-simulated-tests.md).
+
 Before upstream submission, run `make test` and `make e2e`, then record this matrix using disposable test credentials and a disposable VM:
 
 - Register and authenticate in the guest browser with the original key and at least one other vendor. Include normal touch and PIN flows.
