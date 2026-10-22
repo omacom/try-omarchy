@@ -6,7 +6,7 @@ Someone who has used Omarchy in the VM can move their home folder to Omarchy ins
 
 ## The flow
 
-1. In Omarchy, the user opens Menu › Setup › **Move to Native Install**. The row shows only while the app offers the outbox share. It opens a floating terminal, like **Import Previous VM**.
+1. In Omarchy, the user chooses **Setup → Move to Native Install** in the Omarchy menu. The row shows only while the app offers the outbox share. It opens a floating terminal, like **Import Previous VM**.
 2. The command `try-omarchy-export-home` explains what is exported and asks for a transfer passphrase twice. The passphrase stays in the guest.
 3. With a narrow `sudoers.d` rule, like the time zone one, a root helper takes a read-only btrfs snapshot of `/home` and mounts it read-only. The exporter requires a home on a read-only mount.
 4. The command runs `omarchy-migration export` as the owner, with the snapshot as a read-only source and the passphrase on a descriptor. The exporter and a pinned `age` come with the `try-omarchy` package.
@@ -46,7 +46,7 @@ Exports live in `~/Library/Application Support/Try Omarchy/Exports/<export id>/`
 publish-migration-exports.sh <outbox> <exports>
 ```
 
-The launcher calls it twice per launch: right after the storage folder is open, before QEMU starts, and in its cleanup, after QEMU has exited. The app forwards its quit to the launcher script as a signal, so the cleanup call runs for a guest shutdown and for an app quit alike. A missing script is skipped. A failing one is logged. Neither stops a launch or a shutdown. Tests redirect Exports with `OMARCHY_QEMU_GPU_EXPORTS_ROOT`.
+The launcher calls it twice per launch: right after the storage folder is open, before QEMU starts, and in its cleanup, after QEMU has exited. The app forwards its quit to the launcher script as a signal, so the cleanup call runs for a guest shutdown and for an app quit alike. A missing script is skipped. A failing one is logged. Neither stops a launch or a shutdown. The script lives in `macos/` and `build-app.sh` must copy it into the app's `Resources/scripts` by name, as it does the other launcher scripts. Tests redirect Exports with `OMARCHY_QEMU_GPU_EXPORTS_ROOT`.
 
 The script treats the outbox as untrusted. For each `<export id>/` it checks the exact layout, that the folder name equals the receipt's `export_id`, that the receipt is a valid `omarchy-migration/receipt/1` document, and that `bundle.age` has the receipt's byte count and SHA-256. A valid export is published atomically: copied into `Exports/.<export id>.partial/`, then renamed to `Exports/<export id>/`, never replacing an export that exists, with the published files readable by the user. The outbox copy is removed after the publish. Anything else in the outbox, including a partial folder, an invalid export or an export whose id is already published, is removed. The script prints what it did to stderr and exits 0 whether or not there was anything to publish. A non-zero exit means it could not do its job at all.
 
