@@ -30,7 +30,8 @@ cat <<EOF
 Move to a native install
 
 This saves an encrypted copy of your configuration, files and projects for the
-Omarchy installer on your Mac. SSH keys and browser data stay behind.
+Omarchy installer on your Mac. SSH and GPG keys, saved logins and tokens, and
+browser data stay behind.
 
 Choose a transfer passphrase of at least $minimum characters. You'll need it to
 import on the native install, and it can't be recovered.

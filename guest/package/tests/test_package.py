@@ -307,7 +307,7 @@ class ExportHome(unittest.TestCase):
         self.tools = self.tmp / "migration"
         policies = self.tools / "omarchy-migration/lib/omarchy_migration/policies"
         policies.mkdir(parents=True)
-        (policies / "try-omarchy.json").write_text('{"revision": "try-omarchy/82927e9/4"}')
+        (policies / "try-omarchy.json").write_text('{"revision": "try-omarchy/4b948a8/1"}')
         self.fake(self.tools / "omarchy-migration/bin/omarchy-migration", f"""#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
@@ -387,7 +387,7 @@ fi
         self.assertEqual(record["home"], ["Projects"])
         self.assertIn("--read-only-source", record["args"])
         self.assertTrue(record["args"][record["args"].index("--home") + 1].endswith(f"/source/{self.owner}"))
-        self.assertEqual(record["request"]["policy_revision"], "try-omarchy/82927e9/4")
+        self.assertEqual(record["request"]["policy_revision"], "try-omarchy/4b948a8/1")
         self.assertEqual(record["request"]["schema"], "omarchy-migration/export-request/2")
         log = self.log.read_text()
         self.assertIn("tryomarchy-export", log)
