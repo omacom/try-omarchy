@@ -434,6 +434,51 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# In immersive mode, one virtio-gpu head per Mac display, arranged as the
+# Mac's display settings are. The helper lists the main display first, as
+# OUTPUT:XxY in Hyprland's logical pixels; the guest places its outputs from
+# that line, and QEMU reads it as TRYOMARCHY_DISPLAY_LAYOUT to give each
+# window its head. The built-in panel's output, named beside it, keeps the
+# camera housing. A window, the launcher's Use all displays setting off
+# (OMARCHY_QEMU_GPU_DISPLAYS=0), one display, or a failed probe keep one head.
+case ${OMARCHY_QEMU_GPU_DISPLAYS:-1} in
+  0 | 1) ;;
+  *) fail "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1" ;;
+esac
+# Full screen's first mode is the main display's size in pixels. Linux sizes
+# its console when it probes the GPU and keeps that size, so the size has to
+# be there before full screen reports it; a window starts at 1920x1080 as before.
+gpu_xres=1920 gpu_yres=1080
+if [[ $immersive == on ]]; then
+  display_pixels=$("$native_bridge" --host-display-pixels 2>/dev/null) || display_pixels=
+  if [[ $display_pixels =~ ^([1-9][0-9]{2,4})x([1-9][0-9]{2,4})$ ]] &&
+     ((BASH_REMATCH[1] <= 16384 && BASH_REMATCH[2] <= 16384)); then
+    gpu_xres=${BASH_REMATCH[1]} gpu_yres=${BASH_REMATCH[2]}
+  elif [[ -n $display_pixels ]]; then
+    echo "run-qemu-gpu: ignoring unexpected display size: $display_pixels" >&2
+  fi
+fi
+display_count=1
+unset TRYOMARCHY_DISPLAY_LAYOUT
+if [[ $immersive == on && ${OMARCHY_QEMU_GPU_DISPLAYS:-1} == 1 ]]; then
+  display_layout=$("$native_bridge" --host-display-layout 2>/dev/null) || display_layout=
+  placement='Virtual-[1-4]:[0-9]{1,5}x[0-9]{1,5}'
+  if [[ $display_layout =~ ^$placement(,$placement){1,3}$ ]]; then
+    IFS=, read -ra placements <<<"$display_layout"
+    display_count=${#placements[@]}
+    host_options+=" tryomarchy.display_layout=$display_layout"
+    export TRYOMARCHY_DISPLAY_LAYOUT=$display_layout
+    display_panel=$("$native_bridge" --host-display-panel 2>/dev/null) || display_panel=
+    if [[ $display_panel =~ ^Virtual-[1-4]$ && ",$display_layout" == *",$display_panel:"* ]]; then
+      host_options+=" tryomarchy.display_panel=$display_panel"
+    elif [[ -n $display_panel ]]; then
+      echo "run-qemu-gpu: ignoring unexpected display panel: $display_panel" >&2
+    fi
+  elif [[ -n $display_layout && ! $display_layout =~ ^$placement$ ]]; then
+    echo "run-qemu-gpu: ignoring unexpected display layout: $display_layout" >&2
+  fi
+fi
+
 open_storage
 if [[ $storage_mode == reset ]]; then
   reset_vm
@@ -723,7 +768,7 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -drive "if=none,id=omarchy-root,file=${working_disk//,/,,},format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root,bootindex=0'
-  -device 'virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080,romfile='
+  -device "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=$display_count,xres=$gpu_xres,yres=$gpu_yres,romfile="
   -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
