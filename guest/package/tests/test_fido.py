@@ -190,35 +190,62 @@ class FIDOSetup(unittest.TestCase):
             write.assert_not_called()
             self.assertEqual([call.args[0] for call in close.call_args_list], [12, 11])
 
-    def test_first_fido_upgrade_starts_only_an_enabled_service_and_presets_only_once(self):
+    def test_upgrade_presets_only_a_new_fido_unit_and_preserves_existing_choices(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            calls = root / 'calls'
-            (root / 'systemctl').write_text('#!/bin/bash\nprintf "%s\\n" "$*" >>"$FIDO_TEST_CALLS"\n'
-                                           'if [[ $1 == is-enabled ]]; then echo "$FIDO_TEST_STATE"; fi\n'
-                                           '[[ $1 == --global && $2 == is-enabled ]] && echo disabled\nexit 0\n')
-            (root / 'vercmp').write_text('#!/bin/bash\n'
-                                        'a=${1##*-}; b=${2##*-}\n'
-                                        'if (( a < b )); then echo -1; elif (( a > b )); then echo 1; else echo 0; fi\n')
-            for program in ('systemctl', 'vercmp'):
+            calls = root / "calls"
+            state_file = root / "state"
+            unit_file = root / "fido.service"
+            runtime = root / "run"
+            marker = runtime / "fido-unit-present"
+            (root / "systemctl").write_text(
+                "#!/bin/bash\nprintf \"%s\\n\" \"$*\" >>\"$FIDO_TEST_CALLS\"\n"
+                "if [[ $1 == preset ]]; then\n"
+                "  [[ $(cat \"$FIDO_TEST_STATE_FILE\") == masked ]] || echo enabled >\"$FIDO_TEST_STATE_FILE\"\n"
+                "elif [[ $1 == is-enabled ]]; then cat \"$FIDO_TEST_STATE_FILE\";\n"
+                "elif [[ $1 == --global && $2 == is-enabled ]]; then echo disabled; fi\nexit 0\n")
+            (root / "vercmp").write_text(
+                "#!/bin/bash\na=${1##*-}; b=${2##*-}\n"
+                "if (( a < b )); then echo -1; elif (( a > b )); then echo 1; else echo 0; fi\n")
+            for program in ("systemctl", "vercmp"):
                 (root / program).chmod(0o755)
-            install = ROOT / 'try-omarchy/try-omarchy.install'
-            for old in ('0.1.0-30', '0.1.0-31', '0.1.0-32'):
-                for state in ('enabled', 'disabled', 'masked'):
-                    with self.subTest(old=old, state=state):
-                        calls.write_text('')
-                        subprocess.run(['/bin/bash', '-c', 'source "$1"; post_upgrade 0.1.0-32 "$2"',
-                                        'bash', str(install), old], check=True, capture_output=True,
-                                       env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
-                                            'FIDO_TEST_CALLS': str(calls), 'FIDO_TEST_STATE': state})
-                        fido_calls = [line for line in calls.read_text().splitlines()
-                                      if 'omarchy-native-fido-bridge.service' in line]
-                        expected = ['preset omarchy-native-fido-bridge.service'] if old == '0.1.0-30' else []
-                        if old != '0.1.0-32':
-                            expected.append('is-enabled omarchy-native-fido-bridge.service')
-                            if state == 'enabled':
-                                expected.append('start --no-block omarchy-native-fido-bridge.service')
-                        self.assertEqual(fido_calls, expected)
+            source = (ROOT / "try-omarchy/try-omarchy.install").read_text()
+            source = source.replace("/run/try-omarchy", str(runtime)).replace(
+                "/usr/lib/systemd/system/omarchy-native-fido-bridge.service", str(unit_file))
+            install = root / "install"
+            install.write_text(source)
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "FIDO_TEST_CALLS": str(calls), "FIDO_TEST_STATE_FILE": str(state_file)}
+            for old in ("0.1.0-30", "0.1.0-32", "0.1.0-33", "0.1.0-34", "0.1.0-35"):
+                for present in (False, True):
+                    for state in ("enabled", "disabled", "masked"):
+                        with self.subTest(old=old, present=present, state=state):
+                            calls.write_text("")
+                            state_file.write_text(state)
+                            unit_file.unlink(missing_ok=True)
+                            marker.unlink(missing_ok=True)
+                            if present:
+                                unit_file.touch()
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; declare -F pre_upgrade >/dev/null && pre_upgrade 0.1.0-34 \"$2\"; :",
+                                            "bash", str(install), old], check=True, capture_output=True, env=env)
+                            unit_file.touch()
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; post_upgrade 0.1.0-34 \"$2\"",
+                                            "bash", str(install), old], check=True, capture_output=True, env=env)
+                            fido_calls = [line for line in calls.read_text().splitlines()
+                                          if "omarchy-native-fido-bridge.service" in line]
+                            expected = []
+                            final_state = state
+                            if int(old.rsplit("-", 1)[1]) < 34:
+                                if not present:
+                                    expected.append("preset omarchy-native-fido-bridge.service")
+                                    if state != "masked":
+                                        final_state = "enabled"
+                                expected.append("is-enabled omarchy-native-fido-bridge.service")
+                                if final_state == "enabled":
+                                    expected.append("start --no-block omarchy-native-fido-bridge.service")
+                            self.assertEqual(fido_calls, expected)
+                            self.assertEqual(state_file.read_text().strip(), final_state)
+                            self.assertFalse(marker.exists())
 
     def test_fido_service_requires_its_optional_port_before_loading_uhid_or_starting(self):
         service = HELPER.parents[1] / 'systemd/system/omarchy-native-fido-bridge.service'
