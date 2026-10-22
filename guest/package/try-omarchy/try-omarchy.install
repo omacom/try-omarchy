@@ -46,6 +46,15 @@ pre_remove() {
   systemctl --global disable $_user_units >/dev/null 2>&1 || true
 }
 
+pre_upgrade() {
+  if [ -f /usr/lib/systemd/system/omarchy-native-fido-bridge.service ]; then
+    mkdir -p /run/try-omarchy
+    touch /run/try-omarchy/fido-unit-present
+  else
+    rm -f /run/try-omarchy/fido-unit-present
+  fi
+}
+
 post_upgrade() {
   # Earlier packages started these in every user manager, including SSH and
   # owner provisioning, before logind granted the desktop's device access.
@@ -67,14 +76,15 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then
     _remove_factory_boot_entry
   fi
-  if [ "$(vercmp "$2" 0.1.0-31)" -lt 0 ]; then
-    systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
-  fi
-  if [ "$(vercmp "$2" 0.1.0-32)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-34)" -lt 0 ]; then
+    if [ ! -e /run/try-omarchy/fido-unit-present ]; then
+      systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
+    fi
     if [ "$(systemctl is-enabled omarchy-native-fido-bridge.service 2>/dev/null)" = enabled ]; then
       systemctl start --no-block omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
     fi
   fi
+  rm -f /run/try-omarchy/fido-unit-present
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
   # camera cutouts, the display layout and the panel's output it writes.
