@@ -66,9 +66,26 @@ static bool event(CocoaTouchScroll *s, unsigned phase, bool eligible,
     return cocoa_touch_scroll_event(s, phase, eligible, dx, dy, record, frames);
 }
 
+/* Sensor units a delta of this many points moves the contacts. */
+static double units(double points)
+{
+    return points * COCOA_TOUCH_SCROLL_UNITS_PER_POINT *
+           cocoa_touch_scroll_gain(fabs(points));
+}
+
 int main(void)
 {
     CocoaTouchScroll s = {0};
+
+    /* Normal scrolls move 0.6 times as far as flicks, with a smooth ramp. */
+    assert(cocoa_touch_scroll_gain(0) == 0.6);
+    assert(cocoa_touch_scroll_gain(4) == 0.6);
+    assert(fabs(cocoa_touch_scroll_gain(22) - 0.8) < 1e-9);
+    assert(cocoa_touch_scroll_gain(40) == 1.0);
+    assert(cocoa_touch_scroll_gain(400) == 1.0);
+    for (double p = 0; p < 50; p += 0.5) {
+        assert(cocoa_touch_scroll_gain(p + 0.5) >= cocoa_touch_scroll_gain(p));
+    }
 
     /* A scroll that began elsewhere, or outside the view, stays on the wheel. */
     assert(!event(&s, 0, true, 1, 1));
@@ -83,41 +100,51 @@ int main(void)
     assert(count == 1 && frames[0].down);
     assert(center(&frames[0]) == COCOA_TOUCH_SCROLL_CENTER);
     assert(frames[0].y == COCOA_TOUCH_SCROLL_CENTER);
+
+    /* The first move starts libinput's scroll in a frame of its own. */
     assert(event(&s, 0, true, 0, 10));
-    assert(count == 2 && frames[1].down);
-    assert(frames[1].y == COCOA_TOUCH_SCROLL_CENTER - lround(10 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
-    assert(frames[1].id[0] == frames[0].id[0]);
+    assert(count == 3 && frames[1].down && frames[2].down);
+    assert(frames[1].y == COCOA_TOUCH_SCROLL_CENTER - COCOA_TOUCH_SCROLL_PREROLL);
+    assert(center(&frames[1]) == COCOA_TOUCH_SCROLL_CENTER);
+    assert(frames[2].y == lround(COCOA_TOUCH_SCROLL_CENTER - COCOA_TOUCH_SCROLL_PREROLL - units(10)));
+    assert(frames[2].id[0] == frames[0].id[0]);
+
+    /* Later moves follow the delta alone. */
+    double y = s.y;
     assert(event(&s, 0, true, -4, 0));
-    assert(center(&frames[2]) == COCOA_TOUCH_SCROLL_CENTER + lround(4 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
+    assert(count == 4);
+    assert(center(&frames[3]) == lround(COCOA_TOUCH_SCROLL_CENTER + units(4)));
+    assert(s.y == y);
 
     /* Fractional points accumulate in sensor units, not per event. */
     for (int i = 0; i < 10; i++) {
         event(&s, 0, true, 0, -0.1);
-        count = 3;
+        count = 4;
     }
-    assert(fabs(s.y - (COCOA_TOUCH_SCROLL_CENTER - 9 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT)) < 1e-9);
+    assert(fabs(s.y - (y + 10 * units(0.1))) < 1e-9);
 
     /* Zero deltas emit nothing; end releases once. */
     assert(event(&s, 0, true, 0, 0));
-    assert(count == 3);
+    assert(count == 4);
     assert(event(&s, E, true, 0, 0));
-    assert(count == 4 && !frames[3].down);
+    assert(count == 5 && !frames[4].down);
 
     /* Its momentum is dropped: the guest scrolls kinetically by itself. */
     assert(event(&s, M, true, 0, 30));
     assert(event(&s, M, false, 0, 20));
     assert(event(&s, M | ME, true, 0, 1));
-    assert(count == 4);
+    assert(count == 5);
     assert(!event(&s, M, true, 0, 5));  /* a stray later momentum event */
     assert(!event(&s, 0, true, 0, 5));  /* an orphaned update */
 
     /* Deltas carried by the end event move before the release. */
     int previous = frames[0].id[0];
+    count = 0;
     event(&s, B, true, 0, 0);
-    assert(frames[4].id[0] == previous + 2);  /* fresh IDs for every landing */
+    assert(frames[0].id[0] == previous + 2);  /* fresh IDs for every landing */
     event(&s, E, true, 2, 0);
-    assert(count == 7 && frames[5].down && !frames[6].down);
-    assert(center(&frames[5]) == COCOA_TOUCH_SCROLL_CENTER - lround(2 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
+    assert(count == 4 && frames[1].down && frames[2].down && !frames[3].down);
+    assert(center(&frames[2]) == lround(COCOA_TOUCH_SCROLL_CENTER - COCOA_TOUCH_SCROLL_PREROLL - units(2)));
 
     /* A new gesture outside the view does not inherit dropped momentum. */
     event(&s, B, false, 0, 0);
@@ -150,20 +177,27 @@ int main(void)
     assert(count == 11 && frames[8].down && !frames[9].down && frames[10].down);
     assert(frames[10].id[0] != frames[8].id[0]);
 
-    /* Reaching an edge lifts and lands again on the far side of that axis. */
+    /* Reaching an edge lifts and lands again on the far side of that axis,
+     * and the new contacts start libinput's scroll again. */
     count = 0;
-    int travel = (int)((COCOA_TOUCH_SCROLL_MAX - COCOA_TOUCH_SCROLL_CENTER) /
-                       COCOA_TOUCH_SCROLL_UNITS_PER_POINT);
+    event(&s, 0, true, -1, 0);
+    assert(count == 2);
+    double room = COCOA_TOUCH_SCROLL_MAX - s.x;
+    double travel = room / COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
+    count = 0;
     event(&s, 0, true, -travel, 0);
-    assert(count == 1 && frames[0].down);
+    assert(count == 1 && center(&frames[0]) == COCOA_TOUCH_SCROLL_MAX);
     event(&s, 0, true, -1, 0);
     assert(count == 3 && !frames[1].down && frames[2].down);
     assert(frames[2].id[0] != frames[0].id[0]);
     assert(center(&frames[2]) == COCOA_TOUCH_SCROLL_MIN);
     assert(frames[2].y == COCOA_TOUCH_SCROLL_CENTER);
+    event(&s, 0, true, -1, 0);
+    assert(count == 5);
+    assert(center(&frames[3]) == COCOA_TOUCH_SCROLL_MIN + COCOA_TOUCH_SCROLL_PREROLL);
     event(&s, 0, true, 0, DBL_MAX);
-    assert(count == 5 && frames[4].y == COCOA_TOUCH_SCROLL_MAX);
-    assert(center(&frames[4]) == COCOA_TOUCH_SCROLL_MIN);
+    assert(frames[count - 1].y == COCOA_TOUCH_SCROLL_MAX);
+    assert(center(&frames[count - 1]) == lround(s.x));
 
     /* Tracking IDs wrap inside the advertised range. */
     s.gesture = 32766;

@@ -9,14 +9,16 @@ bridge's release rules, with fresh tracking IDs for every landing. macOS
 momentum after such a gesture is dropped, because the guest starts its own
 kinetic scrolling when the fingers lift. Discrete mouse wheels, scrolling
 outside the focused view and momentum of other gestures keep the tablet's
-wheel path. Pinch and finger scrolling share one touchpad frame sender.
+wheel path. Pinch and finger scrolling share one touchpad frame sender. The
+first move of every landing starts libinput's scroll in a frame of its own,
+so no movement is lost, and slow scrolls move less than flicks.
 
 diff --git a/include/ui/cocoa-touch-scroll.h b/include/ui/cocoa-touch-scroll.h
 new file mode 100644
-index 0000000..e81aafb
+index 0000000..dd20909
 --- /dev/null
 +++ b/include/ui/cocoa-touch-scroll.h
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,230 @@
 +/*
 + * Cocoa precise scrolling as two touchpad contacts, independent of AppKit
 + * for deterministic testing.
@@ -43,15 +45,24 @@ index 0000000..e81aafb
 +};
 +
 +/*
-+ * 0.12 mm per point. The guest's touchpad scroll factor tunes the speed, as
-+ * on real hardware.
++ * 0.12 mm per point for fast scrolls. The guest's touchpad scroll factor
++ * tunes the speed, as on real hardware.
 + */
 +#define COCOA_TOUCH_SCROLL_UNITS_PER_POINT 1.2
++
++/*
++ * libinput starts a two-finger scroll once both touches have moved 1.5 mm,
++ * and discards that movement. A first move of 1.6 mm in the scroll's
++ * direction, in a frame of its own, starts it, so no scrolling is lost.
++ */
++#define COCOA_TOUCH_SCROLL_PREROLL 16.0
 +
 +typedef struct CocoaTouchScroll {
 +    bool active;
 +    /* The current AppKit gesture reached the guest as finger scrolling. */
 +    bool owns_momentum;
++    /* libinput has started scrolling with the current contacts. */
++    bool started;
 +    unsigned gesture;
 +    double x;
 +    double y;
@@ -118,6 +129,7 @@ index 0000000..e81aafb
 +{
 +    scroll->active = true;
 +    scroll->owns_momentum = true;
++    scroll->started = false;
 +    scroll->gesture++;
 +    scroll->x = x;
 +    scroll->y = y;
@@ -130,18 +142,22 @@ index 0000000..e81aafb
 +}
 +
 +/*
-+ * Contacts move as libinput's default, non-natural finger scrolling expects,
-+ * so the guest scrolls in the direction the wheel path used. A long scroll
-+ * that reaches an edge lifts and lands again at the opposite edge.
++ * Slow and normal scrolls move 0.6 times as far as fast ones. The gain rises
++ * smoothly from 4 to 40 points per event, so flicks keep their reach.
 + */
-+static inline void cocoa_touch_scroll_move(CocoaTouchScroll *scroll,
-+                                           double dx, double dy,
-+                                           CocoaTouchScrollEmit emit,
-+                                           void *opaque)
++static inline double cocoa_touch_scroll_gain(double points)
 +{
-+    double x = scroll->x - dx * COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
-+    double y = scroll->y - dy * COCOA_TOUCH_SCROLL_UNITS_PER_POINT;
++    double t = fmin(1.0, fmax(0.0, (points - 4.0) / 36.0));
 +
++    return 0.6 + 0.4 * t * t * (3.0 - 2.0 * t);
++}
++
++/* A move that reaches an edge lifts and lands again at the opposite edge. */
++static inline void cocoa_touch_scroll_place(CocoaTouchScroll *scroll,
++                                            double x, double y,
++                                            CocoaTouchScrollEmit emit,
++                                            void *opaque)
++{
 +    if (cocoa_touch_scroll_inside(x) && cocoa_touch_scroll_inside(y)) {
 +        scroll->x = x;
 +        scroll->y = y;
@@ -158,6 +174,30 @@ index 0000000..e81aafb
 +    }
 +    cocoa_touch_scroll_cancel(scroll, emit, opaque);
 +    cocoa_touch_scroll_begin(scroll, x, y, emit, opaque);
++}
++
++/*
++ * Contacts move as libinput's default, non-natural finger scrolling expects,
++ * so the guest scrolls in the direction the wheel path used.
++ */
++static inline void cocoa_touch_scroll_move(CocoaTouchScroll *scroll,
++                                           double dx, double dy,
++                                           CocoaTouchScrollEmit emit,
++                                           void *opaque)
++{
++    double points = hypot(dx, dy);
++    double units = COCOA_TOUCH_SCROLL_UNITS_PER_POINT *
++                   cocoa_touch_scroll_gain(points);
++
++    if (!scroll->started) {
++        scroll->started = true;
++        cocoa_touch_scroll_place(scroll,
++                                 scroll->x - dx / points * COCOA_TOUCH_SCROLL_PREROLL,
++                                 scroll->y - dy / points * COCOA_TOUCH_SCROLL_PREROLL,
++                                 emit, opaque);
++    }
++    cocoa_touch_scroll_place(scroll, scroll->x - dx * units,
++                             scroll->y - dy * units, emit, opaque);
 +}
 +
 +/*

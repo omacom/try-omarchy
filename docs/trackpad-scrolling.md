@@ -24,14 +24,13 @@ The touchpad is a 3.3 m square sensor at 10 units/mm, so one gesture can travel 
 
 ## Speed
 
-One point of macOS scrolling moves the contacts 0.12 mm. The guest's touchpad settings tune the speed, as on real hardware: Omarchy sets `touchpad.scroll_factor` to 0.4 and adjusts some terminals with `scroll_touchpad`.
+macOS sets how many points each scroll event carries, including its own acceleration and the trackpad scrolling speed in System Settings. A fast scroll moves the contacts 0.12 mm per point. Slower scrolls move them less, down to 0.6 times as far below 4 points per event, rising smoothly to the full distance at 40 points per event. Normal scrolling is calmer, and flicks keep their reach. The guest's touchpad settings then tune the speed, as on real hardware: Omarchy sets `touchpad.scroll_factor` to 0.4 and adjusts some terminals with `scroll_touchpad`.
 
 ## Differences from the wheel path
 
-These follow from libinput treating the scroll as a real touchpad:
+libinput starts a two-finger scroll only once both touches have moved 1.5 mm, and discards that movement. So the first move of every landing moves the contacts 1.6 mm in the scroll's direction, in a frame of its own, before the real movement. Scrolling then starts at once and no movement is lost, even on a short flick.
 
-- A scroll starts after about 1.5 mm of movement, roughly 12 points, and a slow scroll can take up to 150 ms to start. Smaller nudges do not scroll.
-- libinput locks finger scrolling to one axis until both axes are clearly in use.
+libinput also locks finger scrolling to one axis until both axes are clearly in use.
 
 ## Touch jumps
 
