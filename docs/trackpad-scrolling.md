@@ -18,7 +18,7 @@ The contacts land when AppKit begins a scroll, move with each precise delta, and
 
 Each landing uses new tracking IDs. If a full guest queue drops a release frame, the next gesture reads as a new touch rather than as the old contacts jumping.
 
-The contacts move as libinput's default, non-natural finger scrolling expects. The guest therefore scrolls in the direction macOS chose, including its natural scrolling setting. Omarchy leaves the guest's natural scrolling off; turning it on reverses scrolling.
+The contacts move as libinput's default, non-natural finger scrolling expects. The guest therefore scrolls in the direction macOS chose, including its natural scrolling setting. The guest package turns off natural scrolling for this device, so turning it on for touchpads in Omarchy doesn't reverse it again.
 
 The touchpad is an 800 mm square sensor, so one contact can carry a whole swipe. A scroll that still reaches an edge lifts and lands again at the opposite edge. Contacts stay 100 mm inside every edge, clear of libinput's palm zones.
 

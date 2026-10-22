@@ -78,13 +78,9 @@ including the dual-source shader fix used by accelerated terminals.
 The pinned QEMU 11.1.1 runtime contains the upstream HVF vGIC and
 nested-virtualization implementation.
 
-Trackpad magnification uses a dedicated indirect virtio touchpad alongside the
-ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each
-pinch and releases them on cancellation or focus loss; the guest disables
-tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the
-input contract and integration validation. Precise two-finger scrolling drives
-the same touchpad, so the guest sees finger scrolling; see
-[trackpad scrolling](trackpad-scrolling.md).
+Trackpad magnification uses a dedicated indirect virtio touchpad alongside the ordinary pointer tablet. The Cocoa bridge reconstructs two contacts from each pinch and releases them on cancellation or focus loss; the guest disables tapping for this gesture-only device. See [pinch zoom](pinch-zoom.md) for the input contract and integration validation.
+
+Precise two-finger scrolling drives the same touchpad, so the guest sees finger scrolling. See [trackpad scrolling](trackpad-scrolling.md).
 
 ## Host settings and the guest package
 

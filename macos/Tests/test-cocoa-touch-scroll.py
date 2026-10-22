@@ -22,13 +22,6 @@ def added_file(path):
                    if line.startswith("+") and not line.startswith("+++"))
 
 
-def added_lines(path):
-    section = PATCH.read_text().split(f"diff --git a/{path} b/{path}\n", 1)[1]
-    section = section.split("\ndiff --git ", 1)[0]
-    return "\n".join(line[1:] for line in section.splitlines()
-                     if line.startswith("+") and not line.startswith("+++"))
-
-
 class CocoaTouchScrollTests(unittest.TestCase):
     def test_contacts_and_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -187,15 +180,18 @@ int main(void)
             subprocess.run([str(work / "test")], check=True)
 
     def test_routing_contract(self):
-        cocoa = added_lines("ui/cocoa.m")
+        cocoa = added_file("ui/cocoa.m")
         self.assertIn("bool eligible = [event hasPreciseScrollingDeltas] &&", cocoa)
         self.assertIn("[[self window] isKeyWindow] &&", cocoa)
         self.assertIn("if (momentum != NSEventPhaseNone) {", cocoa)
         self.assertIn("if (momentum & (NSEventPhaseEnded | NSEventPhaseCancelled)) {", cocoa)
         # Touch scrolling is tried first and falls back to the wheel path.
         self.assertIn("if ([self handleTouchScrollLocked:event]) {", cocoa)
-        # Pinch and scroll share two slots; each gesture evicts the other.
-        self.assertIn("[self endPinchLocked];", cocoa)
+        # Pinch and scroll share two slots; an eligible begin evicts the other.
+        self.assertIn("        if (eligible) {\n"
+                      "            [self endPinchLocked];", cocoa)
+        self.assertIn("        if (eligible) {\n"
+                      "            [self endTouchScrollLocked];", cocoa)
         self.assertEqual(cocoa.count("[self endTouchScrollLocked];"), 2)
         self.assertIn("[cocoaView endTouchScrollLocked];", cocoa)
         # One frame sender serves both gestures.

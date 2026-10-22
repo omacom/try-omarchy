@@ -210,7 +210,7 @@ index 0000000..e81aafb
 +
 +#endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index 47c50ca..5c0b066 100644
+index 47c50ca..e868d6b 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
 @@ -40,6 +40,7 @@
@@ -298,7 +298,17 @@ index 47c50ca..5c0b066 100644
  /*
   * The strip AppKit keeps clear of a camera housing at the top of this screen,
   * in points, or 0: external displays, Macs without a notch and the built-in
-@@ -1344,6 +1366,47 @@ - (bool) handlePinchLocked:(NSEvent *)event
+@@ -1333,6 +1355,9 @@ - (bool) handlePinchLocked:(NSEvent *)event
+ 
+     if (phase & NSEventPhaseBegan) {
+         action |= COCOA_PINCH_BEGIN;
++        if (eligible) {
++            [self endTouchScrollLocked];
++        }
+     }
+     if (phase & NSEventPhaseEnded) {
+         action |= COCOA_PINCH_END;
+@@ -1344,6 +1369,49 @@ - (bool) handlePinchLocked:(NSEvent *)event
                              cocoa_pinch_send_frame, NULL);
  }
  
@@ -323,7 +333,9 @@ index 47c50ca..5c0b066 100644
 +
 +    if (phase & NSEventPhaseBegan) {
 +        action |= COCOA_TOUCH_SCROLL_BEGIN;
-+        [self endPinchLocked];
++        if (eligible) {
++            [self endPinchLocked];
++        }
 +    }
 +    if (phase & NSEventPhaseEnded) {
 +        action |= COCOA_TOUCH_SCROLL_END;
@@ -346,15 +358,7 @@ index 47c50ca..5c0b066 100644
  - (bool) handleEvent:(NSEvent *)event
  {
      return bool_with_bql(^{
-@@ -1666,6 +1729,7 @@ - (bool) handleEventLocked:(NSEvent *)event
-             }
-             return true;
-         case NSEventTypeMagnify:
-+            [self endTouchScrollLocked];
-             return [self handlePinchLocked:event];
-         case NSEventTypeScrollWheel:
-             /*
-@@ -1673,6 +1737,11 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -1673,6 +1741,11 @@ - (bool) handleEventLocked:(NSEvent *)event
               * This is in-line with standard Mac OS X UI behaviour.
               */
  
@@ -366,7 +370,7 @@ index 47c50ca..5c0b066 100644
              if ([event hasPreciseScrollingDeltas]) {
                  CocoaScrollFrame frame;
  
-@@ -1934,6 +2003,7 @@ - (void) raiseAllKeys
+@@ -1934,6 +2007,7 @@ - (void) raiseAllKeys
  {
      with_bql(^{
          [self endPinchLocked];

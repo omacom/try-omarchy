@@ -6,7 +6,7 @@ this as an indirect touchpad and deliver pinch gestures to Wayland applications
 such as Chromium and Firefox. The bridge does not send zoom keyboard shortcuts.
 
 The existing Virtio Tablet continues to handle pointer movement, clicks, and
-scrolling. The new device subscribes only to QEMU multitouch events and does not
+wheel scrolling. The new device subscribes only to QEMU multitouch events and does not
 replace the existing multitouch touchscreen device.
 
 ## Guest configuration
@@ -15,13 +15,15 @@ The `try-omarchy` package's Hyprland profile loads
 `/usr/share/try-omarchy/pinch-input.lua` on every configuration reload. It
 disables tapping and disable-while-typing for the gesture device. Its
 synthetic contacts must not become tap clicks or be suppressed after keyboard
-input. The rule is equivalent to:
+input. It also turns off natural scrolling for the device, because macOS has
+already applied its own scroll direction. The rule is equivalent to:
 
 ```lua
 hl.device({
   name = "qemu-virtio-pinch-touchpad",
   tap_to_click = false,
   disable_while_typing = false,
+  natural_scroll = false,
 })
 ```
 
@@ -30,12 +32,7 @@ edited and resetting the user's Hyprland configuration keeps the rule.
 
 ## Input behavior
 
-Cocoa provides relative magnification, not raw finger positions. The bridge
-reconstructs two symmetric contacts 25 mm apart on the touchpad's 800 mm virtual
-sensor, with a fixed center so the gesture does not intentionally pan the pointer. Contact spacing
-accumulates continuously, bounded to 0.125–3.5 times the initial spacing per
-gesture to stay within the advertised sensor. Lift and pinch again to continue
-beyond those bounds. libinput still applies its normal gesture recognition.
+Cocoa provides relative magnification, not raw finger positions. The bridge reconstructs two symmetric contacts 25 mm apart on the touchpad's 800 mm virtual sensor, with a fixed center so the gesture does not intentionally pan the pointer. Contact spacing accumulates continuously, bounded to 0.125–3.5 times the initial spacing per gesture to stay within the advertised sensor. Lift and pinch again to continue beyond those bounds. libinput still applies its normal gesture recognition.
 
 Only gestures in the focused guest view are accepted. Ending a gesture,
 cancelling it, leaving the view, or losing window focus releases both contacts.
@@ -46,10 +43,7 @@ VM state changes clear the local gesture. Resuming also emits a release frame,
 because QEMU drops normal input while stopped and a release during that time
 may not have reached the guest.
 
-Two-finger scrolling also uses this device; see
-[trackpad scrolling](trackpad-scrolling.md). Rotation, raw trackpad passthrough,
-and three/four-finger gestures are outside this change. Applications must support
-pinch gestures; this does not add zoom behavior to every Linux application.
+Two-finger scrolling also uses this device; see [trackpad scrolling](trackpad-scrolling.md). Rotation, raw trackpad passthrough, and three/four-finger gestures are outside this change. Applications must support pinch gestures; this does not add zoom behavior to every Linux application.
 
 ## Validation
 
