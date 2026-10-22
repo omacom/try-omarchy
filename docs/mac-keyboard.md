@@ -67,7 +67,7 @@ The tests replay event sequences recorded on a Korean Mac.
 
 - If the guest's input method changes another way, such as Super+I, a lone Shift or a new window, it follows the Mac again at the next space, return, tab, escape or arrow key after two seconds.
 - The 0xff event reaches QEMU only through the full-grab event tap, which needs the Accessibility permission. Without it, Caps Lock behaves as before.
-- The keys work only when the guest's Fcitx profile activates on `Henkan` and deactivates on `Muhenkan`. Omarchy writes these for profiles it creates fresh since October 2026; it leaves the hotkeys of older or edited profiles alone, where Fcitx's defaults (`Hangul_Hanja`, `Hangul_Romaja`) or the user's own keys may remain. Then the guest's input method does not follow the Mac, and nothing is inverted.
+- The keys work only when the guest's Fcitx profile activates on `Henkan` and deactivates on `Muhenkan`. Omarchy writes these for profiles it creates fresh since October 2026, and leaves the hotkeys of older profiles alone. `try-omarchy-input-init` adds the two keys to an older profile's own, once per user, before Fcitx starts. A user who removes them afterwards keeps them removed, and then the guest's input method does not follow the Mac.
 - `Henkan` and `Muhenkan` reach the focused application when Fcitx does not handle them, for example in a window without text input, or a redundant `Henkan` reaching the engine. Whether an application reacts to them was not checked. With Mozc in the same group, `Henkan` is also Mozc's conversion key.
 
 ## Focus and keyboard capture

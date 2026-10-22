@@ -1,11 +1,16 @@
 #!/usr/bin/python3 -I
-"""Give a Mac JIS keyboard its 英数 and かな keys in Fcitx, once per user.
+"""Give Fcitx the keys the Mac sends to switch input, once per user.
 
 Omarchy chooses the input method and writes ~/.config/fcitx5 itself
 (omarchy-input-method). Its hotkeys suit a PC JIS keyboard: 変換/無変換 and
 半角/全角. Through QEMU, the Mac's かな key arrives as Hangul and 英数 as
 Hangul_Hanja. On a Mac JIS keyboard this makes かな turn the input method on
 and 英数 turn it off, like macOS, leaving Omarchy's other keys alone.
+
+When the Mac switches input source, QEMU sends Henkan to turn the input method
+on and Muhenkan to turn it off. Omarchy's profiles have had these keys since
+October 2026, and Omarchy leaves older profiles' hotkeys alone, so older
+profiles get the two keys added to their own.
 
 Runs before Fcitx starts (omarchy-fcitx5.service drop-in). A marker in
 ~/.local/state/try-omarchy records that it was done, so later edits stay.
@@ -19,6 +24,7 @@ import tempfile
 
 STOCK_CONFIG = Path("/usr/share/omarchy/config/fcitx5/config")
 MARKER = "try-omarchy/fcitx-jis-v1"
+MODE_KEYS_MARKER = "try-omarchy/fcitx-mode-keys-v1"
 
 
 def section_values(text, name):
@@ -45,16 +51,21 @@ def key_list(keys):
     return "".join(f"{index}={key}\n" for index, key in enumerate(keys))
 
 
+def add_key(text, name, key):
+    keys = section_values(text, name) or []
+    if key in keys:
+        return text
+    return set_section(text, name, key_list(keys + [key]))
+
+
 def jis_config(text):
     """Return text with かな (Hangul) activating and 英数 (Hangul_Hanja) deactivating."""
     triggers = section_values(text, "Hotkey/TriggerKeys")
     if triggers is not None:
         # A trigger toggles; かな should only turn the input method on.
         text = set_section(text, "Hotkey/TriggerKeys", key_list([k for k in triggers if k != "Hangul"]))
-    for name, key in (("Hotkey/ActivateKeys", "Hangul"), ("Hotkey/DeactivateKeys", "Hangul_Hanja")):
-        keys = section_values(text, name) or []
-        if key not in keys:
-            text = set_section(text, name, key_list(keys + [key]))
+    text = add_key(text, "Hotkey/ActivateKeys", "Hangul")
+    text = add_key(text, "Hotkey/DeactivateKeys", "Hangul_Hanja")
     # Handle the mode keys in Fcitx's ordered key stream, so the character
     # typed right after 英数 cannot race the switch.
     hotkey = re.search(r"(?ms)^\[Hotkey\][ \t]*\n(.*?)(?=^\[|\Z)", text)
@@ -84,6 +95,24 @@ def initialize(config, marker, cmdline, stock=STOCK_CONFIG):
     return True
 
 
+def mode_keys_config(text):
+    """Return text with Henkan activating and Muhenkan deactivating the input method."""
+    return add_key(add_key(text, "Hotkey/ActivateKeys", "Henkan"), "Hotkey/DeactivateKeys", "Muhenkan")
+
+
+def initialize_mode_keys(config, marker):
+    # Without a profile, Omarchy or Fcitx writes one later; it is handled then.
+    if marker.exists() or config.is_symlink() or not config.is_file():
+        return False
+    original = config.read_text()
+    updated = mode_keys_config(original)
+    if updated != original:
+        atomic_write(config, updated)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    return True
+
+
 def atomic_write(path, contents):
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = (path.stat().st_mode & 0o777) if path.exists() else 0o644
@@ -107,8 +136,9 @@ def main():
     try:
         cmdline = Path(os.environ.get("TRY_OMARCHY_HOST_CMDLINE", "/run/try-omarchy/cmdline")).read_text()
     except FileNotFoundError:
-        return 0
+        cmdline = ""
     initialize(config_home / "fcitx5/config", state_home / MARKER, cmdline)
+    initialize_mode_keys(config_home / "fcitx5/config", state_home / MODE_KEYS_MARKER)
     return 0
 
 
