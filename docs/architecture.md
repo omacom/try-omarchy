@@ -64,6 +64,7 @@ only after a flush, so VirGL flushes context 0 after each upload. The guest runs
 Omarchy's own aarch64 Hyprland package unpatched.
 Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
+The edk2 firmware has no virtio keyboard driver, so the VM also has a USB keyboard on an xHCI controller for the firmware and Limine's menu. QEMU sends keys to the USB keyboard until Linux starts its virtio keyboard driver, and to the virtio keyboard after that. Each reset hands the keys back to the USB keyboard.
 
 The guest starts at EL1 with QEMU's GICv3 by default. Nested virtualization
 is opt-in (`OMARCHY_QEMU_GPU_NESTED_VIRT=1`) because the UEFI firmware also

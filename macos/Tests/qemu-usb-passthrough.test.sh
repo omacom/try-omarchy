@@ -16,20 +16,23 @@ fail() {
 }
 
 # Passthrough must stay strictly opt-in: the unconditional argument list that
-# every Mac boots stays free of any USB controller or host device.
+# every Mac boots holds only the controller for the firmware's boot keyboard.
 qemu_arguments=$(sed -n '/^qemu_args=(/,/^)/p' "$launcher")
 [[ -n $qemu_arguments ]] || fail 'could not find the QEMU argument list'
-[[ $qemu_arguments != *usb* ]] || {
-  fail 'the default VM must not attach a USB controller or host device'
+[[ $qemu_arguments != *usb-host* ]] || {
+  fail 'the default VM must not attach a host device'
+}
+[[ $(grep -c -- "-device 'qemu-xhci,id=omarchy-usb,streams=off'" <<<"$qemu_arguments") == 1 ]] || {
+  fail 'the default VM must add one xHCI controller without bulk streams'
 }
 
-# The opt-in adds exactly one xHCI controller and one host device, both bound
-# to the value of the documented variable.
+# The opt-in adds exactly one host device, bound to the value of the
+# documented variable, to that controller.
 grep -Fxq 'usb_host_properties=${OMARCHY_QEMU_GPU_USB_HOST:-}' "$launcher" || {
   fail 'the launcher must read the passthrough opt-in from OMARCHY_QEMU_GPU_USB_HOST'
 }
-grep -Fxq "    -device 'qemu-xhci,id=omarchy-usb,streams=off'" "$launcher" || {
-  fail 'the opt-in must add one xHCI controller without bulk streams'
+[[ $(grep -c 'qemu-xhci' "$launcher") == 2 ]] || {
+  fail 'the launcher must add the xHCI controller only once'
 }
 grep -Fxq \
   '    -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"' \
