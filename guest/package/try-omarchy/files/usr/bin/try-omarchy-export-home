@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# Export this home, encrypted, for the Omarchy installer on the Mac to bring
+# to a native Omarchy install. Asks for a transfer passphrase, then runs the
+# root half (export-home) through sudo with the passphrase on its stdin. The
+# passphrase never leaves the guest.
+
+set -euo pipefail
+
+helper=${TRY_OMARCHY_EXPORT_HELPER:-/usr/lib/try-omarchy/export-home}
+sudo=${TRY_OMARCHY_SUDO-sudo}
+virtio_root=${TRY_OMARCHY_VIRTIO_ROOT:-/sys/bus/virtio/drivers/9pnet_virtio}
+minimum=12
+
+has_share() {
+  local device
+  for device in "$virtio_root"/virtio*; do
+    [[ -r $device/mount_tag && $(tr -d '\0' <"$device/mount_tag") == "$1" ]] && return 0
+  done
+  return 1
+}
+
+if ! has_share tryomarchy-migration || ! has_share tryomarchy-export; then
+  echo "This Try Omarchy app can't export yet. Update the Mac app, restart Omarchy and try again."
+  exit 1
+fi
+
+cat <<EOF
+Move to a native install
+
+This saves an encrypted copy of your configuration, files and projects for the
+Omarchy installer on your Mac. SSH keys and browser data stay behind.
+
+Choose a transfer passphrase of at least $minimum characters. You'll need it to
+import on the native install, and it can't be recovered.
+
+EOF
+
+secret=''
+for _ in 1 2 3; do
+  read -r -s -p 'Transfer passphrase: ' secret
+  echo
+  if ((${#secret} < minimum)); then
+    echo "Use at least $minimum characters."
+    continue
+  fi
+  read -r -s -p 'Repeat passphrase: ' again
+  echo
+  if [[ $secret != "$again" ]]; then
+    echo "The passphrases don't match."
+    secret=''
+    continue
+  fi
+  break
+done
+unset again
+((${#secret} >= minimum)) || exit 1
+
+echo
+echo 'Your password is needed to take a read-only snapshot of your home.'
+status=0
+printf '%s\n' "$secret" | $sudo "$helper" || status=$?
+unset secret
+exit "$status"

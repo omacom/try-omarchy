@@ -277,6 +277,149 @@ class SshAccess(unittest.TestCase):
         self.assertEqual(self.check(""), [])
 
 
+class ExportHome(unittest.TestCase):
+    EXPORT_ID = "6022f2ec-746c-4636-b786-2240103a7efb"
+    PASSPHRASE = "correct horse battery"
+
+    def setUp(self):
+        import hashlib, pwd
+        self.tmp = Path(tempfile.mkdtemp())
+        self.log = self.tmp / "log"
+        virtio = self.tmp / "virtio"
+        for index, tag in enumerate(("tryomarchy-migration", "tryomarchy-export")):
+            (virtio / f"virtio{index}").mkdir(parents=True)
+            (virtio / f"virtio{index}/mount_tag").write_bytes(tag.encode() + b"\0")
+        self.virtio = virtio
+        self.tools = self.tmp / "mac-tools"
+        policies = self.tools / "omarchy-migration/lib/omarchy_migration/policies"
+        policies.mkdir(parents=True)
+        (policies / "try-omarchy.json").write_text('{"revision": "try-omarchy/82927e9/4"}')
+        self.fake(self.tools / "omarchy-migration/bin/omarchy-migration", f"""#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+value = lambda name: args[args.index(name) + 1]
+with open("{self.tmp}/exporter.json", "w") as record:
+    json.dump({{"args": args, "passphrase": sys.stdin.readline(),
+               "request": json.load(open(value("--request"))),
+               "home": sorted(os.listdir(value("--home")))}}, record)
+if os.environ.get("FAKE_EXPORT_FAIL"):
+    sys.exit("disk full")
+output = value("--output")
+os.mkdir(output)
+open(os.path.join(output, "bundle.age"), "w").write("age-encryption.org/v1\\n")
+open(os.path.join(output, "request.json"), "w").write("{{}}")
+json.dump({{"export_id": "{self.EXPORT_ID}"}}, open(os.path.join(output, "receipt.json"), "w"))
+""")
+        self.fake(self.tools / "age", "#!/bin/sh\n")
+        (self.tools / "age.sha256").write_text(hashlib.sha256((self.tools / "age").read_bytes()).hexdigest() + "\n")
+        self.outbox = self.tmp / "mac-outbox"
+        self.outbox.mkdir()
+        self.home_root = self.tmp / "home"
+        self.owner = pwd.getpwuid(os.getuid()).pw_name
+        (self.home_root / self.owner / "Projects").mkdir(parents=True)
+        self.run_parent = self.tmp / "run"
+        bin_dir = self.tmp / "bin"
+        self.fake(bin_dir / "mount", f"""#!/bin/bash
+echo "mount $*" >>{self.log}
+case ${{@: -2:1}} in
+  tryomarchy-migration) source={self.tools} ;;
+  tryomarchy-export) source={self.outbox} ;;
+  *) source=${{@: -2:1}} ;;
+esac
+rmdir "${{@: -1}}" && ln -s "$source" "${{@: -1}}"
+""")
+        self.fake(bin_dir / "umount", f'#!/bin/bash\necho "umount $*" >>{self.log}\nrm "$1" && mkdir "$1"\n')
+        self.fake(bin_dir / "btrfs", f"""#!/bin/bash
+echo "btrfs $*" >>{self.log}
+if [[ $2 == snapshot ]]; then
+  mkdir "$5" && cp -R "$4/{self.owner}" "$5/"
+else
+  rm -rf "$3"
+fi
+""")
+        self.fake(bin_dir / "setpriv", f'#!/bin/bash\necho "setpriv $*" >>{self.log}\n'
+                                       'while [[ $1 != -- ]]; do shift; done\nshift\nexec "$@"\n')
+        self.env = {"TRY_OMARCHY_VIRTIO_ROOT": str(virtio), "TRY_OMARCHY_EXPORT_RUN": str(self.run_parent),
+                    "TRY_OMARCHY_EXPORT_HOME_ROOT": str(self.home_root), "TRY_OMARCHY_EXPORT_SCRATCH": str(self.tmp),
+                    "TRY_OMARCHY_EXPORT_MINIMUM_UID": "0", "TRY_OMARCHY_EXPORT_UNPRIVILEGED": "1",
+                    "SUDO_UID": str(os.getuid()), "TRY_OMARCHY_MOUNT": str(bin_dir / "mount"),
+                    "TRY_OMARCHY_UMOUNT": str(bin_dir / "umount"), "TRY_OMARCHY_BTRFS": str(bin_dir / "btrfs"),
+                    "TRY_OMARCHY_SETPRIV": str(bin_dir / "setpriv")}
+
+    @staticmethod
+    def fake(path, text):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        path.chmod(0o755)
+
+    def export(self, passphrase=PASSPHRASE, **env):
+        return subprocess.run(["/bin/bash", str(LIB / "export-home")], input=passphrase + "\n", text=True,
+                              capture_output=True, env={**os.environ, **self.env, **env})
+
+    def assert_cleaned_up(self):
+        self.assertEqual(sorted(p.name for p in self.home_root.iterdir()), [self.owner])
+        self.assertEqual(list(self.run_parent.iterdir()), [])
+        self.assertTrue(self.tools.joinpath("age").is_file())
+
+    def test_exports_a_read_only_snapshot_into_the_outbox(self):
+        result = self.export()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Export {self.EXPORT_ID} is ready.", result.stdout)
+        self.assertEqual([p.name for p in self.outbox.iterdir()], [self.EXPORT_ID])
+        self.assertEqual(sorted(p.name for p in (self.outbox / self.EXPORT_ID).iterdir()),
+                         ["bundle.age", "receipt.json"])
+        record = json.loads((self.tmp / "exporter.json").read_text())
+        self.assertEqual(record["passphrase"], self.PASSPHRASE + "\n")
+        self.assertEqual(record["home"], ["Projects"])
+        self.assertIn("--read-only-source", record["args"])
+        self.assertTrue(record["args"][record["args"].index("--home") + 1].endswith(f"/source/{self.owner}"))
+        self.assertEqual(record["request"]["policy_revision"], "try-omarchy/82927e9/4")
+        self.assertEqual(record["request"]["schema"], "omarchy-migration/export-request/2")
+        log = self.log.read_text()
+        self.assertIn("ro tryomarchy-migration", log)
+        self.assertIn(f"btrfs subvolume snapshot -r {self.home_root} ", log)
+        self.assertRegex(log, r"mount --bind -o ro \S+/\.try-omarchy-export\.\w+ ")
+        self.assertIn(f"setpriv --reuid={os.getuid()} ", log)
+        self.assertNotIn(self.PASSPHRASE, log)
+        self.assert_cleaned_up()
+
+    def test_a_failed_export_leaves_nothing_behind(self):
+        result = self.export(FAKE_EXPORT_FAIL="1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("disk full", result.stderr)
+        self.assertEqual(list(self.outbox.iterdir()), [])
+        self.assert_cleaned_up()
+
+    def test_refuses_without_the_apps_shares_or_a_changed_age(self):
+        (self.virtio / "virtio1/mount_tag").write_bytes(b"mac\0")
+        result = self.export()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("does not offer the exporter", result.stderr)
+        self.assertFalse(self.log.exists())
+        (self.virtio / "virtio1/mount_tag").write_bytes(b"tryomarchy-export\0")
+        (self.tools / "age.sha256").write_text("0" * 64 + "\n")
+        result = self.export()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("age differs", result.stderr)
+        self.assertNotIn("btrfs", self.log.read_text())
+        self.assert_cleaned_up()
+
+    def test_asks_twice_and_hands_only_the_passphrase_to_the_root_half(self):
+        helper = self.tmp / "helper"
+        self.fake(helper, f"#!/bin/bash\ncat >{self.tmp}/received\n")
+        env = {**os.environ, "TRY_OMARCHY_VIRTIO_ROOT": str(self.virtio), "TRY_OMARCHY_SUDO": "",
+               "TRY_OMARCHY_EXPORT_HELPER": str(helper)}
+        command = ["/bin/bash", str(FILES / "usr/bin/try-omarchy-export-home")]
+        short = subprocess.run(command, input="short\nshort\nshort\n", text=True, capture_output=True, env=env)
+        self.assertEqual(short.returncode, 1)
+        self.assertFalse((self.tmp / "received").exists())
+        answers = f"{self.PASSPHRASE}\nsomething else\n{self.PASSPHRASE}\n{self.PASSPHRASE}\n"
+        result = subprocess.run(command, input=answers, text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("don't match", result.stdout)
+        self.assertEqual((self.tmp / "received").read_text(), self.PASSPHRASE + "\n")
+
+
 class UserSetup(unittest.TestCase):
     def test_offers_the_project_wallpaper_once_without_changing_the_background(self):
         home = Path(tempfile.mkdtemp())
@@ -331,7 +474,7 @@ class MenuEntries(unittest.TestCase):
 }
 """
     OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id",
-           "setup.import-previous-vm"}
+           "setup.import-previous-vm", "setup.move-to-native-install"}
     CHANGED = {"update.timezone", "setup.direct-boot", "update.firmware", "update.hardware.wifi",
                "update.hardware.bluetooth", "appearance.top-bar.indicators.battery-percentage-on",
                "appearance.top-bar.indicators.battery-percentage-off",
@@ -408,6 +551,7 @@ class MenuEntries(unittest.TestCase):
         self.assertEqual(parsed["update.hardware.wifi"], {"when": "! omarchy-hw-vm", "label": "Mine"})
         # Nothing re-added; only rows of later releases are new.
         self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi", "setup.import-previous-vm",
+                                       "setup.move-to-native-install",
                                        "appearance.top-bar.indicators.battery-percentage-on",
                                        "appearance.top-bar.indicators.battery-percentage-off"})
 
@@ -423,9 +567,10 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries-v1").touch()
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
-                         {"setup.security.onepassword-touch-id", "setup.import-previous-vm"} | self.CHANGED)
+                         {"setup.security.onepassword-touch-id", "setup.import-previous-vm",
+                          "setup.move-to-native-install"} | self.CHANGED)
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 2 + len(self.CHANGED))
+        self.assertEqual(len(self.parse(self.menu.read_text())), 3 + len(self.CHANGED))
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
@@ -435,7 +580,8 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), {"setup.import-previous-vm"} | self.CHANGED)
+        self.assertEqual(set(self.parse(text)), {"setup.import-previous-vm", "setup.move-to-native-install"}
+                         | self.CHANGED)
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):

@@ -12,6 +12,8 @@ install running in the Mac app (see [the architecture](../../docs/architecture.m
 - SSH on demand;
 - `try-omarchy-import-previous`, which copies files and packages from a VM of
   an earlier direct-boot app version that the app attaches read-only;
+- `try-omarchy-export-home`, which exports the home, encrypted, for a move to a
+  native Omarchy install ([native install export](../../docs/native-install-export.md));
 - root filesystem growth;
 - the Hyprland display and input profile for the VM, and the Mac's camera
   notch for Omarchy's bar ([camera notch](../../docs/camera-notch.md));
