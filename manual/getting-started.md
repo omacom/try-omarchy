@@ -26,6 +26,8 @@ Restarting from inside Omarchy reboots it in the app. Shutting down Omarchy clos
 
 **Immersive** is on by default: Omarchy opens full screen and hides the Mac's menu bar and Dock. Turn it off to use a resizable window. Either way, Omarchy follows the window's size and the display's scaling.
 
+**All Displays**, on by default with Immersive, puts Omarchy on every display connected to the Mac, arranged as in System Settings. See [Omarchy on a Mac](omarchy-on-a-mac.md#display-power-and-time).
+
 ## Permissions
 
 All of these are optional. Omarchy starts without any of them.

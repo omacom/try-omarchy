@@ -408,8 +408,7 @@ Both paths reread Omarchy's numeric `omarchy_monitor_scale` setting from
 `~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set). An automatic or
 absent setting uses the live EDID's pixel density. If a resized display cannot
 represent the requested zoom exactly, the helper selects the nearest supported
-scale with integral logical dimensions. Explicit per-output monitor rules still
-take precedence over the helper's catch-all rule.
+scale with integral logical dimensions. The helper writes one rule per output, placed from the arrangement the launcher sends as `tryomarchy.display_layout`; an output the person configured in `monitors.lua` is left to them. See [multiple displays](multi-display.md).
 
 A resizable window keeps its size, and the guest follows it. The window never goes below the guest's smallest mode, 800x600 pixels. The guest image fills the window on both axes, so the pointer and the guest's cursor map each axis on its own, and stay aligned while the guest's mode catches up with the window.
 

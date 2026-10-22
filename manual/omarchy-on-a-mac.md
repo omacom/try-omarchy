@@ -17,6 +17,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 ## Display, power and time
 
 - **The notch:** in full screen on a MacBook with a notch, Omarchy uses the whole screen, and its bar sits beside the notch like the macOS menu bar. Turn off **Camera notch** in the launcher to keep Omarchy below the notch.
+- **More displays:** in full screen, Omarchy uses every display connected to the Mac, each as its own Hyprland monitor, arranged as in System Settings. Displays are counted when Omarchy starts, so plug one in or out, then restart Omarchy. The first-boot setup and the boot messages show on the Mac's main display, the one with the menu bar in System Settings; the other displays join when the desktop starts. macOS's **Displays have separate Spaces** has to be on, which it is by default. **View > Exit Full Screen** leaves full screen on every display at once. Turn off **All Displays** in the launcher to stay on one display.
 - **Trackpad:** pinch to zoom works, and a two-finger swipe goes back or forward in browsers. After a flick, scrolling keeps gliding in apps that support it, as on a Linux laptop.
 - **Battery:** the Mac's battery and charging state show in Omarchy's bar. Power profiles change nothing, because macOS manages power.
 - **Time:** Omarchy follows the Mac's time zone unless you choose another one. Its clock catches up after the Mac sleeps.

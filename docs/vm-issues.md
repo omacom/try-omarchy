@@ -62,6 +62,9 @@ needs a check in a running guest first), **limit** (a design constraint).
 | Power profiles show but change nothing; "Managed by macOS" presentation dropped | [Host battery](host-battery.md), [shell plan](shell-plan.md) | open: the power panel is Omarchy's QML, so a "Managed by macOS" state needs an upstream hook (a platform that reports no CPU frequency control); not patched |
 | Battery panel may show Holding while charging (stock heuristic) | Holding when charging at ≤ 0.2 W or ≥ 8 h to full (`panels/power/Model.js`) | not seen: plugged in read charging 38 W, 1.1 h to full; on battery 8.9 W, 1.9 h left. A brief Holding right after plugging in (UPower's 10 s rate blackout) is possible |
 | Battery percentage toggle hidden: `omarchy-hw-laptop` finds no lid | `menu.jsonc` `when` | fixed: the menu extension also shows it when a `BAT*` power supply exists |
+| One display only; an external display showed nothing (#288) | One virtio-gpu head, one Cocoa window | fixed: [multiple displays](multi-display.md), one head and one full-screen window per display in immersive mode |
+| A display connected or disconnected while the VM runs is not followed; the heads are fixed at launch | virtio-gpu heads are counted at start; QEMU can disable a head (0x0 UI info) but the Cocoa display does not yet react to `NSApplicationDidChangeScreenParametersNotification` | open: restart Omarchy after plugging a display in or out |
+| With two displays, the text console shows in the smallest display's size when the desktop is not running (a VT switch, shutdown messages) | Linux fbdev sizes its console to the smallest connected output and keeps it; the other heads join only once Hyprland renders, so first boot and reboots are not affected | limit |
 
 ## Menus and features
 
