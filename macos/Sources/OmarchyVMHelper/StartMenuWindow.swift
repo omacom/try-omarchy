@@ -415,11 +415,12 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         window.orderOut(nil)
     }
 
-    func launchDidProgress(to phase: VMLaunchPhase) {
-        guard state.launchInProgress, state.launchPhase != phase else { return }
-        state.launchPhase = phase
+    func launchDidProgress(to progress: VMProgress<VMLaunchPhase>) {
+        guard state.launchInProgress, state.launchProgress != progress else { return }
+        let phaseChanged = state.launchProgress.phase != progress.phase
+        state.launchProgress = progress
         state.launchDownload = nil
-        announce(phase.buttonTitle)
+        if phaseChanged { announce(progress.phase.buttonTitle) }
     }
 
     /// The download runs before the launcher; an automatic start shows the
@@ -869,7 +870,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     @objc func launchOmarchy() {
         guard !prelaunchControlsLocked,
               !state.permissionRequestInFlight else { return }
-        state.launchPhase = .checking
+        state.launchProgress = VMProgress(phase: .checking)
         state.launchDownload = nil
         state.launchInProgress = true
         refresh()

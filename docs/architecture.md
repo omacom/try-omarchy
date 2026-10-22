@@ -306,9 +306,11 @@ free. App instances share the download through a lock on `shell-factory/`.
 
 On the first launch of a factory, the launcher verifies the compressed disk's
 digest, decompresses it into `shell-factory/`, and returns its zero blocks to
-APFS (about 9 GB stays allocated for the 20 GiB disk). Each new VM is then an
-APFS clone of that file, so creating a VM costs no space. A
-disposable session clones the same file into its own temporary folder.
+APFS (about 9 GB stays allocated for the 20 GiB disk). The launcher window
+names each step, and shows how much of the disk is written while it
+decompresses. Each new VM is then an APFS clone of that file, so creating a VM
+costs no space. A disposable session clones the same file into its own
+temporary folder.
 
 The factory disk applies only when no VM exists, such as after the VM is
 deleted, or in ephemeral mode. An app update never replaces an existing VM's disk; the

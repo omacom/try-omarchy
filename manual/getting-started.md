@@ -8,7 +8,7 @@ You need an Apple Silicon Mac with macOS 15 or newer and about 15 GB free.
 2. Drag **Try Omarchy** to **Applications** and open it.
 3. Choose **Launch Omarchy**.
 
-The first launch downloads the Omarchy image (about 3 GB). An interrupted download resumes where it stopped.
+The first launch downloads the Omarchy image (about 3 GB). An interrupted download resumes where it stopped. The launcher then verifies and unpacks the image, and shows each step and its progress.
 
 On first boot, Omarchy's setup asks for your account, keyboard and time zone. **Same as macOS** is preselected for the time zone, and the language follows the Mac's.
 

@@ -208,13 +208,13 @@ int main(void)
         self.assertNotIn("diff --git a/include/ui/cocoa-pinch.h", source)
         self.assertNotIn("BTN_TOOL_TRIPLETAP", source)
 
-    def test_builder_verifies_and_applies_exact_patch_last(self):
+    def test_builder_verifies_and_applies_exact_patch_after_cocoa_patches(self):
         builder = (ROOT / "macos/build-qemu-gpu-runtime.sh").read_text()
         expected = re.search(r"^touch_scroll_patch_sha256=([a-f0-9]{64})$", builder, re.M)
         self.assertIsNotNone(expected)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected[1])
         applies = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.M)
-        self.assertEqual(applies[-1], "touch_scroll_patch")
+        self.assertLess(applies.index("command_chord_patch"), applies.index("touch_scroll_patch"))
         self.assertLess(applies.index("pinch_patch"), applies.index("precise_scroll_patch"))
 
 

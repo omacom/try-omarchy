@@ -12,8 +12,8 @@ struct VMProgressTests {
         for boundary in 0...output.utf8.count {
             let data = Data(output.utf8)
             var stream = VMProgressStream<VMLaunchPhase>(operation: .launch)
-            let phases = stream.append(data.prefix(boundary)) + stream.append(data.dropFirst(boundary))
-            #expect(phases == [.checking, .preparing, .finishing])
+            let updates = stream.append(data.prefix(boundary)) + stream.append(data.dropFirst(boundary))
+            #expect(updates.map(\.phase) == [.checking, .preparing, .finishing])
         }
     }
 
@@ -24,7 +24,7 @@ struct VMProgressTests {
         #expect(stream.append(Data("[qemu-gpu] Launch phase: unknown\n".utf8)).isEmpty)
         #expect(stream.append(Data("[qemu-gpu] Launch phase: preparing ".utf8)).isEmpty)
         #expect(stream.append(Data("\n[qemu-gpu] Launch phase: preparing".utf8)).isEmpty)
-        #expect(stream.append(Data("\n".utf8)) == [.preparing])
+        #expect(stream.append(Data("\n".utf8)) == [VMProgress(phase: .preparing)])
     }
 
     @Test("duplicate and delayed earlier phases cannot move progress backwards")
@@ -33,9 +33,9 @@ struct VMProgressTests {
         let output = "[qemu-gpu] Launch phase: preparing\n"
             + "[qemu-gpu] Launch phase: preparing\n[qemu-gpu] Launch phase: checking\n"
             + "[qemu-gpu] Launch phase: finishing\n"
-        #expect(stream.append(Data(output.utf8)) == [.preparing, .finishing])
+        #expect(stream.append(Data(output.utf8)).map(\.phase) == [.preparing, .finishing])
         var nextLaunch = VMProgressStream<VMLaunchPhase>(operation: .launch)
-        #expect(nextLaunch.append(Data("[qemu-gpu] Launch phase: checking\n".utf8)) == [.checking])
+        #expect(nextLaunch.append(Data("[qemu-gpu] Launch phase: checking\n".utf8)).map(\.phase) == [.checking])
     }
 
     @Test("large log lines are discarded without accepting their trailing marker")
@@ -43,17 +43,38 @@ struct VMProgressTests {
         var stream = VMProgressStream<VMLaunchPhase>(operation: .launch)
         let output = String(repeating: "x", count: 100_000)
             + "[qemu-gpu] Launch phase: checking\n[qemu-gpu] Launch phase: preparing\n"
-        #expect(stream.append(Data(output.utf8)) == [.preparing])
+        #expect(stream.append(Data(output.utf8)).map(\.phase) == [.preparing])
+    }
+
+    @Test("a percentage belongs to its phase and only rises")
+    func percentages() {
+        var stream = VMProgressStream<VMLaunchPhase>(operation: .launch)
+        #expect(stream.append(Data("[qemu-gpu] Launch progress: 10\n".utf8)).isEmpty)
+        let output = "[qemu-gpu] Launch phase: preparing\n"
+            + "[qemu-gpu] Launch progress: 0\n[qemu-gpu] Launch progress: 42\n"
+            + "[qemu-gpu] Launch progress: 42\n[qemu-gpu] Launch progress: 7\n"
+            + "[qemu-gpu] Launch progress: 101\n[qemu-gpu] Launch progress: +50\n"
+            + "[qemu-gpu] Launch progress: 50 \n[qemu-gpu] Launch progress: 0050\n"
+            + "[qemu-gpu] Launch phase: finishing\n[qemu-gpu] Launch progress: 5\n"
+        #expect(stream.append(Data(output.utf8)) == [
+            VMProgress(phase: .preparing),
+            VMProgress(phase: .preparing, percent: 0),
+            VMProgress(phase: .preparing, percent: 42),
+            VMProgress(phase: .finishing),
+            VMProgress(phase: .finishing, percent: 5),
+        ])
     }
 
     @Test("the button names the work currently happening")
     func buttonFeedback() {
         #expect(VMResetPhase.checking.buttonTitle == "Checking VM…")
         #expect(VMResetPhase.deleting.buttonTitle == "Deleting VM…")
-        #expect(VMLaunchPhase.preparing.buttonTitle == "Preparing image…")
-        #expect(VMLaunchPhase.finishing.buttonTitle == "Finishing setup…")
+        #expect(VMLaunchPhase.verifying.buttonTitle == "Verifying the Omarchy image…")
+        #expect(VMLaunchPhase.preparing.buttonTitle == "Unpacking Omarchy…")
+        #expect(VMLaunchPhase.finishing.buttonTitle == "Compacting the disk…")
         #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy…")
         #expect(VMResetPhase.finishing.buttonTitle == "Finishing reset…")
+        #expect(VMProgress(phase: VMLaunchPhase.preparing, percent: 42).title == "Unpacking Omarchy… 42%")
     }
 
     @Test("reset and launch accept only their own phases")
@@ -62,8 +83,8 @@ struct VMProgressTests {
         let output = "[qemu-gpu] Launch phase: preparing\n"
             + "[qemu-gpu] Reset phase: preparing\n"
             + "[qemu-gpu] Reset phase: deleting\n[qemu-gpu] Reset phase: finishing\n"
-        #expect(reset.append(Data(output.utf8)) == [.deleting, .finishing])
+        #expect(reset.append(Data(output.utf8)).map(\.phase) == [.deleting, .finishing])
         var launch = VMProgressStream<VMLaunchPhase>(operation: .launch)
-        #expect(launch.append(Data(output.utf8)) == [.preparing])
+        #expect(launch.append(Data(output.utf8)).map(\.phase) == [.preparing])
     }
 }

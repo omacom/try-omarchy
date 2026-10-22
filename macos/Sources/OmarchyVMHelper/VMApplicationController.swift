@@ -700,8 +700,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 switch event {
                 case .virtualMachineReady(let qmpSocketPath):
                     self?.virtualMachineDidStart(qmpSocketPath: qmpSocketPath)
-                case .launchProgress(let phase):
-                    self?.startMenuWindow?.launchDidProgress(to: phase)
+                case .launchProgress(let progress):
+                    self?.startMenuWindow?.launchDidProgress(to: progress)
                 case .resetProgress:
                     break
                 }

@@ -43,7 +43,8 @@ chmod 755 "$resources/scripts/run-qemu-gpu.sh"
 cat >"$app/Contents/MacOS/omarchy-vm-helper" <<'SH'
 #!/bin/bash
 case $1 in
-  --host-keyboard-geometry) echo jis ;;
+  --host-keyboard-geometry) echo "${FAKE_KEYBOARD-jis}" ;;
+  --host-caps-lock-input) printf '%s\n' "${FAKE_CAPS_LOCK_INPUT-}" ;;
   --host-display-cutouts) printf '%s\n' "${FAKE_DISPLAY_CUTOUTS-3024x1964:64,2048x1330:44}" ;;
   --host-timezone) echo America/Sao_Paulo ;;
   --sparsify) exit 0 ;;
@@ -86,6 +87,10 @@ done
 if [[ -n ${FAKE_ZSTD_FAIL:-} ]]; then
   printf 'partial' >"$out"
   exit 1
+fi
+if [[ -n ${FAKE_ZSTD_HALFWAY:-} ]]; then
+  head -c $(($(stat -f %z "$in") / 2)) "$in" >"$out"
+  sleep 1
 fi
 cp "$in" "$out"
 SH
@@ -133,6 +138,7 @@ record=$(env OMARCHY_QEMU_GPU_INSPECT_ONLY=1 "$resources/scripts/run-qemu-gpu.sh
 launch_env=(OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:2222:22 OMARCHY_QEMU_GPU_LOCALE=ja_JP.UTF-8 OMARCHY_QEMU_GPU_DISK_GIB=1)
 output=$(launch)
 assert_contains "$output" "[qemu-gpu] Launch phase: checking"
+assert_contains "$output" "[qemu-gpu] Launch phase: verifying"
 assert_contains "$output" "[qemu-gpu] Launch phase: preparing"
 assert_contains "$output" "[qemu-gpu] Launch phase: finishing"
 assert_contains "$output" "if=pflash,format=raw,readonly=on,file=$resources/firmware/edk2-aarch64-code.fd"
@@ -190,6 +196,17 @@ for forbidden in -no-reboot -no-shutdown ' -gdb ' ' -s '; do
   assert_not_contains "$output" "$forbidden"
 done
 assert_not_contains "$output" "qemu-xhci"
+
+# --- Caps Lock becomes Hangul only on a non-JIS Mac with a Korean input source --------
+assert_contains "$output" "Caps Lock input: caps-lock"
+output=$(FAKE_KEYBOARD=ansi FAKE_CAPS_LOCK_INPUT=hangul launch)
+assert_contains "$output" "Caps Lock input: hangul"
+output=$(FAKE_KEYBOARD=iso FAKE_CAPS_LOCK_INPUT=hangul launch)
+assert_contains "$output" "Caps Lock input: hangul"
+output=$(FAKE_CAPS_LOCK_INPUT=hangul launch)
+assert_contains "$output" "Caps Lock input: caps-lock"
+output=$(FAKE_KEYBOARD=ansi FAKE_CAPS_LOCK_INPUT=other TRYOMARCHY_CAPS_LOCK=hangul launch)
+assert_contains "$output" "Caps Lock input: caps-lock"
 
 # --- the camera housing reaches the guest only from a notched Mac --------------------
 output=$(FAKE_DISPLAY_CUTOUTS= launch)
@@ -363,9 +380,11 @@ output=$(launch) && fail "a failed decompression was accepted"
 assert_contains "$output" "run-qemu-gpu: could not decompress the factory disk"
 [[ ! -e $fresh/shell-factory/$sha.img.partial && ! -e $fresh/shell/disk.img ]] ||
   fail "a failed decompression left files behind"
-launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$downloaded")
+launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$fresh" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$downloaded" FAKE_ZSTD_HALFWAY=1)
 output=$(launch)
 assert_contains "$output" "Launch phase: preparing"
+assert_contains "$output" "[qemu-gpu] Launch progress: 50"
+assert_not_contains "$output" "Launch progress: 100"
 [[ -f $fresh/shell/disk.img && -f $fresh/shell-factory/$sha.img ]] || fail "the downloaded factory did not create a VM"
 printf 'damaged' >"$test_root/damaged.img.zst"
 launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/damaged" OMARCHY_QEMU_GPU_FACTORY_IMAGE="$test_root/damaged.img.zst")

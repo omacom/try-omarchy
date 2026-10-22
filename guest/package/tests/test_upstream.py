@@ -68,6 +68,12 @@ class UpstreamContracts(unittest.TestCase):
         for key, build in self.changed.items():
             self.assertTrue(build(self.upstream_menu), f"{key} is gone from Omarchy's menu; try-omarchy's change no longer applies")
 
+    def test_every_change_still_changes_omarchys_row(self):
+        # A change can match nothing in a reworded row, e.g. a condition
+        # without the laptop check we widen.
+        for key, build in self.changed.items():
+            self.assertNotEqual(build(self.upstream_menu), self.upstream_menu.get(key), f"{key}: try-omarchy's change no longer changes Omarchy's row")
+
     def test_changed_rows_keep_omarchys_label_and_action(self):
         # Omarchy's merge replaces a row whole: a change must carry the rest.
         for key, build in self.changed.items():

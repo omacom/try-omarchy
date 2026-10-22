@@ -483,7 +483,7 @@ final class QEMUGPUProcessSupervisor: @unchecked Sendable {
     enum LaunchEvent: Equatable {
         case virtualMachineReady(qmpSocketPath: String?)
         case resetProgress(VMResetPhase)
-        case launchProgress(VMLaunchPhase)
+        case launchProgress(VMProgress<VMLaunchPhase>)
     }
 
     struct StandardErrorDrain {
@@ -715,7 +715,7 @@ final class QEMUGPUProcessSupervisor: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         errorBuffer += String(decoding: data, as: UTF8.self)
-        var launchEvents = (resetProgressStream?.append(data) ?? []).map(LaunchEvent.resetProgress)
+        var launchEvents = (resetProgressStream?.append(data) ?? []).map { LaunchEvent.resetProgress($0.phase) }
         launchEvents += (launchProgressStream?.append(data) ?? []).map(LaunchEvent.launchProgress)
         if !didReportVirtualMachineStart,
            let event = Self.virtualMachineReadyEvent(in: errorBuffer) {

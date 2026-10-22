@@ -307,7 +307,7 @@ private struct HomePane: View {
             if state.shutdownInProgress { ProgressView().controlSize(.small) }
         } else {
             Button(action: actions.launchOrDone) {
-                Label(state.launchInProgress ? "Launching…" : "Launch Omarchy", systemImage: "play.fill")
+                Label(state.launchButtonTitle, systemImage: "play.fill")
                     .padding(.horizontal, 8)
             }
             .buttonStyle(.borderedProminent)
@@ -316,7 +316,13 @@ private struct HomePane: View {
             .disabled(!state.launchEnabled)
             .accessibilityLabel(state.launchTitle)
             .accessibilityIdentifier("launch-button")
-            if state.launchInProgress { ProgressView().controlSize(.small) }
+            if let fraction = state.launchFraction {
+                ProgressView(value: fraction)
+                    .frame(width: 120)
+                    .accessibilityLabel(state.launchStatus)
+            } else if state.launchInProgress {
+                ProgressView().controlSize(.small)
+            }
         }
     }
 }
