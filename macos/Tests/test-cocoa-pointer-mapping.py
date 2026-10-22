@@ -30,13 +30,14 @@ def patched() -> str:
 
 
 class CocoaPointerMappingTests(unittest.TestCase):
-    def test_builder_pins_and_applies_the_patch_last(self) -> None:
+    def test_builder_pins_and_applies_the_patch_after_the_cocoa_patches(self) -> None:
         builder = BUILDER.read_text(encoding="utf-8")
         digest = hashlib.sha256(PATCH.read_bytes()).hexdigest()
         self.assertIn(f"pointer_mapping_patch_sha256={digest}", builder)
         self.assertIn('verify_file_sha "Try Omarchy Cocoa pointer-mapping patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        self.assertEqual(applied[-1], "pointer_mapping_patch")
+        # Only the multi-display patch, made against this one, comes later.
+        self.assertEqual(applied[-2:], ["pointer_mapping_patch", "multi_display_patch"])
 
     def test_absolute_pointer_maps_each_axis_in_view_coordinates(self) -> None:
         added, removed = lines("+"), lines("-")
