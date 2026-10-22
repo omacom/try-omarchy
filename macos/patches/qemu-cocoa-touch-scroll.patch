@@ -15,7 +15,7 @@ so no movement is lost, and slow scrolls move less than flicks.
 
 diff --git a/include/ui/cocoa-touch-scroll.h b/include/ui/cocoa-touch-scroll.h
 new file mode 100644
-index 0000000..e12f1c0
+index 0000000..2dc625c
 --- /dev/null
 +++ b/include/ui/cocoa-touch-scroll.h
 @@ -0,0 +1,230 @@
@@ -142,14 +142,14 @@ index 0000000..e12f1c0
 +}
 +
 +/*
-+ * Slow and normal scrolls move 0.45 times as far as fast ones. The gain rises
++ * Slow and normal scrolls move 0.35 times as far as fast ones. The gain rises
 + * smoothly from 4 to 40 points per event, so flicks keep their reach.
 + */
 +static inline double cocoa_touch_scroll_gain(double points)
 +{
 +    double t = fmin(1.0, fmax(0.0, (points - 4.0) / 36.0));
 +
-+    return 0.45 + 0.55 * t * t * (3.0 - 2.0 * t);
++    return 0.35 + 0.65 * t * t * (3.0 - 2.0 * t);
 +}
 +
 +/* A move that reaches an edge lifts and lands again at the opposite edge. */

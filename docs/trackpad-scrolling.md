@@ -24,7 +24,7 @@ The touchpad is a 3.3 m square sensor at 10 units/mm, so one gesture can travel 
 
 ## Speed
 
-macOS sets how many points each scroll event carries, including its own acceleration and the trackpad scrolling speed in System Settings. A fast scroll moves the contacts 0.12 mm per point. Slower scrolls move them less, down to 0.45 times as far below 4 points per event, rising smoothly to the full distance at 40 points per event. Normal scrolling is calmer, and flicks keep their reach. The guest's touchpad settings then tune the speed, as on real hardware: Omarchy sets `touchpad.scroll_factor` to 0.4 and adjusts some terminals with `scroll_touchpad`.
+macOS sets how many points each scroll event carries, including its own acceleration and the trackpad scrolling speed in System Settings. A fast scroll moves the contacts 0.12 mm per point. Slower scrolls move them less, down to 0.35 times as far below 4 points per event, rising smoothly to the full distance at 40 points per event. Normal scrolling is calmer, and flicks keep their reach. The guest's touchpad settings then tune the speed, as on real hardware: Omarchy sets `touchpad.scroll_factor` to 0.4 and adjusts some terminals with `scroll_touchpad`.
 
 ## Differences from the wheel path
 
