@@ -74,10 +74,10 @@ struct FIDOBridgeTests {
         }
     }
 
-    @Test("wire framing survives every split and matches the guest's version-one greeting")
+    @Test("wire framing survives every split and matches the guest's version-two greeting")
     func fragmentedFrames() throws {
-        let frames: [FIDOFrame] = [.hello, .ready, .report(report()), .ping, .pong, .bye]
-        #expect(FIDOFrame.hello.bytes == [0x54, 0x4f, 0x46, 0x44, 1, 1, 0, 0])
+        let frames: [FIDOFrame] = [.hello(Array(0..<16)), .ready(Array(0..<16)), .report(report()), .ping, .pong, .bye]
+        #expect(FIDOFrame.hello(Array(0..<16)).bytes == [0x7e, 0x54, 0x4f, 0x46, 0x44, 2, 1, 0, 16] + Array(0..<16) + [0x7f])
         let bytes = frames.flatMap(\.bytes)
         for split in 0...bytes.count {
             var reader = FIDOFrameReader()
@@ -96,10 +96,10 @@ struct FIDOBridgeTests {
             [0x54, 0x4f, 0x46, 0x44, 1, 3, 0, 63], [0x54, 0x4f, 0x46, 0x44, 1, 1, 0, 1],
         ] {
             var reader = FIDOFrameReader()
-            #expect(throws: (any Error).self) { try reader.feed(header) }
+            #expect(throws: (any Error).self) { try reader.feed(FIDOFrame.record(header)) }
         }
         var truncated = FIDOFrameReader()
-        _ = try? truncated.feed([0x54])
+        _ = try? truncated.feed([0x7e])
         #expect(throws: (any Error).self) { try truncated.finish() }
     }
 
@@ -111,7 +111,7 @@ struct FIDOBridgeTests {
         #expect(throws: (any Error).self) { try output.append(frame) }
         output.consume(frame.bytes.count)
         try output.append(.ping)
-        #expect(output.bytes.suffix(8) == FIDOFrame.ping.bytes[...])
+        #expect(output.bytes.suffix(FIDOFrame.ping.bytes.count) == FIDOFrame.ping.bytes[...])
     }
 
     @Test("only the matching hello opens the selected device, once")
@@ -120,12 +120,12 @@ struct FIDOBridgeTests {
         var opens = 0
         let session = FIDOForwardingSession { opens += 1; return device }
         #expect(opens == 0)
-        #expect(try session.receive(.hello) == .ready)
+        #expect(try session.receive(.hello(Array(0..<16))) == .ready(Array(0..<16)))
         #expect(opens == 1)
         #expect(try session.receive(.ping) == .pong)
         _ = try session.receive(.report(report()))
         #expect(device.reports == [report()])
-        #expect(throws: (any Error).self) { try session.receive(.hello) }
+        #expect(throws: (any Error).self) { try session.receive(.hello(Array(0..<16))) }
         #expect(device.closes == 1)
         #expect(opens == 1)
         session.close()
@@ -134,7 +134,7 @@ struct FIDOBridgeTests {
 
     @Test("an incompatible or absent guest does not touch a physical key")
     func noAcquireBeforeNegotiation() {
-        for frame in [FIDOFrame.ready, .ping, .report(report()), .bye] {
+        for frame in [FIDOFrame.ready(Array(0..<16)), .ping, .report(report()), .bye] {
             var opens = 0
             let session = FIDOForwardingSession { opens += 1; return Device() }
             #expect(throws: (any Error).self) { try session.receive(frame) }
@@ -146,7 +146,7 @@ struct FIDOBridgeTests {
     func releaseCancelsPendingWork() throws {
         let device = Device()
         let session = FIDOForwardingSession { device }
-        _ = try session.receive(.hello)
+        _ = try session.receive(.hello(Array(0..<16)))
         _ = try session.receive(.report(report()))
         _ = try session.receivedReport(report(command: 0xbb))
         _ = try session.receive(.bye)
@@ -160,7 +160,7 @@ struct FIDOBridgeTests {
     func completedRequestsAreForgotten() throws {
         let device = Device()
         let session = FIDOForwardingSession { device }
-        _ = try session.receive(.hello)
+        _ = try session.receive(.hello(Array(0..<16)))
         _ = try session.receive(.report(report()))
         _ = try session.receivedReport(report(size: 408))
         for index in 0..<6 {
@@ -177,7 +177,7 @@ struct FIDOBridgeTests {
     func failureReleasesTheKey() throws {
         let device = Device()
         let session = FIDOForwardingSession { device }
-        _ = try session.receive(.hello)
+        _ = try session.receive(.hello(Array(0..<16)))
         device.failWrites = true
         #expect(throws: (any Error).self) { try session.receive(.report(report())) }
         #expect(session.isClosed)

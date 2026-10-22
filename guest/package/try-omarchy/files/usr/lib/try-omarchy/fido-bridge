@@ -9,39 +9,67 @@ import sys
 import time
 
 
-PORT = "/dev/virtio-ports/dev.tryomarchy.fido"
+PORT = "/dev/virtio-ports/dev.tryomarchy.fido.v2"
 DESCRIPTOR = bytes.fromhex("06d0f10901a1010920150026ff007508954081020921150026ff00750895409102c0")
 HELLO, READY, REPORT, PING, PONG, BYE = range(1, 7)
 QUEUE_LIMIT = 64 * 256
 
 
+def record(payload):
+    wire = bytearray([0x7e])
+    for byte in payload:
+        wire.extend((0x7d, byte ^ 0x20) if byte in (0x7d, 0x7e, 0x7f) else (byte,))
+    wire.append(0x7f)
+    return bytes(wire)
+
+
 def message(kind, payload=b""):
-    return b"TOFD" + bytes([1, kind]) + len(payload).to_bytes(2, "big") + payload
+    return record(b"TOFD" + bytes([2, kind]) + len(payload).to_bytes(2, "big") + payload)
 
 
 class FrameReader:
     def __init__(self):
         self.buffer = bytearray()
+        self.started = False
+        self.escaped = False
 
     def feed(self, chunk):
         if len(chunk) > 4096:
             raise ValueError("FIDO read exceeds 4 KiB")
-        self.buffer.extend(chunk)
         frames = []
-        while len(self.buffer) >= 8:
-            header = self.buffer[:8]
-            kind = header[5]
-            size = int.from_bytes(header[6:8], "big")
-            if header[:5] != b"TOFD\x01" or kind not in range(1, 7) or size != (64 if kind == REPORT else 0):
-                raise ValueError("Invalid FIDO frame")
-            if len(self.buffer) < 8 + size:
-                break
-            frames.append((kind, bytes(self.buffer[8:8 + size])))
-            del self.buffer[:8 + size]
+        for byte in chunk:
+            if byte == 0x7e:
+                self.buffer.clear()
+                self.started = True
+                self.escaped = False
+                continue
+            if not self.started:
+                continue
+            if byte == 0x7f:
+                if self.escaped or len(self.buffer) < 8 or len(self.buffer) != 8 + self.buffer[7]:
+                    raise ValueError("Incomplete FIDO record")
+                frames.append((self.buffer[5], bytes(self.buffer[8:])))
+                self.buffer.clear()
+                self.started = False
+                continue
+            if byte == 0x7d and not self.escaped:
+                self.escaped = True
+                continue
+            if self.escaped and byte not in (0x5d, 0x5e, 0x5f):
+                raise ValueError("Invalid FIDO escape")
+            self.buffer.append(byte ^ 0x20 if self.escaped else byte)
+            self.escaped = False
+            if len(self.buffer) >= 8:
+                header = self.buffer[:8]
+                kind = header[5]
+                size = 16 if kind in (HELLO, READY) else 64 if kind == REPORT else 0
+                if (header[:5] != b"TOFD\x02" or kind not in range(1, 7)
+                        or int.from_bytes(header[6:8], "big") != size or len(self.buffer) > 8 + size):
+                    raise ValueError("Invalid FIDO frame")
         return frames
 
     def finish(self):
-        if self.buffer:
+        if self.started:
             raise ConnectionError("FIDO host disconnected mid-frame")
 
 
@@ -87,9 +115,12 @@ def output_report(event):
     return report
 
 
-def relay(port, uhid, *, clock=time.monotonic, wait=select.select):
+def relay(port, uhid, *, clock=time.monotonic, wait=select.select, nonce=None):
+    nonce = os.urandom(16) if nonce is None else nonce
+    if len(nonce) != 16:
+        raise ValueError("Invalid FIDO handshake nonce")
     reader = FrameReader()
-    outgoing = bytearray(message(HELLO))
+    outgoing = bytearray(message(HELLO, nonce))
     ready = False
     deadline = clock() + 30
     heartbeat = clock() + 2
@@ -111,6 +142,8 @@ def relay(port, uhid, *, clock=time.monotonic, wait=select.select):
                 raise ConnectionError("FIDO host disconnected")
             for kind, payload in reader.feed(chunk):
                 if not ready:
+                    if kind in (REPORT, PONG, BYE) or (kind == READY and payload != nonce):
+                        continue
                     if kind != READY:
                         raise ValueError("FIDO host must negotiate before reports")
                     ready = True

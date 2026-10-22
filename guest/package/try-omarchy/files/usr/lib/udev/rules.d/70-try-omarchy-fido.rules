@@ -1,2 +1,2 @@
-SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.fido", OWNER="root", GROUP="root", MODE="0600"
+SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.fido.v2", OWNER="root", GROUP="root", MODE="0600"
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{uniq}=="try-omarchy-fido", TAG+="uaccess"

@@ -155,7 +155,7 @@ assert_contains "$output" "if=pflash,format=raw,readonly=on,file=$resources/firm
 assert_contains "$output" "if=pflash,format=raw,file=$state/shell/efi-vars.fd"
 assert_not_contains "$output" " -kernel "
 assert_not_contains "$output" " -append "
-assert_not_contains "$output" "dev.tryomarchy.fido"
+assert_not_contains "$output" "dev.tryomarchy.fido.v2"
 host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo'
 assert_contains "$output" "host settings: $host_settings"
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.host=$(printf '%s' "$host_settings" | base64 | tr -d '\n')"
@@ -538,7 +538,7 @@ assert_not_contains "$output" "release-key="
 
 launch_env=(OMARCHY_QEMU_GPU_FIDO_DEVICE=0x2a)
 output=$(launch)
-assert_contains "$output" "nr=9,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido"
+assert_contains "$output" "nr=9,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2"
 assert_contains "$output" "socket,id=omarchy-fido-bridge,path="
 assert_not_contains "$output" "usb-host"
 launch_env=(OMARCHY_QEMU_GPU_FIDO_DEVICE=0x2a OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x1050)

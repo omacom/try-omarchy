@@ -1,8 +1,8 @@
 import Foundation
 
 enum FIDOFrame: Equatable {
-    case hello
-    case ready
+    case hello([UInt8])
+    case ready([UInt8])
     case report([UInt8])
     case ping
     case pong
@@ -12,47 +12,75 @@ enum FIDOFrame: Equatable {
         let kind: UInt8
         var payload: [UInt8] = []
         switch self {
-        case .hello: kind = 1
-        case .ready: kind = 2
+        case .hello(let nonce): kind = 1; payload = nonce
+        case .ready(let nonce): kind = 2; payload = nonce
         case .report(let report): kind = 3; payload = report
         case .ping: kind = 4
         case .pong: kind = 5
         case .bye: kind = 6
         }
-        return [0x54, 0x4f, 0x46, 0x44, 1, kind, 0, UInt8(truncatingIfNeeded: payload.count)] + payload
+        return Self.record([0x54, 0x4f, 0x46, 0x44, 2, kind, 0, UInt8(payload.count)] + payload)
+    }
+
+    static func record(_ bytes: [UInt8]) -> [UInt8] {
+        [0x7e] + bytes.flatMap { (0x7d...0x7f).contains($0) ? [0x7d, $0 ^ 0x20] : [$0] } + [0x7f]
     }
 }
 
 struct FIDOFrameReader {
     private var buffer: [UInt8] = []
+    private var started = false
+    private var escaped = false
 
     mutating func feed(_ bytes: [UInt8]) throws -> [FIDOFrame] {
         guard bytes.count <= 4096 else { throw HelperError.io("FIDO read exceeds 4 KiB") }
-        buffer.append(contentsOf: bytes)
         var frames: [FIDOFrame] = []
-        while buffer.count >= 8 {
-            guard Array(buffer[0..<5]) == [0x54, 0x4f, 0x46, 0x44, 1],
-                  (1...6).contains(buffer[5]), buffer[6] == 0,
-                  buffer[7] == (buffer[5] == 3 ? 64 : 0) else {
-                throw HelperError.io("invalid FIDO frame")
+        for byte in bytes {
+            if byte == 0x7e {
+                buffer.removeAll(keepingCapacity: true)
+                started = true
+                escaped = false
+                continue
             }
-            let size = 8 + Int(buffer[7])
-            guard buffer.count >= size else { break }
-            switch buffer[5] {
-            case 1: frames.append(.hello)
-            case 2: frames.append(.ready)
-            case 3: frames.append(.report(Array(buffer[8..<size])))
-            case 4: frames.append(.ping)
-            case 5: frames.append(.pong)
-            default: frames.append(.bye)
+            guard started else { continue }
+            if byte == 0x7f {
+                guard !escaped, buffer.count >= 8, buffer.count == 8 + Int(buffer[7]) else {
+                    throw HelperError.io("incomplete FIDO record")
+                }
+                switch buffer[5] {
+                case 1: frames.append(.hello(Array(buffer.dropFirst(8))))
+                case 2: frames.append(.ready(Array(buffer.dropFirst(8))))
+                case 3: frames.append(.report(Array(buffer.dropFirst(8))))
+                case 4: frames.append(.ping)
+                case 5: frames.append(.pong)
+                default: frames.append(.bye)
+                }
+                buffer.removeAll(keepingCapacity: true)
+                started = false
+                continue
             }
-            buffer.removeFirst(size)
+            if byte == 0x7d, !escaped {
+                escaped = true
+                continue
+            }
+            if escaped {
+                guard (0x5d...0x5f).contains(byte) else { throw HelperError.io("invalid FIDO escape") }
+            }
+            buffer.append(escaped ? byte ^ 0x20 : byte)
+            escaped = false
+            if buffer.count >= 8 {
+                let kind = buffer[5]
+                let size = kind <= 2 ? 16 : kind == 3 ? 64 : 0
+                guard Array(buffer.prefix(5)) == [0x54, 0x4f, 0x46, 0x44, 2],
+                      (1...6).contains(kind), buffer[6] == 0, Int(buffer[7]) == size,
+                      buffer.count <= 8 + size else { throw HelperError.io("invalid FIDO frame") }
+            }
         }
         return frames
     }
 
     func finish() throws {
-        guard buffer.isEmpty else { throw HelperError.io("FIDO peer disconnected mid-frame") }
+        guard !started else { throw HelperError.io("FIDO peer disconnected mid-frame") }
     }
 }
 
@@ -164,10 +192,10 @@ final class FIDOForwardingSession {
     private func handle(_ frame: FIDOFrame) throws -> FIDOFrame? {
         guard !isClosed else { throw HelperError.io("FIDO session is closed") }
         if !isReady {
-            guard frame == .hello else { throw HelperError.io("FIDO guest must negotiate before device access") }
+            guard case .hello(let nonce) = frame, nonce.count == 16 else { throw HelperError.io("FIDO guest must negotiate before device access") }
             device = try openDevice()
             isReady = true
-            return .ready
+            return .ready(nonce)
         }
         switch frame {
         case .report(let report):

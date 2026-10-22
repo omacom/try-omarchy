@@ -191,10 +191,10 @@ struct FIDOSimulatedDeviceTests {
                     return device
                 }
                 if expected == nil {
-                    #expect(throws: (any Error).self) { try session.receive(.hello) }
+                    #expect(throws: (any Error).self) { try session.receive(.hello(Array(0..<16))) }
                     #expect(opens == 0)
                 } else {
-                    #expect(try session.receive(.hello) == .ready)
+                    #expect(try session.receive(.hello(Array(0..<16))) == .ready(Array(0..<16)))
                     #expect(opens == 1)
                 }
                 session.close()
@@ -223,7 +223,7 @@ struct FIDOSimulatedDeviceTests {
                 for complete in (size > 57 ? [false, true] : [true]) {
                     let device = FIDOSimulatedDevice()
                     let session = FIDOForwardingSession { device }
-                    _ = try session.receive(.hello)
+                    _ = try session.receive(.hello(Array(0..<16)))
                     _ = try session.receive(.report(request))
                     _ = try session.receivedReport(FIDOSimulatedFixtures.report(
                         channel: channel ^ 0x8000_0000, command: 0xbf))

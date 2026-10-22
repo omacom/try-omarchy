@@ -83,35 +83,35 @@ struct FIDOSimulatedLifecycleTests {
     @Test("unnegotiated and incompatible peers never call the fake-device opener")
     func noAcquisitionBeforeHello() throws {
         let report = [UInt8](repeating: 0, count: 64)
-        let wrongFrames: [FIDOFrame] = [.ready, .pong, .ping, .bye, .report(report)]
+        let wrongFrames: [FIDOFrame] = [.ready(Array(0..<16)), .pong, .ping, .bye, .report(report)]
         let badHeaders: [[UInt8]] = [
             [0, 0x4f, 0x46, 0x44, 1, 1, 0, 0],
             [0x54, 0x4f, 0x46, 0x44, 2, 1, 0, 0],
             [0x54, 0x4f, 0x46, 0x44, 1, 7, 0, 0],
             [0x54, 0x4f, 0x46, 0x44, 1, 3, 255, 255],
         ]
-        for bytes in wrongFrames.map(\.bytes) + badHeaders {
+        for bytes in wrongFrames.map(\.bytes) + badHeaders.map(FIDOFrame.record) {
             let result = try run(initial: bytes, action: .processExit)
             #expect(result.error != nil)
             #expect(result.opens == 0)
             #expect(result.device.closes == 0)
             #expect(result.device.reports.isEmpty)
-            #expect(!result.wire.contains(.ready))
+            #expect(!result.wire.contains(.ready(Array(0..<16))))
         }
         print("FIDO_SIM_CASES native_no_acquisition=9")
     }
 
     @Test("bad traffic, device failure, output overflow and peer loss close the acquired device once")
     func acquiredFailureMatrix() throws {
-        let wrongDirections = [FIDOFrame.hello, .ready, .pong].map { Action.bytes($0.bytes) }
+        let wrongDirections = [FIDOFrame.hello(Array(0..<16)), .ready(Array(0..<16)), .pong].map { Action.bytes($0.bytes) }
         let badHeaders: [Action] = [
-            .bytes([0, 0x4f, 0x46, 0x44, 1, 1, 0, 0]),
-            .bytes([0x54, 0x4f, 0x46, 0x44, 1, 3, 255, 255]),
+            .bytes(FIDOFrame.record([0, 0x4f, 0x46, 0x44, 1, 1, 0, 0])),
+            .bytes(FIDOFrame.record([0x54, 0x4f, 0x46, 0x44, 1, 3, 255, 255])),
         ]
         let badInputs = [0, 1, 63, 65].map(Action.inputLength)
         let failures = wrongDirections + badHeaders + badInputs + [.removed, .outputOverflow]
         for action in failures {
-            let result = try run(initial: FIDOFrame.hello.bytes, action: action)
+            let result = try run(initial: FIDOFrame.hello(Array(0..<16)).bytes, action: action)
             #expect(result.error != nil)
             #expect(result.opens == 1)
             #expect(result.device.closes == 1)
@@ -119,7 +119,7 @@ struct FIDOSimulatedLifecycleTests {
             #expect(result.ticks == 2)
         }
         for action: Action in [.eof, .stop, .processExit] {
-            let result = try run(initial: FIDOFrame.hello.bytes, action: action)
+            let result = try run(initial: FIDOFrame.hello(Array(0..<16)).bytes, action: action)
             #expect(result.error == nil)
             #expect(result.opens == 1)
             #expect(result.device.closes == 1)
@@ -132,12 +132,32 @@ struct FIDOSimulatedLifecycleTests {
     @Test("the same native channel forwards a valid response before clean shutdown")
     func positiveRoundTrip() throws {
         let packet = FIDOSimulatedFixtures.report(channel: 0x0102_0304)
-        let result = try run(initial: FIDOFrame.hello.bytes + FIDOFrame.report(packet).bytes, action: .echo)
+        let result = try run(initial: FIDOFrame.hello(Array(0..<16)).bytes + FIDOFrame.report(packet).bytes, action: .echo)
         #expect(result.error == nil)
         #expect(result.opens == 1)
         #expect(result.device.closes == 1)
         #expect(result.device.reports == [packet])
-        #expect(result.wire == [.ready, .report(packet), .bye])
+        #expect(result.wire == [.ready(Array(0..<16)), .report(packet), .bye])
         print("FIDO_SIM_CASES native_positive_roundtrip=1")
+    }
+
+    @Test("a guest restart closes the old channel and a new host channel negotiates again")
+    func restartRequiresNewHostSession() throws {
+        let oldNonce = Array<UInt8>(0..<16)
+        let newNonce = Array<UInt8>((0..<16).reversed())
+        let packet = FIDOSimulatedFixtures.report(channel: 0x0102_0304)
+        let interrupted = try run(initial: FIDOFrame.hello(oldNonce).bytes,
+                                  action: .bytes(Array(FIDOFrame.report(packet).bytes.prefix(64))
+                                      + FIDOFrame.hello(newNonce).bytes))
+        #expect(interrupted.error != nil)
+        #expect(interrupted.opens == 1)
+        #expect(interrupted.device.closes == 1)
+        #expect(interrupted.device.reports.isEmpty)
+        let replacement = try run(initial: FIDOFrame.hello(newNonce).bytes + FIDOFrame.report(packet).bytes,
+                                  action: .echo)
+        #expect(replacement.error == nil)
+        #expect(replacement.opens == 1)
+        #expect(replacement.device.reports == [packet])
+        #expect(replacement.wire == [.ready(newNonce), .report(packet), .bye])
     }
 }
