@@ -199,10 +199,14 @@ assert_contains "$output" "-device qemu-xhci,id=omarchy-usb,streams=off"
 assert_contains "$output" "-device usb-kbd,bus=omarchy-usb.0,id=omarchy-boot-keyboard"
 assert_not_contains "$output" "usb-host"
 
-# --- Caps Lock becomes Hangul only on a non-JIS Mac with a Korean input source --------
+# --- Caps Lock follows the Mac input source only on a non-JIS Mac with an input method --
 assert_contains "$output" "Caps Lock input: caps-lock"
 output=$(FAKE_KEYBOARD=ansi FAKE_CAPS_LOCK_INPUT=hangul launch)
 assert_contains "$output" "Caps Lock input: hangul"
+output=$(FAKE_KEYBOARD=ansi FAKE_CAPS_LOCK_INPUT=input-method launch)
+assert_contains "$output" "Caps Lock input: input-method"
+output=$(FAKE_CAPS_LOCK_INPUT=input-method launch)
+assert_contains "$output" "Caps Lock input: caps-lock"
 output=$(FAKE_KEYBOARD=iso FAKE_CAPS_LOCK_INPUT=hangul launch)
 assert_contains "$output" "Caps Lock input: hangul"
 output=$(FAKE_CAPS_LOCK_INPUT=hangul launch)

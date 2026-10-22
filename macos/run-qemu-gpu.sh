@@ -261,12 +261,15 @@ keyboard=$("$native_bridge" --host-keyboard-geometry) || fail "cannot detect the
 case $keyboard in ansi | iso | jis) host_options+=" tryomarchy.keyboard=$keyboard" ;; *) fail "invalid keyboard geometry" ;; esac
 # QEMU's Cocoa display maps the ISO section key from the same geometry.
 export TRYOMARCHY_KEYBOARD=$keyboard
-# A Korean input source makes Caps Lock the Mac's 한/영 key. Cocoa then mirrors
-# the Mac input source into the guest. JIS Macs keep their かな/英数 keys.
+# A non-Latin input method lets Caps Lock switch input source, as the Mac's
+# 한/영 key on Korean Macs. Cocoa then mirrors the Mac input source into the
+# guest. JIS Macs keep their かな/英数 keys.
 unset TRYOMARCHY_CAPS_LOCK
 if [[ $keyboard != jis ]]; then
   caps_lock_input=$("$native_bridge" --host-caps-lock-input 2>/dev/null) || caps_lock_input=
-  if [[ $caps_lock_input == hangul ]]; then export TRYOMARCHY_CAPS_LOCK=hangul; fi
+  case $caps_lock_input in
+    hangul | input-method) export TRYOMARCHY_CAPS_LOCK=$caps_lock_input ;;
+  esac
 fi
 
 # The camera housing of the Mac's built-in panel, one WIDTHxHEIGHT:TOP per

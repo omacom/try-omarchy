@@ -3,23 +3,35 @@ import Testing
 
 @Suite("Host Caps Lock input")
 struct HostCapsLockInputTests {
-    @Test("an enabled Apple Korean input source makes Caps Lock the Hangul key")
+    static let abc = HostCapsLockInput.Source(id: "com.apple.keylayout.ABC", isInputMode: false, isASCIICapable: true)
+    static let korean = HostCapsLockInput.Source(id: "com.apple.inputmethod.Korean.2SetKorean", isInputMode: true, isASCIICapable: false)
+    static let pinyin = HostCapsLockInput.Source(id: "com.apple.inputmethod.SCIM.ITABC", isInputMode: true, isASCIICapable: false)
+    static let japanese = HostCapsLockInput.Source(id: "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese", isInputMode: true, isASCIICapable: false)
+
+    @Test("Korean as the only input method keeps the 한/영 repeat")
     func koreanInputSource() {
-        #expect(HostCapsLockInput.mode(enabledInputSourceIDs: [
-            "com.apple.keylayout.ABC",
-            "com.apple.inputmethod.Korean.2SetKorean",
+        #expect(HostCapsLockInput.mode(enabledInputSources: [Self.abc, Self.korean]) == "hangul")
+        #expect(HostCapsLockInput.mode(enabledInputSources: [
+            Self.korean,
+            .init(id: "com.apple.inputmethod.Korean.3SetKorean", isInputMode: true, isASCIICapable: false),
         ]) == "hangul")
-        #expect(HostCapsLockInput.mode(enabledInputSourceIDs: ["com.apple.inputmethod.Korean"]) == "hangul")
     }
 
-    @Test("other input sources keep Caps Lock")
-    func otherInputSources() {
-        #expect(HostCapsLockInput.mode(enabledInputSourceIDs: []) == "")
-        #expect(HostCapsLockInput.mode(enabledInputSourceIDs: [
-            "com.apple.keylayout.ABC",
-            "com.apple.keylayout.2SetHangul",
-            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
-            "com.apple.inputmethod.SCIM.ITABC",
+    @Test("other input methods follow the Mac without the repeat")
+    func otherInputMethods() {
+        #expect(HostCapsLockInput.mode(enabledInputSources: [Self.abc, Self.pinyin]) == "input-method")
+        #expect(HostCapsLockInput.mode(enabledInputSources: [Self.abc, Self.japanese]) == "input-method")
+        #expect(HostCapsLockInput.mode(enabledInputSources: [Self.korean, Self.pinyin]) == "input-method")
+    }
+
+    @Test("keyboard layouts and Latin input modes keep Caps Lock")
+    func latinInputSources() {
+        #expect(HostCapsLockInput.mode(enabledInputSources: []) == "")
+        #expect(HostCapsLockInput.mode(enabledInputSources: [
+            Self.abc,
+            .init(id: "com.apple.keylayout.Russian", isInputMode: false, isASCIICapable: false),
+            .init(id: "com.apple.inputmethod.Kotoeri.RomajiTyping.Roman", isInputMode: true, isASCIICapable: true),
+            .init(id: "com.apple.inputmethod.Korean", isInputMode: false, isASCIICapable: false),
         ]) == "")
     }
 }

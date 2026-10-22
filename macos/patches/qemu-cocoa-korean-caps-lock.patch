@@ -1,5 +1,5 @@
 From: Try Omarchy contributors
-Subject: [PATCH] cocoa: make Caps Lock the 한/영 key on Korean Macs
+Subject: [PATCH] cocoa: follow the Mac input source and its Caps Lock switch
 
 Applies after the Try Omarchy Cocoa input patches.
 
@@ -16,22 +16,26 @@ and undoes it for a short press, so every Caps Lock state seen during
 the press flickers. A long press is confirmed by a 0xff event that is
 flagged and locked, and moves the Mac to ABC.
 
-When the launcher sets TRYOMARCHY_CAPS_LOCK=hangul:
+When the launcher sets TRYOMARCHY_CAPS_LOCK=hangul (Korean is the Mac's
+only non-Latin input method) or input-method (others are enabled):
 
 - The full-grab tap handles the kVK_CapsLock and 0xff events and passes
   them on, and -sendEvent: hands them to AppKit, handling them in QEMU
   only when the tap is not capturing. Consuming them kept macOS from
   locking capitals.
 - The guest's input method follows the Mac input source with absolute
-  keys: Henkan to Korean and Muhenkan to direct input, which Omarchy's
-  Fcitx profile already uses to activate and deactivate the input method.
-  They are sent at the selected input source notification while the VM
-  window is key, at the next key after it becomes key, and again before
-  a space, return, tab, escape or arrow key every two seconds. Fcitx
-  passes a redundant Henkan on to the engine, so the repeat waits for a
-  key that ends a Hangul syllable anyway. A toggle could not be kept right: Fcitx keeps a state
-  per window, a lone Shift also toggles it, and a switch sent before Fcitx
-  runs at boot is lost.
+  keys: Henkan when the Mac's source is an input mode that cannot type
+  ASCII, Muhenkan otherwise. Omarchy's Fcitx profile already uses them to
+  activate and deactivate the input method. They are sent at the selected
+  input source notification while the VM window is key and at the next
+  key after it becomes key. In hangul mode they are sent again before a
+  space, return, tab, escape or arrow key every two seconds. Fcitx passes
+  a redundant Henkan on to the engine, so the repeat waits for a key that
+  ends a Hangul syllable anyway. A toggle could not be kept right: Fcitx
+  keeps a state per window, a lone Shift also toggles it, and a switch
+  sent before Fcitx runs at boot is lost. Other input methods get no
+  repeat: a lone Shift leaves Pinyin for a moment, and Henkan converts in
+  Mozc.
 - Events from the Caps Lock key never sync the guest's Caps Lock. Key
   and modifier events sync it from the IOHIDSystem lock state, compared
   with the Caps Lock light the guest reports through virtio-input, once
@@ -60,16 +64,18 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  #include "system/runstate-action.h"
  #include "system/cpu-throttle.h"
  #include "qapi/error.h"
-@@ -345,8 +348,278 @@
+@@ -345,8 +348,306 @@
      }
      cocoa_iso_swap_cached = 0;
      return false;
 +}
 +
 +/*
-+ * Korean Macs use Caps Lock as the 한/영 key (TRYOMARCHY_CAPS_LOCK=hangul,
-+ * set by the launcher). None of this is documented by Apple; it follows what
-+ * macOS was measured to do:
++ * On a Mac with a non-Latin input method, Caps Lock can switch input source:
++ * on Korean Macs it is the 한/영 key. The launcher sets TRYOMARCHY_CAPS_LOCK
++ * to hangul when Korean is the Mac's only such input method, and to
++ * input-method when there are others. None of this is documented by Apple; it
++ * follows what macOS was measured to do on a Korean Mac:
 + *
 + * - A short press switches the Mac input source. It reaches QEMU only through
 + *   the HID event tap, as a flagsChanged event with keyCode 0xff; AppKit drops
@@ -81,26 +87,43 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 + *   and locked, and moves the Mac to ABC; unlocking may move it back.
 + *
 + * So the guest's input method follows the Mac input source: at its change
-+ * notification, at the next key after the VM window becomes key, and again
-+ * before a space, return, tab, escape or arrow key every few seconds, the
-+ * guest is told the Mac's side with an
-+ * absolute key (Henkan to Korean, Muhenkan to direct input). The guest's Caps Lock
++ * notification and at the next key after the VM window becomes key, the
++ * guest is told the Mac's side with an absolute key (Henkan to its input
++ * method, Muhenkan to direct input). In hangul mode it is told again before a
++ * space, return, tab, escape or arrow key every few seconds. Other input
++ * methods have their own keys to leave them for a moment, such as a lone Shift
++ * in Pinyin, and Henkan converts in Mozc, so they get no repeat. The guest's Caps Lock
 + * follows the IOHIDSystem lock state at key and modifier events, except while
 + * a Caps Lock press is undecided: from the kVK_CapsLock event until the lock
 + * state reads unlocked, a long press is confirmed, or
 + * COCOA_CAPS_LOCK_DECIDE_MS passes.
 + */
-+static int cocoa_caps_lock_hangul_cached = -1;
++typedef enum {
++    COCOA_CAPS_LOCK_MODE_OFF,
++    COCOA_CAPS_LOCK_MODE_INPUT_METHOD,
++    COCOA_CAPS_LOCK_MODE_HANGUL,
++} CocoaCapsLockMode;
 +
-+static bool cocoa_caps_lock_switches_hangul(void)
++static int cocoa_caps_lock_mode_cached = -1;
++
++static CocoaCapsLockMode cocoa_caps_lock_mode(void)
 +{
 +    const char *mode;
 +
-+    if (cocoa_caps_lock_hangul_cached < 0) {
++    if (cocoa_caps_lock_mode_cached < 0) {
 +        mode = getenv("TRYOMARCHY_CAPS_LOCK");
-+        cocoa_caps_lock_hangul_cached = mode != NULL && strcmp(mode, "hangul") == 0;
++        cocoa_caps_lock_mode_cached =
++            mode == NULL ? COCOA_CAPS_LOCK_MODE_OFF :
++            strcmp(mode, "hangul") == 0 ? COCOA_CAPS_LOCK_MODE_HANGUL :
++            strcmp(mode, "input-method") == 0 ? COCOA_CAPS_LOCK_MODE_INPUT_METHOD :
++            COCOA_CAPS_LOCK_MODE_OFF;
 +    }
-+    return cocoa_caps_lock_hangul_cached;
++    return cocoa_caps_lock_mode_cached;
++}
++
++static bool cocoa_caps_lock_follows_input_source(void)
++{
++    return cocoa_caps_lock_mode() != COCOA_CAPS_LOCK_MODE_OFF;
 +}
 +
 +static bool cocoa_caps_lock_locked(void)
@@ -132,8 +155,8 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +typedef enum {
 +    COCOA_CAPS_LOCK_NONE = 0,
 +    COCOA_CAPS_LOCK_TOGGLE = 1,
-+    COCOA_CAPS_LOCK_TO_KOREAN = 2,
-+    COCOA_CAPS_LOCK_TO_ENGLISH = 4,
++    COCOA_CAPS_LOCK_TO_INPUT_METHOD = 2,
++    COCOA_CAPS_LOCK_TO_DIRECT = 4,
 +} CocoaCapsLockAction;
 +
 +typedef enum {
@@ -163,10 +186,10 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 + * false while the VM window is not the key window of the active app; the
 + * guest is then told at the next key event.
 + */
-+static int cocoa_caps_lock_input_source(CocoaCapsLockState *state, bool hangul_mode,
-+                                        bool active, bool korean, int64_t now_ms)
++static int cocoa_caps_lock_input_source(CocoaCapsLockState *state, bool follow_mode,
++                                        bool active, bool input_method, int64_t now_ms)
 +{
-+    if (!hangul_mode) {
++    if (!follow_mode) {
 +        return COCOA_CAPS_LOCK_NONE;
 +    }
 +    if (!active) {
@@ -175,7 +198,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +    }
 +    state->synced = true;
 +    state->synced_ms = now_ms;
-+    return korean ? COCOA_CAPS_LOCK_TO_KOREAN : COCOA_CAPS_LOCK_TO_ENGLISH;
++    return input_method ? COCOA_CAPS_LOCK_TO_INPUT_METHOD : COCOA_CAPS_LOCK_TO_DIRECT;
 +}
 +
 +/*
@@ -193,14 +216,14 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +}
 +
 +static int cocoa_caps_lock_action(CocoaCapsLockState *state,
-+                                  bool hangul_mode, CocoaCapsLockEvent kind,
++                                  bool follow_mode, CocoaCapsLockEvent kind,
 +                                  bool event_caps, bool mac_caps,
-+                                  bool korean, bool boundary, int64_t now_ms,
++                                  bool input_method, bool boundary, int64_t now_ms,
 +                                  bool guest_caps)
 +{
 +    int action = COCOA_CAPS_LOCK_NONE;
 +
-+    if (!hangul_mode) {
++    if (!follow_mode) {
 +        return event_caps != guest_caps ? COCOA_CAPS_LOCK_TOGGLE : COCOA_CAPS_LOCK_NONE;
 +    }
 +    switch (kind) {
@@ -216,7 +239,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +        return COCOA_CAPS_LOCK_NONE;
 +    case COCOA_CAPS_EVENT_SYNC:
 +        if (cocoa_caps_lock_needs_input_source(state, now_ms, boundary)) {
-+            action |= cocoa_caps_lock_input_source(state, true, true, korean, now_ms);
++            action |= cocoa_caps_lock_input_source(state, true, true, input_method, now_ms);
 +        }
 +        if (state->pressed) {
 +            if (mac_caps && now_ms - state->pressed_ms < COCOA_CAPS_LOCK_DECIDE_MS) {
@@ -237,13 +260,15 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +
 +static bool cocoa_caps_lock_key_event(NSEvent *event)
 +{
-+    return cocoa_caps_lock_switches_hangul() && [event type] == NSEventTypeFlagsChanged &&
++    return cocoa_caps_lock_follows_input_source() && [event type] == NSEventTypeFlagsChanged &&
 +           ([event keyCode] == kVK_CapsLock || [event keyCode] == 0xff);
 +}
 +
++/* A key before which hangul mode repeats the Mac's side. */
 +static bool cocoa_caps_lock_boundary_key(NSEvent *event)
 +{
-+    if ([event type] != NSEventTypeKeyDown) {
++    if (cocoa_caps_lock_mode() != COCOA_CAPS_LOCK_MODE_HANGUL ||
++        [event type] != NSEventTypeKeyDown) {
 +        return false;
 +    }
 +    switch ([event keyCode]) {
@@ -267,17 +292,24 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +    memset(&cocoa_caps_lock_state, 0, sizeof(cocoa_caps_lock_state));
 +}
 +
-+static bool cocoa_input_source_is_korean(void)
++/*
++ * Korean, Chinese and Japanese input modes cannot type ASCII; ABC, the other
++ * keyboard layouts and the Japanese input method's own Roman mode can.
++ */
++static bool cocoa_input_source_is_input_method(void)
 +{
-+    bool korean = false;
++    bool input_method = false;
 +    TISInputSourceRef source = TISCopyCurrentKeyboardInputSource();
 +
 +    if (source) {
-+        CFStringRef identifier = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
-+        korean = identifier && CFStringHasPrefix(identifier, CFSTR("com.apple.inputmethod.Korean"));
++        CFStringRef type = TISGetInputSourceProperty(source, kTISPropertyInputSourceType);
++        CFBooleanRef ascii = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable);
++
++        input_method = type && CFEqual(type, kTISTypeKeyboardInputMode) &&
++                       ascii && !CFBooleanGetValue(ascii);
 +        CFRelease(source);
 +    }
-+    return korean;
++    return input_method;
 +}
 +
 +static int64_t cocoa_monotonic_ms(void)
@@ -326,11 +358,11 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +
 +static void cocoa_caps_lock_send_input_source(int action)
 +{
-+    if (action & COCOA_CAPS_LOCK_TO_KOREAN) {
++    if (action & COCOA_CAPS_LOCK_TO_INPUT_METHOD) {
 +        qkbd_state_key_event(kbd, KEY_HENKAN, true);
 +        qkbd_state_key_event(kbd, KEY_HENKAN, false);
 +    }
-+    if (action & COCOA_CAPS_LOCK_TO_ENGLISH) {
++    if (action & COCOA_CAPS_LOCK_TO_DIRECT) {
 +        qkbd_state_key_event(kbd, KEY_MUHENKAN, true);
 +        qkbd_state_key_event(kbd, KEY_MUHENKAN, false);
 +    }
@@ -339,7 +371,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  static int cocoa_keycode_to_linux(int keycode)
  {
      int linux_keycode;
-@@ -477,6 +750,9 @@
+@@ -477,6 +778,9 @@
  - (void) notifyMouseModeChange;
  - (BOOL) isMouseGrabbed;
  - (BOOL) isKeyboardCaptured;
@@ -349,7 +381,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  - (void) reenableEventTap;
  - (void) raiseAllKeys;
  - (void) endPinchLocked;
-@@ -508,6 +784,18 @@
+@@ -508,6 +812,18 @@
          [view isKeyboardCaptured];
          return cgEvent;
      }
@@ -368,15 +400,15 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      if ([view isKeyboardCaptured] && [view handleEvent:event]) {
          COCOA_DEBUG("Global events tap: qemu handled the event, capturing!\n");
          return NULL;
-@@ -1455,7 +1743,34 @@
+@@ -1455,6 +1771,33 @@
      InputButton button;
      unsigned int keycode;
      NSUInteger modifiers = [event modifierFlags];
-+    bool hangul_mode = cocoa_caps_lock_switches_hangul();
++    bool follow_mode = cocoa_caps_lock_follows_input_source();
 +    NSEventType event_type = [event type];
 +    bool flags_changed = event_type == NSEventTypeFlagsChanged;
 +    CocoaCapsLockEvent caps_lock_event = COCOA_CAPS_EVENT_OTHER;
- 
++
 +    if (flags_changed && [event keyCode] == 0xff) {
 +        caps_lock_event = COCOA_CAPS_EVENT_SWITCH;
 +    } else if (flags_changed && [event keyCode] == kVK_CapsLock) {
@@ -388,22 +420,21 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +        caps_lock_event = COCOA_CAPS_EVENT_SYNC;
 +    }
 +    int caps_lock_action = cocoa_caps_lock_action(
-+        &cocoa_caps_lock_state, hangul_mode, caps_lock_event,
++        &cocoa_caps_lock_state, follow_mode, caps_lock_event,
 +        !!(modifiers & NSEventModifierFlagCapsLock),
-+        hangul_mode && (caps_lock_event == COCOA_CAPS_EVENT_SYNC ||
++        follow_mode && (caps_lock_event == COCOA_CAPS_EVENT_SYNC ||
 +                        caps_lock_event == COCOA_CAPS_EVENT_SWITCH) && cocoa_caps_lock_locked(),
-+        hangul_mode && caps_lock_event == COCOA_CAPS_EVENT_SYNC &&
++        follow_mode && caps_lock_event == COCOA_CAPS_EVENT_SYNC &&
 +            cocoa_caps_lock_needs_input_source(&cocoa_caps_lock_state, cocoa_monotonic_ms(),
 +                                               cocoa_caps_lock_boundary_key(event)) &&
-+            cocoa_input_source_is_korean(),
-+        hangul_mode && cocoa_caps_lock_boundary_key(event),
-+        hangul_mode ? cocoa_monotonic_ms() : 0,
-+        hangul_mode ? cocoa_guest_caps_lock() : qkbd_state_modifier_get(kbd, QKBD_MOD_CAPSLOCK));
-+
++            cocoa_input_source_is_input_method(),
++        follow_mode && cocoa_caps_lock_boundary_key(event),
++        follow_mode ? cocoa_monotonic_ms() : 0,
++        follow_mode ? cocoa_guest_caps_lock() : qkbd_state_modifier_get(kbd, QKBD_MOD_CAPSLOCK));
+ 
      /*
       * Check -[NSEvent modifierFlags] here.
-      *
-@@ -1493,10 +1808,13 @@
+@@ -1493,10 +1836,13 @@
       *   completely leaving your hands from the keyboard, which hopefully makes
       *   this implementation usable enough.
       */
@@ -413,18 +444,16 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +    if (caps_lock_action & COCOA_CAPS_LOCK_TOGGLE) {
          qkbd_state_key_event(kbd, KEY_CAPSLOCK, true);
          qkbd_state_key_event(kbd, KEY_CAPSLOCK, false);
-+        if (hangul_mode) {
++        if (follow_mode) {
 +            cocoa_caps_lock_sent_ms = cocoa_monotonic_ms();
 +        }
      }
  
      if (!(modifiers & NSEventModifierFlagShift)) {
-@@ -1915,8 +2233,37 @@
-         }
-     }
+@@ -1917,6 +2263,35 @@
      return captured;
-+}
-+
+ }
+ 
 +/* The full-grab tap handles Caps Lock key events while it captures the keyboard. */
 +- (BOOL) capsLockTapHandlesKeys
 +{
@@ -434,18 +463,18 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +/* The Mac input source changed: bring the guest's input method along. */
 +- (void) capsLockInputSourceChanged
 +{
-+    bool korean = cocoa_input_source_is_korean();
++    bool input_method = cocoa_input_source_is_input_method();
 +    bool active = [NSApp isActive] && [[self window] isKeyWindow];
 +
 +    with_bql(^{
 +        int sent = cocoa_caps_lock_input_source(&cocoa_caps_lock_state,
-+                                                cocoa_caps_lock_switches_hangul(),
-+                                                active, korean, cocoa_monotonic_ms());
++                                                cocoa_caps_lock_follows_input_source(),
++                                                active, input_method, cocoa_monotonic_ms());
 +
 +        cocoa_caps_lock_send_input_source(sent);
 +    });
- }
- 
++}
++
 +/* Another app may have changed the input source: check at the next key. */
 +- (void) capsLockWindowActivated
 +{
@@ -457,7 +486,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  /* macOS can disable a slow tap; restore capture after either notification. */
  - (void) reenableEventTap
  {
-@@ -2499,6 +2846,17 @@
+@@ -2499,6 +2874,17 @@
  - (void)sendEvent:(NSEvent *)event
  {
      COCOA_DEBUG("QemuApplication: sendEvent\n");
@@ -475,12 +504,12 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      if (![cocoaView handleEvent:event]) {
          [super sendEvent: event];
      }
-@@ -3370,5 +3728,23 @@
+@@ -3370,5 +3756,23 @@
      qemu_add_mouse_mode_change_notifier(&mouse_mode_change_notifier);
      [cocoaView notifyMouseModeChange];
      [cocoaView updateUIInfo];
 +    qemu_register_reset(cocoa_caps_lock_reset, NULL);
-+    if (cocoa_caps_lock_switches_hangul()) {
++    if (cocoa_caps_lock_follows_input_source()) {
 +        qemu_input_led_notifier_add(&cocoa_guest_leds_notifier);
 +        [[NSDistributedNotificationCenter defaultCenter]
 +            addObserverForName:(NSString *)kTISNotifySelectedKeyboardInputSourceChanged

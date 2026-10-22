@@ -38,14 +38,16 @@ Omarchy's setup form asks for the keyboard layout and input method; it does
 not preselect Japanese on JIS Macs. Native 英数/かな mode keys are described
 in [Japanese input](japanese-input.md).
 
-## Korean Caps Lock
+## Caps Lock and the Mac input source
 
-On a Mac with a Korean input source and **Use Caps Lock to switch input sources** on, Caps Lock is the 한/영 key. A short press switches between Korean and English, and a long press locks capitals. With the VM focused, the same keys do the same in the guest.
+On a Mac with a Korean, Chinese or Japanese input method, the guest's input method follows the Mac's input source, however it is switched: Caps Lock, Globe or Control–Space. With **Use Caps Lock to switch input sources** on, as on Korean Macs where Caps Lock is the 한/영 key, a short press switches input source and a long press locks capitals. With the VM focused, the same keys do the same in the guest.
 
 ### Behaviour
 
-- `omarchy-vm-helper --host-caps-lock-input` reports `hangul` when an enabled input source starts with `com.apple.inputmethod.Korean`. The launcher then exports `TRYOMARCHY_CAPS_LOCK=hangul` to QEMU, except on JIS Macs, which keep かな and 英数. Without it, nothing changes.
-- The guest's input method follows the Mac input source with absolute keys: `KEY_HENKAN` to Korean and `KEY_MUHENKAN` to direct input. Omarchy's Fcitx profile already activates the input method on `Henkan` and deactivates it on `Muhenkan`, and XKB maps both keys on every layout through `inet(evdev)`, so the guest needs no change. Cocoa sends the Mac's side when macOS reports that the selected input source changed while the VM window is key, at the next key event after the window becomes key, and again before a space, return, tab, escape or arrow key at most every two seconds. The Mac's input source is the reference: switching only the guest, with Super+I or a lone Shift, is undone by the next repeat. Fcitx passes a redundant `Henkan` on to the engine, so repeats wait for a key that ends a Hangul syllable anyway.
+- `omarchy-vm-helper --host-caps-lock-input` looks for enabled input modes that cannot type ASCII. It reports `hangul` when they are all Korean (`com.apple.inputmethod.Korean`), `input-method` when there are others, and nothing without one. The launcher exports the value as `TRYOMARCHY_CAPS_LOCK` to QEMU, except on JIS Macs, which keep かな and 英数. Without it, nothing changes.
+- The guest's input method follows the Mac input source with absolute keys: `KEY_HENKAN` when the Mac's source is an input mode that cannot type ASCII, and `KEY_MUHENKAN` otherwise. So Korean, Pinyin, Zhuyin or Japanese kana turn it on, and ABC or the Japanese input method's own Roman mode turn it off. Omarchy's Fcitx profile already activates the input method on `Henkan` and deactivates it on `Muhenkan`, and XKB maps both keys on every layout through `inet(evdev)`. Older profiles get the two keys from `try-omarchy-input-init`. Cocoa sends the Mac's side when macOS reports that the selected input source changed while the VM window is key, and at the next key event after the window becomes key.
+- In `hangul` mode, Cocoa also sends it again before a space, return, tab, escape or arrow key, at most every two seconds. The Mac's input source is the reference: switching only the guest, with Super+I or a lone Shift, is undone by the next repeat. Fcitx passes a redundant `Henkan` on to the engine, so repeats wait for a key that ends a Hangul syllable anyway.
+- In `input-method` mode there is no repeat. Pinyin users leave it for a moment with a lone Shift, which the Mac does not see, and in Mozc a redundant `Henkan` converts the text being typed.
 - Locking capitals moves the Mac to ABC, and unlocking can move it back. The guest follows both.
 - The guest's Caps Lock follows the Mac's Caps Lock lock state (IOHIDSystem, the state the keyboard light shows). It is compared with the Caps Lock light the guest reports through virtio-input, not with a count of the presses QEMU sent. The comparison happens at key and modifier events, after the press is decided, and the Caps Lock press reaches the guest before the key that needed it. Events from the Caps Lock key itself never change it.
 - While the key is down, macOS locks Caps Lock provisionally. A press is decided when the lock state reads unlocked again, when macOS confirms a long press, or after one second. Letters typed while the key is down stay lowercase.
@@ -65,7 +67,8 @@ The tests replay event sequences recorded on a Korean Mac.
 
 ### Known limits
 
-- If the guest's input method changes another way, such as Super+I, a lone Shift or a new window, it follows the Mac again at the next space, return, tab, escape or arrow key after two seconds.
+- If the guest's input method changes another way, such as Super+I, a lone Shift or a new window, it follows the Mac again at the next space, return, tab, escape or arrow key after two seconds in `hangul` mode. In `input-method` mode it follows at the Mac's next switch, or when the VM window becomes key again.
+- The Caps Lock sequences were recorded on a Korean Mac.
 - The 0xff event reaches QEMU only through the full-grab event tap, which needs the Accessibility permission. Without it, Caps Lock behaves as before.
 - The keys work only when the guest's Fcitx profile activates on `Henkan` and deactivates on `Muhenkan`. Omarchy writes these for profiles it creates fresh since October 2026, and leaves the hotkeys of older profiles alone. `try-omarchy-input-init` adds the two keys to an older profile's own, once per user, before Fcitx starts. A user who removes them afterwards keeps them removed, and then the guest's input method does not follow the Mac.
 - `Henkan` and `Muhenkan` reach the focused application when Fcitx does not handle them, for example in a window without text input, or a redundant `Henkan` reaching the engine. Whether an application reacts to them was not checked. With Mozc in the same group, `Henkan` is also Mozc's conversion key.

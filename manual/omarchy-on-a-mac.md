@@ -5,7 +5,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 ## Keyboard and language
 
 - **Command is Super** whenever the Omarchy window is focused. For shortcuts that macOS would take first, grant Accessibility.
-- **Mac layouts work as printed.** That covers ANSI, ISO and JIS keyboards. On JIS, **かな** and **英数** turn the input method on and off. On a Mac with a Korean input source, a short press of **Caps Lock** (한/영) switches Korean input on and off; hold it for capitals. This needs Accessibility.
+- **Mac layouts work as printed.** That covers ANSI, ISO and JIS keyboards. On JIS, **かな** and **英数** turn the input method on and off. On a Mac with a Korean, Chinese or Japanese input source, Omarchy's input method follows the Mac's: switching with **Caps Lock** (한/영 on Korean Macs), 🌐 or Control–Space switches Omarchy too. Hold Caps Lock for capitals. This needs Accessibility.
 - **The language comes from the Mac on first boot:** English, Chinese, Korean or Japanese. Other languages fall back to English. Later, change it inside Omarchy. Omarchy's own menus are in English only.
 
 ## Clipboard, audio and camera

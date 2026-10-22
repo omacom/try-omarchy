@@ -501,24 +501,27 @@ class CocoaKoreanCapsLockTests(unittest.TestCase):
         patched = patched_hunks()
         probe = extract_c_block(
             patched,
-            "static int cocoa_caps_lock_hangul_cached = -1;",
-            "    return cocoa_caps_lock_hangul_cached;\n}",
+            "typedef enum {\n    COCOA_CAPS_LOCK_MODE_OFF,",
+            "    return cocoa_caps_lock_mode() != COCOA_CAPS_LOCK_MODE_OFF;\n}",
         )
         action = extract_c_block(
             patched,
-            "typedef enum {",
+            "typedef enum {\n    COCOA_CAPS_LOCK_NONE = 0,",
             "    default:\n        return COCOA_CAPS_LOCK_NONE;\n    }\n}",
         )
         for line in (
             "if (flags_changed && [event keyCode] == 0xff) {\n        caps_lock_event = COCOA_CAPS_EVENT_SWITCH;",
             "} else if (flags_changed && [event keyCode] == kVK_CapsLock) {\n        caps_lock_event = COCOA_CAPS_EVENT_PRESS;",
-            "hangul_mode && (caps_lock_event == COCOA_CAPS_EVENT_SYNC ||\n"
+            "follow_mode && (caps_lock_event == COCOA_CAPS_EVENT_SYNC ||\n"
             "                        caps_lock_event == COCOA_CAPS_EVENT_SWITCH) && cocoa_caps_lock_locked(),",
-            "hangul_mode && caps_lock_event == COCOA_CAPS_EVENT_SYNC &&\n"
+            "follow_mode && caps_lock_event == COCOA_CAPS_EVENT_SYNC &&\n"
             "            cocoa_caps_lock_needs_input_source(&cocoa_caps_lock_state, cocoa_monotonic_ms(),\n"
             "                                               cocoa_caps_lock_boundary_key(event)) &&\n"
-            "            cocoa_input_source_is_korean(),",
-            "        hangul_mode && cocoa_caps_lock_boundary_key(event),",
+            "            cocoa_input_source_is_input_method(),",
+            "        follow_mode && cocoa_caps_lock_boundary_key(event),",
+            "    if (cocoa_caps_lock_mode() != COCOA_CAPS_LOCK_MODE_HANGUL ||\n        [event type] != NSEventTypeKeyDown) {",
+            "input_method = type && CFEqual(type, kTISTypeKeyboardInputMode) &&\n"
+            "                       ascii && !CFBooleanGetValue(ascii);",
             "    case kVK_Space:",
             "qkbd_state_key_event(kbd, KEY_HENKAN, true);",
             "qkbd_state_key_event(kbd, KEY_MUHENKAN, true);",
@@ -595,16 +598,16 @@ static bool guest_ready = true;
 
 static void guest_switch_key(int action)
 {{
-    if (action & (COCOA_CAPS_LOCK_TO_KOREAN | COCOA_CAPS_LOCK_TO_ENGLISH)) {{
+    if (action & (COCOA_CAPS_LOCK_TO_INPUT_METHOD | COCOA_CAPS_LOCK_TO_DIRECT)) {{
         switches_sent++;
     }}
     if (!guest_ready) {{
         return;
     }}
-    if (action & COCOA_CAPS_LOCK_TO_KOREAN) {{
+    if (action & COCOA_CAPS_LOCK_TO_INPUT_METHOD) {{
         guest_window_korean[guest_window] = true;
     }}
-    if (action & COCOA_CAPS_LOCK_TO_ENGLISH) {{
+    if (action & COCOA_CAPS_LOCK_TO_DIRECT) {{
         guest_window_korean[guest_window] = false;
     }}
 }}
@@ -612,16 +615,17 @@ static void guest_switch_key(int action)
 /* The selected input source notification. */
 static void notified(bool korean, bool active, int64_t ms)
 {{
-    guest_switch_key(cocoa_caps_lock_input_source(&state, cocoa_caps_lock_switches_hangul(),
+    guest_switch_key(cocoa_caps_lock_input_source(&state, cocoa_caps_lock_follows_input_source(),
                                                   active, korean, ms));
 }}
 
 static void event(int type, int keycode, bool event_caps, bool io, bool korean, int64_t ms)
 {{
-    bool hangul_mode = cocoa_caps_lock_switches_hangul();
+    bool follow_mode = cocoa_caps_lock_follows_input_source();
     bool flags_changed = type == FLAGS_CHANGED;
     CocoaCapsLockEvent kind = COCOA_CAPS_EVENT_OTHER;
-    bool boundary = type == KEY_DOWN && (keycode == SPACE || keycode == RETURN);
+    bool boundary = cocoa_caps_lock_mode() == COCOA_CAPS_LOCK_MODE_HANGUL &&
+                    type == KEY_DOWN && (keycode == SPACE || keycode == RETURN);
     int action;
 
     if (flags_changed && keycode == SWITCH) {{
@@ -633,18 +637,18 @@ static void event(int type, int keycode, bool event_caps, bool io, bool korean, 
     }} else if (flags_changed || type == KEY_DOWN || type == KEY_UP) {{
         kind = COCOA_CAPS_EVENT_SYNC;
     }}
-    action = cocoa_caps_lock_action(&state, hangul_mode, kind, event_caps,
-                                    hangul_mode && (kind == COCOA_CAPS_EVENT_SYNC ||
+    action = cocoa_caps_lock_action(&state, follow_mode, kind, event_caps,
+                                    follow_mode && (kind == COCOA_CAPS_EVENT_SYNC ||
                                                     kind == COCOA_CAPS_EVENT_SWITCH) && io,
-                                    hangul_mode && kind == COCOA_CAPS_EVENT_SYNC &&
+                                    follow_mode && kind == COCOA_CAPS_EVENT_SYNC &&
                                         cocoa_caps_lock_needs_input_source(&state, ms, boundary) && korean,
-                                    hangul_mode && boundary, ms, guest_caps);
+                                    follow_mode && boundary, ms, guest_caps);
     guest_switch_key(action);
     if (action & COCOA_CAPS_LOCK_TOGGLE) {{
         caps++;
         guest_caps = !guest_caps;
     }}
-    if (type == KEY_DOWN && hangul_mode && guest_window_korean[guest_window] != korean) {{
+    if (type == KEY_DOWN && follow_mode && guest_window_korean[guest_window] != korean) {{
         mismatched_keys++;
     }}
 }}
@@ -675,7 +679,9 @@ static void replay(const int (*events)[6], size_t count)
 
 int main(void)
 {{
-    bool on = getenv("TRYOMARCHY_CAPS_EXPECT") && strcmp(getenv("TRYOMARCHY_CAPS_EXPECT"), "hangul") == 0;
+    const char *expect = getenv("TRYOMARCHY_CAPS_EXPECT");
+    bool hangul = expect && strcmp(expect, "hangul") == 0;
+    bool on = hangul || (expect && strcmp(expect, "input-method") == 0);
     int64_t t;
     int i;
 
@@ -698,6 +704,30 @@ int main(void)
     assert(mismatched_keys == 0 && caps == 5 && guest_caps);
     assert(!guest_window_korean[0]);
 
+    if (!hangul) {{
+        /* Boot: a key sent before Fcitx runs is lost; without a repeat, the
+         * guest stays in direct input until the Mac switches again. */
+        reset_guest();
+        guest_ready = false;
+        notified(true, true, 0);
+        guest_ready = true;
+        switches_sent = 0;
+        for (i = 0, t = 100; i < 40; i++, t += 250) {{
+            event(KEY_DOWN, i % 4 == 3 ? SPACE : LETTER, false, false, true, t);
+        }}
+        assert(switches_sent == 0 && !guest_window_korean[0]);
+        notified(false, true, t);
+        notified(true, true, t + 100);
+        assert(guest_window_korean[0]);
+
+        /* A lone Shift leaves Pinyin in the guest only; typing never undoes it. */
+        guest_window_korean[0] = false;
+        switches_sent = 0;
+        for (i = 0, t += 200; i < 40; i++, t += 250) {{
+            event(KEY_DOWN, i % 4 == 3 ? SPACE : RETURN, false, false, true, t);
+        }}
+        assert(switches_sent == 0 && !guest_window_korean[0]);
+    }} else {{
     /* Boot: the Mac is Korean, and the keys sent before Fcitx runs are lost. */
     reset_guest();
     guest_ready = false;
@@ -746,6 +776,7 @@ int main(void)
         event(KEY_DOWN, LETTER, false, false, true, t + 2000 + 250 * i);
     }}
     assert(switches_sent == 0);
+    }}
 
     /* Another app switches the Mac to ABC; back in the VM the first key tells the guest. */
     reset_guest();
@@ -797,6 +828,7 @@ int main(void)
             )
             cases = (
                 {"TRYOMARCHY_CAPS_LOCK": "hangul", "TRYOMARCHY_CAPS_EXPECT": "hangul"},
+                {"TRYOMARCHY_CAPS_LOCK": "input-method", "TRYOMARCHY_CAPS_EXPECT": "input-method"},
                 {"TRYOMARCHY_CAPS_LOCK": "", "TRYOMARCHY_CAPS_EXPECT": "keep"},
                 {"TRYOMARCHY_CAPS_LOCK": "HANGUL", "TRYOMARCHY_CAPS_EXPECT": "keep"},
                 {"TRYOMARCHY_CAPS_EXPECT": "keep"},
@@ -810,7 +842,7 @@ int main(void)
         patched = patched_hunks()
         added = plus_lines()
         key_event = extract_c_block(patched, "static bool cocoa_caps_lock_key_event(NSEvent *event)", "\n}")
-        self.assertIn("cocoa_caps_lock_switches_hangul() && [event type] == NSEventTypeFlagsChanged", key_event)
+        self.assertIn("cocoa_caps_lock_follows_input_source() && [event type] == NSEventTypeFlagsChanged", key_event)
         self.assertIn("[event keyCode] == kVK_CapsLock || [event keyCode] == 0xff", key_event)
         tap = extract_c_block(
             patched, "    if (cocoa_caps_lock_key_event(event)) {\n        /*\n         * macOS decides",
@@ -842,7 +874,7 @@ int main(void)
             "    return !!(qemu_input_get_leds_mask(dcl.con) & QEMU_CAPS_LOCK_LED);\n}",
         )
         self.assertIn("qemu_input_led_notifier_add(&cocoa_guest_leds_notifier);", added)
-        self.assertIn("hangul_mode ? cocoa_guest_caps_lock() : qkbd_state_modifier_get(kbd, QKBD_MOD_CAPSLOCK));", added)
+        self.assertIn("follow_mode ? cocoa_guest_caps_lock() : qkbd_state_modifier_get(kbd, QKBD_MOD_CAPSLOCK));", added)
         self.assertIn("            cocoa_caps_lock_sent_ms = cocoa_monotonic_ms();", added)
 
         with tempfile.TemporaryDirectory() as directory:
@@ -952,7 +984,7 @@ int main(void)
         runner = RUNNER.read_text(encoding="utf-8")
         self.assertIn("unset TRYOMARCHY_CAPS_LOCK\nif [[ $keyboard != jis ]]; then", runner)
         self.assertIn("--host-caps-lock-input", runner)
-        self.assertIn("export TRYOMARCHY_CAPS_LOCK=hangul", runner)
+        self.assertIn("hangul | input-method) export TRYOMARCHY_CAPS_LOCK=$caps_lock_input ;;", runner)
         self.assertNotIn("tryomarchy.caps_lock", runner)
 
 

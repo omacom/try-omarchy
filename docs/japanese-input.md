@@ -25,6 +25,7 @@ The `try-omarchy` package adds only what the Mac and the VM need:
   from the toggle keys, and turns on **Consume redundant Activate/Deactivate
   key**. Omarchy's other keys (変換, 無変換, 半角/全角, Super+I) stay as they
   are. A marker in `~/.local/state/try-omarchy/fcitx-jis-v1` keeps later edits.
+- **The Mac input source:** on a Mac with a Korean, Chinese or Japanese input method, QEMU switches the guest's input method with `Henkan` and `Muhenkan` when the Mac's input source changes. `try-omarchy-input-init` adds both keys to Fcitx profiles that predate them. See [Mac keyboard](mac-keyboard.md#caps-lock-and-the-mac-input-source).
 - **Chromium:** `/etc/chromium-flags.conf` adds `--enable-wayland-ime`, which
   Chromium's launcher reads before `~/.config/chromium-flags.conf`.
 - **XWayland:** `XMODIFIERS=@im=fcitx` comes from the package's
