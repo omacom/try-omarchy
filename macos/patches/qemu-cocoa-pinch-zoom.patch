@@ -29,7 +29,7 @@ new file mode 100644
 +
 +enum {
 +    COCOA_PINCH_CENTER = 16384,
-+    COCOA_PINCH_RADIUS = 512,
++    COCOA_PINCH_RADIUS = 125,
 +    COCOA_PINCH_AXIS_MAX = 32767,
 +};
 +
@@ -267,9 +267,9 @@ diff --git a/hw/input/virtio-input-hid.c b/hw/input/virtio-input-hid.c
 +    config.subsel = ABS_MT_TRACKING_ID;
 +    config.u.abs.max = const_le32(65535);
 +    virtio_input_add_config(vinput, &config);
-+    /* An 800 mm square sensor, with explicit resolution for libinput. */
++    /* A 3.3 m square sensor, with explicit resolution for libinput. */
 +    config.u.abs.max = const_le32(INPUT_EVENT_ABS_MAX);
-+    config.u.abs.res = const_le32(41);
++    config.u.abs.res = const_le32(10);
 +    for (int i = 0; i < ARRAY_SIZE(position_axes); i++) {
 +        config.subsel = position_axes[i];
 +        virtio_input_add_config(vinput, &config);

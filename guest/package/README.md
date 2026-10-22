@@ -42,8 +42,9 @@ not ignore, so caches and other local files never reach the package.
   to this boot's `/run/try-omarchy/display-cutouts.json` (plain `aarch64` has
   no platform package). Nothing goes under `/usr/local`, `/usr/share/omarchy`
   or `/etc/skel`. Customisation uses
-  systemd drop-ins, presets and udev rules, rows in the user's Omarchy menu
-  extension, plus one loader in the user's Omarchy toggles directory.
+  systemd drop-ins, presets and udev rules, a libinput quirk for the pinch
+  touchpad, rows in the user's Omarchy menu extension, plus one loader in the
+  user's Omarchy toggles directory.
 - **No kernel command line from the host.** The guest owns its boot. The app
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at

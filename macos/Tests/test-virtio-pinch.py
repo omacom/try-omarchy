@@ -141,7 +141,7 @@ class VirtioPinchTests(unittest.TestCase):
             self.assertTrue(axes & (1 << axis))
         for axis in (0, 1, 0x35, 0x36):
             self.assertEqual(struct.unpack("<5I", self.config(0x12, axis)),
-                             (0, 32767, 0, 0, 41))
+                             (0, 32767, 0, 0, 10))
 
         common = self.caps[1]
         self.qt(f"writeb {common + 20:#x} 3")

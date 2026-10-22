@@ -29,14 +29,14 @@ index 0000000..e81aafb
 +#include <math.h>
 +
 +/*
-+ * Positions use the pinch touchpad's 0-32767 axes, 41 units/mm. Contacts sit
-+ * 12.5 mm apart and stay 100 mm inside every edge, well clear of libinput's
-+ * palm zones (8 mm at the sides, 5% at the top).
++ * Positions use the pinch touchpad's 0-32767 axes, 10 units/mm. Contacts sit
++ * 12.4 mm apart and stay 12.5% inside every edge, clear of libinput's palm
++ * zones (8 mm at the sides, 5% at the top) and thumb zone (the bottom 15%).
 + */
 +enum {
 +    COCOA_TOUCH_SCROLL_AXIS_MAX = 32767,
 +    COCOA_TOUCH_SCROLL_CENTER = 16384,
-+    COCOA_TOUCH_SCROLL_SPREAD = 256,
++    COCOA_TOUCH_SCROLL_SPREAD = 62,
 +    COCOA_TOUCH_SCROLL_MIN = 4096 + COCOA_TOUCH_SCROLL_SPREAD,
 +    COCOA_TOUCH_SCROLL_MAX = COCOA_TOUCH_SCROLL_AXIS_MAX - 4096 -
 +                             COCOA_TOUCH_SCROLL_SPREAD,
@@ -46,7 +46,7 @@ index 0000000..e81aafb
 + * 0.12 mm per point. The guest's touchpad scroll factor tunes the speed, as
 + * on real hardware.
 + */
-+#define COCOA_TOUCH_SCROLL_UNITS_PER_POINT 5.0
++#define COCOA_TOUCH_SCROLL_UNITS_PER_POINT 1.2
 +
 +typedef struct CocoaTouchScroll {
 +    bool active;

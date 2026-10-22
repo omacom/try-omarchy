@@ -32,7 +32,7 @@ edited and resetting the user's Hyprland configuration keeps the rule.
 
 ## Input behavior
 
-Cocoa provides relative magnification, not raw finger positions. The bridge reconstructs two symmetric contacts 25 mm apart on the touchpad's 800 mm virtual sensor, with a fixed center so the gesture does not intentionally pan the pointer. Contact spacing accumulates continuously, bounded to 0.125–3.5 times the initial spacing per gesture to stay within the advertised sensor. Lift and pinch again to continue beyond those bounds. libinput still applies its normal gesture recognition.
+Cocoa provides relative magnification, not raw finger positions. The bridge reconstructs two symmetric contacts 25 mm apart on the touchpad's 3.3 m virtual sensor, with a fixed center so the gesture does not intentionally pan the pointer. Contact spacing accumulates continuously, bounded to 0.125–3.5 times the initial spacing per gesture to stay within the advertised sensor. Lift and pinch again to continue beyond those bounds. libinput still applies its normal gesture recognition.
 
 Only gestures in the focused guest view are accepted. Ending a gesture,
 cancelling it, leaving the view, or losing window focus releases both contacts.

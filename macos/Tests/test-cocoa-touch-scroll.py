@@ -85,17 +85,17 @@ int main(void)
     assert(frames[0].y == COCOA_TOUCH_SCROLL_CENTER);
     assert(event(&s, 0, true, 0, 10));
     assert(count == 2 && frames[1].down);
-    assert(frames[1].y == COCOA_TOUCH_SCROLL_CENTER - 50);
+    assert(frames[1].y == COCOA_TOUCH_SCROLL_CENTER - lround(10 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
     assert(frames[1].id[0] == frames[0].id[0]);
     assert(event(&s, 0, true, -4, 0));
-    assert(center(&frames[2]) == COCOA_TOUCH_SCROLL_CENTER + 20);
+    assert(center(&frames[2]) == COCOA_TOUCH_SCROLL_CENTER + lround(4 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
 
     /* Fractional points accumulate in sensor units, not per event. */
     for (int i = 0; i < 10; i++) {
         event(&s, 0, true, 0, -0.1);
         count = 3;
     }
-    assert(fabs(s.y - (COCOA_TOUCH_SCROLL_CENTER - 45)) < 1e-9);
+    assert(fabs(s.y - (COCOA_TOUCH_SCROLL_CENTER - 9 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT)) < 1e-9);
 
     /* Zero deltas emit nothing; end releases once. */
     assert(event(&s, 0, true, 0, 0));
@@ -117,7 +117,7 @@ int main(void)
     assert(frames[4].id[0] == previous + 2);  /* fresh IDs for every landing */
     event(&s, E, true, 2, 0);
     assert(count == 7 && frames[5].down && !frames[6].down);
-    assert(center(&frames[5]) == COCOA_TOUCH_SCROLL_CENTER - 10);
+    assert(center(&frames[5]) == COCOA_TOUCH_SCROLL_CENTER - lround(2 * COCOA_TOUCH_SCROLL_UNITS_PER_POINT));
 
     /* A new gesture outside the view does not inherit dropped momentum. */
     event(&s, B, false, 0, 0);

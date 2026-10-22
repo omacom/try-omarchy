@@ -1,0 +1,8 @@
+# The Pinch Touchpad's contacts are rebuilt from macOS scroll deltas, which
+# can move far in one frame, and a VM's frame timing jitters. libinput would
+# discard that movement as touch jumps, so fast swipes would not scroll.
+# libinput has no generic switch for jump detection; this model flag only
+# turns it off: https://gitlab.freedesktop.org/libinput/libinput/-/issues/506
+[Try Omarchy Virtio Pinch Touchpad]
+MatchName=QEMU Virtio Pinch Touchpad
+ModelLenovoX1Gen6Touchpad=1

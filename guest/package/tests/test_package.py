@@ -44,6 +44,13 @@ class PackageLayout(unittest.TestCase):
             for forbidden in ("usr/share/omarchy/", "etc/skel/", "usr/share/omarchy-platform/"):
                 self.assertFalse(relative.startswith(forbidden), relative)
 
+    def test_pinch_touchpad_alone_skips_libinput_jump_detection(self):
+        quirks = (FILES / "usr/share/libinput/90-try-omarchy.quirks").read_text()
+        sections = [line for line in quirks.splitlines() if line.startswith("[")]
+        self.assertEqual(sections, ["[Try Omarchy Virtio Pinch Touchpad]"])
+        self.assertIn("\nMatchName=QEMU Virtio Pinch Touchpad\n", quirks)
+        self.assertIn("\nModelLenovoX1Gen6Touchpad=1\n", quirks)
+
     def test_platform_root_holds_only_the_camera_cutouts_link(self):
         # Generic aarch64 registers no platform package; the one file the VM
         # adds to Omarchy's platform root points at this boot's cutouts.

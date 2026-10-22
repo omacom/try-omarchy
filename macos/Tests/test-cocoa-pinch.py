@@ -62,7 +62,7 @@ int main(void)
     int original = cocoa_pinch_x(&pinch, 1) - cocoa_pinch_x(&pinch, 0);
     assert(cocoa_pinch_update(&pinch, 0.5));
     int expanded = cocoa_pinch_x(&pinch, 1) - cocoa_pinch_x(&pinch, 0);
-    assert(expanded == original * 3 / 2);
+    assert(expanded - original * 3 / 2 >= -1 && expanded - original * 3 / 2 <= 1);
     assert(cocoa_pinch_update(&pinch, -1.0 / 3.0));
     assert(fabs(pinch.scale - 1.0) < 1e-12);
     check_bounds(&pinch);
@@ -152,10 +152,10 @@ int main(void)
 
     def test_sensor_keeps_pinch_spacing_in_millimetres(self):
         source = PATCH.read_text()
-        self.assertIn("+    config.u.abs.res = const_le32(41);", source)
+        self.assertIn("+    config.u.abs.res = const_le32(10);", source)
         radius = int(re.search(r"COCOA_PINCH_RADIUS = (\d+),", source)[1])
-        # Contacts start 25 mm apart; finger scrolling needs the 800 mm sensor.
-        self.assertAlmostEqual(2 * radius / 41, 25.0, delta=0.1)
+        # Contacts start 25 mm apart; finger scrolling needs the 3.3 m sensor.
+        self.assertAlmostEqual(2 * radius / 10, 25.0, delta=0.1)
 
     def test_builder_verifies_exact_patch(self):
         builder = (ROOT / "macos/build-qemu-gpu-runtime.sh").read_text()

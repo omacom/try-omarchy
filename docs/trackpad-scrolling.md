@@ -20,7 +20,7 @@ Each landing uses new tracking IDs. If a full guest queue drops a release frame,
 
 The contacts move as libinput's default, non-natural finger scrolling expects. The guest therefore scrolls in the direction macOS chose, including its natural scrolling setting. The guest package turns off natural scrolling for this device, so turning it on for touchpads in Omarchy doesn't reverse it again.
 
-The touchpad is an 800 mm square sensor, so one contact can carry a whole swipe. A scroll that still reaches an edge lifts and lands again at the opposite edge. Contacts stay 100 mm inside every edge, clear of libinput's palm zones.
+The touchpad is a 3.3 m square sensor at 10 units/mm, so one gesture can travel about 10,000 points before it reaches an edge. A scroll that still reaches an edge lifts and lands again at the opposite edge. Contacts stay 12.5% inside every edge, clear of libinput's palm and thumb zones.
 
 ## Speed
 
@@ -32,7 +32,10 @@ These follow from libinput treating the scroll as a real touchpad:
 
 - A scroll starts after about 1.5 mm of movement, roughly 12 points, and a slow scroll can take up to 150 ms to start. Smaller nudges do not scroll.
 - libinput locks finger scrolling to one axis until both axes are clearly in use.
-- libinput discards a contact movement over 20 mm in 12 ms, about 160 points, or one that grows by more than 7 mm between frames, and logs a touch jump. Very fast flicks can lose that movement.
+
+## Touch jumps
+
+libinput discards a touch that moves more than 20 mm in 12 ms, or speeds up by more than 7 mm in one frame, as a hardware glitch. macOS scroll deltas cross those limits on any fast swipe, and a VM's frame timing makes them worse, so fast swipes would not scroll. The guest package's libinput quirk, `/usr/share/libinput/90-try-omarchy.quirks`, turns jump detection off for this device only. libinput has no generic setting for it, so the quirk uses the model flag whose only effect is that ([libinput#506](https://gitlab.freedesktop.org/libinput/libinput/-/issues/506)).
 
 ## Validation
 
@@ -43,5 +46,5 @@ In the guest, check:
 1. `libinput debug-events` shows `POINTER_SCROLL_FINGER` on the pinch touchpad, ending with a zero scroll.
 2. A two-finger horizontal swipe in Chrome shows the back arrow and goes back.
 3. A flick keeps scrolling after the fingers lift, once, with no second push.
-4. `journalctl -b | grep -i "touch jump"` stays empty after fast flicks.
+4. A fast swipe on a long page scrolls far, and `journalctl -b | grep -i "touch jump"` stays empty.
 5. Pinch zoom, a mouse wheel, focus loss mid-scroll, and scrolling a background window still work.
