@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# notch-refresh WIDTHxHEIGHT: called by omarchy-native-display-sync with each
-# mode it gives the VM's output.
+# notch-refresh WIDTHxHEIGHT [OUTPUT]: called by omarchy-native-display-sync
+# with each mode it gives one of the VM's outputs (Virtual-1 when unnamed).
 #
 # Omarchy's bar finds a screen's camera cutout by the mode Quickshell last read
 # from Hyprland, and Quickshell reads monitors again only when an output comes
@@ -11,25 +11,30 @@
 # (docs/camera-notch.md). When the mode enters, leaves or moves between the
 # cutouts' modes, a headless output that comes and goes at once makes Quickshell
 # read every monitor again. Other mode changes, a window being resized for one,
-# and a Mac without a notch do nothing. Remove this once Omarchy's bar refreshes
-# Hyprland's monitors when its screen changes size.
+# an output that is not the panel with the housing, and a Mac without a notch
+# do nothing. Remove this once Omarchy's bar refreshes Hyprland's monitors when
+# its screen changes size.
 
 set -euo pipefail
 
 cutouts=${TRY_OMARCHY_DISPLAY_CUTOUTS:-/run/try-omarchy/display-cutouts.json}
 state=${TRY_OMARCHY_NOTCH_STATE:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/try-omarchy/notch-mode}
-output=TRYOMARCHY-REFRESH
+refresh_output=TRYOMARCHY-REFRESH
 
 mode=${1:-}
-[[ $mode =~ ^[1-9][0-9]{0,4}x[1-9][0-9]{0,4}$ ]] || {
-  echo "usage: notch-refresh WIDTHxHEIGHT" >&2
+output=${2:-Virtual-1}
+[[ $mode =~ ^[1-9][0-9]{0,4}x[1-9][0-9]{0,4}$ && $output =~ ^Virtual-[1-9][0-9]?$ ]] || {
+  echo "usage: notch-refresh WIDTHxHEIGHT [OUTPUT]" >&2
   exit 2
 }
 [[ -r $cutouts ]] || exit 0
 
-# host-config writes one panel per line, in this exact form.
+# host-config writes one panel per line, in this exact form. Each output keeps
+# its own last mode, so another display's modes never look like leaving the
+# housing's.
+state=$state.$output
 matched=0
-grep -qF "\"width\": ${mode%x*}, \"height\": ${mode#*x}," "$cutouts" && matched=1
+grep -qF "\"connector\": \"$output\", \"width\": ${mode%x*}, \"height\": ${mode#*x}," "$cutouts" && matched=1
 
 previous=""
 [[ -r $state ]] && previous=$(<"$state")
@@ -42,6 +47,6 @@ fi
 
 # Let Hyprland finish applying the mode before Quickshell asks for it.
 sleep 0.3
-hyprctl output create headless "$output" >/dev/null 2>&1 || exit 0
+hyprctl output create headless "$refresh_output" >/dev/null 2>&1 || exit 0
 sleep 0.2
-hyprctl output remove "$output" >/dev/null 2>&1 || true
+hyprctl output remove "$refresh_output" >/dev/null 2>&1 || true

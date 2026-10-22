@@ -30,14 +30,56 @@ printf '%s\n' "$value" >"$output.tmp"
 chmod 0644 "$output.tmp"
 mv -f "$output.tmp" "$output"
 
+# The Mac's displays, for omarchy-native-display-sync. With one virtio-gpu
+# head per display, tryomarchy.display_layout=OUTPUT:XxY,... names each
+# guest output and where Omarchy should place it, in Hyprland's logical
+# pixels, arranged as the Mac's own display settings are, the Mac's main
+# display first. One line per output; without the token (one display, an
+# older app) nothing is written and the helper leaves placement to Hyprland.
+layout=${TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT:-/run/try-omarchy/display-layout}
+placement='Virtual-[1-9][0-9]?:[0-9]{1,5}x[0-9]{1,5}'
+outputs=()
+for token in $value; do
+  [[ $token == tryomarchy.display_layout=* ]] || continue
+  placements=${token#*=}
+  outputs=()
+  if [[ ! $placements =~ ^$placement(,$placement){0,7}$ ]]; then
+    echo "try-omarchy-host-config: ignoring malformed display layout" >&2
+    continue
+  fi
+  IFS=, read -ra placements <<<"$placements"
+  for entry in "${placements[@]}"; do
+    outputs+=("${entry%%:*} ${entry#*:}")
+  done
+done
+if ((${#outputs[@]})); then
+  install -d -m 0755 "${layout%/*}"
+  printf '%s\n' "${outputs[@]}" >"$layout.tmp"
+  chmod 0644 "$layout.tmp"
+  mv -f "$layout.tmp" "$layout"
+else
+  rm -f "$layout"
+fi
+
 # The Mac's camera housing, for Omarchy's bar. Omarchy reads a platform's
 # cutouts from /usr/share/omarchy-platform/display-cutouts.json, which this
 # package links here. tryomarchy.display_cutouts=WIDTHxHEIGHT:TOP,... names
-# the built-in panel's modes in pixels; the guest's output has one of them
+# the built-in panel's modes in pixels; that panel's output has one of them
 # exactly when the Mac's full screen covers the strip beside the housing, so
-# a window or an external display keeps Omarchy's usual bar.
+# a window or an external display keeps Omarchy's usual bar. With more
+# displays, tryomarchy.display_panel=OUTPUT names the panel's output; alone,
+# the panel is the only output.
 cutouts=${TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT:-/run/try-omarchy/display-cutouts.json}
 entry='[1-9][0-9]{0,4}x[1-9][0-9]{0,4}:[1-9][0-9]{0,3}'
+panel_output=Virtual-1
+for token in $value; do
+  [[ $token == tryomarchy.display_panel=* ]] || continue
+  if [[ ${token#*=} =~ ^Virtual-[1-9][0-9]?$ ]]; then
+    panel_output=${token#*=}
+  else
+    echo "try-omarchy-host-config: ignoring malformed display panel" >&2
+  fi
+done
 panels=()
 for token in $value; do
   [[ $token == tryomarchy.display_cutouts=* ]] || continue
@@ -50,7 +92,7 @@ for token in $value; do
   IFS=, read -ra modes <<<"$modes"
   for mode in "${modes[@]}"; do
     size=${mode%:*} top=${mode#*:}
-    panels+=("{\"connector\": \"Virtual-1\", \"width\": ${size%x*}, \"height\": ${size#*x}, \"top\": $top}")
+    panels+=("{\"connector\": \"$panel_output\", \"width\": ${size%x*}, \"height\": ${size#*x}, \"top\": $top}")
   done
 done
 if ((${#panels[@]})); then

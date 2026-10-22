@@ -5,6 +5,9 @@ set -euo pipefail
 drm_root=${OMARCHY_DISPLAY_SYNC_DRM_ROOT:-/sys/class/drm}
 monitor_config=${OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/monitors.lua}
 notch_refresh=${OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH:-/usr/lib/try-omarchy/notch-refresh}
+# host-config writes the Mac's arrangement here, one "OUTPUT XxY" per line.
+display_layout=${OMARCHY_DISPLAY_SYNC_LAYOUT:-/run/try-omarchy/display-layout}
+lock=${OMARCHY_DISPLAY_SYNC_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/try-omarchy-display-sync.lock}
 
 preferred_mode_from_edid() {
   python3 - "$1" "$monitor_config" <<'PY'
@@ -67,16 +70,10 @@ def modeline(
     )
 
 
-def scale_for_mode(
-    width: int,
-    height: int,
-    physical_width_mm: int,
-    physical_height_mm: int,
-) -> str:
+def configured_scale() -> float | None:
     # Omarchy's scaling controls write a numeric local in monitors.lua. Read it
     # on each resync so a running hotplug watcher also sees later zoom changes.
     # Auto/missing settings retain the live EDID's density-based scale.
-    requested = None
     try:
         config = pathlib.Path(sys.argv[2]).read_text()
         match = re.search(
@@ -87,9 +84,26 @@ def scale_for_mode(
         if match:
             saved_scale = float(match.group(1))
             if isfinite(saved_scale) and saved_scale >= 0.25:
-                requested = saved_scale
+                return saved_scale
     except OSError:
         pass
+    return None
+
+
+# The Mac's arrangement is in logical pixels at the EDID's density. A chosen
+# scale changes every output's logical size, so placement goes back to
+# Hyprland then (the third field).
+requested_scale = configured_scale()
+placement = "auto" if requested_scale is None else "fixed"
+
+
+def scale_for_mode(
+    width: int,
+    height: int,
+    physical_width_mm: int,
+    physical_height_mm: int,
+) -> str:
+    requested = requested_scale
 
     if requested is None:
         if physical_width_mm <= 0 or physical_height_mm <= 0:
@@ -202,7 +216,7 @@ if displayid_timings:
         base_physical_width_mm,
         base_physical_height_mm,
     )
-    print(f"{preferred}\t{scale}")
+    print(f"{preferred}\t{scale}\t{placement}")
     raise SystemExit(0)
 
 for offset in range(54, 126, 18):
@@ -251,19 +265,51 @@ for offset in range(54, 126, 18):
             physical_width_mm,
             physical_height_mm,
         )
-        print(f"{decoded}\t{scale}")
+        print(f"{decoded}\t{scale}\t{placement}")
         raise SystemExit(0)
 
 raise SystemExit(1)
 PY
 }
 
-apply_preferred_modes() {
+# The position the Mac's arrangement gives an output, or auto without one.
+host_position() { # output
+  local name position
+  [[ -r $display_layout ]] || { echo auto; return; }
+  while read -r name position; do
+    if [[ $name == "$1" && $position =~ ^[0-9]{1,5}x[0-9]{1,5}$ ]]; then
+      echo "$position"
+      return
+    fi
+  done <"$display_layout"
+  echo auto
+}
+
+# A rule the user wrote for this output in monitors.lua wins over the helper,
+# however they lay the table out; one in a line or block comment does not.
+user_configures_output() { # output
+  [[ -r $monitor_config ]] && python3 - "$monitor_config" "$1" <<'PY'
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8", errors="replace") as config:
+    lua = config.read()
+lua = re.sub(r"--\[(=*)\[.*?\]\1\]", "", lua, flags=re.DOTALL)
+lua = re.sub(r"--[^\n]*", "", lua)
+output = re.escape(sys.argv[2])
+rule = rf"hl\.monitor\s*\(\s*\{{[^}}]*output\s*=\s*[\"']{output}[\"']"
+raise SystemExit(0 if re.search(rule, lua) else 1)
+PY
+}
+
+apply_connected_modes() {
   local connector
   local connector_name
   local height
   local mode
   local output
+  local placement
+  local position
   local preferred
   local response
   local rule
@@ -277,21 +323,26 @@ apply_preferred_modes() {
 
     connector_name=${connector##*/}
     output=${connector_name#*-}
+    if user_configures_output "$output"; then
+      continue
+    fi
     if ! preferred=$(preferred_mode_from_edid "$connector/edid"); then
       continue
     fi
-    IFS=$'\t' read -r mode scale <<<"$preferred"
+    IFS=$'\t' read -r mode scale placement <<<"$preferred"
     [[ -n $mode && -n $scale ]] || continue
+    position=auto
+    [[ $placement == auto ]] && position=$(host_position "$output")
 
     # Aquamarine 0.14 does not refresh its mode cache when an existing DRM
     # connector's EDID or physical size changes. A complete modeline bypasses
     # the stale mode cache; an explicit scale calculated from the fresh EDID
     # avoids using the stale fullscreen dimensions for Hyprland's auto scale.
     # Hyprland's Lua config parser requires eval instead of the legacy keyword
-    # command. Update Omarchy's single-output catch-all mode and dynamic scale;
-    # its placement, color, and other policy remain intact, while an explicit
-    # per-output user rule still wins.
-    rule="hl.monitor({ output = \"\", mode = \"$mode\", scale = \"$scale\" })"
+    # command. Each output gets its own rule, placed as the Mac arranges its
+    # displays; Omarchy's catch-all keeps its color and other policy for
+    # anything else, and an output the user configured was skipped above.
+    rule="hl.monitor({ output = \"$output\", mode = \"$mode\", position = \"$position\", scale = \"$scale\" })"
     if ! response=$(hyprctl eval "$rule" 2>&1); then
       printf 'omarchy-native-display-sync: failed to apply %s to %s: %s\n' \
         "$mode" "$output" "$response" >&2
@@ -304,11 +355,21 @@ apply_preferred_modes() {
       # active width and height.
       read -r _ _ width _ _ _ height _ <<<"$mode"
       if [[ $mode == "modeline "* && $width =~ ^[0-9]+$ && $height =~ ^[0-9]+$ ]]; then
-        "$notch_refresh" "${width}x$height" || true
+        "$notch_refresh" "${width}x$height" "$output" || true
       fi
     fi
   done
   shopt -u nullglob
+}
+
+# Startup, a DRM hotplug event and a config reload (--once) can resync at the
+# same time; one at a time keeps every output's rule from a complete pass.
+apply_preferred_modes() {
+  mkdir -p "${lock%/*}" 2>/dev/null || true
+  {
+    flock -w 30 9 || echo 'omarchy-native-display-sync: resyncing without the lock' >&2
+    apply_connected_modes
+  } 9>>"$lock"
 }
 
 reload_on_display_change() {
