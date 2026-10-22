@@ -1,6 +1,6 @@
 [Unit]
 Description=Forward the selected Mac FIDO interface into Omarchy
-ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.fido
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.fido.v2
 StartLimitIntervalSec=0
 
 [Service]

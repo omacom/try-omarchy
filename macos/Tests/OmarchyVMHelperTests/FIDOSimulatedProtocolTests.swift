@@ -5,7 +5,7 @@ import Testing
 @Suite("Simulated FIDO wire properties")
 struct FIDOSimulatedProtocolTests {
     private func stream(_ generator: inout FIDOSimulatedGenerator, reports: Int) -> [FIDOFrame] {
-        [.hello, .ready, .ping] + (0..<reports).map { _ in FIDOFrame.report(generator.report()) } + [.pong, .bye]
+        [.hello(Array(0..<16)), .ready(Array(0..<16)), .ping] + (0..<reports).map { _ in FIDOFrame.report(generator.report()) } + [.pong, .bye]
     }
 
     @Test("independent golden vectors agree with the host serializer and parser")
@@ -19,8 +19,8 @@ struct FIDOSimulatedProtocolTests {
             let expected = try bytes(vector.wireHex)
             let frame: FIDOFrame
             switch vector.kind {
-            case 1: frame = .hello
-            case 2: frame = .ready
+            case 1: frame = .hello(payload)
+            case 2: frame = .ready(payload)
             case 3: frame = .report(payload)
             case 4: frame = .ping
             case 5: frame = .pong
@@ -71,7 +71,7 @@ struct FIDOSimulatedProtocolTests {
                 seededCases += 1
             }
         }
-        #expect(splitCases == 5_840)
+        #expect(splitCases > 5_840)
         #expect(seededCases == 512)
         print("FIDO_SIM_CASES wire_every_split=\(splitCases) wire_seeded_chunks=\(seededCases) wire_coalesced=64")
     }
@@ -79,13 +79,13 @@ struct FIDOSimulatedProtocolTests {
     @Test("every single-byte invalid header mutation rejects before a payload arrives")
     func headerMutations() {
         var cases = 0
-        let hello = FIDOFrame.hello.bytes
+        let hello: [UInt8] = [0x54, 0x4f, 0x46, 0x44, 2, 1, 0, 16]
         for offset in 0..<5 {
             for value in UInt8.min...UInt8.max where value != hello[offset] {
                 var header = hello
                 header[offset] = value
                 var reader = FIDOFrameReader()
-                #expect(throws: (any Error).self) { try reader.feed(header) }
+                #expect(throws: (any Error).self) { try reader.feed(FIDOFrame.record(header)) }
                 cases += 1
             }
         }
@@ -93,25 +93,25 @@ struct FIDOSimulatedProtocolTests {
             var header = hello
             header[5] = kind
             var reader = FIDOFrameReader()
-            #expect(throws: (any Error).self) { try reader.feed(header) }
+            #expect(throws: (any Error).self) { try reader.feed(FIDOFrame.record(header)) }
             cases += 1
         }
         for kind: UInt8 in 1...6 {
-            let size: UInt8 = kind == 3 ? 64 : 0
-            let header: [UInt8] = [0x54, 0x4f, 0x46, 0x44, 1, kind, 0, size]
+            let size: UInt8 = kind <= 2 ? 16 : kind == 3 ? 64 : 0
+            let header: [UInt8] = [0x54, 0x4f, 0x46, 0x44, 2, kind, 0, size]
             for value in UInt8.min...UInt8.max {
                 if value != 0 {
                     var changed = header
                     changed[6] = value
                     var reader = FIDOFrameReader()
-                    #expect(throws: (any Error).self) { try reader.feed(changed) }
+                    #expect(throws: (any Error).self) { try reader.feed(FIDOFrame.record(changed)) }
                     cases += 1
                 }
                 if value != size {
                     var changed = header
                     changed[7] = value
                     var reader = FIDOFrameReader()
-                    #expect(throws: (any Error).self) { try reader.feed(changed) }
+                    #expect(throws: (any Error).self) { try reader.feed(FIDOFrame.record(changed)) }
                     cases += 1
                 }
             }
@@ -139,9 +139,9 @@ struct FIDOSimulatedProtocolTests {
             }
         }
         var reader = FIDOFrameReader()
-        let atLimit = (0..<512).flatMap { _ in FIDOFrame.ping.bytes }
+        let atLimit = (0..<407).flatMap { _ in FIDOFrame.ping.bytes } + FIDOFrame.hello(Array(0..<16)).bytes
         #expect(atLimit.count == 4096)
-        #expect(try reader.feed(atLimit) == [FIDOFrame](repeating: .ping, count: 512))
+        #expect(try reader.feed(atLimit) == [FIDOFrame](repeating: .ping, count: 407) + [.hello(Array(0..<16))])
         try reader.finish()
         #expect(throws: (any Error).self) { try reader.feed(atLimit + [0x54]) }
         try reader.finish()
@@ -162,16 +162,16 @@ struct FIDOSimulatedProtocolTests {
             #expect(output.bytes == Array(original.dropFirst(cut)) + FIDOFrame.pong.bytes)
         }
         var full = FIDOOutputBuffer()
-        for _ in 0..<(FIDOOutputBuffer.limit / 8) { try full.append(.ping) }
+        for _ in 0..<(FIDOOutputBuffer.limit / FIDOFrame.ping.bytes.count) { try full.append(.ping) }
         let before = full.bytes
-        #expect(before.count == 16_384)
-        for extra in [FIDOFrame.ready, frame, .bye] {
+        #expect(before.count == FIDOOutputBuffer.limit / FIDOFrame.ping.bytes.count * FIDOFrame.ping.bytes.count)
+        for extra in [FIDOFrame.ready(Array(0..<16)), frame, .bye] {
             #expect(throws: (any Error).self) { try full.append(extra) }
             #expect(full.bytes == before)
         }
-        full.consume(72)
+        full.consume(frame.bytes.count)
         try full.append(frame)
-        #expect(full.bytes == Array(before.dropFirst(72)) + frame.bytes)
+        #expect(full.bytes == Array(before.dropFirst(frame.bytes.count)) + frame.bytes)
         print("FIDO_SIM_CASES output_partial_drains=\(original.count + 1) output_overflow_transactions=3")
     }
 

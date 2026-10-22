@@ -10,7 +10,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,7 @@ loader = importlib.machinery.SourceFileLoader('fido_bridge', str(HELPER))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 bridge = importlib.util.module_from_spec(spec)
 loader.exec_module(bridge)
+NONCE = bytes(range(16))
 
 
 def read_exact(peer, count):
@@ -37,8 +38,8 @@ def output_event(report):
 
 class FIDOFrames(unittest.TestCase):
     def test_greeting_and_every_transport_split(self):
-        self.assertEqual(bridge.message(bridge.HELLO), b'TOFD\x01\x01\0\0')
-        packets = [(bridge.READY, b''), (bridge.REPORT, bytes(range(64))), (bridge.PONG, b'')]
+        self.assertEqual(bridge.message(bridge.HELLO, NONCE), b'\x7eTOFD\x02\x01\0\x10' + NONCE + b'\x7f')
+        packets = [(bridge.READY, NONCE), (bridge.REPORT, bytes(range(64))), (bridge.PONG, b'')]
         stream = b''.join(bridge.message(*packet) for packet in packets)
         for split in range(len(stream) + 1):
             reader = bridge.FrameReader()
@@ -49,9 +50,9 @@ class FIDOFrames(unittest.TestCase):
         for value in (b'XXXX\x01\x01\0\0', b'TOFD\x02\x01\0\0', b'TOFD\x01\x07\0\0',
                       b'TOFD\x01\x03\xff\xff', b'TOFD\x01\x03\0\x3f', b'TOFD\x01\x01\0\x01'):
             with self.assertRaises(ValueError):
-                bridge.FrameReader().feed(value)
+                bridge.FrameReader().feed(bridge.record(value))
         reader = bridge.FrameReader()
-        reader.feed(b'TOFD')
+        reader.feed(b'\x7eTOFD')
         with self.assertRaises(ConnectionError):
             reader.finish()
 
@@ -88,19 +89,19 @@ class FIDORelay(unittest.TestCase):
         def run():
             try:
                 with patch.object(bridge.os, "read", side_effect=read_device):
-                    bridge.relay(port.fileno(), uhid.fileno())
+                    bridge.relay(port.fileno(), uhid.fileno(), nonce=NONCE)
             except BaseException as error:
                 failures.append(error)
 
         worker = threading.Thread(target=run, daemon=True)
         worker.start()
         try:
-            self.assertEqual(read_exact(host, 8), bridge.message(bridge.HELLO))
+            self.assertEqual(read_exact(host, len(bridge.message(bridge.HELLO, NONCE))), bridge.message(bridge.HELLO, NONCE))
             packet = bytes(range(64))
             kernel.send(output_event(b'\0' + packet))
-            host.sendall(bridge.message(bridge.READY)[:3])
-            host.sendall(bridge.message(bridge.READY)[3:])
-            self.assertEqual(read_exact(host, 72), bridge.message(bridge.REPORT, packet))
+            host.sendall(bridge.message(bridge.READY, NONCE)[:3])
+            host.sendall(bridge.message(bridge.READY, NONCE)[3:])
+            self.assertEqual(read_exact(host, len(bridge.message(bridge.REPORT, packet))), bridge.message(bridge.REPORT, packet))
             frame = bridge.message(bridge.REPORT, packet)
             host.sendall(frame[:13])
             host.sendall(frame[13:] + frame)
@@ -121,8 +122,28 @@ class FIDORelay(unittest.TestCase):
     def test_reports_before_ready_are_not_injected_into_the_kernel(self):
         with patch.object(bridge.os, 'read', return_value=bridge.message(bridge.REPORT, bytes(64))), \
                 patch.object(bridge, 'emit') as emit:
-            with self.assertRaisesRegex(ValueError, 'negotiate'):
-                bridge.relay(10, 11, wait=lambda *args: ([10], [], []))
+            with self.assertRaisesRegex(TimeoutError, 'lease'):
+                bridge.relay(10, 11, nonce=NONCE, clock=iter([0, 0, 0, 31]).__next__,
+                             wait=lambda *args: ([10], [], []))
+            emit.assert_not_called()
+
+    def test_stale_ready_and_reports_cannot_activate_a_restarted_guest(self):
+        stale = bytes(reversed(NONCE))
+        old_report, fresh_report = bytes([0x7e]) * 64, bytes([0x7f]) * 64
+        chunks = [bridge.message(bridge.READY, stale), bridge.message(bridge.REPORT, old_report),
+                  bridge.message(bridge.PONG), bridge.message(bridge.BYE),
+                  bridge.message(bridge.READY, NONCE), bridge.message(bridge.REPORT, fresh_report),
+                  bridge.message(bridge.BYE)]
+        with patch.object(bridge.os, "read", side_effect=chunks), patch.object(bridge, "emit") as emit:
+            with self.assertRaisesRegex(ConnectionError, "released"):
+                bridge.relay(10, 11, nonce=NONCE, clock=lambda: 0, wait=lambda *_: ([10], [], []))
+            self.assertEqual(emit.call_args_list, [call(11, 12, struct.pack("<H", 64) + fresh_report)])
+
+    def test_duplicate_ready_ends_a_negotiated_guest_without_injecting_reports(self):
+        chunks = [bridge.message(bridge.READY, NONCE)] * 2
+        with patch.object(bridge.os, "read", side_effect=chunks), patch.object(bridge, "emit") as emit:
+            with self.assertRaisesRegex(ValueError, "Unexpected"):
+                bridge.relay(10, 11, nonce=NONCE, clock=lambda: 0, wait=lambda *_: ([10], [], []))
             emit.assert_not_called()
 
     def test_guest_heartbeats_and_expires_a_silent_host(self):
@@ -141,15 +162,15 @@ class FIDORelay(unittest.TestCase):
             writes.append(bytes(data))
             return len(data)
 
-        with patch.object(bridge.os, 'read', return_value=bridge.message(bridge.READY)), \
+        with patch.object(bridge.os, 'read', return_value=bridge.message(bridge.READY, NONCE)), \
                 patch.object(bridge.os, 'write', side_effect=write):
             with self.assertRaisesRegex(TimeoutError, 'lease'):
-                bridge.relay(10, 11, clock=lambda: now[0], wait=wait)
-        self.assertEqual(writes, [bridge.message(bridge.HELLO), bridge.message(bridge.PING)])
+                bridge.relay(10, 11, nonce=NONCE, clock=lambda: now[0], wait=wait)
+        self.assertEqual(writes, [bridge.message(bridge.HELLO, NONCE), bridge.message(bridge.PING)])
 
     def test_host_backpressure_is_bounded(self):
         event = output_event(bytes(64))
-        with patch.object(bridge.os, 'read', side_effect=[bridge.message(bridge.READY)] + [event] * 240):
+        with patch.object(bridge.os, 'read', side_effect=[bridge.message(bridge.READY, NONCE)] + [event] * 240):
             reads = [0]
 
             def wait(*_):
@@ -157,7 +178,7 @@ class FIDORelay(unittest.TestCase):
                 return ([10] if reads[0] == 1 else [11]), [], []
 
             with self.assertRaises(BufferError):
-                bridge.relay(10, 11, clock=lambda: 0, wait=wait)
+                bridge.relay(10, 11, nonce=NONCE, clock=lambda: 0, wait=wait)
 
 
 class FIDOSetup(unittest.TestCase):
@@ -226,30 +247,52 @@ class FIDOSetup(unittest.TestCase):
                             marker.unlink(missing_ok=True)
                             if present:
                                 unit_file.touch()
-                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; declare -F pre_upgrade >/dev/null && pre_upgrade 0.1.0-34 \"$2\"; :",
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; declare -F pre_upgrade >/dev/null && pre_upgrade 0.1.0-35 \"$2\"; :",
                                             "bash", str(install), old], check=True, capture_output=True, env=env)
                             unit_file.touch()
-                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; post_upgrade 0.1.0-34 \"$2\"",
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; post_upgrade 0.1.0-35 \"$2\"",
                                             "bash", str(install), old], check=True, capture_output=True, env=env)
                             fido_calls = [line for line in calls.read_text().splitlines()
                                           if "omarchy-native-fido-bridge.service" in line]
                             expected = []
                             final_state = state
-                            if int(old.rsplit("-", 1)[1]) < 34:
+                            if int(old.rsplit("-", 1)[1]) < 35:
                                 if not present:
                                     expected.append("preset omarchy-native-fido-bridge.service")
                                     if state != "masked":
                                         final_state = "enabled"
                                 expected.append("is-enabled omarchy-native-fido-bridge.service")
                                 if final_state == "enabled":
-                                    expected.append("start --no-block omarchy-native-fido-bridge.service")
+                                    expected.append("restart --no-block omarchy-native-fido-bridge.service")
+                                else:
+                                    expected.append("stop --no-block omarchy-native-fido-bridge.service")
                             self.assertEqual(fido_calls, expected)
+                            operations = calls.read_text().splitlines()
+                            if int(old.rsplit("-", 1)[1]) < 35:
+                                self.assertLess(operations.index("daemon-reload"),
+                                                operations.index(fido_calls[0]))
+                            else:
+                                self.assertNotIn("daemon-reload", operations)
                             self.assertEqual(state_file.read_text().strip(), final_state)
                             self.assertFalse(marker.exists())
 
     def test_fido_service_requires_its_optional_port_before_loading_uhid_or_starting(self):
         service = HELPER.parents[1] / 'systemd/system/omarchy-native-fido-bridge.service'
         self.assertIn('ConditionPathExists=' + bridge.PORT, service.read_text().splitlines())
+        rules = HELPER.parents[1] / 'udev/rules.d/70-try-omarchy-fido.rules'
+        self.assertEqual(bridge.PORT, '/dev/virtio-ports/dev.tryomarchy.fido.v2')
+        self.assertIn('ATTR{name}=="dev.tryomarchy.fido.v2", OWNER="root", GROUP="root", MODE="0600"',
+                      rules.read_text())
+
+    def test_missing_version_two_port_cannot_fall_back_to_an_active_legacy_channel(self):
+        with patch.object(bridge.os, 'geteuid', return_value=0), \
+                patch.object(bridge.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=65534)), \
+                patch.object(bridge.os, 'open', side_effect=FileNotFoundError()) as opened, \
+                patch.object(bridge.os, 'write') as written:
+            with self.assertRaises(FileNotFoundError):
+                bridge.main()
+            self.assertEqual([call.args[0] for call in opened.call_args_list], [bridge.PORT])
+            written.assert_not_called()
 
     def test_unprivileged_invocation_does_not_open_a_device(self):
         with patch.object(bridge.os, 'geteuid', return_value=1000), patch.object(bridge.os, 'open') as opened:
@@ -307,12 +350,12 @@ class FIDOShutdown(unittest.TestCase):
                 patch.object(bridge.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=65534)), \
                 patch.object(bridge.os, 'open', side_effect=[11, 12]), \
                 patch.object(bridge, 'create_device'), patch.object(bridge, 'drop_privileges'), \
-                patch.object(bridge.os, 'read', side_effect=lambda fd, _: bridge.message(bridge.READY)
+                patch.object(bridge.os, 'read', side_effect=lambda fd, _: bridge.message(bridge.READY, NONCE)
                              if fd == 11 else output_event(packet)), \
                 patch.object(bridge.os, 'write', side_effect=write), \
                 patch.object(bridge.os, 'close', side_effect=close) as closed, \
                 patch.object(bridge, 'relay', side_effect=lambda p, u: original_relay(
-                    p, u, clock=lambda: 0, wait=wait)):
+                    p, u, clock=lambda: 0, wait=wait, nonce=NONCE)):
             with self.assertRaises(failure):
                 bridge.main()
             self.assertEqual([call.args[0] for call in closed.call_args_list], [12, 11])
@@ -322,22 +365,22 @@ class FIDOShutdown(unittest.TestCase):
         reader = bridge.FrameReader()
         frames = reader.feed(wire)
         reports = [payload for kind, payload in frames if kind == bridge.REPORT]
-        self.assertEqual(reports, [packet] if cut == 72 else [])
-        self.assertEqual(wire, bridge.message(bridge.HELLO) + bridge.message(bridge.REPORT, packet)[:cut])
-        if cut in (0, 72):
+        self.assertEqual(reports, [packet] if cut == len(bridge.message(bridge.REPORT, packet)) else [])
+        self.assertEqual(wire, bridge.message(bridge.HELLO, NONCE) + bridge.message(bridge.REPORT, packet)[:cut])
+        if cut in (0, len(bridge.message(bridge.REPORT, packet))):
             reader.finish()
         else:
             with self.assertRaises(ConnectionError):
                 reader.finish()
 
     def test_service_stop_cannot_complete_or_corrupt_a_partial_report(self):
-        for cut in range(73):
+        for cut in range(75):
             with self.subTest(cut=cut):
                 wire, packet = self.stopped_stream(cut)
                 self.assert_safe_stream(wire, packet, cut)
 
     def test_signal_after_transport_accepts_bytes_cannot_corrupt_a_report(self):
-        for cut in (0, 1, 8, 64, 71, 72):
+        for cut in (0, 1, 8, 64, 73, 74):
             with self.subTest(cut=cut):
                 wire, packet = self.stopped_stream(cut, stop='during-write')
                 self.assert_safe_stream(wire, packet, cut)

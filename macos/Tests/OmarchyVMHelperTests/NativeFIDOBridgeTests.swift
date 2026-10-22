@@ -36,7 +36,7 @@ struct NativeFIDOBridgeTests {
     func expiredLeaseReleases() throws {
         let sockets = try pair()
         defer { Darwin.close(sockets[0]) }
-        let hello = FIDOFrame.hello.bytes
+        let hello = FIDOFrame.hello(Array(0..<16)).bytes
         try #require(hello.withUnsafeBytes { Darwin.write(sockets[0], $0.baseAddress, $0.count) } == hello.count)
         let device = Device()
         let base = ContinuousClock.now
