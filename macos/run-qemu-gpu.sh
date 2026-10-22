@@ -371,6 +371,23 @@ if [[ -n $shared_folder ]]; then
   [[ $name_encoded =~ ^[A-Za-z0-9_-]+$ ]] || fail "cannot encode the shared folder name"
   host_options+=" omarchy.shared_folder_name=$name_encoded"
 fi
+host_options+=" tryomarchy.native_exports=1"
+
+# Exports for a native install: the guest writes them into the outbox share,
+# and the publish script moves verified ones into the Exports folder the
+# Omarchy installer reads (docs/native-install-export.md).
+exports_root=${OMARCHY_QEMU_GPU_EXPORTS_ROOT:-"$HOME/Library/Application Support/Try Omarchy/Exports"}
+[[ $exports_root == /* && $exports_root != *$'\n'* && $exports_root != *$'\r'* ]] ||
+  fail "the Exports folder must be an absolute single-line path"
+publish_script="$script_dir/publish-migration-exports.sh"
+publish_native_exports() {
+  [[ -f $publish_script && -x $publish_script ]] || return 0
+  local status=0
+  echo '[qemu-gpu] Publishing native install exports' >&2
+  "$publish_script" "$native_exports" "$exports_root" >&2 9>&- || status=$?
+  ((status == 0)) || echo "[qemu-gpu] Publishing native install exports failed (status $status)" >&2
+  return 0
+}
 
 # The guest names its settings row after the app that runs it; without the
 # key it says Try Omarchy. The name travels as URL-safe base64.
@@ -445,6 +462,10 @@ if [[ $storage_mode == reset ]]; then
   reset_vm
   storage_mode=persistent
 fi
+native_exports="$state_root/native-exports"
+mkdir -p "$native_exports"
+chmod 700 "$native_exports"
+publish_native_exports
 
 # The decompressed factory is kept once per factory identity and cloned (APFS
 # clonefile) for each new VM, so creating or resetting a VM costs no space. A
@@ -581,6 +602,7 @@ cleanup() {
   if declare -F qemu_network_stop >/dev/null && ! qemu_network_stop; then
     ((status != 0)) || status=1
   fi
+  [[ -z ${native_exports:-} ]] || publish_native_exports
   case $work_dir in /private/tmp/omarchy-qemu-gpu.??????) rm -rf "$work_dir" ;; esac
   exit "$status"
 }
@@ -783,6 +805,10 @@ if [[ -n $shared_folder ]]; then
     -device 'virtio-9p-pci,fsdev=omarchy-share,mount_tag=mac,romfile='
   )
 fi
+qemu_args+=(
+  -fsdev "local,id=omarchy-native-exports,path=${native_exports//,/,,},security_model=none,multidevs=remap,guest_owner_uid=1000,guest_owner_gid=1000"
+  -device 'virtio-9p-pci,fsdev=omarchy-native-exports,mount_tag=tryomarchy-native-exports,romfile='
+)
 if [[ -n $usb_host_properties ]]; then
   qemu_args+=(
     -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
@@ -815,6 +841,7 @@ fi
 echo "[qemu-gpu] Port forwarding: $port_forwarding_summary" >&2
 [[ -z $shared_folder ]] || echo "[qemu-gpu] Shared folder: $shared_folder (guest ~/$shared_folder_name)" >&2
 [[ -z $previous_disk ]] || echo "[qemu-gpu] Previous VM attached read-only: $previous_disk" >&2
+echo "[qemu-gpu] Native install exports: $native_exports" >&2
 echo '[qemu-gpu] Launch phase: starting' >&2
 "$qemu_exec" "${qemu_args[@]}" &
 qemu_pid=$!
