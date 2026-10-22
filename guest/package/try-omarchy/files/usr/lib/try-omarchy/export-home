@@ -2,15 +2,15 @@
 #
 # Root half of try-omarchy-export-home. Exports the owner's home from a
 # read-only btrfs snapshot, so the running desktop can't change files during
-# the export. The app shares the exporter and a pinned age read-only (mount
-# tag tryomarchy-migration) and an outbox (tryomarchy-export). Only bundle.age
-# and receipt.json reach the outbox, renamed into <export id>/ when complete;
-# the Mac checks and publishes them after the VM stops. The transfer
-# passphrase arrives as one line on stdin.
+# the export. The exporter and a pinned age ship in this package. Only
+# bundle.age and receipt.json reach the app's outbox share (tryomarchy-export),
+# renamed into <export id>/ when complete; the Mac checks and publishes them
+# after the VM stops. The transfer passphrase arrives as one line on stdin.
 
 set -euo pipefail
 
 virtio_root=${TRY_OMARCHY_VIRTIO_ROOT:-/sys/bus/virtio/drivers/9pnet_virtio}
+migration=${TRY_OMARCHY_EXPORT_MIGRATION:-/usr/lib/try-omarchy/migration}
 run_parent=${TRY_OMARCHY_EXPORT_RUN:-/run/try-omarchy}
 home_root=${TRY_OMARCHY_EXPORT_HOME_ROOT:-/home}
 scratch=${TRY_OMARCHY_EXPORT_SCRATCH:-/tmp}
@@ -37,7 +37,7 @@ has_share() {
 [[ ${TRY_OMARCHY_EXPORT_UNPRIVILEGED:-} == 1 ]] || ((EUID == 0)) || fail 'run try-omarchy-export-home instead'
 uid=${SUDO_UID:-}
 [[ $uid =~ ^[0-9]+$ ]] && ((uid >= minimum_uid)) || fail 'run try-omarchy-export-home as the Omarchy user'
-has_share tryomarchy-migration && has_share tryomarchy-export || fail 'this Try Omarchy app does not offer the exporter'
+has_share tryomarchy-export || fail 'this Try Omarchy app has no export outbox'
 
 IFS= read -r secret || fail 'no passphrase'
 [[ -n $secret && $secret != *$'\r'* ]] || fail 'invalid passphrase'
@@ -54,8 +54,8 @@ home=$home_root/$owner
 install -d -m 0755 "$run_parent"
 run=$(mktemp -d "$run_parent/export.XXXXXX")
 chmod 0711 "$run"
-tools=$run/tools outbox=$run/outbox source=$run/source
-mkdir "$tools" "$outbox" "$source"
+outbox=$run/outbox source=$run/source
+mkdir "$outbox" "$source"
 suffix=${run##*.}
 snapshot=$home_root/.try-omarchy-export.$suffix
 mounted=() snapshot_taken=0 work=''
@@ -69,7 +69,7 @@ cleanup() {
   done
   ((snapshot_taken == 0)) || $btrfs subvolume delete "$snapshot" >/dev/null 2>&1 || true
   # Directories only: a share that failed to unmount must keep its files.
-  rmdir "$tools" "$outbox" "$source" 2>/dev/null || true
+  rmdir "$outbox" "$source" 2>/dev/null || true
   rm -f "$run/request.json" "$run/progress.ndjson" "$run/exporter.log"
   rmdir "$run" 2>/dev/null || true
   exit "$status"
@@ -77,21 +77,19 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
-$mount -t 9p -o trans=virtio,version=9p2000.L,ro tryomarchy-migration "$tools" || fail 'could not open the exporter share'
-mounted+=("$tools")
 $mount -t 9p -o trans=virtio,version=9p2000.L tryomarchy-export "$outbox" || fail 'could not open the export outbox'
 mounted+=("$outbox")
 
-exporter=$tools/omarchy-migration/bin/omarchy-migration
-age=$tools/age
-[[ -f $exporter && -x $exporter && -f $age && -x $age && -f $tools/age.sha256 ]] ||
-  fail 'the exporter share is incomplete'
-age_sha256=$(<"$tools/age.sha256")
-[[ $age_sha256 =~ ^[0-9a-f]{64}$ ]] || fail 'the exporter share has no age digest'
+exporter=$migration/omarchy-migration/bin/omarchy-migration
+age=$migration/age
+[[ -f $exporter && -x $exporter && -f $age && -x $age && -f $migration/age.sha256 ]] ||
+  fail 'the exporter is not installed'
+age_sha256=$(<"$migration/age.sha256")
+[[ $age_sha256 =~ ^[0-9a-f]{64}$ ]] || fail 'the exporter has no age digest'
 [[ $(python3 -I -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$age") == "$age_sha256" ]] ||
   fail 'age differs from its digest'
 
-python3 -I - "$tools/omarchy-migration/lib/omarchy_migration/policies" "$run/request.json" <<'EOF' ||
+python3 -I - "$migration/omarchy-migration/lib/omarchy_migration/policies" "$run/request.json" <<'EOF' ||
 import json, os, re, sys, uuid
 policies, request = sys.argv[1], sys.argv[2]
 names = [name for name in os.listdir(policies) if name.endswith(".json")]

@@ -36,7 +36,7 @@ not ignore, so caches and other local files never reach the package.
   `50-try-omarchy-cpu.conf` (all pacman `backup` files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
-  from), `/etc/sudoers.d/try-omarchy-timezone`,
+  from), `/etc/sudoers.d/try-omarchy-timezone` and `try-omarchy-export`,
   `/etc/profile.d/try-omarchy.sh`, the Italian Apple keyboard layout
   `/etc/xkb/symbols/macintosh_vndr/it` (see
   [Mac keyboard geometry](../../docs/mac-keyboard.md)), and one link in

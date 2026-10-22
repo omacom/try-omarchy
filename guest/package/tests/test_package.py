@@ -64,6 +64,20 @@ class PackageLayout(unittest.TestCase):
         ])
         self.assertIn("/run/try-omarchy/display-cutouts.json", (LIB / "host-config").read_text())
 
+    def test_export_runs_without_a_password_but_takes_no_arguments(self):
+        rule = (FILES / "etc/sudoers.d/try-omarchy-export").read_text().splitlines()[-1]
+        self.assertEqual(rule, '%wheel ALL=(root) NOPASSWD: /usr/lib/try-omarchy/export-home ""')
+        self.assertIn('$sudo "$helper" ||', (FILES / "usr/bin/try-omarchy-export-home").read_text())
+
+    def test_exporter_and_age_are_pinned(self):
+        recipe = (PACKAGE / "PKGBUILD").read_text()
+        self.assertRegex(recipe, r"_migration_commit=[0-9a-f]{40}\n")
+        self.assertRegex(recipe, r"_age_sha256=[0-9a-f]{64}\n")
+        sums = re.search(r"sha256sums=\(([^)]*)\)", recipe).group(1).split()
+        self.assertEqual(len(sums), len(re.search(r"source=\(([^)]*)\)", recipe).group(1).split()))
+        self.assertTrue(all(re.fullmatch(r"'[0-9a-f]{64}'", value) for value in sums), sums)
+        self.assertIn('sha256sum -c --quiet -', recipe)
+
     def test_executables(self):
         for directory in ("usr/bin", "usr/lib/try-omarchy", "usr/lib/try-omarchy/shims", "usr/lib/try-omarchy/bin"):
             for path in (FILES / directory).iterdir():
@@ -286,11 +300,11 @@ class ExportHome(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.log = self.tmp / "log"
         virtio = self.tmp / "virtio"
-        for index, tag in enumerate(("tryomarchy-migration", "tryomarchy-export")):
+        for index, tag in enumerate(("mac", "tryomarchy-export")):
             (virtio / f"virtio{index}").mkdir(parents=True)
             (virtio / f"virtio{index}/mount_tag").write_bytes(tag.encode() + b"\0")
         self.virtio = virtio
-        self.tools = self.tmp / "mac-tools"
+        self.tools = self.tmp / "migration"
         policies = self.tools / "omarchy-migration/lib/omarchy_migration/policies"
         policies.mkdir(parents=True)
         (policies / "try-omarchy.json").write_text('{"revision": "try-omarchy/82927e9/4"}')
@@ -322,7 +336,6 @@ json.dump({{"export_id": "{self.EXPORT_ID}"}}, open(os.path.join(output, "receip
         self.fake(bin_dir / "mount", f"""#!/bin/bash
 echo "mount $*" >>{self.log}
 case ${{@: -2:1}} in
-  tryomarchy-migration) source={self.tools} ;;
   tryomarchy-export) source={self.outbox} ;;
   *) source=${{@: -2:1}} ;;
 esac
@@ -340,6 +353,7 @@ fi
         self.fake(bin_dir / "setpriv", f'#!/bin/bash\necho "setpriv $*" >>{self.log}\n'
                                        'while [[ $1 != -- ]]; do shift; done\nshift\nexec "$@"\n')
         self.env = {"TRY_OMARCHY_VIRTIO_ROOT": str(virtio), "TRY_OMARCHY_EXPORT_RUN": str(self.run_parent),
+                    "TRY_OMARCHY_EXPORT_MIGRATION": str(self.tools),
                     "TRY_OMARCHY_EXPORT_HOME_ROOT": str(self.home_root), "TRY_OMARCHY_EXPORT_SCRATCH": str(self.tmp),
                     "TRY_OMARCHY_EXPORT_MINIMUM_UID": "0", "TRY_OMARCHY_EXPORT_UNPRIVILEGED": "1",
                     "SUDO_UID": str(os.getuid()), "TRY_OMARCHY_MOUNT": str(bin_dir / "mount"),
@@ -376,7 +390,8 @@ fi
         self.assertEqual(record["request"]["policy_revision"], "try-omarchy/82927e9/4")
         self.assertEqual(record["request"]["schema"], "omarchy-migration/export-request/2")
         log = self.log.read_text()
-        self.assertIn("ro tryomarchy-migration", log)
+        self.assertIn("tryomarchy-export", log)
+        self.assertNotIn("tryomarchy-migration", log)
         self.assertIn(f"btrfs subvolume snapshot -r {self.home_root} ", log)
         self.assertRegex(log, r"mount --bind -o ro \S+/\.try-omarchy-export\.\w+ ")
         self.assertIn(f"setpriv --reuid={os.getuid()} ", log)
@@ -390,11 +405,11 @@ fi
         self.assertEqual(list(self.outbox.iterdir()), [])
         self.assert_cleaned_up()
 
-    def test_refuses_without_the_apps_shares_or_a_changed_age(self):
-        (self.virtio / "virtio1/mount_tag").write_bytes(b"mac\0")
+    def test_refuses_without_the_outbox_or_with_a_changed_age(self):
+        (self.virtio / "virtio1/mount_tag").write_bytes(b"other\0")
         result = self.export()
         self.assertEqual(result.returncode, 1)
-        self.assertIn("does not offer the exporter", result.stderr)
+        self.assertIn("no export outbox", result.stderr)
         self.assertFalse(self.log.exists())
         (self.virtio / "virtio1/mount_tag").write_bytes(b"tryomarchy-export\0")
         (self.tools / "age.sha256").write_text("0" * 64 + "\n")
