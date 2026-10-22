@@ -19,6 +19,7 @@ struct LauncherActions {
     var configureResources: () -> Void = {}
     var manageStorage: () -> Void = {}
     var openStorageLocation: () -> Void = {}
+    var openExports: () -> Void = {}
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
@@ -680,6 +681,15 @@ private struct VirtualMachineSection: View {
                     Button("Manage…", action: actions.manageStorage)
                         .disabled(!state.manageStorageEnabled)
                 }
+            }
+
+            SettingRow(
+                icon: SettingIcon("shippingbox.fill", .brown),
+                title: "Native Install",
+                detail: [NativeInstallExports.detail]
+            ) {
+                Button("Show Exports", action: actions.openExports)
+                    .accessibilityIdentifier("show-exports-button")
             }
 
             // Omarchy updates itself inside the VM (omarchy update); this row
