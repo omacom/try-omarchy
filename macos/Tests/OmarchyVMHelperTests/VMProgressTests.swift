@@ -74,7 +74,7 @@ struct VMProgressTests {
         #expect(VMLaunchPhase.finishing.buttonTitle == "Compacting the disk")
         #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy")
         #expect(VMResetPhase.finishing.buttonTitle == "Finishing reset")
-        #expect(VMProgress(phase: VMLaunchPhase.preparing, percent: 42).title == "Unpacking Omarchy 42%")
+        #expect(VMProgress(phase: VMLaunchPhase.preparing, percent: 42).title == "Unpacking Omarchy (42%)")
     }
 
     @Test("reset and launch accept only their own phases")

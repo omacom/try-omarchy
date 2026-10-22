@@ -44,7 +44,7 @@ struct VMProgress<Phase: VMProgressPhase>: Equatable, Sendable {
 
     var title: String {
         guard let percent else { return phase.buttonTitle }
-        return "\(phase.buttonTitle) \(percent)%"
+        return "\(phase.buttonTitle) (\(percent)%)"
     }
 }
 

@@ -49,7 +49,7 @@ struct StartMenuLauncherTests {
         #expect(menu.state.launchButtonTitle == "Launching")
         #expect(menu.state.launchFraction == nil)
         menu.launchDidProgress(to: VMProgress(phase: .preparing, percent: 40))
-        #expect(menu.state.launchTitle == "Unpacking Omarchy 40%")
+        #expect(menu.state.launchTitle == "Unpacking Omarchy (40%)")
         #expect(menu.state.launchButtonTitle == "Preparing")
         #expect(menu.state.launchFraction == 0.4)
         menu.launchDidProgress(to: VMProgress(phase: .finishing))

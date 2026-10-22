@@ -439,9 +439,9 @@ struct FactoryDownloadManifestTests {
     func titles() {
         let total: Int64 = 3_036_546_680
         #expect(FactoryDownloadProgress(phase: .downloading, completedBytes: total / 2, totalBytes: total).title
-            == "Downloading Omarchy 50% of 3.0 GB")
+            == "Downloading Omarchy (50% of 3.0 GB)")
         #expect(FactoryDownloadProgress(phase: .retrying, completedBytes: 0, totalBytes: total).title
-            == "Reconnecting, 0% downloaded")
+            == "Reconnecting (0% downloaded)")
     }
 }
 
