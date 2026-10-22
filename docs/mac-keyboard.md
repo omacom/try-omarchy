@@ -40,7 +40,7 @@ in [Japanese input](japanese-input.md).
 
 ## Caps Lock and the Mac input source
 
-On a Mac with a Korean, Chinese or Japanese input method, the guest's input method follows the Mac's input source, however it is switched: Caps Lock, Globe or Control–Space. With **Use Caps Lock to switch input sources** on, as on Korean Macs where Caps Lock is the 한/영 key, a short press switches input source and a long press locks capitals. With the VM focused, the same keys do the same in the guest.
+On a Mac with a Korean, Chinese or Japanese input method, the guest's input method follows the Mac's input source, however it is switched, for example with Caps Lock or Globe. With **Use Caps Lock to switch input sources** on, as on Korean Macs where Caps Lock is the 한/영 key, a short press switches input source and a long press locks capitals. With the VM focused, the same keys do the same in the guest.
 
 ### Behaviour
 
@@ -52,6 +52,7 @@ On a Mac with a Korean, Chinese or Japanese input method, the guest's input meth
 - The guest's Caps Lock follows the Mac's Caps Lock lock state (IOHIDSystem, the state the keyboard light shows). It is compared with the Caps Lock light the guest reports through virtio-input, not with a count of the presses QEMU sent. The comparison happens at key and modifier events, after the press is decided, and the Caps Lock press reaches the guest before the key that needed it. Events from the Caps Lock key itself never change it.
 - While the key is down, macOS locks Caps Lock provisionally. A press is decided when the lock state reads unlocked again, when macOS confirms a long press, or after one second. Letters typed while the key is down stay lowercase.
 - The full-grab event tap handles the Caps Lock events and passes them on, and `-sendEvent:` hands them to AppKit. Each event is handled once in QEMU. Consuming them kept macOS from locking capitals with the VM focused.
+- macOS decides on its own that Globe was pressed alone, then reports the press that triggers its action as key code `0xb3`. The tap passes that event on, so with **Press 🌐 key to: Change Input Source**, Globe switches the Mac's input source with the VM focused, and the guest follows.
 
 ### Why it works this way
 
@@ -68,7 +69,8 @@ The tests replay event sequences recorded on a Korean Mac.
 ### Known limits
 
 - If the guest's input method changes another way, such as Super+I, a lone Shift or a new window, it follows the Mac again at the next space, return, tab, escape or arrow key after two seconds in `hangul` mode. In `input-method` mode it follows at the Mac's next switch, or when the VM window becomes key again.
-- The Caps Lock sequences were recorded on a Korean Mac.
+- With the keyboard captured, Control–Space goes to the guest, where tmux and other apps use it. It does not switch the Mac's input source; use Caps Lock or Globe.
+- The Caps Lock sequences were recorded on a Korean Mac. Japanese and Pinyin were checked by hand with Caps Lock and Globe.
 - The 0xff event reaches QEMU only through the full-grab event tap, which needs the Accessibility permission. Without it, Caps Lock behaves as before.
 - The keys work only when the guest's Fcitx profile activates on `Henkan` and deactivates on `Muhenkan`. Omarchy writes these for profiles it creates fresh since October 2026, and leaves the hotkeys of older profiles alone. `try-omarchy-input-init` adds the two keys to an older profile's own, once per user, before Fcitx starts. A user who removes them afterwards keeps them removed, and then the guest's input method does not follow the Mac.
 - `Henkan` and `Muhenkan` reach the focused application when Fcitx does not handle them, for example in a window without text input, or a redundant `Henkan` reaching the engine. Whether an application reacts to them was not checked. With Mozc in the same group, `Henkan` is also Mozc's conversion key.

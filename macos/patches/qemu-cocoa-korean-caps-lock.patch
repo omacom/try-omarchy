@@ -36,6 +36,9 @@ only non-Latin input method) or input-method (others are enabled):
   sent before Fcitx runs at boot is lost. Other input methods get no
   repeat: a lone Shift leaves Pinyin for a moment, and Henkan converts in
   Mozc.
+- The full-grab tap passes on the Globe action event (keyCode 0xb3), so
+  Globe switches the Mac input source with the VM focused, and the guest
+  follows.
 - Events from the Caps Lock key never sync the guest's Caps Lock. Key
   and modifier events sync it from the IOHIDSystem lock state, compared
   with the Caps Lock light the guest reports through virtio-input, once
@@ -64,11 +67,10 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  #include "system/runstate-action.h"
  #include "system/cpu-throttle.h"
  #include "qapi/error.h"
-@@ -345,8 +348,306 @@
-     }
+@@ -346,7 +349,317 @@
      cocoa_iso_swap_cached = 0;
      return false;
-+}
+ }
 +
 +/*
 + * On a Mac with a non-Latin input method, Caps Lock can switch input source:
@@ -103,7 +105,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +    COCOA_CAPS_LOCK_MODE_INPUT_METHOD,
 +    COCOA_CAPS_LOCK_MODE_HANGUL,
 +} CocoaCapsLockMode;
-+
+ 
 +static int cocoa_caps_lock_mode_cached = -1;
 +
 +static CocoaCapsLockMode cocoa_caps_lock_mode(void)
@@ -264,6 +266,18 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +           ([event keyCode] == kVK_CapsLock || [event keyCode] == 0xff);
 +}
 +
++/*
++ * macOS decides that Globe was pressed alone, then reports the press that
++ * triggers its action, such as changing the input source, as key code 0xb3.
++ * It performs the action only if the event gets past the tap.
++ */
++static bool cocoa_globe_action_event(NSEvent *event)
++{
++    return cocoa_caps_lock_follows_input_source() &&
++           ([event type] == NSEventTypeKeyDown || [event type] == NSEventTypeKeyUp) &&
++           [event keyCode] == 0xb3;
++}
++
 +/* A key before which hangul mode repeats the Mac's side. */
 +static bool cocoa_caps_lock_boundary_key(NSEvent *event)
 +{
@@ -285,8 +299,8 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +    default:
 +        return false;
 +    }
- }
- 
++}
++
 +static void cocoa_caps_lock_reset(void *opaque)
 +{
 +    memset(&cocoa_caps_lock_state, 0, sizeof(cocoa_caps_lock_state));
@@ -371,7 +385,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  static int cocoa_keycode_to_linux(int keycode)
  {
      int linux_keycode;
-@@ -477,6 +778,9 @@
+@@ -477,6 +790,9 @@
  - (void) notifyMouseModeChange;
  - (BOOL) isMouseGrabbed;
  - (BOOL) isKeyboardCaptured;
@@ -381,10 +395,13 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  - (void) reenableEventTap;
  - (void) raiseAllKeys;
  - (void) endPinchLocked;
-@@ -508,6 +812,18 @@
+@@ -508,6 +824,21 @@
          [view isKeyboardCaptured];
          return cgEvent;
      }
++    if (cocoa_globe_action_event(event)) {
++        return cgEvent;
++    }
 +    if (cocoa_caps_lock_key_event(event)) {
 +        /*
 +         * macOS decides between switching the input source and locking
@@ -400,7 +417,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      if ([view isKeyboardCaptured] && [view handleEvent:event]) {
          COCOA_DEBUG("Global events tap: qemu handled the event, capturing!\n");
          return NULL;
-@@ -1455,6 +1771,33 @@
+@@ -1455,6 +1786,33 @@
      InputButton button;
      unsigned int keycode;
      NSUInteger modifiers = [event modifierFlags];
@@ -434,7 +451,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
      /*
       * Check -[NSEvent modifierFlags] here.
-@@ -1493,10 +1836,13 @@
+@@ -1493,10 +1851,13 @@
       *   completely leaving your hands from the keyboard, which hopefully makes
       *   this implementation usable enough.
       */
@@ -450,7 +467,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      }
  
      if (!(modifiers & NSEventModifierFlagShift)) {
-@@ -1917,6 +2263,35 @@
+@@ -1917,6 +2278,35 @@
      return captured;
  }
  
@@ -486,7 +503,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  /* macOS can disable a slow tap; restore capture after either notification. */
  - (void) reenableEventTap
  {
-@@ -2499,6 +2874,17 @@
+@@ -2499,6 +2889,17 @@
  - (void)sendEvent:(NSEvent *)event
  {
      COCOA_DEBUG("QemuApplication: sendEvent\n");
@@ -504,7 +521,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      if (![cocoaView handleEvent:event]) {
          [super sendEvent: event];
      }
-@@ -3370,5 +3756,23 @@
+@@ -3370,5 +3771,23 @@
      qemu_add_mouse_mode_change_notifier(&mouse_mode_change_notifier);
      [cocoaView notifyMouseModeChange];
      [cocoaView updateUIInfo];

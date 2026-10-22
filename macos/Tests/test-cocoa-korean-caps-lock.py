@@ -862,6 +862,11 @@ int main(void)
         self.assertIn("[super sendEvent:event];", app)
         self.assertLess(app.index("capsLockTapHandlesKeys"), app.index("[super sendEvent:event];"))
         self.assertIn("- (BOOL) capsLockTapHandlesKeys;", added)
+        globe = extract_c_block(patched, "static bool cocoa_globe_action_event(NSEvent *event)", "\n}")
+        self.assertIn("cocoa_caps_lock_follows_input_source() &&", globe)
+        self.assertIn("[event keyCode] == 0xb3", globe)
+        self.assertLess(patched.index("    if (cocoa_globe_action_event(event)) {\n        return cgEvent;\n    }"),
+                        patched.index("    if ([view isKeyboardCaptured] && [view handleEvent:event]) {"))
         self.assertNotIn("Timestamp", added)
         self.assertNotIn("- (bool) handleEvent:(NSEvent *)event\n{\n    if (cocoa_caps_lock_key_event", patched)
 
