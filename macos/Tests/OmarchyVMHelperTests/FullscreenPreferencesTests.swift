@@ -31,7 +31,17 @@ struct FullscreenPreferenceStoreTests {
         #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesNotch: false))
     }
 
-    @Test("Settings saved before the notch setting keep Immersive and use the notch")
+    @Test("Every display is used until the user turns it off")
+    func allDisplaysChoicePersists() {
+        let fixture = DefaultsFixture()
+        #expect(fixture.store.load().usesAllDisplays)
+
+        fixture.store.save(FullscreenPreferences(isImmersive: true, usesAllDisplays: false))
+        let reopened = FullscreenPreferenceStore(defaults: fixture.defaults)
+        #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesAllDisplays: false))
+    }
+
+    @Test("Settings saved before the notch and displays settings keep Immersive and take the defaults")
     func olderSettingsKeepTheirChoice() throws {
         let fixture = DefaultsFixture()
         let older = try JSONSerialization.data(withJSONObject: [
@@ -39,7 +49,15 @@ struct FullscreenPreferenceStoreTests {
             "isImmersive": false,
         ])
         fixture.defaults.set(older, forKey: FullscreenPreferenceStore.key)
-        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: false, usesNotch: true))
+        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: false, usesNotch: true, usesAllDisplays: true))
+
+        let withNotch = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": FullscreenPreferenceStore.schemaVersion,
+            "isImmersive": true,
+            "usesNotch": false,
+        ])
+        fixture.defaults.set(withNotch, forKey: FullscreenPreferenceStore.key)
+        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: true, usesNotch: false, usesAllDisplays: true))
     }
 
     @Test("Invalid or future preferences fail safely")
@@ -110,5 +128,20 @@ struct FullscreenLaunchConfigurationTests {
             preferences: FullscreenPreferences(isImmersive: true, usesNotch: false)
         )
         #expect(below.environment[FullscreenLaunchConfiguration.notchEnvironmentKey] == "0")
+    }
+
+    @Test("Publishes the displays choice and replaces an inherited value")
+    func publishesDisplaysChoice() {
+        let inherited = [FullscreenLaunchConfiguration.displaysEnvironmentKey: "invalid"]
+        let all = FullscreenLaunchConfiguration.make(
+            baseEnvironment: inherited,
+            preferences: FullscreenPreferences(isImmersive: true, usesAllDisplays: true)
+        )
+        #expect(all.environment[FullscreenLaunchConfiguration.displaysEnvironmentKey] == "1")
+        let one = FullscreenLaunchConfiguration.make(
+            baseEnvironment: inherited,
+            preferences: FullscreenPreferences(isImmersive: true, usesAllDisplays: false)
+        )
+        #expect(one.environment[FullscreenLaunchConfiguration.displaysEnvironmentKey] == "0")
     }
 }

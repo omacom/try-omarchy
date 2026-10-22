@@ -55,6 +55,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let notchAvailable: () -> Bool
     private let usesNotch: () -> Bool
     private let setUsesNotch: (Bool) -> Void
+    private let usesAllDisplays: () -> Bool
+    private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
@@ -150,6 +152,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        usesAllDisplays: @escaping () -> Bool = { true },
+        setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
@@ -206,6 +210,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.notchAvailable = notchAvailable
         self.usesNotch = usesNotch
         self.setUsesNotch = setUsesNotch
+        self.usesAllDisplays = usesAllDisplays
+        self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
@@ -284,6 +290,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             openStorageLocation: { [weak self] in self?.openStorageLocation() },
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
+            setUsesAllDisplays: { [weak self] in self?.changeDisplaysMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
             resetSettings: { [weak self] in self?.confirmSettingsReset() },
             restart: { [weak self] in self?.requestShutdown(.restart) },
@@ -560,6 +567,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.immersive = immersiveMode()
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
+        state.usesAllDisplays = usesAllDisplays()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
     }
@@ -806,6 +814,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             notification: .announcementRequested,
             userInfo: [
                 .announcement: StartMenuPresentation.immersiveDetail(isEnabled: isEnabled),
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
+    func changeDisplaysMode(_ isEnabled: Bool) {
+        guard !controlsBusy else { return }
+        setUsesAllDisplays(isEnabled)
+        state.usesAllDisplays = isEnabled
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: StartMenuPresentation.displaysDetail(isEnabled: isEnabled),
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )

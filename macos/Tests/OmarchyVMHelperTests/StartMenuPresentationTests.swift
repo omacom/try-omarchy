@@ -183,6 +183,13 @@ struct StartMenuPresentationTests {
             == "Omarchy opens in a window with the Mac menu bar and Dock available.")
     }
 
+    @Test("displays guidance says how many displays Full Screen covers")
+    func displaysGuidance() {
+        #expect(StartMenuPresentation.displaysDetail(isEnabled: true)
+            == "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces.")
+        #expect(StartMenuPresentation.displaysDetail(isEnabled: false) == "Full Screen uses one display.")
+    }
+
     @Test("camera notch guidance says where Full Screen ends")
     func notchGuidance() {
         #expect(StartMenuPresentation.notchDetail(isEnabled: true)

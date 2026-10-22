@@ -104,6 +104,7 @@ final class LauncherState {
     /// Only a MacBook with a camera notch has the strip to use.
     var notchAvailable = false
     var usesNotch = true
+    var usesAllDisplays = true
     var startAutomatically = false
 
     var productName = ProductName.defaultName
