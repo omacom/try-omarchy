@@ -61,10 +61,10 @@ def hide_unless(condition):
     return change
 
 
-def also_show_when(condition):
+def laptop_or(condition):
+    """Treat condition like Omarchy's laptop check, wherever the row tests for one."""
     def change(entry):
-        current = entry.get("when", "")
-        entry["when"] = f"({current}) || {condition}" if current else condition
+        entry["when"] = entry.get("when", "").replace("omarchy-hw-laptop", f"(omarchy-hw-laptop || {condition})")
     return change
 
 
@@ -99,9 +99,11 @@ ROWS = (
     ("update.hardware.wifi", 5, changed("update.hardware.wifi", hide_unless("! omarchy-hw-vm"))),
     ("update.hardware.bluetooth", 5, changed("update.hardware.bluetooth", hide_unless("! omarchy-hw-vm"))),
     # The Mac's battery shows in the bar, but the VM has no lid or laptop
-    # chassis, so Omarchy's own condition hides the percentage toggle.
-    ("trigger.appearance.top-bar.indicators.battery-percentage", 5,
-     changed("trigger.appearance.top-bar.indicators.battery-percentage", also_show_when(BATTERY_PRESENT))),
+    # chassis, so Omarchy's own condition hides the percentage toggles.
+    ("appearance.top-bar.indicators.battery-percentage-on", 8,
+     changed("appearance.top-bar.indicators.battery-percentage-on", laptop_or(BATTERY_PRESENT))),
+    ("appearance.top-bar.indicators.battery-percentage-off", 8,
+     changed("appearance.top-bar.indicators.battery-percentage-off", laptop_or(BATTERY_PRESENT))),
     # These install Windows games through Wine (Lutris, Battle.net) or an
     # x86_64 client (GeForce NOW), which aarch64 has no packages for. Omarchy
     # hides Minecraft and Heroic the same way.
@@ -109,7 +111,7 @@ ROWS = (
     ("install.gaming.battlenet", 5, changed("install.gaming.battlenet", hide_unless("omarchy-hw-x86"))),
     ("install.gaming.lutris", 5, changed("install.gaming.lutris", hide_unless("omarchy-hw-x86"))),
 )
-RELEASE = 7
+RELEASE = 8
 
 # Rows earlier packages wrote with only the changed field, which Omarchy's
 # merge turned into rows without a label or an action. Still exactly as
@@ -119,9 +121,6 @@ LEGACY = {
     "setup.direct-boot": '  "setup.direct-boot": {"when":"! omarchy-hw-vm && ! omarchy-hw-aarch64-apple && '
                          '[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]]"},\n',
     "update.firmware": '  "update.firmware": {"when":"! omarchy-hw-vm"},\n',
-    "trigger.appearance.top-bar.indicators.battery-percentage":
-        '  "trigger.appearance.top-bar.indicators.battery-percentage": '
-        '{"when":"omarchy-hw-laptop || ' + BATTERY_PRESENT + '"},\n',
     "update.hardware.wifi": '  "update.hardware.wifi": {"when":"! omarchy-hw-vm"},\n',
     "update.hardware.bluetooth": '  "update.hardware.bluetooth": {"when":"! omarchy-hw-vm"},\n',
     "install.gaming.geforce-now": '  "install.gaming.geforce-now": {"when":"omarchy-hw-x86"},\n',

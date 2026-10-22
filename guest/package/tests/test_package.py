@@ -314,7 +314,8 @@ class MenuEntries(unittest.TestCase):
   "update.firmware": {"icon":"","label":"Firmware","action":"omarchy-launch-floating-terminal-with-presentation omarchy-update-firmware"},
   "update.hardware.wifi": {"icon":"\U000f16be","label":"Wi-Fi","action":"omarchy-launch-floating-terminal-with-presentation omarchy-restart-wifi"},
   "update.hardware.bluetooth": {"icon":"\U000f00af","label":"Bluetooth","action":"omarchy-launch-floating-terminal-with-presentation omarchy-restart-bluetooth"},
-  "trigger.appearance.top-bar.indicators.battery-percentage": {"icon":"\U000f0079","label":"Battery Percentage","when":"omarchy-hw-laptop","action":"omarchy-shell omarchy.power togglePercentage"},
+  "appearance.top-bar.indicators.battery-percentage-on": {"icon":"\U000f0079","label":"Show Battery Percentage","when":"omarchy-hw-laptop && [[ $(omarchy-bar get omarchy.power showPercentage) != true ]]","action":"omarchy-shell omarchy.power togglePercentage"},
+  "appearance.top-bar.indicators.battery-percentage-off": {"icon":"\U000f0079","label":"Hide Battery Percentage","when":"omarchy-hw-laptop && [[ $(omarchy-bar get omarchy.power showPercentage) == true ]]","action":"omarchy-shell omarchy.power togglePercentage"},
   "install.gaming.geforce-now": {"icon":"\U000f08b9","label":"NVIDIA GeForce NOW","disabled":"flatpak info com.nvidia.geforcenow","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-geforce-now"},
   "install.gaming.battlenet": {"icon":"","label":"Battle.net","disabled":"[[ -d $HOME/Games/battlenet ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-battlenet"},
   "install.gaming.lutris": {"icon":"","label":"Lutris","disabled":"omarchy-pkg-present lutris","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-lutris"},
@@ -323,7 +324,8 @@ class MenuEntries(unittest.TestCase):
     OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id",
            "setup.import-previous-vm"}
     CHANGED = {"update.timezone", "setup.direct-boot", "update.firmware", "update.hardware.wifi",
-               "update.hardware.bluetooth", "trigger.appearance.top-bar.indicators.battery-percentage",
+               "update.hardware.bluetooth", "appearance.top-bar.indicators.battery-percentage-on",
+               "appearance.top-bar.indicators.battery-percentage-off",
                "install.gaming.geforce-now", "install.gaming.battlenet", "install.gaming.lutris"}
 
     def setUp(self):
@@ -365,8 +367,9 @@ class MenuEntries(unittest.TestCase):
         self.assertEqual(parsed["update.firmware"]["when"], "! omarchy-hw-vm")
         self.assertEqual(parsed["install.gaming.lutris"]["when"], "omarchy-hw-x86")
         self.assertEqual(parsed["install.gaming.lutris"]["disabled"], "omarchy-pkg-present lutris")
-        self.assertEqual(parsed["trigger.appearance.top-bar.indicators.battery-percentage"]["when"],
-                         "(omarchy-hw-laptop) || compgen -G '/sys/class/power_supply/BAT*' >/dev/null")
+        self.assertEqual(parsed["appearance.top-bar.indicators.battery-percentage-on"]["when"],
+                         "(omarchy-hw-laptop || compgen -G '/sys/class/power_supply/BAT*' >/dev/null) && "
+                         "[[ $(omarchy-bar get omarchy.power showPercentage) != true ]]")
         # Removed rows stay removed.
         self.menu.write_text("{}\n")
         self.entries()
@@ -393,8 +396,10 @@ class MenuEntries(unittest.TestCase):
         parsed = self.parse(self.menu.read_text())
         self.assertEqual(parsed["update.firmware"]["label"], "Firmware")
         self.assertEqual(parsed["update.hardware.wifi"], {"when": "! omarchy-hw-vm", "label": "Mine"})
-        # Nothing re-added; only the newest release's row is new.
-        self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi", "setup.import-previous-vm"})
+        # Nothing re-added; only rows of later releases are new.
+        self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi", "setup.import-previous-vm",
+                                       "appearance.top-bar.indicators.battery-percentage-on",
+                                       "appearance.top-bar.indicators.battery-percentage-off"})
 
     def test_without_omarchys_menu_only_own_rows_are_added(self):
         self.omarchy.unlink()
