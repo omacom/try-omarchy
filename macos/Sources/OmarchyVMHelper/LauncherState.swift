@@ -129,7 +129,7 @@ final class LauncherState {
         return isRunning || !launchInProgress
     }
 
-    var launchStatus: String { launchDownload?.title ?? launchProgress.title }
+    var launchStatus: String { launchDownload?.title ?? launchProgress.phase.title }
 
     /// How much of the current launch step is done, when it can be measured.
     var launchFraction: Double? {
@@ -143,26 +143,11 @@ final class LauncherState {
         return launchProgress.percent.map { Double($0) / 100 }
     }
 
-    var launchTitle: String {
-        if isRunning { return "Done" }
-        return launchInProgress ? launchStatus : "Launch Omarchy"
+    /// The measured amount beside the progress bar, such as "42%".
+    var launchCaption: String? {
+        guard launchInProgress else { return nil }
+        return launchDownload.map(\.caption) ?? launchProgress.caption
     }
-
-    /// One word for the Home button; the status line beside it has the detail.
-    var launchButtonTitle: String {
-        guard launchInProgress else { return "Launch Omarchy" }
-        switch launchDownload?.phase {
-        case .waiting, .downloading, .retrying: return "Downloading"
-        case .verifying: return "Verifying"
-        case nil: break
-        }
-        switch launchProgress.phase {
-        case .checking, .starting: return "Launching"
-        case .verifying: return "Verifying"
-        case .preparing, .finishing: return "Preparing"
-        }
-    }
-
 
     var runningActionsEnabled: Bool { !controlsBusy && !permissionRequestInFlight }
 

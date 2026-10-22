@@ -220,9 +220,18 @@ struct FactoryDownloadProgress: Equatable {
     var title: String {
         switch phase {
         case .waiting: "Waiting for another download"
-        case .downloading: "Downloading Omarchy (\(percent)% of \(StorageLocationPolicy.format(bytes: totalBytes)))"
-        case .retrying: "Reconnecting (\(percent)% downloaded)"
+        case .downloading: "Downloading Omarchy"
+        case .retrying: "Reconnecting"
         case .verifying: "Verifying download"
+        }
+    }
+
+    var caption: String? {
+        switch phase {
+        case .downloading, .retrying:
+            String(format: "%.1f of ", Double(completedBytes) / 1_000_000_000)
+                + StorageLocationPolicy.format(bytes: totalBytes)
+        case .waiting, .verifying: nil
         }
     }
 }

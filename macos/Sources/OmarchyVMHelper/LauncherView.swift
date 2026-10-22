@@ -88,15 +88,23 @@ struct LauncherView: View {
                 .accessibilityAddTraits(.isHeader)
             Spacer()
             if state.selectedPane != .home {
-                Button(action: actions.launchOrDone) {
-                    if state.isRunning {
-                        Text("Done")
-                    } else {
-                        Label(state.launchTitle, systemImage: "play.fill")
+                if state.launchInProgress {
+                    HStack(spacing: 8) {
+                        Text(state.launchStatus).foregroundStyle(.secondary)
+                        LaunchProgress(state: state, width: 80)
                     }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    Button(action: actions.launchOrDone) {
+                        if state.isRunning {
+                            Text("Done")
+                        } else {
+                            Label("Launch Omarchy", systemImage: "play.fill")
+                        }
+                    }
+                    .disabled(!state.launchEnabled)
+                    .accessibilityIdentifier("toolbar-launch-button")
                 }
-                .disabled(!state.launchEnabled)
-                .accessibilityIdentifier("toolbar-launch-button")
             }
         }
         .padding(.horizontal, 28)
@@ -305,25 +313,56 @@ private struct HomePane: View {
                     .accessibilityIdentifier("manage-vm-button")
             }
             if state.shutdownInProgress { ProgressView().controlSize(.small) }
-        } else {
-            Button(action: actions.launchOrDone) {
-                Label(state.launchButtonTitle, systemImage: "play.fill")
-                    .padding(.horizontal, 8)
+        } else if state.launchInProgress {
+            // The hidden button keeps the card the same height as before the launch.
+            ZStack(alignment: .leading) {
+                launchButton.hidden()
+                LaunchProgress(state: state, width: 240)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.extraLarge)
-            .keyboardShortcut(state.launchInProgress || state.storageMoveInProgress ? nil : .defaultAction)
-            .disabled(!state.launchEnabled)
-            .accessibilityLabel(state.launchTitle)
-            .accessibilityIdentifier("launch-button")
+        } else {
+            launchButton
+                .keyboardShortcut(state.storageMoveInProgress ? nil : .defaultAction)
+                .disabled(!state.launchEnabled)
+                .accessibilityIdentifier("launch-button")
+        }
+    }
+
+    private var launchButton: some View {
+        Button(action: actions.launchOrDone) {
+            Label("Launch Omarchy", systemImage: "play.fill")
+                .padding(.horizontal, 8)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.extraLarge)
+    }
+}
+
+/// A bar with its measured amount while a launch step can be measured, and a
+/// spinner while it can't. The status line names the step.
+private struct LaunchProgress: View {
+    let state: LauncherState
+    let width: CGFloat
+
+    var body: some View {
+        HStack(spacing: 10) {
             if let fraction = state.launchFraction {
                 ProgressView(value: fraction)
-                    .frame(width: 120)
+                    .frame(width: width)
                     .accessibilityLabel(state.launchStatus)
-            } else if state.launchInProgress {
-                ProgressView().controlSize(.small)
+                    .accessibilityValue(state.launchCaption ?? "")
+                if let caption = state.launchCaption {
+                    Text(caption)
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(state.launchStatus)
             }
         }
+        .accessibilityIdentifier("launch-progress")
     }
 }
 

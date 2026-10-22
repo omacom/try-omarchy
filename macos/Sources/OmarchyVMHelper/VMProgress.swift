@@ -1,7 +1,7 @@
 import Foundation
 
 protocol VMProgressPhase: CaseIterable, RawRepresentable, Equatable, Sendable where RawValue == String {
-    var buttonTitle: String { get }
+    var title: String { get }
 }
 
 enum VMResetPhase: String, VMProgressPhase {
@@ -9,7 +9,7 @@ enum VMResetPhase: String, VMProgressPhase {
     case deleting
     case finishing
 
-    var buttonTitle: String {
+    var title: String {
         switch self {
         case .checking: "Checking VM"
         case .deleting: "Deleting VM"
@@ -25,7 +25,7 @@ enum VMLaunchPhase: String, VMProgressPhase {
     case finishing
     case starting
 
-    var buttonTitle: String {
+    var title: String {
         switch self {
         case .checking: "Checking VM"
         case .verifying: "Verifying the Omarchy image"
@@ -42,10 +42,7 @@ struct VMProgress<Phase: VMProgressPhase>: Equatable, Sendable {
     var phase: Phase
     var percent: Int?
 
-    var title: String {
-        guard let percent else { return phase.buttonTitle }
-        return "\(phase.buttonTitle) (\(percent)%)"
-    }
+    var caption: String? { percent.map { "\($0)%" } }
 }
 
 enum VMProgressOperation: String {

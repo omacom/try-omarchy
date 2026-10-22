@@ -420,7 +420,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let phaseChanged = state.launchProgress.phase != progress.phase
         state.launchProgress = progress
         state.launchDownload = nil
-        if phaseChanged { announce(progress.phase.buttonTitle) }
+        if phaseChanged { announce(progress.phase.title) }
     }
 
     /// The download runs before the launcher; an automatic start shows the
