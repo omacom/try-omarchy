@@ -77,10 +77,10 @@ int main(void)
 {
     CocoaTouchScroll s = {0};
 
-    /* Normal scrolls move 0.6 times as far as flicks, with a smooth ramp. */
-    assert(cocoa_touch_scroll_gain(0) == 0.6);
-    assert(cocoa_touch_scroll_gain(4) == 0.6);
-    assert(fabs(cocoa_touch_scroll_gain(22) - 0.8) < 1e-9);
+    /* Normal scrolls move 0.45 times as far as flicks, with a smooth ramp. */
+    assert(cocoa_touch_scroll_gain(0) == 0.45);
+    assert(cocoa_touch_scroll_gain(4) == 0.45);
+    assert(fabs(cocoa_touch_scroll_gain(22) - 0.725) < 1e-9);
     assert(cocoa_touch_scroll_gain(40) == 1.0);
     assert(cocoa_touch_scroll_gain(400) == 1.0);
     for (double p = 0; p < 50; p += 0.5) {
