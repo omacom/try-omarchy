@@ -89,7 +89,7 @@ final class NetworkEditor: NSObject {
     }
 
     @objc private func update() {
-        serviceStatus.stringValue = serviceBusy ? "Checking networking helper…" : (serviceResult ?? NetworkService.statusText)
+        serviceStatus.stringValue = serviceBusy ? "Checking networking helper" : (serviceResult ?? NetworkService.statusText)
         setup.isEnabled = !serviceBusy
         remove.isEnabled = !serviceBusy
         mode.isEnabled = !serviceBusy

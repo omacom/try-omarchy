@@ -72,7 +72,7 @@ enum StartMenuPresentation {
             StartMenuPermissionPresentation(
                 detail: "Optional. Speaker playback works without microphone access.",
                 isGranted: false,
-                actionTitle: requestInFlight ? "Waiting…" : "Allow…",
+                actionTitle: requestInFlight ? "Waiting" : "Allow…",
                 action: .request
             )
         case .denied:
@@ -108,7 +108,7 @@ enum StartMenuPresentation {
             StartMenuPermissionPresentation(
                 detail: "Optional. The camera turns on only while an Omarchy app uses it.",
                 isGranted: false,
-                actionTitle: requestInFlight ? "Waiting…" : "Allow…",
+                actionTitle: requestInFlight ? "Waiting" : "Allow…",
                 action: .request
             )
         case .denied:

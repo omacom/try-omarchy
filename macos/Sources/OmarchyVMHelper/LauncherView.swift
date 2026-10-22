@@ -500,7 +500,7 @@ private struct PermissionControl: View {
         } else if waiting {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Waiting…").foregroundStyle(.secondary)
+                Text("Waiting").foregroundStyle(.secondary)
             }
         } else if let title = presentation.actionTitle {
             Button(title == "Open Settings" ? "Open Settings…" : title, action: action)

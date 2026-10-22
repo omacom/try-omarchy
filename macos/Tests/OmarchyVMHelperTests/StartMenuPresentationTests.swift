@@ -39,7 +39,7 @@ struct StartMenuPresentationTests {
             requestInFlight: true
         )
         #expect(waiting.action == .request)
-        #expect(waiting.actionTitle == "Waiting…")
+        #expect(waiting.actionTitle == "Waiting")
 
         let denied = StartMenuPresentation.microphone(
             state: .denied,
@@ -79,7 +79,7 @@ struct StartMenuPresentationTests {
             state: .notDetermined,
             requestInFlight: true
         )
-        #expect(waiting.actionTitle == "Waiting…")
+        #expect(waiting.actionTitle == "Waiting")
 
         let denied = StartMenuPresentation.camera(
             state: .denied,

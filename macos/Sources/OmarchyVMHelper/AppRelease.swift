@@ -117,7 +117,7 @@ enum AppReleaseCheckState: Equatable {
     var message: String {
         switch self {
         case .idle: return "Check GitHub for the latest stable Mac app release."
-        case .checking: return "Checking for updates…"
+        case .checking: return "Checking for updates"
         case .available(let release): return "Try Omarchy \(release.version) is available. Review its release notes and macOS requirements before downloading."
         case .current: return "No newer stable release was found."
         case .unknownInstalledVersion(let release):

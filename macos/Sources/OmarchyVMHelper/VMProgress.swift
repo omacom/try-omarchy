@@ -11,9 +11,9 @@ enum VMResetPhase: String, VMProgressPhase {
 
     var buttonTitle: String {
         switch self {
-        case .checking: "Checking VM…"
-        case .deleting: "Deleting VM…"
-        case .finishing: "Finishing reset…"
+        case .checking: "Checking VM"
+        case .deleting: "Deleting VM"
+        case .finishing: "Finishing reset"
         }
     }
 }
@@ -27,11 +27,11 @@ enum VMLaunchPhase: String, VMProgressPhase {
 
     var buttonTitle: String {
         switch self {
-        case .checking: "Checking VM…"
-        case .verifying: "Verifying the Omarchy image…"
-        case .preparing: "Unpacking Omarchy…"
-        case .finishing: "Compacting the disk…"
-        case .starting: "Starting Omarchy…"
+        case .checking: "Checking VM"
+        case .verifying: "Verifying the Omarchy image"
+        case .preparing: "Unpacking Omarchy"
+        case .finishing: "Compacting the disk"
+        case .starting: "Starting Omarchy"
         }
     }
 }

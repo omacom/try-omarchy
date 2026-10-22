@@ -67,14 +67,14 @@ struct VMProgressTests {
 
     @Test("the button names the work currently happening")
     func buttonFeedback() {
-        #expect(VMResetPhase.checking.buttonTitle == "Checking VM…")
-        #expect(VMResetPhase.deleting.buttonTitle == "Deleting VM…")
-        #expect(VMLaunchPhase.verifying.buttonTitle == "Verifying the Omarchy image…")
-        #expect(VMLaunchPhase.preparing.buttonTitle == "Unpacking Omarchy…")
-        #expect(VMLaunchPhase.finishing.buttonTitle == "Compacting the disk…")
-        #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy…")
-        #expect(VMResetPhase.finishing.buttonTitle == "Finishing reset…")
-        #expect(VMProgress(phase: VMLaunchPhase.preparing, percent: 42).title == "Unpacking Omarchy… 42%")
+        #expect(VMResetPhase.checking.buttonTitle == "Checking VM")
+        #expect(VMResetPhase.deleting.buttonTitle == "Deleting VM")
+        #expect(VMLaunchPhase.verifying.buttonTitle == "Verifying the Omarchy image")
+        #expect(VMLaunchPhase.preparing.buttonTitle == "Unpacking Omarchy")
+        #expect(VMLaunchPhase.finishing.buttonTitle == "Compacting the disk")
+        #expect(VMLaunchPhase.starting.buttonTitle == "Starting Omarchy")
+        #expect(VMResetPhase.finishing.buttonTitle == "Finishing reset")
+        #expect(VMProgress(phase: VMLaunchPhase.preparing, percent: 42).title == "Unpacking Omarchy 42%")
     }
 
     @Test("reset and launch accept only their own phases")

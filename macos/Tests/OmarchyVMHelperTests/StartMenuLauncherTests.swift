@@ -40,23 +40,23 @@ struct StartMenuLauncherTests {
         let download = FactoryDownloadProgress(phase: .downloading, completedBytes: 1, totalBytes: 4)
         menu.launchDidDownload(download)
         #expect(menu.state.launchTitle == download.title)
-        #expect(menu.state.launchButtonTitle == "Downloading…")
+        #expect(menu.state.launchButtonTitle == "Downloading")
         #expect(menu.state.launchFraction == 0.25)
         menu.launchDidDownload(FactoryDownloadProgress(phase: .verifying, completedBytes: 4, totalBytes: 4))
-        #expect(menu.state.launchButtonTitle == "Verifying…")
+        #expect(menu.state.launchButtonTitle == "Verifying")
         menu.launchDidFinishDownload()
         #expect(menu.state.launchTitle == VMLaunchPhase.checking.buttonTitle)
-        #expect(menu.state.launchButtonTitle == "Launching…")
+        #expect(menu.state.launchButtonTitle == "Launching")
         #expect(menu.state.launchFraction == nil)
         menu.launchDidProgress(to: VMProgress(phase: .preparing, percent: 40))
-        #expect(menu.state.launchTitle == "Unpacking Omarchy… 40%")
-        #expect(menu.state.launchButtonTitle == "Preparing…")
+        #expect(menu.state.launchTitle == "Unpacking Omarchy 40%")
+        #expect(menu.state.launchButtonTitle == "Preparing")
         #expect(menu.state.launchFraction == 0.4)
         menu.launchDidProgress(to: VMProgress(phase: .finishing))
-        #expect(menu.state.launchButtonTitle == "Preparing…")
+        #expect(menu.state.launchButtonTitle == "Preparing")
         menu.launchDidProgress(to: VMProgress(phase: .starting))
         #expect(menu.state.launchTitle == VMLaunchPhase.starting.buttonTitle)
-        #expect(menu.state.launchButtonTitle == "Launching…")
+        #expect(menu.state.launchButtonTitle == "Launching")
         #expect(menu.state.launchFraction == nil)
 
         menu.virtualMachineDidStart { closeCount += 1 }
@@ -308,7 +308,7 @@ struct StartMenuLauncherTests {
         #expect(!menu.state.launchEnabled)
         #expect(!menu.state.settingsEnabled)
         let presentation = camera ? menu.state.camera : menu.state.microphone
-        #expect(presentation.actionTitle == "Waiting…")
+        #expect(presentation.actionTitle == "Waiting")
         menu.applicationDidBecomeActive()
         #expect(storageReads == initialReads)
         menu.prepareForPresentation(visibleFrame: nil)
@@ -405,7 +405,7 @@ struct StartMenuLauncherTests {
         #expect(!missingSummary.canOpenInFinder)
 
         let moving = LauncherState.storageSummary(path: path, status: custom, moving: true, canOpen: true)
-        #expect(moving.lines == ["Copying and verifying your VM… Original retained."])
+        #expect(moving.lines == ["Copying and verifying your VM. Original retained."])
         #expect(!moving.canOpenInFinder)
     }
 

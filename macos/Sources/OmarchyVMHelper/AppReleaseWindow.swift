@@ -101,7 +101,7 @@ extension AppReleaseCheckState {
     var title: String {
         switch self {
         case .idle: "Check for Updates"
-        case .checking: "Checking for Updates…"
+        case .checking: "Checking for Updates"
         case .available(let release): "Version \(release.version) Available"
         case .current: "Try Omarchy Is Up to Date"
         case .unknownInstalledVersion(let release): "Latest Release Is \(release.version)"
@@ -112,7 +112,7 @@ extension AppReleaseCheckState {
     var detail: String {
         switch self {
         case .idle: "Looks for the latest stable release on GitHub."
-        case .checking: "Contacting GitHub…"
+        case .checking: "Contacting GitHub"
         case .available: "Review its release notes and macOS requirements before downloading."
         case .current: "No newer stable release was found."
         case .unknownInstalledVersion:

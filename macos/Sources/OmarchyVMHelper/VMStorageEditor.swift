@@ -221,7 +221,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private func discardPreviousCopy(_ source: URL, identity: String, movedTo destination: URL) {
         deleting = true
         refreshSelection()
-        showStatus("Moving the previous copy to Trash…")
+        showStatus("Moving the previous copy to Trash")
         progressBar.isHidden = false
         progressBar.isIndeterminate = true
         progressBar.startAnimation(nil)
@@ -273,7 +273,7 @@ final class VMStorageEditor: NSObject, NSWindowDelegate {
     private func beginDeletion(_ source: URL, identity: String) {
         deleting = true
         refreshSelection()
-        showStatus("Moving the VM to Trash…")
+        showStatus("Moving the VM to Trash")
         progressBar.isHidden = false
         progressBar.isIndeterminate = true
         progressBar.startAnimation(nil)

@@ -14,10 +14,10 @@ struct VMTransferProgress: Codable, Equatable {
     }
     var title: String {
         switch phase {
-        case .checking: return "Checking the selected VM and destination…"
-        case .copying: return "Copying the selected VM…"
-        case .verifying: return "Verifying the copied VM…"
-        case .finishing: return "Finishing the move…"
+        case .checking: return "Checking the selected VM and destination"
+        case .copying: return "Copying the selected VM"
+        case .verifying: return "Verifying the copied VM"
+        case .finishing: return "Finishing the move"
         }
     }
     var line: String {

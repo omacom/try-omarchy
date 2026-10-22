@@ -152,14 +152,14 @@ final class LauncherState {
     var launchButtonTitle: String {
         guard launchInProgress else { return "Launch Omarchy" }
         switch launchDownload?.phase {
-        case .waiting, .downloading, .retrying: return "Downloading…"
-        case .verifying: return "Verifying…"
+        case .waiting, .downloading, .retrying: return "Downloading"
+        case .verifying: return "Verifying"
         case nil: break
         }
         switch launchProgress.phase {
-        case .checking, .starting: return "Launching…"
-        case .verifying: return "Verifying…"
-        case .preparing, .finishing: return "Preparing…"
+        case .checking, .starting: return "Launching"
+        case .verifying: return "Verifying"
+        case .preparing, .finishing: return "Preparing"
         }
     }
 
@@ -231,7 +231,7 @@ final class LauncherState {
     ) -> LauncherStorageSummary {
         var lines = [path]
         if moving {
-            lines = ["Copying and verifying your VM… Original retained."]
+            lines = ["Copying and verifying your VM. Original retained."]
         } else if status.problem == nil, !status.isDefault {
             let volume = [status.volumeName, status.isExternal ? "External drive" : nil]
                 .compactMap { $0 }
