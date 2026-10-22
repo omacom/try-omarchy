@@ -281,6 +281,8 @@ for _ in $(seq 1 90); do kill -0 "$launcher_pid" 2>/dev/null || break; sleep 1; 
 if kill -0 "$launcher_pid" 2>/dev/null; then miss "the VM did not power off within 90 s"; kill "$launcher_pid"; else pass "the guest powers the VM off"; fi
 wait "$launcher_pid" 2>/dev/null || true
 launcher_pid=""
+[[ -d $state/native-exports && ! -L $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] &&
+  pass "the native-exports outbox is a private folder beside the VM" || miss "no private native-exports outbox in $state"
 
 log "Second boot"
 boot_start=$SECONDS
