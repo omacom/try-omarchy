@@ -27,7 +27,7 @@ VMs from before the shell, a bare ext4 root in `disks/`, are not exported. Impor
 
 ## The outbox share
 
-The launcher creates `native-exports` beside `shell` in the VM storage folder, private to the user, and attaches it to every VM as a writable virtio-9p share with mount tag `tryomarchy-native-exports`. The guest sees the Mac user as the Omarchy owner account, as on the Mac shared folder. Disposable VMs get the share too, so the end-to-end run can use it.
+The launcher creates `native-exports` beside `shell` in the VM storage folder, private to the user, and attaches it to every VM as a writable virtio-9p share with mount tag `tryomarchy-native-exports`. The guest sees the Mac user as the Omarchy owner account, as on the Mac shared folder. A disposable VM gets no outbox: it holds no lock on the storage folder, so another VM may be exporting into it, and its home is thrown away.
 
 The host settings line, published in the guest at `/run/try-omarchy/cmdline`, carries `tryomarchy.native_exports=1` whenever the share is attached. The menu row shows on that token. The helper mounts the tag itself, under `/run/try-omarchy/export.*/`, and unmounts it when done.
 

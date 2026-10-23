@@ -361,6 +361,9 @@ assert_not_contains "$output" "Launch phase: preparing"
 assert_not_contains "$output" "-add-fd"
 assert_contains "$output" "file=/private/tmp/omarchy-qemu-gpu."
 [[ $(head -c 10 "$state/shell/disk.img") == 'guest data' ]] || fail "an ephemeral launch touched the persistent disk"
+# It never shares or publishes the storage folder's outbox, which a running VM may be writing.
+assert_not_contains "$output" "native-exports"
+assert_not_contains "$output" "tryomarchy.native_exports=1"
 # A session-only storage folder clones from OMARCHY_QEMU_GPU_FACTORY_CACHE.
 launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/session" OMARCHY_QEMU_GPU_FACTORY_CACHE="$state/shell-factory")
 output=$(launch)
