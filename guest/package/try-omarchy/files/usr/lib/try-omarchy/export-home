@@ -153,7 +153,6 @@ sync
 cat <<EOF
 
 Export $export_id is ready.
-Shut down Omarchy, and Try Omarchy saves it on your Mac in
-~/Library/Application Support/Try Omarchy/Exports, where the Omarchy installer
-finds it. Keep your transfer passphrase for the import.
+Shut down Omarchy to save it on your Mac, then choose Migrate to Native in the
+Omarchy installer. Keep your transfer passphrase for the import.
 EOF
