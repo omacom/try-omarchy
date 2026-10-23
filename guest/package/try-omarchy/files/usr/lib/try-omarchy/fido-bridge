@@ -136,24 +136,28 @@ def relay(port, uhid, *, clock=time.monotonic, wait=select.select, nonce=None):
         readable, writable, _ = wait([port, uhid] if ready else [port],
                                       [port] if outgoing else [], [], 0.1)
         if port in readable:
-            chunk = os.read(port, 4096)
-            if not chunk:
-                reader.finish()
-                raise ConnectionError("FIDO host disconnected")
-            for kind, payload in reader.feed(chunk):
-                if not ready:
-                    if kind in (REPORT, PONG, BYE) or (kind == READY and payload != nonce):
-                        continue
-                    if kind != READY:
-                        raise ValueError("FIDO host must negotiate before reports")
-                    ready = True
-                elif kind == REPORT:
-                    emit(uhid, 12, struct.pack("<H", 64) + payload)
-                elif kind == BYE:
-                    raise ConnectionError("FIDO host released the key")
-                elif kind != PONG:
-                    raise ValueError("Unexpected FIDO host message")
-                deadline = clock() + 10
+            try:
+                chunk = os.read(port, 4096)
+            except (BlockingIOError, InterruptedError):
+                pass
+            else:
+                if not chunk:
+                    reader.finish()
+                    raise ConnectionError("FIDO host disconnected")
+                for kind, payload in reader.feed(chunk):
+                    if not ready:
+                        if kind in (REPORT, PONG, BYE) or (kind == READY and payload != nonce):
+                            continue
+                        if kind != READY:
+                            raise ValueError("FIDO host must negotiate before reports")
+                        ready = True
+                    elif kind == REPORT:
+                        emit(uhid, 12, struct.pack("<H", 64) + payload)
+                    elif kind == BYE:
+                        raise ConnectionError("FIDO host released the key")
+                    elif kind != PONG:
+                        raise ValueError("Unexpected FIDO host message")
+                    deadline = clock() + 10
         if uhid in readable:
             event = os.read(uhid, 4380)
             if len(event) < 4:
@@ -170,10 +174,14 @@ def relay(port, uhid, *, clock=time.monotonic, wait=select.select, nonce=None):
                 else:
                     emit(uhid, 14, struct.pack("<IH", request_id, errno.EIO))
         if port in writable and outgoing:
-            count = os.write(port, outgoing)
-            if count <= 0:
-                raise ConnectionError("FIDO channel closed")
-            del outgoing[:count]
+            try:
+                count = os.write(port, outgoing)
+            except (BlockingIOError, InterruptedError):
+                pass
+            else:
+                if count <= 0:
+                    raise ConnectionError("FIDO channel closed")
+                del outgoing[:count]
 
 
 def main():

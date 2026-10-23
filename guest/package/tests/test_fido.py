@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.machinery
 import importlib.util
+import errno
 import os
 from pathlib import Path
 import socket
@@ -170,12 +171,13 @@ class FIDORelay(unittest.TestCase):
 
     def test_host_backpressure_is_bounded(self):
         event = output_event(bytes(64))
-        with patch.object(bridge.os, 'read', side_effect=[bridge.message(bridge.READY, NONCE)] + [event] * 240):
+        with patch.object(bridge.os, 'read', side_effect=[bridge.message(bridge.READY, NONCE)] + [event] * 240), \
+                patch.object(bridge.os, 'write', side_effect=BlockingIOError(errno.EAGAIN, 'retry')):
             reads = [0]
 
             def wait(*_):
                 reads[0] += 1
-                return ([10] if reads[0] == 1 else [11]), [], []
+                return ([10] if reads[0] == 1 else [11]), [10], []
 
             with self.assertRaises(BufferError):
                 bridge.relay(10, 11, nonce=NONCE, clock=lambda: 0, wait=wait)
@@ -301,6 +303,119 @@ class FIDOSetup(unittest.TestCase):
             opened.assert_not_called()
 
 
+class FIDOTransientIO(unittest.TestCase):
+    def run_session(self, read, write, wait, *, clock=lambda: 0, failure=ConnectionError, reason='released'):
+        original_relay = bridge.relay
+
+        with patch.object(bridge.os, 'geteuid', return_value=0), \
+                patch.object(bridge.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=65534)), \
+                patch.object(bridge.os, 'open', side_effect=[11, 12]) as opened, \
+                patch.object(bridge, 'create_device') as created, patch.object(bridge, 'drop_privileges'), \
+                patch.object(bridge.os, 'read', side_effect=read), \
+                patch.object(bridge.os, 'write', side_effect=write), \
+                patch.object(bridge.os, 'close') as closed, patch.object(bridge, 'emit') as emitted:
+            def wait_while_open(*args):
+                created.assert_called_once_with(12)
+                closed.assert_not_called()
+                return wait(*args)
+
+            with patch.object(bridge, 'relay', side_effect=lambda p, u: original_relay(
+                    p, u, clock=clock, wait=wait_while_open, nonce=NONCE)):
+                with self.assertRaisesRegex(failure, reason):
+                    bridge.main()
+            self.assertEqual(opened.call_count, 2)
+            self.assertEqual(closed.call_args_list, [call(12), call(11)])
+        return emitted.call_args_list
+
+    def test_temporary_reads_preserve_the_negotiated_device_and_partial_frame(self):
+        packet = bytes([0x7d, 0x7e, 0x7f, 0]) * 16
+        frame = bridge.message(bridge.REPORT, packet)
+        for error in (BlockingIOError(errno.EAGAIN, 'retry'), InterruptedError(errno.EINTR, 'retry')):
+            with self.subTest(error=type(error).__name__):
+                reads = iter([bridge.message(bridge.READY, NONCE), frame[:10], error,
+                              frame[10:], bridge.message(bridge.BYE)])
+
+                def read(fd, _):
+                    self.assertEqual(fd, 11)
+                    value = next(reads)
+                    if isinstance(value, BaseException):
+                        raise value
+                    return value
+
+                emitted = self.run_session(read, lambda _, data: len(data),
+                                           lambda readable, writable, *rest: ([11], writable, []))
+                self.assertEqual(emitted, [call(12, 12, struct.pack('<H', 64) + packet)])
+
+    def test_partial_writes_retry_the_same_bytes_without_recreating_the_device(self):
+        packet = bytes([0x7e, 0x7f, 0x7d, 1]) * 16
+        frame = bridge.message(bridge.REPORT, packet)
+        reads = iter([bridge.message(bridge.READY, NONCE), output_event(packet),
+                      bridge.message(bridge.REPORT, packet), bridge.message(bridge.BYE)])
+        steps = iter([([11], [11], []), ([12], [], [])] + [([], [11], [])] * 4
+                     + [([11], [], []), ([11], [], [])])
+        results = iter([len(bridge.message(bridge.HELLO, NONCE)), 5,
+                        BlockingIOError(errno.EAGAIN, 'retry'), InterruptedError(errno.EINTR, 'retry'),
+                        len(frame) - 5])
+        wire = bytearray()
+        attempts = []
+
+        def write(fd, data):
+            self.assertEqual(fd, 11)
+            attempts.append(bytes(data))
+            result = next(results)
+            if isinstance(result, BaseException):
+                raise result
+            wire.extend(data[:result])
+            return result
+
+        emitted = self.run_session(lambda *_: next(reads), write, lambda *_: next(steps))
+        self.assertEqual(attempts, [bridge.message(bridge.HELLO, NONCE), frame] + [frame[5:]] * 3)
+        self.assertEqual(bytes(wire), bridge.message(bridge.HELLO, NONCE) + frame)
+        self.assertEqual(bridge.FrameReader().feed(wire), [(bridge.HELLO, NONCE), (bridge.REPORT, packet)])
+        self.assertEqual(emitted, [call(12, 12, struct.pack('<H', 64) + packet)])
+
+    def test_persistent_temporary_errors_do_not_renew_the_lease(self):
+        for operation in ('read', 'write'):
+            with self.subTest(operation=operation):
+                now = [0]
+                iterations = [0]
+
+                def wait(readable, writable, *rest):
+                    iterations[0] += 1
+                    self.assertLess(iterations[0], 20)
+                    now[0] += 1
+                    return ([11] if iterations[0] == 1 or operation == 'read' else []), writable, []
+
+                def read(*_):
+                    if iterations[0] == 1:
+                        return bridge.message(bridge.READY, NONCE)
+                    raise BlockingIOError(errno.EAGAIN, 'retry')
+
+                def write(_, data):
+                    if iterations[0] == 1 or operation == 'read':
+                        return len(data)
+                    raise BlockingIOError(errno.EAGAIN, 'retry')
+
+                self.run_session(read, write, wait, clock=lambda: now[0], failure=TimeoutError, reason='lease')
+                self.assertEqual(now[0], 11)
+
+    def test_terminal_port_errors_close_the_device(self):
+        for terminal in ('eof', 'malformed', 'broken-pipe', 'zero-write'):
+            with self.subTest(terminal=terminal):
+                reads = iter([bridge.message(bridge.READY, NONCE),
+                              b'\x7ebad\x7f' if terminal == 'malformed' else b''])
+
+                def write(_, data):
+                    if terminal == 'broken-pipe':
+                        raise BrokenPipeError(errno.EPIPE, 'closed')
+                    return 0 if terminal == 'zero-write' else len(data)
+
+                failure = ValueError if terminal == 'malformed' else OSError
+                self.run_session(lambda *_: next(reads), write,
+                                 lambda readable, writable, *rest: ([11], writable, []),
+                                 failure=failure, reason='')
+
+
 class FIDOShutdown(unittest.TestCase):
     def stopped_stream(self, cut, *, stop='interrupt', close_error=False):
         packet = bytes([1, 2, 3, 4, 0x90, 0, 200]) + bytes(range(57))
@@ -322,7 +437,7 @@ class FIDOShutdown(unittest.TestCase):
                 return [11], [11], []
             if iterations == 2:
                 return [12], [], []
-            if iterations == 3 or stop in ('broken-pipe', 'would-block'):
+            if iterations == 3 or stop == 'broken-pipe':
                 return [], [11], []
             if stop == 'backpressure':
                 self.assertLess(iterations, 300)
@@ -333,9 +448,8 @@ class FIDOShutdown(unittest.TestCase):
             nonlocal writes
             self.assertEqual(fd, 11)
             writes += 1
-            if writes == 3 and stop in ('broken-pipe', 'would-block'):
-                error = bridge.errno.EPIPE if stop == 'broken-pipe' else bridge.errno.EAGAIN
-                raise OSError(error, 'Synthetic transport failure')
+            if writes == 3 and stop == 'broken-pipe':
+                raise BrokenPipeError(bridge.errno.EPIPE, 'Synthetic transport failure')
             count = cut if writes == 2 else len(data)
             wire.extend(bytes(data[:count]))
             if writes == 2 and stop == 'during-write':
@@ -386,7 +500,7 @@ class FIDOShutdown(unittest.TestCase):
                 self.assert_safe_stream(wire, packet, cut)
 
     def test_failed_writes_and_backpressure_cannot_append_bytes_on_cleanup(self):
-        for stop in ('broken-pipe', 'would-block', 'backpressure'):
+        for stop in ('broken-pipe', 'backpressure'):
             with self.subTest(stop=stop):
                 wire, packet = self.stopped_stream(64, stop=stop)
                 self.assert_safe_stream(wire, packet, 64)
