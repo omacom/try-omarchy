@@ -274,7 +274,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             configureResources: { [weak self] in self?.beginResourceConfiguration() },
             manageStorage: { [weak self] in self?.showStorageActions() },
             openStorageLocation: { [weak self] in self?.openStorageLocation() },
-            openExports: { [weak self] in self?.openExports() },
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
@@ -625,31 +624,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Couldn’t open the data directory"
-            alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-        }
-    }
-
-    private func openExports() {
-        guard let exports = NativeInstallExports.defaultFolder() else { return }
-        do {
-            try FileManager.default.createDirectory(
-                at: exports,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            guard NSWorkspace.shared.open(exports) else {
-                throw NSError(
-                    domain: "TryOmarchy.NativeInstallExports",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Finder could not open the Exports folder."]
-                )
-            }
-        } catch {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = "Couldn’t open the Exports folder"
             alert.informativeText = error.localizedDescription
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window)

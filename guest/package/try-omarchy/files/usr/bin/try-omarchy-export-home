@@ -22,7 +22,7 @@ has_share() {
 }
 
 if ! has_share tryomarchy-native-exports; then
-  echo "The Mac app running Omarchy can't take an export yet. Update it, restart Omarchy and try again."
+  echo "Only the Omarchy installer takes an export. Start Omarchy from an up-to-date Omarchy installer and try again."
   exit 1
 fi
 

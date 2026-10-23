@@ -371,9 +371,14 @@ if [[ -n $shared_folder ]]; then
   [[ $name_encoded =~ ^[A-Za-z0-9_-]+$ ]] || fail "cannot encode the shared folder name"
   host_options+=" omarchy.shared_folder_name=$name_encoded"
 fi
-# A disposable VM holds no lock on the storage folder and its home is thrown
-# away, so it gets no outbox; another VM may be writing to the folder's one.
-[[ $storage_mode == ephemeral ]] || host_options+=" tryomarchy.native_exports=1"
+# Only the Omarchy installer's run mode asks for the outbox, since only the
+# installer takes exports. A disposable VM holds no lock on the storage folder
+# and its home is thrown away, so it gets none; another VM may be writing to
+# the folder's one.
+case ${OMARCHY_QEMU_GPU_NATIVE_EXPORTS:-0} in 0 | 1) ;; *) fail "OMARCHY_QEMU_GPU_NATIVE_EXPORTS must be 0 or 1" ;; esac
+native_exports_offered=0
+[[ ${OMARCHY_QEMU_GPU_NATIVE_EXPORTS:-0} == 1 && $storage_mode != ephemeral ]] && native_exports_offered=1
+((native_exports_offered == 0)) || host_options+=" tryomarchy.native_exports=1"
 
 # Exports for a native install: the guest writes them into the outbox share,
 # and the publish script moves verified ones into the Exports folder the
@@ -465,7 +470,7 @@ if [[ $storage_mode == reset ]]; then
   storage_mode=persistent
 fi
 native_exports=""
-if [[ $storage_mode != ephemeral ]]; then
+if ((native_exports_offered)); then
   native_exports="$state_root/native-exports"
   mkdir -p "$native_exports"
   chmod 700 "$native_exports"

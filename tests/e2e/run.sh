@@ -27,11 +27,12 @@
 # The VM's window opens on this Mac while the run lasts (about ten minutes).
 # The checks: guest/tests/desktop's system and session checks, plus Omarchy's
 # keybindings pressed on the VM's keyboard (qmp-keys.py), the Mac integrations
-# (vm-checks.sh), the clock after a paused VM continues (qmp-pause.py), Move to
-# Native Install and its export restored by the exporter (native-export.sh), the
-# shutdown and a second boot that keeps the user's files. In run mode, the
-# second boot ends the way an app quitting does: its input closes, Omarchy
-# shuts down and the run mode reports a clean exit.
+# (vm-checks.sh), the clock after a paused VM continues (qmp-pause.py), the
+# shutdown and a second boot that keeps the user's files. In run mode, as in the
+# Omarchy installer, Move to Native Install and its export restored by the
+# exporter (native-export.sh), and the second boot ends the way an app quitting
+# does: its input closes, Omarchy shuts down and the run mode reports a clean
+# exit. Through the launch script, as in Try Omarchy, no export is offered.
 # Exits 1 when a check fails.
 
 set -euo pipefail
@@ -277,13 +278,23 @@ guest 'tar -C /ci-run/screens -cf - .' | tar -C "$out/screens" -xf - 2>/dev/null
 guest journalctl -b --no-pager >"$out/journal-1.txt" 2>&1 || true
 
 log "Move to Native Install"
-transfer_passphrase="e2e-transfer-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-guest /ci/native-export.sh export "$user" "$share_token" <<<"$transfer_passphrase" >"$out/export.txt" 2>&1
-grep -E '^(ok|FAIL|note)' "$out/export.txt" | record
-export_id=$(sed -n 's/^export-id //p' "$out/export.txt")
-[[ -n $export_id && -f $state/native-exports/$export_id/bundle.age && -f $state/native-exports/$export_id/receipt.json ]] &&
-  pass "the export waits in the outbox on the Mac while Omarchy runs" || miss "no finished export in $state/native-exports"
-[[ ! -e $exports ]] && pass "nothing is published, and no Exports folder made, while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
+published=""
+if ((run_mode)); then
+  transfer_passphrase="e2e-transfer-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  guest /ci/native-export.sh export "$user" "$share_token" <<<"$transfer_passphrase" >"$out/export.txt" 2>&1
+  grep -E '^(ok|FAIL|note)' "$out/export.txt" | record
+  export_id=$(sed -n 's/^export-id //p' "$out/export.txt")
+  [[ -n $export_id && -f $state/native-exports/$export_id/bundle.age && -f $state/native-exports/$export_id/receipt.json ]] &&
+    pass "the export waits in the outbox on the Mac while Omarchy runs" || miss "no finished export in $state/native-exports"
+  [[ ! -e $exports ]] && pass "nothing is published, and no Exports folder made, while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
+else
+  # Only the Omarchy installer takes exports, so Try Omarchy offers none.
+  if guest grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline || [[ -e $state/native-exports ]]; then
+    miss "Try Omarchy offers Move to Native Install"
+  else
+    pass "Try Omarchy offers no Move to Native Install and no outbox"
+  fi
+fi
 
 # --- shutdown and a second cold boot -------------------------------------------------------
 log "Shutdown"
@@ -293,14 +304,16 @@ for _ in $(seq 1 90); do kill -0 "$launcher_pid" 2>/dev/null || break; sleep 1; 
 if kill -0 "$launcher_pid" 2>/dev/null; then miss "the VM did not power off within 90 s"; kill "$launcher_pid"; else pass "the guest powers the VM off"; fi
 wait "$launcher_pid" 2>/dev/null || true
 launcher_pid=""
-[[ -d $state/native-exports && ! -L $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] &&
-  pass "the native-exports outbox is a private folder beside the VM" || miss "no private native-exports outbox in $state"
-published="$exports/$export_id"
-if [[ -n $export_id && -f $published/bundle.age && -f $published/receipt.json &&
-  $(stat -f %Lp "$published/bundle.age") == 600 && -z $(ls -A "$state/native-exports") ]]; then
-  pass "shutting down publishes the export to Exports and empties the outbox"
-else
-  miss "the export was not published: $(ls -A "$exports" "$state/native-exports" 2>&1 | tr '\n' ' ')"
+if ((run_mode)); then
+  [[ -d $state/native-exports && ! -L $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] &&
+    pass "the native-exports outbox is a private folder beside the VM" || miss "no private native-exports outbox in $state"
+  published="$exports/$export_id"
+  if [[ -n $export_id && -f $published/bundle.age && -f $published/receipt.json &&
+    $(stat -f %Lp "$published/bundle.age") == 600 && -z $(ls -A "$state/native-exports") ]]; then
+    pass "shutting down publishes the export to Exports and empties the outbox"
+  else
+    miss "the export was not published: $(ls -A "$exports" "$state/native-exports" 2>&1 | tr '\n' ' ')"
+  fi
 fi
 
 log "Second boot"
@@ -311,7 +324,7 @@ guest systemctl is-system-running --wait >/dev/null 2>&1 || true
 pass "second boot in $((SECONDS - boot_start)) s ($(guest systemctl is-system-running 2>/dev/null))"
 [[ $(guest "cat /home/$user/e2e-marker" 2>/dev/null) == "$share_token" ]] && pass "the user's files survive a shutdown" ||
   miss "the user's files did not survive the shutdown"
-if [[ -f $published/bundle.age ]]; then
+if [[ -n $published && -f $published/bundle.age ]]; then
   log "Import the published export, as the native install will"
   mkdir -p "$share/e2e-import"
   cp "$published/bundle.age" "$published/receipt.json" "$share/e2e-import/"

@@ -153,9 +153,12 @@ assert_contains "$output" "if=pflash,format=raw,readonly=on,file=$resources/firm
 assert_contains "$output" "if=pflash,format=raw,file=$state/shell/efi-vars.fd"
 assert_not_contains "$output" " -kernel "
 assert_not_contains "$output" " -append "
-host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo tryomarchy.native_exports=1'
+host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo'
 assert_contains "$output" "host settings: $host_settings"
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.host=$(printf '%s' "$host_settings" | base64 | tr -d '\n')"
+# Try Omarchy itself offers no outbox; only the installer's run mode asks for one.
+assert_not_contains "$output" "native-exports"
+[[ ! -e $state/native-exports ]] || fail "a launch that did not ask for the outbox created it"
 package=$(printf '%s' try-omarchy-0.2.0-1-aarch64.pkg.tar.zst | base64 | tr -d '\n')
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.package=$package"
 assert_contains "$output" "mount_tag=tryomarchy-packages"
@@ -356,7 +359,7 @@ exec 8>&-
 
 # --- disposable VMs -------------------------------------------------------------------
 # A disposable VM clones the storage folder's factory and leaves the VM alone.
-output=$(launch --ephemeral)
+output=$(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1 launch --ephemeral)
 assert_not_contains "$output" "Launch phase: preparing"
 assert_not_contains "$output" "-add-fd"
 assert_contains "$output" "file=/private/tmp/omarchy-qemu-gpu."
@@ -424,10 +427,11 @@ output=$(launch)
 assert_contains "$output" "mac=$mac,"
 
 # --- native install exports ----------------------------------------------------------------
-launch_env=()
+launch_env=(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1)
 output=$(launch)
 assert_contains "$output" "path=$state/native-exports,security_model=none,multidevs=remap,guest_owner_uid=1000,guest_owner_gid=1000"
 assert_contains "$output" "virtio-9p-pci,fsdev=omarchy-native-exports,mount_tag=tryomarchy-native-exports"
+assert_contains "$output" "tryomarchy.native_exports=1"
 [[ -d $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] || fail "the outbox is not private"
 assert_not_contains "$output" "Publishing"
 [[ ! -e $test_root/Exports ]] || fail "the launcher created the Exports folder"
@@ -446,7 +450,7 @@ output=$(launch) || fail "a failing publish script stopped the launch: $output"
 assert_contains "$output" "Publishing native install exports failed (status 1)"
 rm "$publish"
 # A storage folder with a comma is escaped, not refused.
-launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/with,comma" OMARCHY_QEMU_GPU_FACTORY_CACHE="$state/shell-factory")
+launch_env=(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1 OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/with,comma" OMARCHY_QEMU_GPU_FACTORY_CACHE="$state/shell-factory")
 output=$(launch)
 assert_contains "$output" "path=$test_root/with,,comma/native-exports,"
 [[ -d $test_root/with,comma/native-exports ]] || fail "the outbox was not created beside the VM"
@@ -458,7 +462,7 @@ for setting in OMARCHY_QEMU_GPU_CPUS=2 OMARCHY_QEMU_GPU_MEMORY_MIB=1024 OMARCHY_
   OMARCHY_QEMU_GPU_DISK_GIB=0 OMARCHY_QEMU_GPU_DISK_GIB=9000 OMARCHY_QEMU_GPU_LOCALE=xx_XX.UTF-8 \
   'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac,romfile=/etc/hosts' 'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac -s' \
   OMARCHY_QEMU_GPU_HVF_TRACE_LOG=relative.log OMARCHY_QEMU_GPU_IMMERSIVE=2 OMARCHY_QEMU_GPU_DRY_RUN=2 \
-  OMARCHY_QEMU_GPU_NESTED_VIRT=yes \
+  OMARCHY_QEMU_GPU_NESTED_VIRT=yes OMARCHY_QEMU_GPU_NATIVE_EXPORTS=yes \
   OMARCHY_QEMU_GPU_SHARED_FOLDER=/etc,x OMARCHY_SHELL_INSTALL_PACKAGE=/etc/hosts OMARCHY_NETWORK_MODE=vmnet \
   OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:22:22:22 OMARCHY_QEMU_GPU_EXPORTS_ROOT=relative/path; do
   launch_env=("$setting" OMARCHY_QEMU_GPU_STATE_ROOT="$untouched")
