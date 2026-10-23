@@ -124,11 +124,11 @@ ROWS = (
         "description": "Copy files from the VM of an earlier Try Omarchy",
         "when": "test -b /dev/disk/by-id/virtio-omarchy-previous",
         "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-import-previous"})),
-    # Shown while the app offers the exporter and an export outbox.
+    # Shown while the app offers the export outbox (docs/native-install-export.md).
     ("setup.move-to-native-install", 9, own({
         "icon": "\U000f0552", "label": "Move to Native Install",
         "description": "Export your files for the Omarchy installer on your Mac",
-        "when": "grep -qs tryomarchy-export /sys/bus/virtio/drivers/9pnet_virtio/virtio*/mount_tag",
+        "when": "grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline",
         "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-export-home"})),
     # Omarchy's Timezone row opens the picker with Same as macOS first.
     ("update.timezone", 3, changed("update.timezone", set_action(TIMEZONE_ACTION))),

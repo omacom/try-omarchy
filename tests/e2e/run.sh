@@ -27,7 +27,8 @@
 # The VM's window opens on this Mac while the run lasts (about ten minutes).
 # The checks: guest/tests/desktop's system and session checks, plus Omarchy's
 # keybindings pressed on the VM's keyboard (qmp-keys.py), the Mac integrations
-# (vm-checks.sh), the clock after a paused VM continues (qmp-pause.py), the
+# (vm-checks.sh), the clock after a paused VM continues (qmp-pause.py), Move to
+# Native Install and its export restored by the exporter (native-export.sh), the
 # shutdown and a second boot that keeps the user's files. In run mode, the
 # second boot ends the way an app quitting does: its input closes, Omarchy
 # shuts down and the run mode reports a clean exit.
@@ -59,7 +60,7 @@ while (($#)); do
     --keep) keep=1; shift ;;
     --no-installs) installs=0; shift ;;
     --prepare-only) prepare_only=1; keep=1; shift ;;
-    -h | --help) sed -n '2,34p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,35p' "$0"; exit 0 ;;
     --*) fail "unknown option: $1" ;;
     *) break ;;
   esac
@@ -84,6 +85,7 @@ mkdir -p "$work"
 work=$(cd "$work" && pwd -P)
 state="$work/state"
 share="$work/share"
+exports="$work/exports"
 inject="$work/inject"
 mkdir -p "$share" "$inject/ci" "$inject/ci-run"
 results="$out/results.txt"
@@ -118,7 +120,7 @@ port=$(/usr/bin/python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0
 password="e2e-$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf 'CI_USER=%s\nCI_PASSWORD=%s\n' "$user" "$password" >"$inject/ci-run/answers"
 cp "$repo"/guest/tests/desktop/provision-seeded.sh "$repo"/guest/tests/desktop/system-checks.sh \
-  "$repo"/guest/tests/desktop/session-checks.sh "$repo"/tests/e2e/vm-checks.sh \
+  "$repo"/guest/tests/desktop/session-checks.sh "$repo"/tests/e2e/vm-checks.sh "$repo"/tests/e2e/native-export.sh \
   "$repo"/guest/package/tests/virgl-smoke.c "$repo"/tests/e2e/hypr-state.sh "$inject/ci/"
 : >"$inject/ci/container-expected"
 share_token="from-the-mac-$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -135,6 +137,7 @@ launch_env=(
   OMARCHY_QEMU_GPU_PORT_FORWARDS="tcp:$port:22"
   OMARCHY_QEMU_GPU_SHARED_FOLDER="$share"
   OMARCHY_QEMU_GPU_IMMERSIVE=0
+  OMARCHY_QEMU_GPU_EXPORTS_ROOT="$exports"
 )
 [[ -z $package ]] || launch_env+=(OMARCHY_SHELL_INSTALL_PACKAGE="$package")
 # The VM's size follows the launcher's own settings when they are set.
@@ -273,6 +276,15 @@ else miss "no guest status report at $status_file"; fi
 guest 'tar -C /ci-run/screens -cf - .' | tar -C "$out/screens" -xf - 2>/dev/null || true
 guest journalctl -b --no-pager >"$out/journal-1.txt" 2>&1 || true
 
+log "Move to Native Install"
+transfer_passphrase="e2e-transfer-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+guest /ci/native-export.sh export "$user" "$share_token" <<<"$transfer_passphrase" >"$out/export.txt" 2>&1
+grep -E '^(ok|FAIL|note)' "$out/export.txt" | record
+export_id=$(sed -n 's/^export-id //p' "$out/export.txt")
+[[ -n $export_id && -f $state/native-exports/$export_id/bundle.age && -f $state/native-exports/$export_id/receipt.json ]] &&
+  pass "the export waits in the outbox on the Mac while Omarchy runs" || miss "no finished export in $state/native-exports"
+[[ ! -e $exports ]] && pass "nothing is published while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
+
 # --- shutdown and a second cold boot -------------------------------------------------------
 log "Shutdown"
 guest "runuser -u $user -- sh -c 'echo $share_token >\$HOME/e2e-marker'"
@@ -283,6 +295,13 @@ wait "$launcher_pid" 2>/dev/null || true
 launcher_pid=""
 [[ -d $state/native-exports && ! -L $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] &&
   pass "the native-exports outbox is a private folder beside the VM" || miss "no private native-exports outbox in $state"
+published="$exports/$export_id"
+if [[ -n $export_id && -f $published/bundle.age && -f $published/receipt.json &&
+  $(stat -f %Lp "$published/bundle.age") == 600 && -z $(ls -A "$state/native-exports") ]]; then
+  pass "shutting down publishes the export to Exports and empties the outbox"
+else
+  miss "the export was not published: $(ls -A "$exports" "$state/native-exports" 2>&1 | tr '\n' ' ')"
+fi
 
 log "Second boot"
 boot_start=$SECONDS
@@ -292,6 +311,13 @@ guest systemctl is-system-running --wait >/dev/null 2>&1 || true
 pass "second boot in $((SECONDS - boot_start)) s ($(guest systemctl is-system-running 2>/dev/null))"
 [[ $(guest "cat /home/$user/e2e-marker" 2>/dev/null) == "$share_token" ]] && pass "the user's files survive a shutdown" ||
   miss "the user's files did not survive the shutdown"
+if [[ -f $published/bundle.age ]]; then
+  log "Import the published export, as the native install will"
+  mkdir -p "$share/e2e-import"
+  cp "$published/bundle.age" "$published/receipt.json" "$share/e2e-import/"
+  guest /ci/native-export.sh import "$user" /mnt/mac/e2e-import "$share_token" <<<"$transfer_passphrase" 2>&1 | record
+  rm -rf "$share/e2e-import"
+fi
 guest test -e /var/lib/omarchy/provisioning/pending && miss "first-boot setup is pending again" || pass "first-boot setup does not run again"
 hypr() { guest "ls /run/user/$uid/hypr/*/.socket.sock" >/dev/null 2>&1; }
 for _ in $(seq 1 90); do hypr && break; sleep 1; done

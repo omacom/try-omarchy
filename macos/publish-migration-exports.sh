@@ -81,7 +81,8 @@ publish() { # folder name
   published=$destination/$name
   [[ ! -e $published && ! -L $published ]] || { note "$name is already published"; return 0; }
   staging=$(mktemp -d "$destination/.$name.XXXXXX")
-  if ! { cp "$folder/bundle.age" "$folder/receipt.json" "$staging/" &&
+  if ! { { cp -c "$folder/bundle.age" "$folder/receipt.json" "$staging/" 2>/dev/null ||
+           cp "$folder/bundle.age" "$folder/receipt.json" "$staging/"; } &&
          [[ $(sha256 "$staging/bundle.age") == "$(sha256 "$folder/bundle.age")" ]] &&
          chgrp "$(id -g)" "$staging" "$staging/bundle.age" "$staging/receipt.json" &&
          chmod 600 "$staging/bundle.age" "$staging/receipt.json" &&

@@ -300,7 +300,7 @@ class ExportHome(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.log = self.tmp / "log"
         virtio = self.tmp / "virtio"
-        for index, tag in enumerate(("mac", "tryomarchy-export")):
+        for index, tag in enumerate(("mac", "tryomarchy-native-exports")):
             (virtio / f"virtio{index}").mkdir(parents=True)
             (virtio / f"virtio{index}/mount_tag").write_bytes(tag.encode() + b"\0")
         self.virtio = virtio
@@ -336,7 +336,7 @@ json.dump({{"export_id": "{self.EXPORT_ID}"}}, open(os.path.join(output, "receip
         self.fake(bin_dir / "mount", f"""#!/bin/bash
 echo "mount $*" >>{self.log}
 case ${{@: -2:1}} in
-  tryomarchy-export) source={self.outbox} ;;
+  tryomarchy-native-exports) source={self.outbox} ;;
   *) source=${{@: -2:1}} ;;
 esac
 rmdir "${{@: -1}}" && ln -s "$source" "${{@: -1}}"
@@ -390,7 +390,7 @@ fi
         self.assertEqual(record["request"]["policy_revision"], "try-omarchy/4b948a8/1")
         self.assertEqual(record["request"]["schema"], "omarchy-migration/export-request/2")
         log = self.log.read_text()
-        self.assertIn("tryomarchy-export", log)
+        self.assertIn("tryomarchy-native-exports", log)
         self.assertNotIn("tryomarchy-migration", log)
         self.assertIn(f"btrfs subvolume snapshot -r {self.home_root} ", log)
         self.assertRegex(log, r"mount --bind -o ro \S+/\.try-omarchy-export\.\w+ ")
@@ -411,7 +411,7 @@ fi
         self.assertEqual(result.returncode, 1)
         self.assertIn("no export outbox", result.stderr)
         self.assertFalse(self.log.exists())
-        (self.virtio / "virtio1/mount_tag").write_bytes(b"tryomarchy-export\0")
+        (self.virtio / "virtio1/mount_tag").write_bytes(b"tryomarchy-native-exports\0")
         (self.tools / "age.sha256").write_text("0" * 64 + "\n")
         result = self.export()
         self.assertEqual(result.returncode, 1)
@@ -533,6 +533,8 @@ class MenuEntries(unittest.TestCase):
                          "! omarchy-hw-vm && (! omarchy-hw-aarch64-apple && "
                          "[[ ! -f /etc/limine-entry-tool.d/zz-omarchy-dgx-spark.conf ]])")
         self.assertEqual(parsed["update.firmware"]["when"], "! omarchy-hw-vm")
+        self.assertEqual(parsed["setup.move-to-native-install"]["when"],
+                         "grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline")
         self.assertEqual(parsed["install.gaming.lutris"]["when"], "omarchy-hw-x86")
         self.assertEqual(parsed["install.gaming.lutris"]["disabled"], "omarchy-pkg-present lutris")
         self.assertEqual(parsed["appearance.top-bar.indicators.battery-percentage-on"]["when"],

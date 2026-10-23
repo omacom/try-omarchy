@@ -21,7 +21,7 @@ has_share() {
   return 1
 }
 
-if ! has_share tryomarchy-export; then
+if ! has_share tryomarchy-native-exports; then
   echo "This Try Omarchy app can't export yet. Update the Mac app, restart Omarchy and try again."
   exit 1
 fi

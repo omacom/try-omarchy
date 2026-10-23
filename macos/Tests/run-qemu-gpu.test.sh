@@ -434,7 +434,8 @@ printf '#!/bin/bash\nprintf "%%s\\n" "$*" >>"%s/publish-calls"\n' "$test_root" >
 chmod 755 "$publish"
 output=$(launch)
 assert_contains "$output" "[qemu-gpu] Publishing native install exports"
-[[ $(<"$test_root/publish-calls") == "$state/native-exports $test_root/Exports"$'\n'"$state/native-exports $test_root/Exports" ]] ||
+call="--outbox $state/native-exports --destination $test_root/Exports"
+[[ $(<"$test_root/publish-calls") == "$call"$'\n'"$call" ]] ||
   fail "unexpected publish calls: $(<"$test_root/publish-calls")"
 # A failing publish never stops a launch.
 printf '#!/bin/bash\nexit 1\n' >"$publish"

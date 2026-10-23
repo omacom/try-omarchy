@@ -3,7 +3,7 @@
 # Root half of try-omarchy-export-home. Exports the owner's home from a
 # read-only btrfs snapshot, so the running desktop can't change files during
 # the export. The exporter and a pinned age ship in this package. Only
-# bundle.age and receipt.json reach the app's outbox share (tryomarchy-export),
+# bundle.age and receipt.json reach the app's outbox share (tryomarchy-native-exports),
 # renamed into <export id>/ when complete; the Mac checks and publishes them
 # after the VM stops. The transfer passphrase arrives as one line on stdin.
 
@@ -37,7 +37,7 @@ has_share() {
 [[ ${TRY_OMARCHY_EXPORT_UNPRIVILEGED:-} == 1 ]] || ((EUID == 0)) || fail 'run try-omarchy-export-home instead'
 uid=${SUDO_UID:-}
 [[ $uid =~ ^[0-9]+$ ]] && ((uid >= minimum_uid)) || fail 'run try-omarchy-export-home as the Omarchy user'
-has_share tryomarchy-export || fail 'this Try Omarchy app has no export outbox'
+has_share tryomarchy-native-exports || fail 'this Try Omarchy app has no export outbox'
 
 IFS= read -r secret || fail 'no passphrase'
 [[ -n $secret && $secret != *$'\r'* ]] || fail 'invalid passphrase'
@@ -77,7 +77,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
 
-$mount -t 9p -o trans=virtio,version=9p2000.L tryomarchy-export "$outbox" || fail 'could not open the export outbox'
+$mount -t 9p -o trans=virtio,version=9p2000.L tryomarchy-native-exports "$outbox" || fail 'could not open the export outbox'
 mounted+=("$outbox")
 
 exporter=$migration/omarchy-migration/bin/omarchy-migration

@@ -384,7 +384,7 @@ publish_native_exports() {
   [[ -f $publish_script && -x $publish_script ]] || return 0
   local status=0
   echo '[qemu-gpu] Publishing native install exports' >&2
-  "$publish_script" "$native_exports" "$exports_root" >&2 9>&- || status=$?
+  "$publish_script" --outbox "$native_exports" --destination "$exports_root" >&2 9>&- || status=$?
   ((status == 0)) || echo "[qemu-gpu] Publishing native install exports failed (status $status)" >&2
   return 0
 }

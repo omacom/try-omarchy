@@ -277,6 +277,7 @@ install -m 0644 "$macos_dir/qemu-port-forwarding.sh" \
   "$contents/Resources/scripts/qemu-port-forwarding.sh"
 install -m 0644 "$macos_dir/qemu-networking.sh" "$contents/Resources/scripts/qemu-networking.sh"
 install -m 0644 "$macos_dir/network-identity.py" "$contents/Resources/scripts/network-identity.py"
+install -m 0755 "$macos_dir/publish-migration-exports.sh" "$contents/Resources/scripts/publish-migration-exports.sh"
 compressed_name=$(/usr/bin/plutil -extract compressed.path raw -o - "$guest_dir/factory.json")
 guest_resources=(factory.json packages.txt SHA256SUMS)
 if [[ -n $factory_download_url ]]; then
