@@ -72,6 +72,16 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         # The bar beside the notch stays while any window of the VM has the
         # keyboard, not only the panel's own.
         self.assertIn("cocoa_head_window_is_key() && [NSApp isActive] &&", added)
+        # In immersive full screen the pointer belongs to the window it is
+        # over, key or not, with its first click; elsewhere tracking stays
+        # upstream's, so windowed mode is untouched.
+        self.assertNotIn("NSTrackingAreaOptions options = NSTrackingActiveInKeyWindow |", added)
+        self.assertIn("([self usesImmersivePointerTracking] ? NSTrackingActiveInActiveApp\n"
+                      "                                             : NSTrackingActiveInKeyWindow) |", added)
+        self.assertIn("- (BOOL) acceptsFirstMouse:(NSEvent *)event\n{\n"
+                      "    if ([self usesImmersivePointerTracking]) {\n        return isMouseGrabbed;", added)
+        self.assertEqual(added.count("    [view updatePointerTracking];"), 2)
+        self.assertIn("    if (!pointerFollowsDisplays) {\n        [view ungrabMouse];", added)
 
     def test_layout_and_gpu_id_are_the_launchers(self) -> None:
         added = "\n".join(patch_lines("+"))
