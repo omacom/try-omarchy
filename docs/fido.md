@@ -12,7 +12,7 @@ The launcher adds `dev.tryomarchy.fido.v2` only for an explicit selection. Its h
 
 The guest helper opens the root-only virtio port and `/dev/uhid`, creates one temporary FIDO device, and permanently drops supplementary groups, GID and UID to `nobody` before handling the host stream. A device-specific udev rule grants the virtual hidraw device to the active local session. The package does not widen access to `/dev/uhid`. Closing the retained UHID descriptor destroys the virtual device.
 
-The upgrade to `0.1.0-35` reloads the changed unit definition and applies the preset only when the unit was absent before the upgrade. Existing units retain their enabled, disabled or masked choice. Enabled services restart on the version-2 port; other states are stopped without being enabled. Later upgrades leave that state alone. The service skips startup when the app exposes no version-2 port.
+Upgrades from before `0.1.0-36` reload the unit definition and replace an enabled helper with the installed version. The preset applies only when the unit was absent on an upgrade from before `0.1.0-35`. Existing units retain their enabled, disabled or masked choice. Other states are stopped without being enabled, and later upgrades leave that state alone. The service skips startup when the app exposes no version-2 port.
 
 ## Protocol 2
 
