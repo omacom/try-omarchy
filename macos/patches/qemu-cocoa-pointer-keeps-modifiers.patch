@@ -1,0 +1,84 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: keep held modifiers when the pointer moves
+
+Applies after the Korean Caps Lock patch.
+
+The modifier sync at the top of handleEventLocked: runs for every event and
+releases each guest modifier whose flag the event lacks. A pointer event that
+arrives within a few milliseconds of a modifier press can lack that modifier.
+With an external keyboard and mouse, wired or Bluetooth, that first pointer
+motion released Shift, Control or Option in the guest while the key was still
+held, so Shift+click, Shift+drag and Control+click did not work, and sometimes
+the press was never seen at all.
+
+Release modifiers only from keyboard events (key down, key up and flags
+changed), which carry the state of the keyboard that produced them. A
+modifier released while the window is not key is still released by
+raiseAllKeys when focus is lost.
+
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -1919,49 +1919,58 @@
+      *   completely leaving your hands from the keyboard, which hopefully makes
+      *   this implementation usable enough.
+      */
+     cocoa_caps_lock_send_input_source(caps_lock_action);
+     if (caps_lock_action & COCOA_CAPS_LOCK_TOGGLE) {
+         qkbd_state_key_event(kbd, KEY_CAPSLOCK, true);
+         qkbd_state_key_event(kbd, KEY_CAPSLOCK, false);
+         if (follow_mode) {
+             cocoa_caps_lock_sent_ms = cocoa_monotonic_ms();
+         }
+     }
+ 
+-    if (!(modifiers & NSEventModifierFlagShift)) {
++    /*
++     * A pointer event that arrives within a few milliseconds of a modifier
++     * press can lack that modifier, and would release it in the guest while
++     * the key is still down. Only keyboard events say which modifiers are
++     * held.
++     */
++    bool keyboard_event = flags_changed || event_type == NSEventTypeKeyDown ||
++                          event_type == NSEventTypeKeyUp;
++
++    if (keyboard_event && !(modifiers & NSEventModifierFlagShift)) {
+         qkbd_state_key_event(kbd, KEY_LEFTSHIFT, false);
+         qkbd_state_key_event(kbd, KEY_RIGHTSHIFT, false);
+     }
+-    if (!(modifiers & NSEventModifierFlagControl)) {
++    if (keyboard_event && !(modifiers & NSEventModifierFlagControl)) {
+         qkbd_state_key_event(kbd, KEY_LEFTCTRL, false);
+         qkbd_state_key_event(kbd, KEY_RIGHTCTRL, false);
+     }
+-    if (!(modifiers & NSEventModifierFlagOption)) {
++    if (keyboard_event && !(modifiers & NSEventModifierFlagOption)) {
+         if (swap_opt_cmd) {
+             qkbd_state_key_event(kbd, KEY_LEFTMETA, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTMETA, false);
+         } else {
+             qkbd_state_key_event(kbd, KEY_LEFTALT, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTALT, false);
+         }
+     }
+     /*
+      * While the keyboard is captured, the HID tap consumes Command's
+      * flagsChanged before AppKit records it, so the next key can arrive
+      * without NSEventModifierFlagCommand. Releasing guest Super here would
+      * split every Command chord into Super down, Super up, key. Command's
+      * own flagsChanged below releases it instead.
+      */
+-    if (!(modifiers & NSEventModifierFlagCommand) &&
++    if (keyboard_event && !(modifiers & NSEventModifierFlagCommand) &&
+         !([self isKeyboardCaptured] &&
+           (leftCommandGuestDown || rightCommandGuestDown))) {
+         if (swap_opt_cmd) {
+             qkbd_state_key_event(kbd, KEY_LEFTALT, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTALT, false);
+         } else {
+             qkbd_state_key_event(kbd, KEY_LEFTMETA, false);
+             qkbd_state_key_event(kbd, KEY_RIGHTMETA, false);
+         }
+         leftCommandGuestDown = NO;
+         rightCommandGuestDown = NO;
+     }
