@@ -82,6 +82,19 @@ class CocoaMultiDisplayTests(unittest.TestCase):
                       "    if ([self usesImmersivePointerTracking]) {\n        return isMouseGrabbed;", added)
         self.assertEqual(added.count("    [view updatePointerTracking];"), 2)
         self.assertIn("    if (!pointerFollowsDisplays) {\n        [view ungrabMouse];", added)
+        # Pinch, two-finger scroll and the input source go with the keyboard,
+        # which any of the VM's windows may hold in immersive full screen.
+        self.assertIn("- (bool) vmHasTheKeyboard\n{\n    return [[self window] isKeyWindow] ||\n"
+                      "           ([self usesImmersivePointerTracking] && cocoa_head_window_is_key());", added)
+        self.assertEqual(added.count("                    [self vmHasTheKeyboard] &&"), 2)
+        self.assertEqual(removed.count("                    [[self window] isKeyWindow] &&"), 2)
+        self.assertIn("    bool active = [NSApp isActive] && cocoa_head_window_is_key();", added)
+        self.assertIn("    bool active = [NSApp isActive] && [[self window] isKeyWindow];", removed)
+        # Once no window of the VM is key, every display's gesture ends with
+        # the keys, not the first display's alone.
+        self.assertIn("            for (unsigned i = 0; i < head_count; i++) {\n"
+                      "                [heads[i].view raiseAllKeys];", added)
+        self.assertNotIn("[heads[0].view raiseAllKeys];", added)
 
     def test_layout_and_gpu_id_are_the_launchers(self) -> None:
         added = "\n".join(patch_lines("+"))

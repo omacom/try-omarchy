@@ -21,7 +21,7 @@ A window, the launcher's **All Displays** setting off, one display, or macOS wit
 
 ## One keyboard, one pointer
 
-The input devices stay as they were: one keyboard, one absolute tablet, one pinch touchpad. Keys go to the first head's view, which keeps the keyboard state for all of them. The pointer is placed on the guest desktop from where it falls on its window's output, in screen coordinates, so a drag that leaves a window or crosses to the next display keeps its button. Gestures and wheels go to the window under them. In full screen the pointer belongs to the window it is over, key or not, so hovering and the first click on another display reach the guest without a click to choose the window first; the keyboard moving between the VM's windows does not let go of the pointer's buttons.
+The input devices stay as they were: one keyboard, one absolute tablet, one pinch touchpad. Keys go to the first head's view, which keeps the keyboard state for all of them. The pointer is placed on the guest desktop from where it falls on its window's output, in screen coordinates, so a drag that leaves a window or crosses to the next display keeps its button. Gestures and wheels go to the window under them. In full screen the pointer, a pinch and a two-finger scroll belong to the window they are over, key or not, so hovering, the first click and a gesture on another display reach the guest without a click to choose the window first; the keyboard moving between the VM's windows does not let go of the pointer's buttons, and a change of the Mac's input source reaches Omarchy whichever of its windows has the keyboard.
 
 ## The desktop joins the other displays
 

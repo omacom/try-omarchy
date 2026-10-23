@@ -233,7 +233,7 @@
      QEMUScreen screen;
      /* The state surrounding mouse grabbing is potentially confusing.
       * isAbsoluteEnabled tracks qemu_input_is_absolute() [ie "is the emulated
-@@ -778,9 +826,12 @@
+@@ -778,9 +826,13 @@
      BOOL leftCommandGuestDown;
      BOOL rightCommandGuestDown;
  }
@@ -243,10 +243,11 @@
  - (void) updateNotchReveal;
 +- (bool) usesImmersivePointerTracking;
 +- (void) updatePointerTracking;
++- (bool) vmHasTheKeyboard;
  - (void) setNotchLeaving:(bool)leaving;
  - (void) setMenuTracking:(bool)tracking;
  - (void) grabMouse;
-@@ -807,11 +858,98 @@
+@@ -807,11 +859,98 @@
  QemuCocoaView *cocoaView;
  static VMChangeStateEntry *pinch_vm_change;
  
@@ -347,7 +348,7 @@
  }
  
  
-@@ -860,15 +998,17 @@
+@@ -860,15 +999,17 @@
  static void cocoa_touchpad_send(bool down, const int x[2], int y,
                                  const int id[2])
  {
@@ -368,7 +369,7 @@
                                      COCOA_PINCH_AXIS_MAX, slot, id[slot]);
          }
      }
-@@ -970,6 +1110,20 @@
+@@ -970,6 +1111,20 @@
   */
  static BOOL (*cocoa_reserves_menu_bar)(id, SEL);
  
@@ -389,7 +390,7 @@
  static BOOL cocoa_notch_reserves_menu_bar(id self, SEL cmd)
  {
      BOOL reserves = cocoa_reserves_menu_bar(self, cmd);
-@@ -983,7 +1137,7 @@
+@@ -983,7 +1138,7 @@
              boolForKey:@"AppleMenuBarVisibleInFullscreen"]) {
          return reserves;
      }
@@ -398,7 +399,7 @@
  }
  
  static void cocoa_notch_hook_install(void)
-@@ -1010,25 +1164,15 @@
+@@ -1010,25 +1165,15 @@
  #ifdef CONFIG_OPENGL
                  cgl:(BOOL)cgl
  #endif
@@ -427,7 +428,7 @@
          /* The frame is in points; the guest's size is in pixels. */
          CGFloat initialScale = MAX(1, [[NSScreen mainScreen] backingScaleFactor]);
          screen.width = frameRect.size.width * initialScale;
-@@ -1040,6 +1184,7 @@
+@@ -1040,6 +1185,7 @@
          [self setWantsLayer:YES];
          if (cgl) {
              QemuCGLLayer *layer = [[QemuCGLLayer alloc] init];
@@ -435,7 +436,7 @@
              [self setLayer:layer];
              [layer release];
          }
-@@ -1071,6 +1216,11 @@
+@@ -1071,6 +1217,11 @@
      return YES;
  }
  
@@ -447,7 +448,7 @@
  #ifdef CONFIG_OPENGL
  - (BOOL)wantsUpdateLayer
  {
-@@ -1086,13 +1236,14 @@
+@@ -1086,13 +1237,14 @@
  - (void) selectConsoleLocked:(unsigned int)index
  {
      QemuConsole *con = qemu_console_lookup_by_index(index);
@@ -465,7 +466,7 @@
      [self notifyMouseModeChange];
      [self updateUIInfo];
  }
-@@ -1198,6 +1349,7 @@
+@@ -1198,6 +1350,7 @@
      // get CoreGraphic context
      CGContextRef viewContextRef = [[NSGraphicsContext currentContext] CGContext];
      BQL_LOCK_GUARD();
@@ -473,7 +474,7 @@
  
      CGContextSetInterpolationQuality(viewContextRef,
                                       zoom_interpolation ? kCGInterpolationLow :
-@@ -1302,17 +1454,19 @@
+@@ -1302,17 +1455,19 @@
  /*
   * The menu bar's black strip (window level 24) covers the camera strip of a
   * full-screen window. Raise the window just above it while it covers the
@@ -499,7 +500,7 @@
      NSWindowLevel level = raised ? NSStatusWindowLevel : NSNormalWindowLevel;
  
      if ([window level] != level) {
-@@ -1468,7 +1622,10 @@
+@@ -1468,7 +1623,10 @@
      NSSize frameSize;
      QemuUIInfo info = { 0 };
  
@@ -511,7 +512,7 @@
          return;
      }
  
-@@ -1501,7 +1658,7 @@
+@@ -1501,7 +1659,7 @@
          }
  
          if (refreshRate) {
@@ -520,7 +521,7 @@
                                                MAX(1u, 1000000u / refreshRate));
              info.refresh_rate = refreshRate;
          }
-@@ -1524,6 +1681,7 @@
+@@ -1524,6 +1682,7 @@
  
      info.xoff = 0;
      info.yoff = 0;
@@ -528,7 +529,7 @@
      NSSize backingFrameSize = [self convertSizeToBacking:frameSize];
      CGFloat backingScale = [[self window] backingScaleFactor];
      /* Keep the corresponding Hyprland logical dimensions integral. */
-@@ -1536,7 +1694,7 @@
+@@ -1536,7 +1695,7 @@
                        (uint32_t)backingFrameSize.height / cleanScaleDivisor *
                            cleanScaleDivisor);
  
@@ -537,7 +538,7 @@
  }
  
  #pragma clang diagnostic pop
-@@ -1679,7 +1837,7 @@
+@@ -1679,7 +1838,7 @@
      }
  
      if (keysym) {
@@ -546,25 +547,31 @@
          qemu_text_console_put_keysym(con, keysym);
      }
  }
-@@ -1702,7 +1860,7 @@
+@@ -1700,9 +1859,9 @@
+     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+     unsigned action = 0;
      bool eligible = [event window] == [self window] &&
-                     [[self window] isKeyWindow] &&
+-                    [[self window] isKeyWindow] &&
++                    [self vmHasTheKeyboard] &&
                      NSPointInRect(point, [self bounds]) &&
 -                    qemu_console_is_graphic(dcl.con) &&
 +                    qemu_console_is_graphic(head->dcl.con) &&
                      runstate_is_running();
  
      if (phase & NSEventPhaseBegan) {
-@@ -1737,7 +1895,7 @@
+@@ -1735,9 +1894,9 @@
+     unsigned action = 0;
+     bool eligible = [event hasPreciseScrollingDeltas] &&
                      [event window] == [self window] &&
-                     [[self window] isKeyWindow] &&
+-                    [[self window] isKeyWindow] &&
++                    [self vmHasTheKeyboard] &&
                      NSPointInRect(point, [self bounds]) &&
 -                    qemu_console_is_graphic(dcl.con) &&
 +                    qemu_console_is_graphic(head->dcl.con) &&
                      runstate_is_running();
  
      if (phase & NSEventPhaseBegan) {
-@@ -1987,7 +2145,7 @@
+@@ -1987,7 +2146,7 @@
          rightCommandGuestDown = NO;
      }
  
@@ -573,7 +580,7 @@
          return true;
      }
  
-@@ -2095,7 +2253,7 @@
+@@ -2095,7 +2254,7 @@
                  }
              }
  
@@ -582,7 +589,7 @@
                  qkbd_state_key_event(kbd, keycode, true);
              } else {
                  [self handleMonitorInput: event];
-@@ -2111,7 +2269,7 @@
+@@ -2111,7 +2270,7 @@
                  return true;
              }
  
@@ -591,7 +598,7 @@
                  qkbd_state_key_event(kbd, keycode, false);
              }
              return true;
-@@ -2142,10 +2300,10 @@
+@@ -2142,10 +2301,10 @@
                                              [event scrollingDeltaY]);
                  /* Cocoa's positive X means left; Linux REL_HWHEEL is right. */
                  if (frame.x) {
@@ -604,7 +611,7 @@
                  }
                  if (frame.x || frame.y) {
                      qemu_input_event_sync();
-@@ -2168,9 +2326,9 @@
+@@ -2168,9 +2327,9 @@
                  return true;
              }
  
@@ -616,7 +623,7 @@
              qemu_input_event_sync();
  
              return true;
-@@ -2186,7 +2344,7 @@
+@@ -2186,7 +2345,7 @@
      }
  
      with_bql(^{
@@ -625,7 +632,7 @@
      });
  
      [self handleMouseEvent:event];
-@@ -2201,21 +2359,39 @@
+@@ -2201,21 +2360,39 @@
      with_bql(^{
          if (isAbsoluteEnabled) {
              /*
@@ -677,7 +684,7 @@
          }
  
          qemu_input_event_sync();
-@@ -2236,6 +2412,57 @@
+@@ -2236,6 +2413,68 @@
      }
  }
  
@@ -691,6 +698,17 @@
 +{
 +    return immersive_mode_enabled &&
 +           ([[self window] styleMask] & NSWindowStyleMaskFullScreen) != 0;
++}
++
++/*
++ * Gestures follow the keyboard, which is one for all of the VM's windows: in
++ * immersive full screen the window under the pointer takes them while any of
++ * them is key, as it takes the pointer.
++ */
++- (bool) vmHasTheKeyboard
++{
++    return [[self window] isKeyWindow] ||
++           ([self usesImmersivePointerTracking] && cocoa_head_window_is_key());
 +}
 +
 +- (void) updatePointerTracking
@@ -735,7 +753,7 @@
  - (void) mouseMoved:(NSEvent *)event
  {
      [self updateNotchReveal];
-@@ -2321,7 +2548,7 @@
+@@ -2321,7 +2560,7 @@
  
  - (void) notifyMouseModeChange {
      bool tIsAbsoluteEnabled = bool_with_bql(^{
@@ -744,7 +762,7 @@
      });
  
      if (tIsAbsoluteEnabled == isAbsoluteEnabled) {
-@@ -2357,7 +2584,8 @@
+@@ -2357,7 +2596,8 @@
      NSRunningApplication *frontmost =
          [[NSWorkspace sharedWorkspace] frontmostApplication];
      pid_t foregroundPID = frontmost ? [frontmost processIdentifier] : -1;
@@ -754,7 +772,16 @@
      BOOL captured = foregroundPID == getpid() && keyWindow &&
                      (isMouseGrabbed || full_grab_enabled);
  
-@@ -2436,9 +2664,9 @@
+@@ -2389,7 +2629,7 @@
+ - (void) capsLockInputSourceChanged
+ {
+     bool input_method = cocoa_input_source_is_input_method();
+-    bool active = [NSApp isActive] && [[self window] isKeyWindow];
++    bool active = [NSApp isActive] && cocoa_head_window_is_key();
+ 
+     with_bql(^{
+         int sent = cocoa_caps_lock_input_source(&cocoa_caps_lock_state,
+@@ -2436,9 +2676,9 @@
  - (void) raiseAllButtons
  {
      with_bql(^{
@@ -767,7 +794,7 @@
      });
  }
  @end
-@@ -2472,9 +2700,8 @@
+@@ -2472,9 +2712,8 @@
  - (void)adjustSpeed:(id)sender;
  @end
  
@@ -778,7 +805,7 @@
      if (!hostScreen) {
          return NSMakeRect(0.0, 0.0, 1280.0, 720.0);
      }
-@@ -2502,18 +2729,20 @@
+@@ -2502,18 +2741,20 @@
  
      self = [super init];
      if (self) {
@@ -802,7 +829,7 @@
  
          // create a window
          window = [[NSWindow alloc] initWithContentRect:frame
-@@ -2529,9 +2758,15 @@
+@@ -2529,9 +2770,15 @@
              ? [NSString stringWithUTF8String:qemu_name]
              : @"QEMU"];
          [window setContentView:cocoaView];
@@ -819,7 +846,7 @@
  
          /* Used for displaying pause on the screen */
          pauseLabel = [NSTextField new];
-@@ -2558,12 +2793,16 @@
+@@ -2558,12 +2805,16 @@
  
  - (void)menuDidBeginTracking:(NSNotification *)notification
  {
@@ -838,7 +865,7 @@
  }
  
  - (void) dealloc
-@@ -2579,6 +2818,10 @@
+@@ -2579,6 +2830,10 @@
  {
      COCOA_DEBUG("QemuCocoaAppController: applicationDidFinishLaunching\n");
      allow_events = true;
@@ -849,7 +876,7 @@
  }
  
  - (void)applicationWillTerminate:(NSNotification *)aNotification
-@@ -2610,63 +2853,106 @@
+@@ -2610,63 +2865,106 @@
      return [self verifyQuit];
  }
  
@@ -977,7 +1004,7 @@
  }
  
  /* Called when the user clicks on a window's close button */
-@@ -2702,18 +2988,47 @@
+@@ -2702,18 +3000,49 @@
   */
  - (void) windowDidResignKey: (NSNotification *)aNotification
  {
@@ -1009,7 +1036,9 @@
 +                    qemu_input_event_sync();
 +                });
 +            }
-+            [heads[0].view raiseAllKeys];
++            for (unsigned i = 0; i < head_count; i++) {
++                [heads[i].view raiseAllKeys];
++            }
 +        }
 +        for (unsigned i = 0; i < head_count; i++) {
 +            [heads[i].view updateNotchLevel];
@@ -1031,7 +1060,7 @@
  }
  
  
-@@ -2723,7 +3038,10 @@
+@@ -2723,7 +3052,10 @@
   */
  - (void) doToggleFullScreen:(id)sender
  {
@@ -1043,7 +1072,7 @@
  }
  
  - (void) setFullGrab:(id)sender
-@@ -2772,9 +3090,13 @@
+@@ -2772,9 +3104,13 @@
  {
      NSWindowStyleMask styleMask = [[cocoaView window] styleMask] ^ NSWindowStyleMaskResizable;
  
@@ -1059,7 +1088,7 @@
  }
  
  - (void)toggleZoomInterpolation:(id) sender
-@@ -2990,6 +3312,8 @@
+@@ -2990,6 +3326,8 @@
  @implementation QemuApplication
  - (void)sendEvent:(NSEvent *)event
  {
@@ -1068,7 +1097,7 @@
      COCOA_DEBUG("QemuApplication: sendEvent\n");
      if (cocoa_caps_lock_key_event(event)) {
          /*
-@@ -3002,7 +3326,19 @@
+@@ -3002,7 +3340,19 @@
          [super sendEvent:event];
          return;
      }
@@ -1089,7 +1118,7 @@
          [super sendEvent: event];
      }
  }
-@@ -3192,7 +3528,9 @@
+@@ -3192,7 +3542,9 @@
  static void cocoa_mouse_mode_change_notify(Notifier *notifier, void *data)
  {
      dispatch_async(dispatch_get_main_queue(), ^{
@@ -1100,7 +1129,7 @@
      });
  }
  
-@@ -3342,28 +3680,31 @@
+@@ -3342,28 +3694,31 @@
  static void cocoa_update(DisplayChangeListener *dcl,
                           int x, int y, int w, int h)
  {
@@ -1138,7 +1167,7 @@
      });
  }
  
-@@ -3374,7 +3715,9 @@
+@@ -3374,7 +3729,9 @@
      COCOA_DEBUG("qemu_cocoa: cocoa_refresh\n");
      qemu_console_hw_update(dcl->con);
  
@@ -1149,7 +1178,7 @@
          qemu_clipboard_info_unref(cbinfo);
          cbinfo = qemu_clipboard_info_new(&cbpeer, QEMU_CLIPBOARD_SELECTION_CLIPBOARD);
          if ([[NSPasteboard generalPasteboard] availableTypeFromArray:@[NSPasteboardTypeString]]) {
-@@ -3390,16 +3733,20 @@
+@@ -3390,16 +3747,20 @@
  
  static void cocoa_mouse_set(DisplayChangeListener *dcl, int x, int y, bool on)
  {
@@ -1172,7 +1201,7 @@
      });
  }
  
-@@ -3492,7 +3839,7 @@
+@@ -3492,7 +3853,7 @@
      }
  #endif
  
@@ -1181,7 +1210,7 @@
      format = cocoa_gl_create_cgl_pixel_format(bpp);
      CGLCreateContext(format, gl_view_ctx, &ctx);
      CGLDestroyPixelFormat(format);
-@@ -3515,33 +3862,39 @@
+@@ -3515,33 +3876,39 @@
  static void cocoa_gl_update(DisplayChangeListener *dcl,
                              int x, int y, int w, int h)
  {
@@ -1230,7 +1259,7 @@
                       filter == GL_LINEAR ? "linear" : "nearest");
          if (cocoa_gl_trace_clear) {
              glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
-@@ -3567,8 +3920,8 @@
+@@ -3567,8 +3934,8 @@
          }
      }
  
@@ -1241,7 +1270,7 @@
  
          if (cocoa_gl_trace_enabled()) {
              GLint fb = 0;
-@@ -3621,25 +3974,27 @@
+@@ -3621,25 +3988,27 @@
      }
  
      /* Clear dirty flag after render completes to ensure clean handoff */
@@ -1274,7 +1303,7 @@
                  eglSwapBuffers(qemu_egl_display, egl_surface);
                  cocoa_gl_log_error("eglSwapBuffers");
              });
-@@ -3649,17 +4004,19 @@
+@@ -3649,17 +4018,19 @@
  #endif
  
          dispatch_async(dispatch_get_main_queue(), ^{
@@ -1298,7 +1327,7 @@
  }
  
  static void cocoa_gl_scanout_texture(DisplayChangeListener *dcl,
-@@ -3668,21 +4025,61 @@
+@@ -3668,21 +4039,61 @@
                                       uint32_t x, uint32_t y,
                                       uint32_t w, uint32_t h)
  {
@@ -1319,9 +1348,7 @@
 +                                     const char *name)
 +{
 +    QemuCocoaHead *head = cocoa_head_of(dcl);
- 
--    cocoa_gl_log("scanout texture id=%u region=%ux%u+%u+%u",
--                 backing_id, w, h, x, y);
++
 +    if (head->index != 0 || head_count < 2 || secondary_heads_enabled) {
 +        return;
 +    }
@@ -1344,7 +1371,9 @@
 +    secondary_heads_enabled = false;
 +    for (unsigned i = 1; i < head_count; i++) {
 +        QemuUIInfo info = { 0 };
-+
+ 
+-    cocoa_gl_log("scanout texture id=%u region=%ux%u+%u+%u",
+-                 backing_id, w, h, x, y);
 +        heads[i].logicalSize = NSZeroSize;
 +        qemu_console_set_ui_info(heads[i].dcl.con, &info, false);
 +    }
@@ -1367,7 +1396,7 @@
  }
  
  static const DisplayChangeListenerOps dcl_gl_ops = {
-@@ -3697,6 +4094,7 @@
+@@ -3697,6 +4108,7 @@
      .dpy_gl_scanout_disable = cocoa_gl_scanout_disable,
      .dpy_gl_scanout_texture = cocoa_gl_scanout_texture,
      .dpy_gl_update          = cocoa_gl_scanout_flush,
@@ -1375,7 +1404,7 @@
  };
  
  static bool cocoa_gl_is_compatible_dcl(DisplayGLCtx *dgc,
-@@ -3739,6 +4137,148 @@
+@@ -3739,6 +4151,148 @@
      }
  }
  
@@ -1524,7 +1553,7 @@
  static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
  {
      NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
-@@ -3755,9 +4295,12 @@
+@@ -3755,9 +4309,12 @@
      [QemuApplication sharedApplication];
      cocoa_set_product_icon();
  
@@ -1540,7 +1569,7 @@
  
      // Create an Application controller
  #ifdef CONFIG_OPENGL
-@@ -3801,7 +4344,7 @@
+@@ -3801,7 +4358,7 @@
          }
  
          dgc.gls = qemu_gl_init_shader();
@@ -1549,7 +1578,7 @@
  
          for (unsigned int index = 0; ; index++) {
              QemuConsole *con = qemu_console_lookup_by_index(index);
-@@ -3816,23 +4359,24 @@
+@@ -3816,23 +4373,24 @@
          exit(1);
  #endif
      } else {
@@ -1578,7 +1607,7 @@
      }
      if (full_grab_enabled) {
          [controller setFullGrab: nil];
-@@ -3850,7 +4394,9 @@
+@@ -3850,7 +4408,9 @@
      }
  
      if (opts->u.cocoa.has_zoom_to_fit && opts->u.cocoa.zoom_to_fit) {
@@ -1589,7 +1618,7 @@
      }
  
      zoom_interpolation = opts->u.cocoa.has_zoom_interpolation &&
-@@ -3867,12 +4413,20 @@
+@@ -3867,12 +4427,20 @@
      add_console_menu_entries();
      addRemovableDevicesMenuItems();
  
@@ -1615,7 +1644,7 @@
      qemu_register_reset(cocoa_caps_lock_reset, NULL);
      if (cocoa_caps_lock_follows_input_source()) {
          qemu_input_led_notifier_add(&cocoa_guest_leds_notifier);
-@@ -3913,7 +4467,10 @@
+@@ -3913,7 +4481,10 @@
          return;
      }
  
