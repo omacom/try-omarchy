@@ -213,11 +213,13 @@ class FIDOSetup(unittest.TestCase):
             write.assert_not_called()
             self.assertEqual([call.args[0] for call in close.call_args_list], [12, 11])
 
-    def test_upgrade_presets_only_a_new_fido_unit_and_preserves_existing_choices(self):
+    def test_upgrade_activates_updated_fido_helper_without_changing_enablement(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             calls = root / "calls"
             state_file = root / "state"
+            installed_helper = root / "installed-helper"
+            running_helper = root / "running-helper"
             unit_file = root / "fido.service"
             runtime = root / "run"
             marker = runtime / "fido-unit-present"
@@ -225,6 +227,8 @@ class FIDOSetup(unittest.TestCase):
                 "#!/bin/bash\nprintf \"%s\\n\" \"$*\" >>\"$FIDO_TEST_CALLS\"\n"
                 "if [[ $1 == preset ]]; then\n"
                 "  [[ $(cat \"$FIDO_TEST_STATE_FILE\") == masked ]] || echo enabled >\"$FIDO_TEST_STATE_FILE\"\n"
+                "elif [[ $1 == restart ]]; then cp \"$FIDO_TEST_INSTALLED_HELPER\" \"$FIDO_TEST_RUNNING_HELPER\";\n"
+                "elif [[ $1 == stop ]]; then : >\"$FIDO_TEST_RUNNING_HELPER\";\n"
                 "elif [[ $1 == is-enabled ]]; then cat \"$FIDO_TEST_STATE_FILE\";\n"
                 "elif [[ $1 == --global && $2 == is-enabled ]]; then echo disabled; fi\nexit 0\n")
             (root / "vercmp").write_text(
@@ -238,44 +242,55 @@ class FIDOSetup(unittest.TestCase):
             install = root / "install"
             install.write_text(source)
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
-                   "FIDO_TEST_CALLS": str(calls), "FIDO_TEST_STATE_FILE": str(state_file)}
-            for old in ("0.1.0-30", "0.1.0-32", "0.1.0-33", "0.1.0-34", "0.1.0-35"):
+                   "FIDO_TEST_CALLS": str(calls), "FIDO_TEST_STATE_FILE": str(state_file),
+                   "FIDO_TEST_INSTALLED_HELPER": str(installed_helper),
+                   "FIDO_TEST_RUNNING_HELPER": str(running_helper)}
+            upgrades = [(36, old) for old in (30, 32, 33, 34, 35, 36)] + [(37, 36), (37, 37)]
+            for new_release, old_release in upgrades:
+                new, old = f"0.1.0-{new_release}", f"0.1.0-{old_release}"
                 for present in (False, True):
                     for state in ("enabled", "disabled", "masked"):
-                        with self.subTest(old=old, present=present, state=state):
+                        with self.subTest(new=new, old=old, present=present, state=state):
                             calls.write_text("")
                             state_file.write_text(state)
+                            installed_helper.write_text(old)
+                            running_helper.write_text(old)
                             unit_file.unlink(missing_ok=True)
                             marker.unlink(missing_ok=True)
                             if present:
                                 unit_file.touch()
-                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; declare -F pre_upgrade >/dev/null && pre_upgrade 0.1.0-35 \"$2\"; :",
-                                            "bash", str(install), old], check=True, capture_output=True, env=env)
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; declare -F pre_upgrade >/dev/null && pre_upgrade \"$2\" \"$3\"; :",
+                                            "bash", str(install), new, old], check=True, capture_output=True, env=env)
                             unit_file.touch()
-                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; post_upgrade 0.1.0-35 \"$2\"",
-                                            "bash", str(install), old], check=True, capture_output=True, env=env)
+                            installed_helper.write_text(new)
+                            subprocess.run(["/bin/bash", "-c", "source \"$1\"; post_upgrade \"$2\" \"$3\"",
+                                            "bash", str(install), new, old], check=True, capture_output=True, env=env)
                             fido_calls = [line for line in calls.read_text().splitlines()
                                           if "omarchy-native-fido-bridge.service" in line]
                             expected = []
                             final_state = state
-                            if int(old.rsplit("-", 1)[1]) < 35:
-                                if not present:
+                            final_helper = old
+                            if old_release < 36:
+                                if old_release < 35 and not present:
                                     expected.append("preset omarchy-native-fido-bridge.service")
                                     if state != "masked":
                                         final_state = "enabled"
                                 expected.append("is-enabled omarchy-native-fido-bridge.service")
                                 if final_state == "enabled":
                                     expected.append("restart --no-block omarchy-native-fido-bridge.service")
+                                    final_helper = new
                                 else:
                                     expected.append("stop --no-block omarchy-native-fido-bridge.service")
+                                    final_helper = ""
+                            self.assertEqual(state_file.read_text().strip(), final_state)
+                            self.assertEqual(running_helper.read_text(), final_helper)
                             self.assertEqual(fido_calls, expected)
                             operations = calls.read_text().splitlines()
-                            if int(old.rsplit("-", 1)[1]) < 35:
+                            if old_release < 36:
                                 self.assertLess(operations.index("daemon-reload"),
                                                 operations.index(fido_calls[0]))
                             else:
                                 self.assertNotIn("daemon-reload", operations)
-                            self.assertEqual(state_file.read_text().strip(), final_state)
                             self.assertFalse(marker.exists())
 
     def test_fido_service_requires_its_optional_port_before_loading_uhid_or_starting(self):
