@@ -55,6 +55,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let notchAvailable: () -> Bool
     private let usesNotch: () -> Bool
     private let setUsesNotch: (Bool) -> Void
+    private let keyboardRouting: () -> KeyboardRoutingPreferences
+    private let saveKeyboardRouting: (KeyboardRoutingPreferences) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
@@ -87,6 +89,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             && !state.permissionRequestInFlight && !state.permissionPromptPresented
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
+            && keyboardRoutingEditor == nil
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -108,6 +111,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var storageEditor: VMStorageEditor? {
         didSet { state.storageEditorOpen = storageEditor != nil }
     }
+    private(set) var keyboardRoutingEditor: KeyboardRoutingEditor?
 
     init(
         accessibilityStatus: @escaping () -> Bool,
@@ -150,6 +154,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
+        saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
@@ -206,6 +212,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.notchAvailable = notchAvailable
         self.usesNotch = usesNotch
         self.setUsesNotch = setUsesNotch
+        self.keyboardRouting = keyboardRouting
+        self.saveKeyboardRouting = saveKeyboardRouting
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
@@ -284,6 +292,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             openStorageLocation: { [weak self] in self?.openStorageLocation() },
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
+            configureKeyboard: { [weak self] in self?.beginKeyboardConfiguration() },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
             resetSettings: { [weak self] in self?.confirmSettingsReset() },
             restart: { [weak self] in self?.requestShutdown(.restart) },
@@ -427,6 +436,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resourceEditor = nil
         storageEditor?.dismiss()
         storageEditor = nil
+        keyboardRoutingEditor?.dismiss()
+        keyboardRoutingEditor = nil
         window.orderOut(nil)
     }
 
@@ -560,6 +571,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.immersive = immersiveMode()
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
+        let routing = keyboardRouting()
+        state.keyboardRouting = StartMenuPresentation.keyboardRouting(routing)
+        state.keyboardRoutingIsDefault = routing == .defaults
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
     }
@@ -797,6 +811,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         editor.beginSheet(for: window)
     }
 
+    private func beginKeyboardConfiguration() {
+        guard !controlsBusy, !state.permissionRequestInFlight,
+              keyboardRoutingEditor == nil, window.attachedSheet == nil else { return }
+        let editor = KeyboardRoutingEditor(
+            preferences: keyboardRouting(),
+            save: { [weak self] preferences in self?.saveKeyboardRouting(preferences) },
+            didClose: { [weak self] in
+                self?.keyboardRoutingEditor = nil
+                self?.refresh()
+            }
+        )
+        keyboardRoutingEditor = editor
+        editor.beginSheet(for: window)
+    }
+
     func changeImmersiveMode(_ isEnabled: Bool) {
         guard !controlsBusy else { return }
         setImmersiveMode(isEnabled)
@@ -835,8 +864,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
         alert.informativeText = state.runsInAnotherApp
-            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, and Camera Notch return to their defaults. Your VM and its files are not changed."
-            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, and Skip Launcher return to their defaults. Your VM and its files are not changed."
+            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, Camera Notch, and Keyboard return to their defaults. Your VM and its files are not changed."
+            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, Keyboard, and Skip Launcher return to their defaults. Your VM and its files are not changed."
         let reset = alert.addButton(withTitle: "Reset Settings")
         reset.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")

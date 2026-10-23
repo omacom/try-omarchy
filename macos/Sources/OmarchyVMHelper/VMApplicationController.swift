@@ -56,6 +56,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let portForwardingStore: PortForwardingPreferenceStore
     private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
+    private let keyboardRoutingPreferenceStore: KeyboardRoutingPreferenceStore
     private let startupPreferenceStore: StartupPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
@@ -127,6 +128,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.portForwardingStore = PortForwardingPreferenceStore(storage: vmSettings)
         self.networkStore = VMNetworkPreferenceStore(storage: vmSettings)
         self.fullscreenPreferenceStore = FullscreenPreferenceStore(storage: vmSettings)
+        self.keyboardRoutingPreferenceStore = KeyboardRoutingPreferenceStore(storage: vmSettings)
         self.startupPreferenceStore = startupPreferenceStore
         self.resourcePreferenceStore = VMResourcePreferenceStore(storage: vmSettings)
         self.resourceLimits = resourceLimits
@@ -334,6 +336,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 preferences.usesNotch = usesNotch
                 store.save(preferences)
             },
+            keyboardRouting: { [weak self] in
+                self?.keyboardRoutingPreferenceStore.load() ?? .defaults
+            },
+            saveKeyboardRouting: { [weak self] preferences in
+                self?.keyboardRoutingPreferenceStore.save(preferences)
+            },
             startAutomatically: { [weak self] in
                 guard let self else { return false }
                 return self.startupPreferenceStore.load(storageRoot: self.startupPreferenceRoot())
@@ -474,6 +482,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         try? portForwardingStore.save([])
         try? networkStore.save(VMNetworkPreferences())
         fullscreenPreferenceStore.save(.defaults)
+        keyboardRoutingPreferenceStore.save(.defaults)
         resourcePreferenceStore.clear()
         if let root = startupPreferenceRoot() {
             try? startupPreferenceStore.save(false, storageRoot: root)
@@ -595,8 +604,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             baseEnvironment: forwarding.environment,
             preferences: fullscreenPreferenceStore.load()
         )
-        let resources = VMResourceLaunchConfiguration.make(
+        let keyboard = KeyboardRoutingLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
+            preferences: keyboardRoutingPreferenceStore.load()
+        )
+        let resources = VMResourceLaunchConfiguration.make(
+            baseEnvironment: keyboard.environment,
             preferences: resolvedResources(),
             limits: resourceLimits
         )

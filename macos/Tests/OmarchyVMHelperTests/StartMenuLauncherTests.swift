@@ -204,6 +204,34 @@ struct StartMenuLauncherTests {
         #expect(!notched.state.usesNotch)
     }
 
+    @Test("the keyboard setting shows the routing and Configure saves a new choice")
+    func keyboardRoutingSetting() throws {
+        _ = NSApplication.shared
+        var stored = KeyboardRoutingPreferences.defaults
+        let menu = makeMenu(keyboardRouting: { stored }, saveKeyboardRouting: { stored = $0 })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        #expect(menu.state.keyboardRoutingIsDefault)
+        #expect(menu.state.keyboardRouting == StartMenuPresentation.keyboardRouting(.defaults))
+
+        menu.actions.configureKeyboard()
+        let editor = try #require(menu.keyboardRoutingEditor)
+        func control(_ name: String, in view: NSView) -> NSView? {
+            if view.identifier?.rawValue == "keyboard-routing-\(name)" { return view }
+            return view.subviews.lazy.compactMap { control(name, in: $0) }.first
+        }
+        let content = try #require(editor.window.contentView)
+        let spotlight = try #require(control("spotlight", in: content) as? NSPopUpButton)
+        spotlight.selectItem(withTag: 1)
+        let save = try #require(control("save", in: content) as? NSButton)
+        save.performClick(nil)
+
+        #expect(stored.spotlight == .omarchy)
+        #expect(menu.keyboardRoutingEditor == nil)
+        #expect(!menu.state.keyboardRoutingIsDefault)
+        #expect(menu.state.keyboardRouting == StartMenuPresentation.keyboardRouting(stored))
+    }
+
     @Test("returning to the launcher keeps its view and skips storage probes")
     func activationPreservesLauncher() throws {
         _ = NSApplication.shared
@@ -526,6 +554,8 @@ struct StartMenuLauncherTests {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
+        saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
@@ -567,6 +597,8 @@ struct StartMenuLauncherTests {
             notchAvailable: notchAvailable,
             usesNotch: usesNotch,
             setUsesNotch: setUsesNotch,
+            keyboardRouting: keyboardRouting,
+            saveKeyboardRouting: saveKeyboardRouting,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,

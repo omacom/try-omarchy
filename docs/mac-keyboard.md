@@ -93,6 +93,22 @@ window-key state and capture decisions, without recording key contents.
 it observes the capture decision without forwarding or suppressing the event.
 These variables apply to the QEMU process and are unset during normal use.
 
+## Dedicated keys
+
+In its default mode, an Apple keyboard sends its dedicated keys as plain key events with their own keycodes, not as F-keys. The codes differ by keyboard:
+
+| Key | Built-in M1 Max | Magic Keyboard A1843 |
+|---|---|---|
+| Brightness down/up (F1/F2) | system-defined events, never reach QEMU's key path | 145 / 144 |
+| Mission Control (F3) | 160 | 160 |
+| Spotlight / Launchpad (F4) | 177 | 131 |
+| Dictation / Siri (F5) | 176 | plain F5 |
+| Do Not Disturb (F6) | 178 | plain F6 |
+
+Built-in keyboards send brightness as system-defined events, which always stay with macOS. Full grab would swallow the other keys, so the launcher passes the keycodes the Keyboard setting leaves with macOS to QEMU as `-display cocoa,host-keys=131:144:145:160:176:177:178`, and the Cocoa tap hands them back to macOS. With "Use F1, F2, etc. as standard function keys" on, the same keys arrive as F-keys and always reach Omarchy.
+
+Media transport keys arrive as system-defined aux-control events, which full grab's tap doesn't capture by default. When the Keyboard setting sends them to Omarchy, the launcher passes `media-keys=on` to QEMU. Its tap then also takes previous, play/pause and next while the guest has the keyboard, and sends them as `audioprev`, `audioplay` and `audionext`, which Omarchy's own Hyprland bindings handle. A media key held when focus leaves is released. Volume, mute, brightness and backlight events always stay with macOS. Like the other keys, the setting applies at the next launch.
+
 ## Validation
 
 `make test` checksums the Cocoa patch and compiles the ISO swap helper. The upstream QEMU pin is unchanged. Review

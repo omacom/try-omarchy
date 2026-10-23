@@ -286,10 +286,29 @@ enum StartMenuPresentation {
             : "Omarchy opens in a window with the Mac menu bar and Dock available."
     }
 
+    static func keyboardRouting(_ preferences: KeyboardRoutingPreferences) -> String {
+        let rows: [(String, KeyRoute)] = [
+            ("Brightness", preferences.brightness),
+            ("Mission Control", preferences.missionControl),
+            ("Spotlight", preferences.spotlight),
+            ("Dictation", preferences.dictation),
+            ("Do Not Disturb", preferences.doNotDisturb),
+            ("Media", preferences.media),
+        ]
+        let macOS = rows.filter { $0.1 == .macOS }.map(\.0)
+        let omarchy = rows.filter { $0.1 == .omarchy }.map(\.0)
+        let staysWithMacOS = "\(macOS.joined(separator: ", ")) \(macOS.count == 1 ? "stays" : "stay") with macOS"
+        let goesToOmarchy = "\(omarchy.joined(separator: ", ")) \(omarchy.count == 1 ? "goes" : "go") to Omarchy"
+        switch (macOS.isEmpty, omarchy.isEmpty) {
+        case (false, true): return staysWithMacOS + "."
+        case (true, false): return goesToOmarchy + "."
+        default: return "\(staysWithMacOS) · \(goesToOmarchy)."
+        }
+    }
+
     static func notchDetail(isEnabled: Bool) -> String {
         isEnabled
             ? "Full Screen fills the area beside the notch, with Omarchy’s bar around it."
             : "Full Screen stays below the notch, like other Mac apps."
     }
-
 }

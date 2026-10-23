@@ -509,6 +509,9 @@ struct VMRunLaunchSettingsTests {
         VMResourcePreferenceStore(storage: settings).save(VMResources(cpuCount: 6, memoryGiB: 8, diskGiB: 96))
         try PortForwardingPreferenceStore(storage: settings).save([PortForwardPreset.ssh])
         FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false))
+        var keyboard = KeyboardRoutingPreferences.defaults
+        keyboard.media = .omarchy
+        KeyboardRoutingPreferenceStore(storage: settings).save(keyboard)
         try VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
 
         let configuration = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: fixture.root.path,
@@ -523,6 +526,7 @@ struct VMRunLaunchSettingsTests {
         #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "96")
         #expect(environment[PortForwardPolicy.environmentKey] != nil)
         #expect(environment[FullscreenLaunchConfiguration.immersiveEnvironmentKey] == "0")
+        #expect(environment[KeyboardRoutingLaunchConfiguration.mediaKeysEnvironmentKey] == "1")
         #expect(environment[VMNetworkPolicy.modeKey] == VMNetworkMode.nat.rawValue)
     }
 
@@ -536,6 +540,9 @@ struct VMRunLaunchSettingsTests {
         #expect(environment[VMResourceLaunchConfiguration.cpuEnvironmentKey] == "4")
         #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == nil)
         #expect(environment[VMNetworkPolicy.modeKey] == VMNetworkMode.nat.rawValue)
+        #expect(environment[KeyboardRoutingLaunchConfiguration.hostKeysEnvironmentKey]
+            == KeyboardRoutingPreferences.defaults.hostKeycodes.map(String.init).joined(separator: ","))
+        #expect(environment[KeyboardRoutingLaunchConfiguration.mediaKeysEnvironmentKey] == "0")
 
         let automatic = try resolve(VMRunConfiguration(productName: "Omarchy Installer",
                                                        storageRoot: fixture.root.path)).get().environment

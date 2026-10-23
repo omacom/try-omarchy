@@ -114,6 +114,10 @@ struct VMRunLaunchSettings {
             baseEnvironment: forwarding.environment,
             preferences: FullscreenPreferenceStore(storage: stored).load()
         ).environment
+        resolved = KeyboardRoutingLaunchConfiguration.make(
+            baseEnvironment: resolved,
+            preferences: KeyboardRoutingPreferenceStore(storage: stored).load()
+        ).environment
         if let resources = VMResourcePreferenceStore(storage: stored).load() {
             resolved = VMResourceLaunchConfiguration.make(
                 baseEnvironment: resolved, preferences: resources, limits: limits
@@ -212,6 +216,7 @@ final class VMRunSettingsWindow {
         let portForwardingStore = PortForwardingPreferenceStore(storage: settings)
         let networkStore = VMNetworkPreferenceStore(storage: settings)
         let fullscreenStore = FullscreenPreferenceStore(storage: settings)
+        let keyboardRoutingStore = KeyboardRoutingPreferenceStore(storage: settings)
         let resourceStore = VMResourcePreferenceStore(storage: settings)
         let limits = VMResourceLimits.current
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
@@ -251,6 +256,7 @@ final class VMRunSettingsWindow {
                 try? PortForwardingPreferenceStore(storage: settings).save([])
                 try? VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
                 FullscreenPreferenceStore(storage: settings).save(.defaults)
+                KeyboardRoutingPreferenceStore(storage: settings).save(.defaults)
                 VMResourcePreferenceStore(storage: settings).clear()
             },
             sharedFolderStatus: {
@@ -313,6 +319,8 @@ final class VMRunSettingsWindow {
                 preferences.usesNotch = usesNotch
                 fullscreenStore.save(preferences)
             },
+            keyboardRouting: { keyboardRoutingStore.load() },
+            saveKeyboardRouting: { keyboardRoutingStore.save($0) },
             productName: configuration.productName,
             runsInAnotherApp: true,
             firstBootCompleted: { true },
