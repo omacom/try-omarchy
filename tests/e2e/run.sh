@@ -289,7 +289,8 @@ if ((run_mode)); then
   [[ ! -e $exports ]] && pass "nothing is published, and no Exports folder made, while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
 else
   # Only the Omarchy installer takes exports, so Try Omarchy offers none.
-  if guest grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline || [[ -e $state/native-exports ]]; then
+  if guest 'grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline || for t in /sys/bus/virtio/drivers/9pnet_virtio/*/mount_tag; do tr -d "\\0" <"$t"; echo; done | grep -qx tryomarchy-native-exports' ||
+    [[ -e $state/native-exports ]]; then
     miss "Try Omarchy offers Move to Native Install"
   else
     pass "Try Omarchy offers no Move to Native Install and no outbox"

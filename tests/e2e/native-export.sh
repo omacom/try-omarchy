@@ -30,6 +30,14 @@ case $mode in
   export)
     token=$3
     passphrase=$(cat)
+    grep -qw tryomarchy.native_exports=1 /run/try-omarchy/cmdline && ok "the host settings offer the native-exports outbox" ||
+      bad "the host settings do not offer the native-exports outbox"
+    outbox_device=''
+    for tag in /sys/bus/virtio/drivers/9pnet_virtio/*/mount_tag; do
+      [[ -r $tag && $(tr -d '\0' <"$tag") == tryomarchy-native-exports ]] && outbox_device=${tag%/mount_tag} && break
+    done
+    [[ -n $outbox_device ]] && ok "the native-exports outbox is a 9p device (${outbox_device##*/})" ||
+      bad "no 9p device with mount tag tryomarchy-native-exports"
     visudo -cq -f /etc/sudoers.d/try-omarchy-export && ok "the export's sudo rule is valid" || bad "the export's sudo rule does not parse"
     id -nG "$user" | grep -qw wheel && ok "the user is in wheel, which the sudo rule names" || bad "the user is not in wheel"
     grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline && grep -q '"setup.move-to-native-install"' "$home/$menu" &&

@@ -24,14 +24,6 @@ for port in audio clipboard camera battery timezone settings authentication gues
 done
 [[ -s /run/try-omarchy/cmdline ]] && ok "host settings credential published: $(tr '\n' ' ' </run/try-omarchy/cmdline | cut -c1-120)" ||
   bad "no host settings at /run/try-omarchy/cmdline"
-grep -qw tryomarchy.native_exports=1 /run/try-omarchy/cmdline && ok "the host settings offer the native-exports outbox" ||
-  bad "the host settings do not offer the native-exports outbox"
-outbox_device=''
-for tag in /sys/bus/virtio/drivers/9pnet_virtio/*/mount_tag; do
-  [[ -r $tag && $(tr -d '\0' <"$tag") == tryomarchy-native-exports ]] && outbox_device=${tag%/mount_tag} && break
-done
-[[ -n $outbox_device ]] && ok "the native-exports outbox is a 9p device (${outbox_device##*/})" ||
-  bad "no 9p device with mount tag tryomarchy-native-exports"
 
 for unit in try-omarchy-timezone.service try-omarchy-guest-status.service omarchy-native-battery-bridge.service; do
   [[ $(systemctl is-active "$unit") == active ]] && ok "$unit is active" || bad "$unit is $(systemctl is-active "$unit")"
