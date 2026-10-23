@@ -434,6 +434,15 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# Apple dictation's port (docs/host-dictation.md). The app exports 0 on Macs
+# that can't run it; SpeechAnalyzer needs macOS 26 whatever the setting says.
+case ${OMARCHY_QEMU_GPU_DICTATION:-1} in
+  1) dictation=1 ;;
+  0) dictation=0 ;;
+  *) fail "OMARCHY_QEMU_GPU_DICTATION must be 0 or 1" ;;
+esac
+((macos_major >= 26)) || dictation=0
+
 open_storage
 if [[ $storage_mode == reset ]]; then
   reset_vm
@@ -673,6 +682,7 @@ authentication_socket="$socket_dir/authentication.sock"
 camera_socket="$socket_dir/camera.sock"
 battery_socket="$socket_dir/battery.sock"
 timezone_socket="$socket_dir/timezone.sock"
+dictation_socket="$socket_dir/dictation.sock"
 settings_socket="$socket_dir/settings.sock"
 guest_socket="$socket_dir/guest.sock"
 audio_routes="$socket_dir/audio-routes"
@@ -782,6 +792,12 @@ if [[ -n $usb_host_properties ]]; then
     -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
   )
 fi
+if ((dictation)); then
+  qemu_args+=(
+    -chardev "socket,id=omarchy-dictation-bridge,path=$dictation_socket,server=on,wait=off"
+    -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'
+  )
+fi
 if [[ -n $hvf_trace_log ]]; then
   qemu_args+=(-trace hvf_vm_map -trace hvf_vm_unmap -trace hvf_vm_protect -D "$hvf_trace_log")
 fi
@@ -834,6 +850,7 @@ for bridge in clipboard authentication camera battery timezone; do
   bridge_enabled "$bridge" && bridge_names+=("$bridge")
 done
 bridge_names+=(guest-status)
+((dictation)) && bridge_names+=(dictation)
 bridge_restarts=()
 for _ in "${bridge_names[@]}"; do bridge_restarts+=(0); done
 start_bridge() { # index
@@ -844,6 +861,7 @@ start_bridge() { # index
     camera) "$native_bridge" --bridge-native-camera "$qemu_pid" "$camera_socket" 9>&- & ;;
     battery) "$native_bridge" --bridge-native-battery "$qemu_pid" "$battery_socket" 9>&- & ;;
     timezone) "$native_bridge" --bridge-native-timezone "$qemu_pid" "$timezone_socket" 9>&- & ;;
+    dictation) "$native_bridge" --bridge-native-dictation "$qemu_pid" "$dictation_socket" "${OMARCHY_QEMU_GPU_LOCALE:-en_US.UTF-8}" 9>&- & ;;
     guest-status) "$native_bridge" --bridge-guest-status "$qemu_pid" "$guest_socket" "$status_file" 9>&- & ;;
   esac
   bridge_pids[$1]=$!

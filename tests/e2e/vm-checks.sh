@@ -33,6 +33,16 @@ for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.ser
   restarts=$(as_user systemctl --user show "$unit" -p NRestarts | sed 's/^NRestarts=//')
   if [[ $active == active && ${restarts:-0} == 0 ]]; then ok "$unit is active"; else bad "$unit: $active, $restarts restarts"; fi
 done
+# Apple dictation's port exists only when an Xcode 26 build runs on macOS 26
+# with the setting on (docs/host-dictation.md).
+if [[ -e /dev/virtio-ports/dev.tryomarchy.dictation ]]; then
+  unit=omarchy-native-dictation-bridge.service
+  active=$(as_user systemctl --user show "$unit" -p ActiveState | sed 's/^ActiveState=//')
+  restarts=$(as_user systemctl --user show "$unit" -p NRestarts | sed 's/^NRestarts=//')
+  if [[ $active == active && ${restarts:-0} == 0 ]]; then ok "$unit is active"; else bad "$unit: $active, $restarts restarts"; fi
+else
+  note "no dictation port (setting off, macOS 15, or a build without the macOS 26 SDK)"
+fi
 
 # --- integrations ----------------------------------------------------------------------
 zone=$(timedatectl show -p Timezone --value)

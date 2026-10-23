@@ -114,6 +114,11 @@ struct VMRunLaunchSettings {
             baseEnvironment: forwarding.environment,
             preferences: FullscreenPreferenceStore(storage: stored).load()
         ).environment
+        resolved = DictationLaunchConfiguration.make(
+            baseEnvironment: resolved,
+            preferences: DictationPreferenceStore(storage: stored).load(),
+            isSupported: DictationSupport.isAvailable
+        ).environment
         if let resources = VMResourcePreferenceStore(storage: stored).load() {
             resolved = VMResourceLaunchConfiguration.make(
                 baseEnvironment: resolved, preferences: resources, limits: limits
@@ -212,6 +217,7 @@ final class VMRunSettingsWindow {
         let portForwardingStore = PortForwardingPreferenceStore(storage: settings)
         let networkStore = VMNetworkPreferenceStore(storage: settings)
         let fullscreenStore = FullscreenPreferenceStore(storage: settings)
+        let dictationStore = DictationPreferenceStore(storage: settings)
         let resourceStore = VMResourcePreferenceStore(storage: settings)
         let limits = VMResourceLimits.current
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
@@ -251,6 +257,7 @@ final class VMRunSettingsWindow {
                 try? PortForwardingPreferenceStore(storage: settings).save([])
                 try? VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
                 FullscreenPreferenceStore(storage: settings).save(.defaults)
+                DictationPreferenceStore(storage: settings).save(.defaults)
                 VMResourcePreferenceStore(storage: settings).clear()
             },
             sharedFolderStatus: {
@@ -313,6 +320,9 @@ final class VMRunSettingsWindow {
                 preferences.usesNotch = usesNotch
                 fullscreenStore.save(preferences)
             },
+            dictationSupported: DictationSupport.isAvailable,
+            dictationEnabled: { dictationStore.load().isEnabled },
+            setDictationEnabled: { dictationStore.save(DictationPreferences(isEnabled: $0)) },
             productName: configuration.productName,
             runsInAnotherApp: true,
             firstBootCompleted: { true },

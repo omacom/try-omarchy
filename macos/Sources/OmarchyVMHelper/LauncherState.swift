@@ -104,6 +104,9 @@ final class LauncherState {
     /// Only a MacBook with a camera notch has the strip to use.
     var notchAvailable = false
     var usesNotch = true
+    /// Apple speech recognition needs macOS 26.
+    var dictationSupported = false
+    var dictationEnabled = true
     var startAutomatically = false
 
     var productName = ProductName.defaultName

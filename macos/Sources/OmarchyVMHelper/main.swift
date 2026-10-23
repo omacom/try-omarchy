@@ -6,7 +6,7 @@ import TryOmarchyKitClient
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-dictation QEMU_PID SOCKET LOCALE | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
 }
 
@@ -217,6 +217,35 @@ do {
             terminationSignalSources.append(source)
         }
         fputs("[battery-bridge] The Mac battery is mirrored inside Omarchy.\n", stderr)
+        try bridge.run()
+        exit(0)
+    }
+
+    if arguments.first == "--bridge-native-dictation" {
+        guard arguments.count == 4,
+              let processIdentifier = Int32(arguments[1]),
+              processIdentifier > 1 else { usage() }
+        let engine = DictationSupport.makeEngine(guestLocale: arguments[3])
+        let bridge = try NativeDictationBridge(
+            targetPID: processIdentifier,
+            socketPath: arguments[2],
+            engine: engine
+        )
+        for signalNumber in [SIGINT, SIGTERM] {
+            Darwin.signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(
+                signal: signalNumber,
+                queue: .global(qos: .userInitiated)
+            )
+            source.setEventHandler { bridge.stop() }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
+        if case let .unavailable(reason) = engine.availability {
+            fputs("[dictation-bridge] Apple dictation is unavailable: \(reason).\n", stderr)
+        } else {
+            fputs("[dictation-bridge] Apple dictation is available to Omarchy.\n", stderr)
+        }
         try bridge.run()
         exit(0)
     }

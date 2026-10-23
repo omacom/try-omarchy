@@ -10,7 +10,9 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -96,12 +98,28 @@ class PackageLayout(unittest.TestCase):
 
 class GraphicalBridges(unittest.TestCase):
     def test_desktop_bridges_start_and_stop_with_the_graphical_session(self):
-        for bridge in ("audio", "camera", "clipboard"):
+        for bridge in ("audio", "camera", "clipboard", "dictation"):
             unit = configparser.ConfigParser(interpolation=None, strict=False)
             unit.read(FILES / f"usr/lib/systemd/user/omarchy-native-{bridge}-bridge.service")
             self.assertIn("graphical-session.target", unit["Unit"]["PartOf"].split())
             self.assertIn("graphical-session.target", unit["Unit"]["After"].split())
             self.assertEqual(unit["Install"]["WantedBy"], "graphical-session.target")
+
+    def test_dictation_bridge_is_enabled_once_on_upgrade(self):
+        install = (PACKAGE / "try-omarchy.install").read_text()
+        self.assertIn("omarchy-native-dictation-bridge.service", install[:install.index("post_install()")])
+        post_upgrade = install[install.index("post_upgrade()"):]
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then\n'
+                      '    systemctl --global preset omarchy-native-dictation-bridge.service', post_upgrade)
+        self.assertIn("pkgrel=37\n", (PACKAGE / "PKGBUILD").read_text())
+
+    def test_dictation_bridge_waits_for_its_port(self):
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.read(FILES / "usr/lib/systemd/user/omarchy-native-dictation-bridge.service")
+        self.assertEqual(unit["Unit"]["ConditionPathExists"], "/dev/virtio-ports/dev.tryomarchy.dictation")
+        self.assertEqual(unit["Service"]["ExecStart"], "/usr/bin/omarchy-native-dictation-bridge")
+        rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-dictation.rules").read_text()
+        self.assertIn('ATTR{name}=="dev.tryomarchy.dictation", GROUP="users", MODE="0660", TAG+="uaccess"', rule)
 
     def test_upgrade_moves_enabled_bridges_and_keeps_disabled_or_masked_choices(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -326,14 +344,17 @@ class MenuEntries(unittest.TestCase):
   "install.gaming.geforce-now": {"icon":"\U000f08b9","label":"NVIDIA GeForce NOW","disabled":"flatpak info com.nvidia.geforcenow","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-geforce-now"},
   "install.gaming.battlenet": {"icon":"","label":"Battle.net","disabled":"[[ -d $HOME/Games/battlenet ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-battlenet"},
   "install.gaming.lutris": {"icon":"","label":"Lutris","disabled":"omarchy-pkg-present lutris","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-lutris"},
+  "remove.dictation": {"icon":"","label":"Dictation","when":"omarchy-pkg-present voxtype-bin || omarchy-pkg-present superwhisper-bin"},
 }
 """
     OWN = {"setup.try-omarchy", "setup.security.touch-id", "setup.security.onepassword-touch-id",
-           "setup.import-previous-vm"}
+           "setup.import-previous-vm", "setup.default.dictation.apple-speech", "remove.dictation.apple-speech"}
+    DICTATION = {"setup.default.dictation.apple-speech", "remove.dictation.apple-speech", "remove.dictation"}
     CHANGED = {"update.timezone", "setup.direct-boot", "update.firmware", "update.hardware.wifi",
                "update.hardware.bluetooth", "appearance.top-bar.indicators.battery-percentage-on",
                "appearance.top-bar.indicators.battery-percentage-off",
-               "install.gaming.geforce-now", "install.gaming.battlenet", "install.gaming.lutris"}
+               "install.gaming.geforce-now", "install.gaming.battlenet", "install.gaming.lutris",
+               "remove.dictation"}
 
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
@@ -365,7 +386,8 @@ class MenuEntries(unittest.TestCase):
         self.assertEqual(parsed["setup.try-omarchy"]["icon"], "")
         for key in self.CHANGED:
             for field in ("icon", "label", "action"):
-                if field != "action" or key != "update.timezone":
+                # Remove > Dictation is a submenu: Omarchy's row has no action.
+                if field in omarchy[key] and (field != "action" or key != "update.timezone"):
                     self.assertEqual(parsed[key][field], omarchy[key][field], (key, field))
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
         self.assertEqual(parsed["setup.direct-boot"]["when"],
@@ -381,6 +403,23 @@ class MenuEntries(unittest.TestCase):
         self.menu.write_text("{}\n")
         self.entries()
         self.assertEqual(self.menu.read_text(), "{}\n")
+
+    def test_apple_speech_rows_show_only_while_they_can_work(self):
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        choose = parsed["setup.default.dictation.apple-speech"]
+        self.assertEqual(choose["when"], "test -e /dev/virtio-ports/dev.tryomarchy.dictation")
+        self.assertEqual(choose["action"], "omarchy-default-dictation apple-speech")
+        self.assertEqual(choose["checked"], '[[ "$(omarchy-default-dictation)" == "apple-speech" ]]')
+        remove = parsed["remove.dictation.apple-speech"]
+        chosen = 'test -s "${XDG_STATE_HOME:-$HOME/.local/state}/try-omarchy/dictation-backend"'
+        self.assertEqual(remove["when"], chosen)
+        self.assertEqual(remove["action"],
+                         "omarchy-launch-floating-terminal-with-presentation omarchy-remove-dictation-apple-speech")
+        # Omarchy shows its Remove > Dictation menu only for its own backends.
+        self.assertEqual(parsed["remove.dictation"]["when"],
+                         "(omarchy-pkg-present voxtype-bin || omarchy-pkg-present superwhisper-bin) || " + chosen)
+        self.assertEqual(parsed["remove.dictation"]["label"], "Dictation")
 
     def test_rows_follow_omarchy_until_the_user_edits_them(self):
         self.entries()
@@ -406,7 +445,17 @@ class MenuEntries(unittest.TestCase):
         # Nothing re-added; only rows of later releases are new.
         self.assertEqual(set(parsed), {"update.firmware", "update.hardware.wifi", "setup.import-previous-vm",
                                        "appearance.top-bar.indicators.battery-percentage-on",
-                                       "appearance.top-bar.indicators.battery-percentage-off"})
+                                       "appearance.top-bar.indicators.battery-percentage-off"}
+                         | self.DICTATION)
+
+    def test_dictation_rows_reach_menus_written_by_the_battery_release(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text("{\n}\n")
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries").write_text("8\n")
+        self.entries()
+        self.assertEqual(set(self.parse(self.menu.read_text())), self.DICTATION)
+        self.assertEqual((self.state / "menu-entries").read_text(), "9\n")
 
     def test_without_omarchys_menu_only_own_rows_are_added(self):
         self.omarchy.unlink()
@@ -420,9 +469,10 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries-v1").touch()
         self.entries()
         self.assertEqual(set(self.parse(self.menu.read_text())),
-                         {"setup.security.onepassword-touch-id", "setup.import-previous-vm"} | self.CHANGED)
+                         {"setup.security.onepassword-touch-id", "setup.import-previous-vm"} | self.DICTATION
+                         | self.CHANGED)
         self.entries()
-        self.assertEqual(len(self.parse(self.menu.read_text())), 2 + len(self.CHANGED))
+        self.assertEqual(len(self.parse(self.menu.read_text())), 4 + len(self.CHANGED))
         self.assertEqual(self.menu.read_text().count("// Try Omarchy:"), 1)
 
     def test_an_existing_header_is_not_repeated(self):
@@ -432,7 +482,7 @@ class MenuEntries(unittest.TestCase):
         (self.state / "menu-entries").write_text("2\n")
         self.entries()
         text = self.menu.read_text()
-        self.assertEqual(set(self.parse(text)), {"setup.import-previous-vm"} | self.CHANGED)
+        self.assertEqual(set(self.parse(text)), {"setup.import-previous-vm"} | self.DICTATION | self.CHANGED)
         self.assertEqual(text.count("// Try Omarchy:"), 1)
 
     def test_keeps_user_rows_and_creates_missing_file(self):
@@ -1279,6 +1329,681 @@ class ImportPrevious(unittest.TestCase):
         for name in ("try-omarchy-runtime", "linux-aarch64", "vulkan-swrast"):
             self.assertNotIn(name, result.stdout)
 
+
+class DictationBridge(unittest.TestCase):
+    """The guest end of dev.tryomarchy.dictation, with a pty as the port and
+    the test as the Mac's dictation bridge on its other side."""
+
+    BRIDGE = FILES / "usr/bin/omarchy-native-dictation-bridge"
+
+    def setUp(self):
+        import pty
+        import tty
+        self.runtime = tempfile.TemporaryDirectory()
+        self.host, port = pty.openpty()
+        tty.setraw(port)
+        self.port_fd = port
+        self.port_path = os.ttyname(port)
+        self.socket_path = os.path.join(self.runtime.name, "apple-dictation.sock")
+        self.pending = b""
+        self.process = None
+        self.clients = []
+
+    def tearDown(self):
+        for client in self.clients:
+            client.close()
+        if self.process and self.process.poll() is None:
+            self.process.kill()
+        if self.process:
+            self.process.wait(timeout=5)
+            self.process.stderr.close()
+        for descriptor in (self.host, self.port_fd):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        self.runtime.cleanup()
+
+    def start(self, port_path=None):
+        env = {**os.environ, "XDG_RUNTIME_DIR": self.runtime.name,
+               "OMARCHY_DICTATION_PORT": port_path or self.port_path}
+        self.process = subprocess.Popen([sys.executable, str(self.BRIDGE)], env=env,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+    def started(self):
+        self.start()
+        self.assertEqual(self.host_read(), {"type": "hello", "version": 1})
+
+    def host_read(self, timeout=2.0):
+        import select
+        deadline = time.monotonic() + timeout
+        while b"\n" not in self.pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([self.host], [], [], remaining)[0]:
+                return None
+            try:
+                chunk = os.read(self.host, 65536)
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            self.pending += chunk
+        line, self.pending = self.pending.split(b"\n", 1)
+        return json.loads(line)
+
+    def host_send(self, **message):
+        os.write(self.host, (json.dumps(message) + "\n").encode())
+
+    def client(self):
+        import socket
+        deadline = time.monotonic() + 3
+        while not os.path.exists(self.socket_path):
+            self.assertLess(time.monotonic(), deadline, "the bridge never served its socket")
+            time.sleep(0.01)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(3)
+        client.connect(self.socket_path)
+        self.clients.append(client)
+        return client
+
+    def request(self, **message):
+        client = self.client()
+        client.sendall((json.dumps(message) + "\n").encode())
+        return client
+
+    @staticmethod
+    def client_read(client, timeout=3.0):
+        """The next line as JSON, or "EOF" when the bridge closed the connection."""
+        import socket
+        client.settimeout(timeout)
+        data = b""
+        while b"\n" not in data:
+            try:
+                chunk = client.recv(65536)
+            except socket.timeout:
+                return None
+            if not chunk:
+                return "EOF" if not data else json.loads(data)
+            data += chunk
+        return json.loads(data.split(b"\n", 1)[0])
+
+    def read_events(self, client, count):
+        events = []
+        buffer = b""
+        client.settimeout(3)
+        while len(events) < count:
+            while b"\n" not in buffer:
+                chunk = client.recv(65536)
+                if not chunk:
+                    events.append("EOF")
+                    return events
+                buffer += chunk
+            line, buffer = buffer.split(b"\n", 1)
+            events.append(json.loads(line))
+        rest = client.recv(65536)
+        if not rest:
+            events.append("EOF")
+        return events
+
+    def test_says_hello_on_open(self):
+        self.started()
+        self.client()
+        self.assertEqual(stat.S_IMODE(os.stat(self.socket_path).st_mode), 0o600)
+
+    def test_start_streams_until_final(self):
+        self.started()
+        owner = self.request(cmd="start", model="dictation")
+        self.assertEqual(self.host_read(), {"type": "start", "session": 1, "model": "dictation"})
+        self.host_send(type="recording", session=1)
+        self.host_send(type="partial", session=1, text="hi")
+        self.host_send(type="final", session=1, text="hi", ms=90)
+        self.assertEqual(self.read_events(owner, 3), [
+            {"event": "recording"}, {"event": "partial", "text": "hi"},
+            {"event": "final", "text": "hi", "ms": 90}, "EOF"])
+
+    def test_stop_and_cancel_reply_ok_and_reach_host(self):
+        self.started()
+        self.request(cmd="start")
+        self.assertEqual(self.host_read()["type"], "start")
+        self.assertEqual(self.read_events(self.request(cmd="stop"), 1), [{"ok": True}, "EOF"])
+        self.assertEqual(self.host_read(), {"type": "stop", "session": 1})
+        # Stop handed session 1 to finishing, so a cancel now has no live
+        # session to act on.
+        self.assertEqual(self.read_events(self.request(cmd="cancel"), 1), [{"ok": True}, "EOF"])
+        self.assertIsNone(self.host_read(timeout=0.5))
+        self.request(cmd="start")
+        self.assertEqual(self.host_read()["session"], 2)
+        self.assertEqual(self.read_events(self.request(cmd="cancel"), 1), [{"ok": True}, "EOF"])
+        self.assertEqual(self.host_read(), {"type": "cancel", "session": 2})
+
+    def test_ping_round_trips_and_times_out(self):
+        self.started()
+        pinger = self.request(cmd="ping")
+        ping = self.host_read()
+        self.assertEqual(ping["type"], "ping")
+        self.host_send(type="pong", id=ping["id"])
+        self.assertEqual(self.read_events(pinger, 1), [{"ok": True, "session": False}, "EOF"])
+        silent = self.request(cmd="ping")
+        self.assertEqual(self.host_read()["type"], "ping")
+        self.assertEqual(self.read_events(silent, 1), [{"ok": False, "error": "host not responding"}, "EOF"])
+
+    def test_ping_reports_a_session_only_while_it_records(self):
+        self.started()
+        self.request(cmd="start")
+        self.assertEqual(self.host_read()["session"], 1)
+
+        def ping(live):
+            pinger = self.request(cmd="ping")
+            sent = self.host_read()
+            self.host_send(type="pong", id=sent["id"], **({"session": live} if live else {}))
+            return self.read_events(pinger, 1)[0]["session"]
+
+        self.assertTrue(ping(1))
+        self.request(cmd="stop")
+        self.assertEqual(self.host_read()["type"], "stop")
+        # The Mac still finishes session 1, so a toggle now must start the next one.
+        self.assertFalse(ping(1))
+        self.request(cmd="start")
+        self.assertEqual(self.host_read()["session"], 2)
+        self.assertFalse(ping(None))  # the Mac lost session 2
+
+    def test_second_start_cancels_first_owner(self):
+        self.started()
+        first = self.request(cmd="start")
+        self.assertEqual(self.host_read()["session"], 1)
+        self.request(cmd="start")
+        self.assertEqual(self.read_events(first, 1), [{"event": "cancelled"}, "EOF"])
+        self.assertEqual(self.host_read(), {"type": "start", "session": 2, "model": "speech"})
+
+    def test_owner_hangup_cancels_on_host(self):
+        self.started()
+        owner = self.request(cmd="start")
+        self.assertEqual(self.host_read()["type"], "start")
+        owner.close()
+        self.assertEqual(self.host_read(), {"type": "cancel", "session": 1})
+
+    def test_owner_close_after_final_sends_nothing(self):
+        self.started()
+        owner = self.request(cmd="start")
+        self.host_read()
+        self.host_send(type="final", session=1, text="", ms=1)
+        self.assertEqual(self.read_events(owner, 1), [{"event": "final", "text": "", "ms": 1}, "EOF"])
+        owner.close()
+        self.assertIsNone(self.host_read(timeout=0.5))
+
+    def test_stop_before_recording_is_forwarded(self):
+        self.started()
+        owner = self.request(cmd="start")
+        self.assertEqual(self.read_events(self.request(cmd="stop"), 1), [{"ok": True}, "EOF"])
+        self.assertEqual(self.host_read(), {"type": "start", "session": 1, "model": "speech"})
+        self.assertEqual(self.host_read(), {"type": "stop", "session": 1})
+        self.host_send(type="recording", session=1)
+        self.host_send(type="processing", session=1)
+        self.host_send(type="final", session=1, text="quick", ms=40)
+        self.assertEqual(self.read_events(owner, 3), [
+            {"event": "recording"}, {"event": "processing"},
+            {"event": "final", "text": "quick", "ms": 40}, "EOF"])
+
+    def test_live_session_times_out_without_host_events(self):
+        self.started()
+        owner = self.request(cmd="start")
+        self.host_read()
+        self.assertEqual(self.client_read(owner, timeout=7), {"event": "error", "message": "host not responding"})
+
+    def test_host_eof_ends_session_with_error(self):
+        self.started()
+        owner = self.request(cmd="start")
+        self.host_read()
+        os.close(self.host)
+        self.assertEqual(self.client_read(owner), {"event": "error", "message": "host went away"})
+        self.assertEqual(self.process.wait(timeout=5), 1)
+
+    def test_pressing_again_while_finishing_keeps_the_first_final(self):
+        self.started()
+        first = self.request(cmd="start")
+        self.host_read()
+        self.assertEqual(self.read_events(self.request(cmd="stop"), 1), [{"ok": True}, "EOF"])
+        self.assertEqual(self.host_read(), {"type": "stop", "session": 1})
+        second = self.request(cmd="start")
+        self.assertEqual(self.host_read(), {"type": "start", "session": 2, "model": "speech"})
+        self.host_send(type="final", session=1, text="first", ms=200)
+        self.assertEqual(self.read_events(first, 1), [{"event": "final", "text": "first", "ms": 200}, "EOF"])
+        self.host_send(type="final", session=2, text="second", ms=100)
+        self.assertEqual(self.read_events(second, 1), [{"event": "final", "text": "second", "ms": 100}, "EOF"])
+
+    def test_stopping_the_service_cancels_the_live_session(self):
+        import signal
+        self.started()
+        owner = self.request(cmd="start")
+        self.host_read()
+        self.process.send_signal(signal.SIGTERM)
+        self.assertEqual(self.host_read(), {"type": "cancel", "session": 1})
+        self.assertEqual(self.client_read(owner), {"event": "cancelled"})
+        self.assertEqual(self.process.wait(timeout=5), 0)
+
+    def test_unknown_command_is_refused(self):
+        self.started()
+        self.assertEqual(self.read_events(self.request(cmd="launch"), 1),
+                         [{"ok": False, "error": "unknown command"}, "EOF"])
+
+    def test_exits_quietly_without_the_port(self):
+        self.start(port_path=os.path.join(self.runtime.name, "missing"))
+        self.assertEqual(self.process.wait(timeout=5), 0)
+        self.assertFalse(os.path.exists(self.socket_path))
+
+
+
+class FakeDictationBridge:
+    """apple-dictation.sock as omarchy-native-dictation-bridge serves it, with
+    the test deciding what the Mac says."""
+
+    def __init__(self, path):
+        import socket
+        import threading
+        self.path = path
+        self.commands = []
+        self.owners = []
+        self.live = False
+        self.changed = threading.Condition()
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(path)
+        self.listener.listen(8)
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self):
+        while True:
+            try:
+                connection, _ = self.listener.accept()
+            except OSError:
+                return
+            line = connection.makefile("rb").readline()
+            try:
+                request = json.loads(line)
+            except ValueError:
+                connection.close()
+                continue
+            with self.changed:
+                self.commands.append(request)
+                if request.get("cmd") == "start":
+                    self.live = True
+                    self.owners.append(connection)
+                elif request.get("cmd") == "ping":
+                    connection.sendall((json.dumps({"ok": True, "session": self.live}) + "\n").encode())
+                    connection.close()
+                else:
+                    connection.sendall(b'{"ok":true}\n')
+                    connection.close()
+                self.changed.notify_all()
+
+    def wait_for(self, predicate, timeout=3.0):
+        with self.changed:
+            return self.changed.wait_for(lambda: predicate(self), timeout)
+
+    def send(self, owner, **event):
+        owner.sendall((json.dumps(event) + "\n").encode())
+
+    def finish(self, owner, **event):
+        self.send(owner, **event)
+        self.live = False
+        owner.close()
+
+    def close(self):
+        self.listener.close()
+        for owner in self.owners:
+            owner.close()
+
+
+def fake_tools(directory, *names):
+    """Programs that only record their arguments, one line per call."""
+    for name in names:
+        tool = directory / name
+        tool.write_text('#!/bin/sh\nprintf \'%s %s\\n\' "${0##*/}" "$*" >>"$TEST_LOG"\n')
+        tool.chmod(0o755)
+
+
+class AppleSpeech(unittest.TestCase):
+    """apple-speech, Omarchy's `apple-speech` dictation backend: the bridge's
+    socket in, typed text out, and nothing at all when Dictation is off."""
+
+    CLIENT = FILES / "usr/bin/apple-speech"
+
+    def setUp(self):
+        self.runtime = tempfile.TemporaryDirectory()
+        root = Path(self.runtime.name)
+        self.port = root / "port"
+        self.port.touch()
+        self.socket_path = str(root / "apple-dictation.sock")
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        self.log = root / "log"
+        self.config = root / "config"
+        fake_tools(self.bin, "wtype", "notify-send")
+        self.bridge = None
+
+    def tearDown(self):
+        if self.bridge:
+            self.bridge.close()
+        self.runtime.cleanup()
+
+    def serve(self):
+        self.bridge = FakeDictationBridge(self.socket_path)
+        return self.bridge
+
+    def run_client(self, *args):
+        env = {**os.environ, "XDG_RUNTIME_DIR": self.runtime.name, "OMARCHY_DICTATION_PORT": str(self.port),
+               "XDG_CONFIG_HOME": str(self.config), "PATH": f"{self.bin}:{os.environ['PATH']}",
+               "TEST_LOG": str(self.log)}
+        return subprocess.run([sys.executable, str(self.CLIENT), *args], env=env, capture_output=True, text=True,
+                              timeout=10)
+
+    def set_model(self, text):
+        setting = self.config / "apple-speech/model"
+        setting.parent.mkdir(parents=True, exist_ok=True)
+        setting.write_text(text)
+
+    def logged(self, timeout=3.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.log.exists() and self.log.read_text():
+                return self.log.read_text().splitlines()
+            time.sleep(0.02)
+        return []
+
+    def test_start_puts_the_session_on_the_socket_before_returning(self):
+        # A quick tap's stop follows start at once: the session must already
+        # be live at the bridge when start returns, or stop finds nothing.
+        bridge = self.serve()
+        result = self.run_client("start")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(bridge.commands[:1], [{"cmd": "start", "model": "dictation"}])
+
+    def test_types_the_final_text(self):
+        bridge = self.serve()
+        self.assertEqual(self.run_client("start").returncode, 0)
+        owner = bridge.owners[0]
+        bridge.send(owner, event="recording")
+        bridge.send(owner, event="partial", text="Hello")
+        bridge.finish(owner, event="final", text="Hello there.", ms=90)
+        self.assertEqual(self.logged(), ["wtype -- Hello there."])
+
+    def test_stop_and_cancel_reach_the_bridge(self):
+        bridge = self.serve()
+        self.assertEqual(self.run_client("stop").returncode, 0)
+        self.assertEqual(self.run_client("cancel").returncode, 0)
+        self.assertEqual(bridge.commands, [{"cmd": "stop"}, {"cmd": "cancel"}])
+
+    def test_toggle_starts_when_idle_and_stops_a_live_session(self):
+        bridge = self.serve()
+        self.assertEqual(self.run_client("toggle").returncode, 0)
+        self.assertEqual(bridge.commands, [{"cmd": "ping"}, {"cmd": "start", "model": "dictation"}])
+        self.assertEqual(self.run_client("toggle").returncode, 0)
+        self.assertEqual(bridge.commands[2:], [{"cmd": "ping"}, {"cmd": "stop"}])
+
+    def test_silent_when_dictation_is_off(self):
+        # No port: Dictation is off in the launcher. Nothing is shown, the
+        # socket is never tried, and stop succeeds as Omarchy requires.
+        self.port.unlink()
+        bridge = self.serve()
+        for command, expected in (("start", 1), ("toggle", 1), ("stop", 0), ("cancel", 0)):
+            result = self.run_client(command)
+            self.assertEqual((result.returncode, result.stdout, result.stderr), (expected, "", ""), command)
+        self.assertEqual(bridge.commands, [])
+        self.assertFalse(self.log.exists())
+
+    def test_waits_for_a_bridge_that_is_still_starting(self):
+        import threading
+        later = threading.Timer(0.3, self.serve)
+        later.start()
+        result = self.run_client("start")
+        later.join()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.bridge.wait_for(lambda b: b.commands))
+        self.assertEqual(self.bridge.commands, [{"cmd": "start", "model": "dictation"}])
+
+    def test_says_so_when_dictation_is_on_but_the_bridge_never_answers(self):
+        result = self.run_client("start")
+        self.assertEqual(result.returncode, 1)
+        lines = self.logged()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("notify-send "), lines)
+
+    def test_shows_the_macs_error_and_types_nothing(self):
+        bridge = self.serve()
+        self.run_client("start")
+        bridge.finish(bridge.owners[0], event="error",
+                      message="Allow microphone access for Try Omarchy in System Settings")
+        lines = self.logged()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("Allow microphone access for Try Omarchy in System Settings", lines[0])
+        self.assertTrue(lines[0].startswith("notify-send "))
+
+    def test_a_cancelled_session_is_quiet(self):
+        bridge = self.serve()
+        self.run_client("start")
+        bridge.finish(bridge.owners[0], event="cancelled")
+        self.assertEqual(self.logged(timeout=0.5), [])
+
+    def test_starts_with_the_chosen_model(self):
+        self.set_model("speech\n")
+        bridge = self.serve()
+        self.assertEqual(self.run_client("start").returncode, 0)
+        self.assertEqual(bridge.commands[:1], [{"cmd": "start", "model": "speech"}])
+
+    def test_an_unknown_model_falls_back_to_dictation(self):
+        self.set_model("whisper\n")
+        bridge = self.serve()
+        self.assertEqual(self.run_client("start").returncode, 0)
+        self.assertEqual(bridge.commands[:1], [{"cmd": "start", "model": "dictation"}])
+
+    def test_model_command_shows_and_sets_the_model(self):
+        # Works with Dictation off too: it only touches the setting.
+        self.port.unlink()
+        shown = self.run_client("model")
+        self.assertEqual((shown.returncode, shown.stdout), (0, "dictation\n"))
+        self.assertEqual(self.run_client("model", "speech").returncode, 0)
+        self.assertEqual((self.config / "apple-speech/model").read_text(), "speech\n")
+        self.assertEqual(self.run_client("model").stdout, "speech\n")
+
+    def test_model_command_refuses_an_unknown_model(self):
+        result = self.run_client("model", "whisper")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("speech|dictation", result.stderr)
+        self.assertFalse((self.config / "apple-speech/model").exists())
+
+    def test_omarchy_adapter_passes_its_commands_through(self):
+        adapter = FILES / "usr/bin/omarchy-dictation-apple-speech"
+        self.assertIn('start|stop|toggle) exec apple-speech "$1"', adapter.read_text())
+        self.assertTrue(adapter.stat().st_mode & stat.S_IXUSR)
+
+
+class DictationBackend(unittest.TestCase):
+    """Choosing Apple Speech as Omarchy's dictation backend keeps the backend
+    it replaced, puts that one back while Dictation is off in the launcher,
+    and never undoes a choice the user made since."""
+
+    HELPER = LIB / "dictation-backend"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.config = self.root / "config"
+        self.selection = self.config / "omarchy/defaults/dictation"
+        self.state = self.root / "state/try-omarchy/dictation-backend"
+        self.port = self.root / "port"
+        self.port.touch()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.log = self.root / "log"
+        fake_tools(self.bin, "hyprctl", "notify-send")
+        # Omarchy's omarchy-dictation-use: stop the old backend, save the new.
+        use = self.bin / "omarchy-dictation-use"
+        use.write_text('#!/bin/sh\nprintf \'use %s\\n\' "$1" >>"$TEST_LOG"\n'
+                       'mkdir -p "$XDG_CONFIG_HOME/omarchy/defaults"\n'
+                       'printf \'%s\\n\' "$1" >"$XDG_CONFIG_HOME/omarchy/defaults/dictation.new"\n'
+                       'mv -f "$XDG_CONFIG_HOME/omarchy/defaults/dictation.new" '
+                       '"$XDG_CONFIG_HOME/omarchy/defaults/dictation"\n')
+        use.chmod(0o755)
+        self.env = {**os.environ, "HOME": str(self.root), "XDG_CONFIG_HOME": str(self.config),
+                    "XDG_STATE_HOME": str(self.root / "state"), "OMARCHY_DICTATION_PORT": str(self.port),
+                    "PATH": f"{self.bin}:{os.environ['PATH']}", "TEST_LOG": str(self.log),
+                    "TRY_OMARCHY_DICTATION_BACKEND": str(self.HELPER)}
+
+    def select(self, backend):
+        self.selection.parent.mkdir(parents=True, exist_ok=True)
+        self.selection.write_text(backend + "\n")
+
+    def selected(self):
+        return self.selection.read_text().strip() if self.selection.exists() else None
+
+    def helper(self, command):
+        result = subprocess.run([sys.executable, str(self.HELPER), command], env=self.env, capture_output=True,
+                                text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def calls(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def dictation_off(self):
+        self.port.unlink()
+
+    def dictation_on(self):
+        self.port.touch()
+
+    def test_choosing_apple_speech_remembers_the_backend_it_replaces(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.assertEqual(self.selected(), "apple-speech")
+        self.assertEqual(json.loads(self.state.read_text())["previous"], "voxtype")
+        # Choosing it again keeps the first backend, not apple-speech itself.
+        self.helper("select")
+        self.assertEqual(json.loads(self.state.read_text())["previous"], "voxtype")
+
+    def test_dictation_off_puts_the_previous_backend_back_and_on_brings_apple_speech_back(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.dictation_off()
+        self.assertEqual(self.helper("login"), "changed")
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertEqual(self.helper("login"), "")  # nothing more to do
+        self.dictation_on()
+        self.assertEqual(self.helper("login"), "changed")
+        self.assertEqual(self.selected(), "apple-speech")
+        self.assertEqual(self.helper("login"), "")
+
+    def test_with_nothing_before_it_dictation_off_clears_the_selection(self):
+        # No backend left selected: Omarchy binds no dictation keys at all.
+        self.helper("select")
+        self.dictation_off()
+        self.assertEqual(self.helper("login"), "changed")
+        self.assertIsNone(self.selected())
+        self.dictation_on()
+        self.assertEqual(self.helper("login"), "changed")
+        self.assertEqual(self.selected(), "apple-speech")
+
+    def test_a_choice_made_while_dictation_was_off_is_kept(self):
+        self.select("superwhisper")
+        self.helper("select")
+        self.dictation_off()
+        self.helper("login")
+        self.select("voxtype")  # the user picks a backend meanwhile
+        self.dictation_on()
+        self.assertEqual(self.helper("login"), "")
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertFalse(self.state.exists())
+
+    def test_choosing_the_restored_backend_again_is_kept(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.dictation_off()
+        self.helper("login")
+        subprocess.run([str(self.bin / "omarchy-dictation-use"), "voxtype"], env=self.env, check=True)
+        self.dictation_on()
+        self.assertEqual(self.helper("login"), "")
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertFalse(self.state.exists())
+
+    def test_switching_away_from_apple_speech_forgets_it(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.select("voxtype")  # Omarchy's own installer switched back
+        self.assertEqual(self.helper("login"), "")
+        self.assertFalse(self.state.exists())
+        self.dictation_off()
+        self.helper("login")
+        self.assertEqual(self.selected(), "voxtype")
+
+    def test_does_nothing_unless_apple_speech_was_chosen(self):
+        self.select("voxtype")
+        self.dictation_off()
+        self.assertEqual(self.helper("login"), "")
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.state.exists())
+
+    def test_removing_apple_speech_puts_the_previous_backend_back(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.helper("remove")
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertFalse(self.state.exists())
+
+    def test_removing_after_the_user_moved_on_leaves_their_choice(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.select("superwhisper")
+        self.helper("remove")
+        self.assertEqual(self.selected(), "superwhisper")
+        self.assertFalse(self.state.exists())
+
+    def installer(self, name):
+        return subprocess.run(["/bin/bash", str(FILES / "usr/bin" / name)], env=self.env, capture_output=True,
+                              text=True, timeout=10)
+
+    def test_installer_is_silent_and_changes_nothing_when_dictation_is_off(self):
+        self.select("voxtype")
+        self.dictation_off()
+        result = self.installer("omarchy-install-dictation-apple-speech")
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertEqual(self.calls(), [])
+
+    def test_installer_selects_apple_speech_and_reloads_the_keys(self):
+        self.select("voxtype")
+        result = self.installer("omarchy-install-dictation-apple-speech")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.selected(), "apple-speech")
+        calls = self.calls()
+        self.assertIn("use apple-speech", calls)
+        self.assertIn("hyprctl reload", calls)
+        self.assertTrue(any(line.startswith("notify-send ") for line in calls), calls)
+
+    def test_remover_restores_the_previous_backend(self):
+        self.select("voxtype")
+        self.installer("omarchy-install-dictation-apple-speech")
+        result = self.installer("omarchy-remove-dictation-apple-speech")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.selected(), "voxtype")
+        self.assertFalse(self.state.exists())
+
+    def test_user_setup_swaps_at_login_and_reloads_hyprland(self):
+        self.select("voxtype")
+        self.helper("select")
+        self.dictation_off()
+        env = {**self.env, "TRY_OMARCHY_MENU_ENTRIES": "/usr/bin/true", "TRY_OMARCHY_IDLE_DEFAULTS": "/usr/bin/true",
+               "TRY_OMARCHY_BACKGROUNDS": str(self.root / "none"), "HYPRLAND_INSTANCE_SIGNATURE": "test"}
+        # The loader is already in place, so only the swap can ask for a reload.
+        loader = self.root / "state/omarchy/toggles/hypr/zz-try-omarchy.lua"
+        run(LIB / "user-setup", env=env)
+        self.assertTrue(loader.is_file())
+        self.log.unlink()
+        self.dictation_on()
+        run(LIB / "user-setup", "--reload", env=env)
+        self.assertEqual(self.selected(), "apple-speech")
+        self.assertIn("hyprctl reload", self.calls())
+        self.log.unlink()
+        run(LIB / "user-setup", "--reload", env=env)
+        self.assertNotIn("hyprctl reload", self.calls())
 
 if __name__ == "__main__":
     unittest.main()

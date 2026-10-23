@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# omarchy:summary=Stop using Apple speech recognition for dictation
+
+set -e
+
+"${TRY_OMARCHY_DICTATION_BACKEND:-/usr/lib/try-omarchy/dictation-backend}" remove
+hyprctl reload >/dev/null 2>&1 || true
+echo "Apple Speech is no longer the dictation backend."

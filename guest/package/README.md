@@ -5,7 +5,8 @@ install running in the Mac app (see [the architecture](../../docs/architecture.m
 
 - the host bridges: clipboard, audio, camera, battery (including the DKMS
   `try-omarchy-battery` module, whose source is in `try-omarchy/battery`),
-  time zone, Touch ID for sudo and 1Password, and the settings port;
+  time zone, Touch ID for sudo and 1Password, Apple dictation (macOS 26), and
+  the settings port;
 - the Mac shared folder mount and the home-folder link;
 - the launcher's per-boot settings;
 - first-boot language seeding and the Mac JIS 英数/かな keys;
@@ -62,7 +63,9 @@ not ignore, so caches and other local files never reach the package.
 - **Menu rows go through Omarchy's menu extension.** `menu-entries` adds Try
   Omarchy's rows once each and changes some of Omarchy's: the Timezone row's
   action, and the conditions that show Direct Boot, Firmware, the Wi-Fi and
-  Bluetooth restarts, the battery percentage toggle and three game rows.
+  Bluetooth restarts, the battery percentage toggle and three game rows. It
+  also offers Apple Speech under Setup > Defaults > Dictation while the
+  dictation port exists, and shows Remove > Dictation while it is chosen.
   Omarchy's merge replaces a row whole, filling every field an extension
   leaves out with a default (its menu documentation says only declared fields
   are replaced), so each changed row carries Omarchy's complete row, read from
@@ -78,7 +81,7 @@ not ignore, so caches and other local files never reach the package.
 | credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags |
 | credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | The app's bundled package, installed before login when newer |
 | `dev.tryomarchy.guest` | guest → host | Status reports (protocol 1, JSON lines every 10 s) |
-| `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The host bridges, one port per integration |
+| `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings,dictation}` | both | The host bridges, one port per integration (`dictation` only on macOS 26 with an Xcode 26 build) |
 
 A status report looks like this:
 
@@ -92,13 +95,14 @@ know about. Either side can therefore be updated first.
 
 ## Device access, SSH, language and input
 
-- The user-facing ports (audio, clipboard, camera, settings) and the camera
-  loopback device carry `TAG+="uaccess"`. logind grants them to whoever holds
-  the active session. Omarchy's owner provisioning does not add the owner to
-  `audio`, `video` or `users`. Audio, camera and clipboard bridges follow
-  `graphical-session.target`, so provisioning and SSH user managers do not
-  compete with the desktop for the host ports. Package upgrades move enabled
-  global audio and camera units to that target, preserving disabled units.
+- The user-facing ports (audio, clipboard, camera, settings, dictation) and the
+  camera loopback device carry `TAG+="uaccess"`. logind grants them to whoever
+  holds the active session. Omarchy's owner provisioning does not add the owner
+  to `audio`, `video` or `users`. Audio, camera, clipboard and dictation
+  bridges follow `graphical-session.target`, so provisioning and SSH user
+  managers do not compete with the desktop for the host ports. Package
+  upgrades move enabled global audio and camera units to that target,
+  preserving disabled units.
 - With SSH forwarded, `try-omarchy-ssh-access` starts sshd for that boot. It
   also allows port 22 through Omarchy's ufw firewall: from the NAT gateway
   `10.0.2.2`, or from anywhere when the VM is bridged
@@ -146,6 +150,10 @@ Kitty creates a GL context on VirGL but its window stays empty, so
 way, found on the same `PATH` (Kitty's desktop entries run `kitty` by name).
 It passes `-o env=LIBGL_ALWAYS_SOFTWARE`, which leaves the variable empty,
 and so false, for programs started in Kitty.
+
+## Dictation backend
+
+`apple-speech` is an Omarchy dictation backend in Omarchy's documented form: `omarchy-dictation-apple-speech` for Omarchy's dictation keys, and `omarchy-install-dictation-apple-speech` and `omarchy-remove-dictation-apple-speech` behind the menu rows. It types the Mac's text with `wtype`, which Omarchy installs. It's never selected unless the user chooses it. While Dictation is off in the launcher, it does nothing and says nothing, and at each login the backend it replaced is selected instead. Apple Speech comes back once the port returns ([host dictation](../../docs/host-dictation.md#using-it-in-omarchy)).
 
 ## Project wallpaper
 

@@ -1,0 +1,370 @@
+#!/usr/bin/python3
+"""Serve apple-dictation.sock over the dev.tryomarchy.dictation virtio port.
+
+The Mac recognises the speech (Apple's SpeechAnalyzer, docs/host-dictation.md)
+and the guest's dictation tools talk to $XDG_RUNTIME_DIR/apple-dictation.sock
+with one connection per command:
+
+    {"cmd":"start","model":"speech"|"dictation"}  stays open for the events:
+        {"event":"recording"}, {"event":"level","v":0..1},
+        {"event":"partial","text":...}, {"event":"processing"}, then one of
+        {"event":"final","text":...,"ms":...}, {"event":"cancelled"} or
+        {"event":"error","message":...}, then EOF
+    {"cmd":"stop"} / {"cmd":"cancel"}   {"ok":true}
+    {"cmd":"ping"}                      {"ok":true,"session":bool}, true while
+                                        the Mac records a session not yet stopped
+
+The port is one stream, so sessions are numbered here and every port line
+carries the number; the host keeps at most one live and handles commands in
+the order they arrive.
+"""
+
+from __future__ import annotations
+
+import errno
+import json
+import os
+import selectors
+import signal
+import socket
+import sys
+import time
+from typing import Any
+
+
+PORT = os.environ.get("OMARCHY_DICTATION_PORT", "/dev/virtio-ports/dev.tryomarchy.dictation")
+SOCKET_NAME = "apple-dictation.sock"
+MAX_PORT_LINE = 64 * 1024
+MAX_CLIENT_LINE = 4096
+PING_SECONDS = 2.0
+# Without any host event for this long, the live session is given up; each
+# event and the stop re-arm it, so warm-up and finalising don't trip it.
+SESSION_SECONDS = 5.0
+TERMINAL = ("final", "cancelled", "error")
+TICK = 0.25
+# On SIGTERM, how long to keep trying to hand the host its cancel.
+FLUSH_SECONDS = 1.0
+
+
+def log(message: str) -> None:
+    print(f"omarchy-native-dictation-bridge: {message}", file=sys.stderr, flush=True)
+
+
+def encode(message: dict[str, Any]) -> bytes:
+    return (json.dumps(message, separators=(",", ":")) + "\n").encode()
+
+
+class Client:
+    def __init__(self, connection: socket.socket) -> None:
+        self.connection = connection
+        self.buffer = b""
+        self.command: str | None = None
+
+    def send(self, message: dict[str, Any]) -> None:
+        try:
+            self.connection.sendall(encode(message))
+        except OSError:
+            pass
+
+
+class Bridge:
+    def __init__(self, port: int, listener: socket.socket) -> None:
+        self.port = port
+        self.listener = listener
+        self.selector = selectors.DefaultSelector()
+        self.outgoing = bytearray()
+        self.port_buffer = b""
+        self.skipping_port_line = False
+        self.next_session = 1
+        self.next_ping = 1
+        # Every session still owed its terminal event, with its owner and its
+        # deadline. `live` is the one still recording; a stopped session stays
+        # here until its final arrives, so pressing again while it finishes
+        # doesn't lose its text.
+        self.sessions: dict[int, tuple[Client, float]] = {}
+        self.live: int | None = None
+        self.pings: dict[int, tuple[Client, float]] = {}
+        self.terminating = False
+        self.selector.register(listener, selectors.EVENT_READ, "listener")
+        self.selector.register(port, selectors.EVENT_READ, "port")
+
+    def to_host(self, message: dict[str, Any]) -> None:
+        self.outgoing += encode(message)
+        self.selector.modify(self.port, selectors.EVENT_READ | selectors.EVENT_WRITE, "port")
+
+    def drain(self) -> None:
+        try:
+            written = os.write(self.port, self.outgoing)
+        except BlockingIOError:
+            return
+        del self.outgoing[:written]
+        if not self.outgoing:
+            self.selector.modify(self.port, selectors.EVENT_READ, "port")
+
+    def read_port(self) -> bool:
+        """False once the host is gone."""
+        try:
+            chunk = os.read(self.port, 65536)
+        except BlockingIOError:
+            return True
+        except OSError as error:
+            if error.errno == errno.EIO:
+                return False
+            raise
+        if not chunk:
+            return False
+        lines = (self.port_buffer + chunk).split(b"\n")
+        self.port_buffer = lines.pop()
+        for line in lines:
+            if self.skipping_port_line:
+                self.skipping_port_line = False
+                continue
+            self.host_line(line)
+        if len(self.port_buffer) > MAX_PORT_LINE:
+            log("dropped an oversized line from the host")
+            self.port_buffer = b""
+            self.skipping_port_line = True
+        return True
+
+    def host_line(self, line: bytes) -> None:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            log("dropped a line the host sent that is not JSON")
+            return
+        if not isinstance(message, dict):
+            return
+        kind = message.get("type")
+        if kind == "hello":
+            if message.get("available") is False:
+                log(f"the Mac can't recognise dictation: {message.get('reason', 'unknown reason')}")
+            return
+        if kind == "pong":
+            waiting = self.pings.pop(message.get("id"), None)
+            if waiting:
+                recording = self.live is not None and message.get("session") == self.live
+                waiting[0].send({"ok": True, "session": recording})
+                self.close(waiting[0])
+            return
+        session = message.get("session")
+        if not isinstance(session, int) or session not in self.sessions:
+            return
+        owner = self.sessions[session][0]
+        event = {key: value for key, value in message.items() if key not in ("type", "session")}
+        owner.send({"event": kind, **event})
+        if kind in TERMINAL:
+            self.end(session)
+            self.close(owner)
+        else:
+            self.sessions[session] = (owner, time.monotonic() + SESSION_SECONDS)
+
+    def accept(self) -> None:
+        try:
+            connection, _ = self.listener.accept()
+        except BlockingIOError:
+            return
+        connection.setblocking(True)
+        connection.settimeout(1)
+        client = Client(connection)
+        self.selector.register(connection, selectors.EVENT_READ, client)
+
+    def read_client(self, client: Client) -> None:
+        try:
+            chunk = client.connection.recv(MAX_CLIENT_LINE)
+        except OSError:
+            chunk = b""
+        if not chunk:
+            self.hang_up(client)
+            return
+        if client.command is not None:
+            return  # one command per connection; the rest is ignored
+        client.buffer += chunk
+        if b"\n" not in client.buffer:
+            if len(client.buffer) > MAX_CLIENT_LINE:
+                self.refuse(client, "bad request")
+            return
+        line = client.buffer.split(b"\n", 1)[0]
+        try:
+            message = json.loads(line)
+            command = message.get("cmd") if isinstance(message, dict) else None
+        except ValueError:
+            command = None
+        if not isinstance(command, str):
+            self.refuse(client, "bad request")
+            return
+        client.command = command
+        self.command(client, command, message)
+
+    def command(self, client: Client, command: str, message: dict[str, Any]) -> None:
+        if command == "start":
+            model = "dictation" if message.get("model") == "dictation" else "speech"
+            if self.live is not None:
+                # The host cancels it too; its owner hears now.
+                previous = self.sessions[self.live][0]
+                self.end(self.live)
+                previous.send({"event": "cancelled"})
+                self.close(previous)
+            session = self.next_session
+            self.next_session += 1
+            self.live = session
+            self.sessions[session] = (client, time.monotonic() + SESSION_SECONDS)
+            self.to_host({"type": "start", "session": session, "model": model})
+        elif command in ("stop", "cancel"):
+            if self.live is not None:
+                session = self.live
+                self.to_host({"type": command, "session": session})
+                self.sessions[session] = (self.sessions[session][0], time.monotonic() + SESSION_SECONDS)
+                if command == "stop":
+                    self.live = None  # finishing; it keeps its owner until final
+            client.send({"ok": True})
+            self.close(client)
+        elif command == "ping":
+            ping = self.next_ping
+            self.next_ping += 1
+            self.pings[ping] = (client, time.monotonic() + PING_SECONDS)
+            self.to_host({"type": "ping", "id": ping})
+        else:
+            self.refuse(client, "unknown command")
+
+    def refuse(self, client: Client, error: str) -> None:
+        client.send({"ok": False, "error": error})
+        self.close(client)
+
+    def end(self, session: int) -> None:
+        self.sessions.pop(session, None)
+        if self.live == session:
+            self.live = None
+
+    def hang_up(self, client: Client) -> None:
+        for session, (owner, _) in list(self.sessions.items()):
+            if owner is client:
+                if session == self.live:
+                    # Don't leave the Mac microphone running for nobody.
+                    self.to_host({"type": "cancel", "session": session})
+                self.end(session)
+        self.close(client)
+
+    def close(self, client: Client) -> None:
+        for ping, (waiting, _) in list(self.pings.items()):
+            if waiting is client:
+                del self.pings[ping]
+        try:
+            self.selector.unregister(client.connection)
+        except (KeyError, ValueError):
+            pass
+        client.connection.close()
+
+    def expire(self) -> None:
+        now = time.monotonic()
+        for ping, (client, deadline) in list(self.pings.items()):
+            if now >= deadline:
+                client.send({"ok": False, "error": "host not responding"})
+                self.close(client)
+        for session, (owner, deadline) in list(self.sessions.items()):
+            if now >= deadline:
+                if session == self.live:
+                    self.to_host({"type": "cancel", "session": session})
+                self.end(session)
+                owner.send({"event": "error", "message": "host not responding"})
+                self.close(owner)
+
+    def end_all(self, live_event: dict[str, Any], others: dict[str, Any]) -> None:
+        for session, (owner, _) in list(self.sessions.items()):
+            owner.send(live_event if session == self.live else others)
+            self.end(session)
+            self.close(owner)
+
+    def host_gone(self) -> None:
+        gone = {"event": "error", "message": "host went away"}
+        self.end_all(gone, gone)
+        for client, _ in list(self.pings.values()):
+            client.send({"ok": False, "error": "host went away"})
+            self.close(client)
+
+    def terminate(self) -> None:
+        """Stopped by systemd (logout, upgrade): stop the Mac microphone first."""
+        if self.live is not None:
+            self.to_host({"type": "cancel", "session": self.live})
+        self.end_all({"event": "cancelled"}, {"event": "error", "message": "the dictation service stopped"})
+        deadline = time.monotonic() + FLUSH_SECONDS
+        while self.outgoing and time.monotonic() < deadline:
+            if self.selector.select(min(TICK, max(deadline - time.monotonic(), 0))):
+                self.drain()
+
+    def request_termination(self, *_: Any) -> None:
+        self.terminating = True
+
+    def run(self) -> int:
+        signal.signal(signal.SIGTERM, self.request_termination)
+        signal.signal(signal.SIGINT, self.request_termination)
+        self.to_host({"type": "hello", "version": 1})
+        while True:
+            if self.terminating:
+                self.terminate()
+                return 0
+            for key, events in self.selector.select(TICK):
+                if key.data == "listener":
+                    self.accept()
+                elif key.data == "port":
+                    if events & selectors.EVENT_WRITE:
+                        self.drain()
+                    if events & selectors.EVENT_READ and not self.read_port():
+                        log("the Mac's dictation bridge went away")
+                        self.host_gone()
+                        return 1
+                else:
+                    self.read_client(key.data)
+            self.expire()
+
+
+def listen(path: str) -> socket.socket | None:
+    """The listening socket, or None when another server already answers."""
+    if os.path.exists(path):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.connect(path)
+        except OSError:
+            os.unlink(path)  # left behind by a crash
+        else:
+            probe.close()
+            return None
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    previous = os.umask(0o177)
+    try:
+        listener.bind(path)
+    finally:
+        os.umask(previous)
+    listener.listen(8)
+    listener.setblocking(False)
+    return listener
+
+
+def main() -> int:
+    if not os.path.exists(PORT):
+        log(f"{PORT} is missing; Apple dictation is off or the Mac can't run it")
+        return 0
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    path = os.path.join(runtime, SOCKET_NAME)
+    try:
+        port = os.open(PORT, os.O_RDWR | os.O_NONBLOCK | os.O_NOCTTY)
+    except OSError as error:
+        log(f"cannot open {PORT}: {error.strerror}")
+        return 1
+    listener = listen(path)
+    if listener is None:
+        log(f"another server already answers on {path}")
+        os.close(port)
+        return 0
+    try:
+        return Bridge(port, listener).run()
+    finally:
+        listener.close()
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        os.close(port)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

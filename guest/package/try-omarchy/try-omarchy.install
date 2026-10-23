@@ -4,7 +4,8 @@ _units='try-omarchy-host-config.service try-omarchy-grow-root.service try-omarch
 try-omarchy-package-install.service omarchy-native-battery-bridge.service omarchy-native-mac-share.service
 try-omarchy-locale.service try-omarchy-timezone.service try-omarchy-clock-recovery.timer'
 _user_units='omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service
-omarchy-native-clipboard-bridge.service omarchy-native-mac-share-link.service try-omarchy-session.service'
+omarchy-native-clipboard-bridge.service omarchy-native-dictation-bridge.service omarchy-native-mac-share-link.service
+try-omarchy-session.service'
 
 # logind rereads its drop-ins (the power-key policy) on SIGHUP.
 _reload_logind() {
@@ -65,6 +66,9 @@ post_upgrade() {
   # camera cutouts it writes.
   if [ "$(vercmp "$2" 0.1.0-28)" -lt 0 ]; then
     systemctl try-restart try-omarchy-host-config.service >/dev/null 2>&1 || true
+  fi
+  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
+    systemctl --global preset omarchy-native-dictation-bridge.service >/dev/null 2>&1 || true
   fi
   _reload_logind
 }

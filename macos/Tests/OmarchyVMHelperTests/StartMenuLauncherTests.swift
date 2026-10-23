@@ -204,6 +204,29 @@ struct StartMenuLauncherTests {
         #expect(!notched.state.usesNotch)
     }
 
+    @Test("the dictation setting shows only where dictation can run and saves its choice")
+    func dictationSetting() {
+        _ = NSApplication.shared
+        let unsupported = makeMenu()
+        defer { unsupported.dismiss() }
+        unsupported.prepareForPresentation(visibleFrame: nil)
+        #expect(!unsupported.state.dictationSupported)
+
+        var dictationEnabled = true
+        let supported = makeMenu(
+            dictationSupported: true,
+            dictationEnabled: { dictationEnabled },
+            setDictationEnabled: { dictationEnabled = $0 }
+        )
+        defer { supported.dismiss() }
+        supported.prepareForPresentation(visibleFrame: nil)
+        #expect(supported.state.dictationSupported)
+        #expect(supported.state.dictationEnabled)
+        supported.actions.setDictationEnabled(false)
+        #expect(!dictationEnabled)
+        #expect(!supported.state.dictationEnabled)
+    }
+
     @Test("returning to the launcher keeps its view and skips storage probes")
     func activationPreservesLauncher() throws {
         _ = NSApplication.shared
@@ -526,6 +549,9 @@ struct StartMenuLauncherTests {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        dictationSupported: Bool = false,
+        dictationEnabled: @escaping () -> Bool = { false },
+        setDictationEnabled: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
@@ -567,6 +593,9 @@ struct StartMenuLauncherTests {
             notchAvailable: notchAvailable,
             usesNotch: usesNotch,
             setUsesNotch: setUsesNotch,
+            dictationSupported: dictationSupported,
+            dictationEnabled: dictationEnabled,
+            setDictationEnabled: setDictationEnabled,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,

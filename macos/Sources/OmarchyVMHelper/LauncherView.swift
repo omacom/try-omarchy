@@ -21,6 +21,7 @@ struct LauncherActions {
     var openStorageLocation: () -> Void = {}
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
+    var setDictationEnabled: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
     var resetSettings: () -> Void = {}
     var restart: () -> Void = {}
@@ -594,6 +595,16 @@ private struct SharingSection: View {
                         isOn: state.usbDeviceState.isEnabled,
                         set: actions.setUSBDeviceEnabled
                     )
+                }
+            }
+
+            if state.dictationSupported {
+                SettingRow(
+                    icon: SettingIcon("waveform", .orange),
+                    title: "Dictation",
+                    detail: [StartMenuPresentation.dictationDetail(isEnabled: state.dictationEnabled)]
+                ) {
+                    LauncherSwitch("Dictation", isOn: state.dictationEnabled, set: actions.setDictationEnabled)
                 }
             }
         } footer: {

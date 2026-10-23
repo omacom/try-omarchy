@@ -56,6 +56,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let portForwardingStore: PortForwardingPreferenceStore
     private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
+    private let dictationPreferenceStore: DictationPreferenceStore
     private let startupPreferenceStore: StartupPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
@@ -127,6 +128,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.portForwardingStore = PortForwardingPreferenceStore(storage: vmSettings)
         self.networkStore = VMNetworkPreferenceStore(storage: vmSettings)
         self.fullscreenPreferenceStore = FullscreenPreferenceStore(storage: vmSettings)
+        self.dictationPreferenceStore = DictationPreferenceStore(storage: vmSettings)
         self.startupPreferenceStore = startupPreferenceStore
         self.resourcePreferenceStore = VMResourcePreferenceStore(storage: vmSettings)
         self.resourceLimits = resourceLimits
@@ -334,6 +336,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 preferences.usesNotch = usesNotch
                 store.save(preferences)
             },
+            dictationSupported: DictationSupport.isAvailable,
+            dictationEnabled: { [weak self] in
+                self?.dictationPreferenceStore.load().isEnabled ?? DictationPreferences.defaults.isEnabled
+            },
+            setDictationEnabled: { [weak self] isEnabled in
+                self?.dictationPreferenceStore.save(DictationPreferences(isEnabled: isEnabled))
+            },
             startAutomatically: { [weak self] in
                 guard let self else { return false }
                 return self.startupPreferenceStore.load(storageRoot: self.startupPreferenceRoot())
@@ -474,6 +483,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         try? portForwardingStore.save([])
         try? networkStore.save(VMNetworkPreferences())
         fullscreenPreferenceStore.save(.defaults)
+        dictationPreferenceStore.save(.defaults)
         resourcePreferenceStore.clear()
         if let root = startupPreferenceRoot() {
             try? startupPreferenceStore.save(false, storageRoot: root)
@@ -595,8 +605,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             baseEnvironment: forwarding.environment,
             preferences: fullscreenPreferenceStore.load()
         )
-        let resources = VMResourceLaunchConfiguration.make(
+        let dictation = DictationLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
+            preferences: dictationPreferenceStore.load(),
+            isSupported: DictationSupport.isAvailable
+        )
+        let resources = VMResourceLaunchConfiguration.make(
+            baseEnvironment: dictation.environment,
             preferences: resolvedResources(),
             limits: resourceLimits
         )

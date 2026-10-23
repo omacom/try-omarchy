@@ -113,7 +113,17 @@ case $* in
   *) exec /usr/sbin/sysctl "$@" ;;
 esac
 SH
-chmod 755 "$app/Contents/MacOS/omarchy-vm-helper" "$resources/runtime/bin/zstd" "$shims/codesign" "$shims/sysctl"
+# Dictation and nested virtualization need macOS 26; FAKE_MACOS_VERSION plays
+# another Mac.
+cat >"$shims/sw_vers" <<'SH'
+#!/bin/bash
+if [[ $* == -productVersion ]]; then
+  echo "${FAKE_MACOS_VERSION:-26.0}"
+else
+  exec /usr/bin/sw_vers "$@"
+fi
+SH
+chmod 755 "$app/Contents/MacOS/omarchy-vm-helper" "$resources/runtime/bin/zstd" "$shims/codesign" "$shims/sysctl" "$shims/sw_vers"
 
 dd if=/dev/zero of="$resources/guest/omarchy-aarch64-edge.img.zst" bs=1048576 count=4 2>/dev/null
 sha=$(shasum -a 256 "$resources/guest/omarchy-aarch64-edge.img.zst" | cut -d' ' -f1)
@@ -169,7 +179,8 @@ for port in 'nr=0,chardev=omarchy-hvc0' 'nr=1,chardev=omarchy-audio-bridge,name=
   'nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication' \
   'nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera' 'nr=5,chardev=omarchy-guest-status,name=dev.tryomarchy.guest' \
   'nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings' 'nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery' \
-  'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'; do
+  'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone' \
+  'nr=9,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'; do
   assert_contains "$output" "$port"
 done
 [[ -f $state/shell/disk.img && -f $state/shell/efi-vars.fd && -f $state/shell/vm.json && -f $state/shell-factory/$sha.img ]] ||
@@ -182,16 +193,10 @@ done
 qemu_ran && fail "a dry run started QEMU"
 
 # Opting in probes EL2 on macOS 26 or newer and falls back when the probe fails.
-cat >"$shims/sw_vers" <<'SH'
-#!/bin/bash
-echo 26.6.2
-SH
-chmod 755 "$shims/sw_vers"
-launch_env=(OMARCHY_QEMU_GPU_NESTED_VIRT=1)
+launch_env=(OMARCHY_QEMU_GPU_NESTED_VIRT=1 FAKE_MACOS_VERSION=26.6.2)
 output=$(launch)
 assert_contains "$output" "Nested virtualization is unavailable"
 assert_not_contains "$output" "virtualization=on"
-rm "$shims/sw_vers"
 launch_env=()
 
 # QEMU's reboot, shutdown and monitor policy: one QMP controller, no debugger.
@@ -384,6 +389,17 @@ output=$(launch) && fail "a QEMU without exact USB bus matching was accepted"
 assert_contains "$output" "exact USB bus matching"
 write_qemu 'exact bus 0 matching'
 
+# --- dictation ---------------------------------------------------------------------
+# On by default (the first launch above); off removes the port, and so does
+# any Mac older than macOS 26 whatever the setting says.
+launch_env=(OMARCHY_QEMU_GPU_DICTATION=0)
+output=$(launch)
+assert_not_contains "$output" "dev.tryomarchy.dictation"
+launch_env=(OMARCHY_QEMU_GPU_DICTATION=1 FAKE_MACOS_VERSION=15.5)
+output=$(launch)
+assert_not_contains "$output" "dev.tryomarchy.dictation"
+assert_not_contains "$output" "dictation.sock"
+
 # --- shared folder --------------------------------------------------------------------
 mkdir -p "$test_root/My Work"
 launch_env=(OMARCHY_QEMU_GPU_SHARED_FOLDER="$test_root/My Work")
@@ -417,7 +433,7 @@ untouched="$test_root/untouched"
 for setting in OMARCHY_QEMU_GPU_CPUS=2 OMARCHY_QEMU_GPU_MEMORY_MIB=1024 OMARCHY_QEMU_GPU_MEMORY_MIB=lots \
   OMARCHY_QEMU_GPU_DISK_GIB=0 OMARCHY_QEMU_GPU_DISK_GIB=9000 OMARCHY_QEMU_GPU_LOCALE=xx_XX.UTF-8 \
   'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac,romfile=/etc/hosts' 'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac -s' \
-  OMARCHY_QEMU_GPU_HVF_TRACE_LOG=relative.log OMARCHY_QEMU_GPU_IMMERSIVE=2 OMARCHY_QEMU_GPU_DRY_RUN=2 \
+  OMARCHY_QEMU_GPU_HVF_TRACE_LOG=relative.log OMARCHY_QEMU_GPU_IMMERSIVE=2 OMARCHY_QEMU_GPU_DICTATION=2 OMARCHY_QEMU_GPU_DRY_RUN=2 \
   OMARCHY_QEMU_GPU_NESTED_VIRT=yes \
   OMARCHY_QEMU_GPU_SHARED_FOLDER=/etc,x OMARCHY_SHELL_INSTALL_PACKAGE=/etc/hosts OMARCHY_NETWORK_MODE=vmnet \
   OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:22:22:22; do

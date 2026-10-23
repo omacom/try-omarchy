@@ -93,7 +93,7 @@ The run mode boots the VM in the folder its configuration names, and starts it w
 - **the VM folder:** the configuration's `storageRoot`. The run mode then ignores the folder chosen in the launcher, so a VM moved in Try Omarchy, or a choice that cannot be read, never changes which VM it boots. Without a `storageRoot`, it is the folder chosen in the launcher, else the default folder; a chosen folder that is missing, or a choice that cannot be read, stops the run with `storage-unavailable`, and it never falls back to another VM.
 - **memory and CPUs** (and the disk's maximum size): the stored resources, then the configuration's `memoryMiB` and `cpus`, then the launcher's automatic choice.
 - **networking:** the stored mode, then the configuration's `network`. Bridged networking from the configuration uses the first interface the Networking settings list, which they select until someone picks one; a Mac with none fails with `bridged-network-unavailable`. When bridged networking cannot start ([bridged networking](#bridged-networking)), a configuration that asks for it fails with `bridged-network-unavailable`, and a stored bridged choice starts with shared networking and a notice instead, so Try is never stuck.
-- **port forwarding, the shared folder, the USB device, Immersive Mode and the camera notch:** stored only. A port that is in use fails with `launch-failed`.
+- **port forwarding, the shared folder, the USB device, Immersive Mode, the camera notch and Dictation:** stored only. A port that is in use fails with `launch-failed`.
 
 Audio follows the Mac's default devices. The development overrides (`OMARCHY_QEMU_GPU_STATE_ROOT`, `OMARCHY_QEMU_GPU_PORT_FORWARDS` and the like) still win, and `VMRunClient` never passes them on.
 

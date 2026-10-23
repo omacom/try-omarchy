@@ -183,6 +183,11 @@ and blend-state regression tests and rejects bundled Mach-O files targeting a
 version newer than 15.0 or strongly importing `strchrnul` (introduced in 15.4).
 These binary checks do not replace testing on the supported operating systems.
 
+Build releases with Xcode 26 (the macOS 26 SDK). An older Xcode still builds a
+working app, but leaves out [host dictation](host-dictation.md), which then
+never appears even on macOS 26. On macOS 15 the release app must show no
+**Dictation** setting and offer no `dev.tryomarchy.dictation` port.
+
 Before publishing, boot the release app on macOS 15.0–15.3 and macOS 26. Verify
 the default terminal draws text correctly while resizing, check desktop
 rendering, and test both new and existing guests. By default every Mac must

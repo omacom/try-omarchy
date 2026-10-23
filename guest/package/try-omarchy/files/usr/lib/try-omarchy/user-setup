@@ -30,6 +30,11 @@ fi
 "${TRY_OMARCHY_MENU_ENTRIES:-/usr/lib/try-omarchy/menu-entries}" || true
 # Omarchy's idle screensaver and lock off in the VM, once.
 "${TRY_OMARCHY_IDLE_DEFAULTS:-/usr/lib/try-omarchy/idle-defaults}" || true
+# Apple Speech as the dictation backend only while Dictation is on in the
+# launcher; the backend it replaced otherwise. Hyprland rebinds the keys.
+if [[ $("${TRY_OMARCHY_DICTATION_BACKEND:-/usr/lib/try-omarchy/dictation-backend}" login 2>/dev/null) == changed ]]; then
+  changed=1
+fi
 
 # Extra backgrounds for Omarchy's themes, offered beside the theme's own in
 # its background switcher; the current background is never changed. Each is
