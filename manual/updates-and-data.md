@@ -44,11 +44,13 @@ Set CPU cores, memory and the maximum disk size in **Resources → Configure…*
 You can move your files from the VM to Omarchy installed on this Mac.
 
 1. In the Omarchy menu, choose **Setup → Move to Native Install**.
-2. Enter a transfer passphrase. Remember it: the Omarchy installer asks for it.
-3. Shut down Omarchy when the command says so.
-4. The export appears in `~/Library/Application Support/Try Omarchy/Exports`. **Virtual Machine → Native Install → Show Exports** in the launcher opens that folder. The Omarchy installer finds the export there.
+2. Choose a transfer passphrase of at least 12 characters. Keep it: Omarchy asks for it on the native install, and it can't be recovered.
+3. Shut down Omarchy when the command says the export is ready.
+4. In the Omarchy installer, choose **Migrate to Native**. It finds the export and checks it before the install.
 
-The export is a copy. Your VM is left as it was.
+The export holds your files, projects and settings. SSH and GPG keys, saved logins and tokens, browser data, and the VM's own display and keyboard settings stay behind. It is encrypted with your passphrase, and the VM is left as it was.
+
+Exports are kept in `~/Library/Application Support/Try Omarchy/Exports`. **Virtual Machine → Native Install → Show Exports** in the launcher opens that folder.
 
 ## VMs from older versions
 

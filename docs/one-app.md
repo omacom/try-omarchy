@@ -58,7 +58,7 @@ The settings move out of the app's preferences domain into a file in the VM's fo
 
 Once a VM exists, **Install on this Mac** reads **Migrate to Native**, on the landing page, on the running page and in the Installation menu. It is available when Install would be, and unavailable for the same reasons. On an unsupported Mac the menu item opens the reason instead, with **Check again**.
 
-Moving the VM's home folder into the native install is planned, not built: Omarchy will export it from inside the VM, and the installer will restore it on the native install. Until then, Migrate to Native says that moving the files is coming, with **Install Without Migrating** and **Cancel**, the default button. Install Without Migrating shuts Omarchy down if it runs and continues into the plan.
+Migrate to Native brings the VM's home folder along ([native install export](native-install-export.md)). Omarchy exports it from inside the VM with **Setup → Move to Native Install**, and the launcher publishes the export when the VM stops. Migrate to Native opens a sheet that offers the newest export, checked against its receipt, with **Install with These Files**; offers **Shut Down Omarchy** while a finished export waits in the running VM; or says how to export. **Install Without Migrating** and **Cancel**, the default button, stay in every case. Both install buttons shut Omarchy down if it runs and continue into the plan. Staging the export onto the native disk and importing it there are not built yet.
 
 The plan review counts the space the VM's folder actually uses against free space, as the trial does today. The native install leaves the VM in place. Whether the review offers to delete it first stays an [open question](#open-questions).
 
@@ -131,8 +131,8 @@ Next, in the installer:
 ## Testing
 
 - This repository: `make test` keeps the client's contract tests against the run mode and starts the run mode as a real process, CI builds and checks the kit, and `make e2e` boots the app's VM through the run mode. The settings window in the run mode is checked by hand from Omarchy's Setup menu.
-- The installer: `TrialSessionTests` cover the landing page in every state of the inspection, Install's reasons, Try and Back, Migrate to Native and its notice, the remembered choice, the menu items and the two free-space numbers. The assembly test checks the kit's signature under the installer's identity. Kit fetching gets tests for the digest, signature and version checks against fixtures.
-- By hand on a Mac: the landing page on a supported Mac, an unsupported one and one with Omarchy installed; a second launch with a VM; Migrate to Native and its notice from the landing page, the running page and the menu; the settings window from the Setup menu and a setting that applies at the next start; a fetched kit taking over at the next start; Delete Virtual Machine; and the lock error with Try Omarchy running.
+- The installer: `TrialSessionTests` cover the landing page in every state of the inspection, Install's reasons, Try and Back, Migrate to Native and its sheet in each case, the remembered choice, the menu items and the two free-space numbers. The assembly test checks the kit's signature under the installer's identity. Kit fetching gets tests for the digest, signature and version checks against fixtures.
+- By hand on a Mac: the landing page on a supported Mac, an unsupported one and one with Omarchy installed; a second launch with a VM; Migrate to Native from the landing page, the running page and the menu, before and after an export; the settings window from the Setup menu and a setting that applies at the next start; a fetched kit taking over at the next start; Delete Virtual Machine; and the lock error with Try Omarchy running.
 
 Neither repository's CI can boot the VM.
 
