@@ -12,6 +12,8 @@ install running in the Mac app (see [the architecture](../../docs/architecture.m
 - SSH on demand;
 - `try-omarchy-import-previous`, which copies files and packages from a VM of
   an earlier direct-boot app version that the app attaches read-only;
+- `try-omarchy-export-home`, which exports the home, encrypted, for a move to a
+  native Omarchy install ([native install export](../../docs/native-install-export.md));
 - root filesystem growth;
 - the Hyprland display and input profile for the VM, and the Mac's camera
   notch for Omarchy's bar ([camera notch](../../docs/camera-notch.md));
@@ -34,7 +36,7 @@ not ignore, so caches and other local files never reach the package.
   `50-try-omarchy-cpu.conf` (all pacman `backup` files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
-  from), `/etc/sudoers.d/try-omarchy-timezone`,
+  from), `/etc/sudoers.d/try-omarchy-timezone` and `try-omarchy-export`,
   `/etc/profile.d/try-omarchy.sh`, the Italian Apple keyboard layout
   `/etc/xkb/symbols/macintosh_vndr/it` (see
   [Mac keyboard geometry](../../docs/mac-keyboard.md)), and one link in

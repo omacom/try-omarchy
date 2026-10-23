@@ -128,7 +128,8 @@ printf 'package' >"$resources/guest-packages/try-omarchy-0.2.0-1-aarch64.pkg.tar
 state="$test_root/state"
 launch_env=()
 launch() { # args...
-  env PATH="$shims:$PATH" OMARCHY_QEMU_GPU_STATE_ROOT="$state" OMARCHY_QEMU_GPU_DRY_RUN=1 \
+  env PATH="$shims:$PATH" OMARCHY_QEMU_GPU_STATE_ROOT="$state" OMARCHY_QEMU_GPU_EXPORTS_ROOT="$test_root/Exports" \
+    OMARCHY_QEMU_GPU_DRY_RUN=1 \
     OMARCHY_QEMU_GPU_CPUS=4 OMARCHY_QEMU_GPU_MEMORY_MIB=2048 ${launch_env[@]+"${launch_env[@]}"} \
     "$resources/scripts/run-qemu-gpu.sh" "$@" 2>&1 | LC_ALL=C sed 's/\\//g'
   return "${PIPESTATUS[0]}"
@@ -155,6 +156,9 @@ assert_not_contains "$output" " -append "
 host_settings='omarchy.qemu_virgl=1 omarchy.virgl_dual_source=1 tryomarchy.ssh_access=1 tryomarchy.keyboard=jis tryomarchy.display_cutouts=3024x1964:64,2048x1330:44 tryomarchy.locale=ja_JP.UTF-8 tryomarchy.timezone=America/Sao_Paulo'
 assert_contains "$output" "host settings: $host_settings"
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.host=$(printf '%s' "$host_settings" | base64 | tr -d '\n')"
+# Try Omarchy itself offers no outbox; only the installer's run mode asks for one.
+assert_not_contains "$output" "native-exports"
+[[ ! -e $state/native-exports ]] || fail "a launch that did not ask for the outbox created it"
 package=$(printf '%s' try-omarchy-0.2.0-1-aarch64.pkg.tar.zst | base64 | tr -d '\n')
 assert_contains "$output" "io.systemd.credential.binary:tryomarchy.package=$package"
 assert_contains "$output" "mount_tag=tryomarchy-packages"
@@ -348,11 +352,14 @@ exec 8>&-
 
 # --- disposable VMs -------------------------------------------------------------------
 # A disposable VM clones the storage folder's factory and leaves the VM alone.
-output=$(launch --ephemeral)
+output=$(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1 launch --ephemeral)
 assert_not_contains "$output" "Launch phase: preparing"
 assert_not_contains "$output" "-add-fd"
 assert_contains "$output" "file=/private/tmp/omarchy-qemu-gpu."
 [[ $(head -c 10 "$state/shell/disk.img") == 'guest data' ]] || fail "an ephemeral launch touched the persistent disk"
+# It never shares or publishes the storage folder's outbox, which a running VM may be writing.
+assert_not_contains "$output" "native-exports"
+assert_not_contains "$output" "tryomarchy.native_exports=1"
 # A session-only storage folder clones from OMARCHY_QEMU_GPU_FACTORY_CACHE.
 launch_env=(OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/session" OMARCHY_QEMU_GPU_FACTORY_CACHE="$state/shell-factory")
 output=$(launch)
@@ -412,15 +419,45 @@ assert_contains "$output" "mac=$mac,"
 output=$(launch)
 assert_contains "$output" "mac=$mac,"
 
+# --- native install exports ----------------------------------------------------------------
+launch_env=(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1)
+output=$(launch)
+assert_contains "$output" "path=$state/native-exports,security_model=none,multidevs=remap,guest_owner_uid=1000,guest_owner_gid=1000"
+assert_contains "$output" "virtio-9p-pci,fsdev=omarchy-native-exports,mount_tag=tryomarchy-native-exports"
+assert_contains "$output" "tryomarchy.native_exports=1"
+[[ -d $state/native-exports && $(stat -f %Lp "$state/native-exports") == 700 ]] || fail "the outbox is not private"
+assert_not_contains "$output" "Publishing"
+[[ ! -e $test_root/Exports ]] || fail "the launcher created the Exports folder"
+# The publish script runs when the VM starts and again when it stops.
+publish="$resources/scripts/publish-migration-exports.sh"
+printf '#!/bin/bash\nprintf "%%s\\n" "$*" >>"%s/publish-calls"\n' "$test_root" >"$publish"
+chmod 755 "$publish"
+output=$(launch)
+assert_contains "$output" "[qemu-gpu] Publishing native install exports"
+call="--outbox $state/native-exports --destination $test_root/Exports"
+[[ $(<"$test_root/publish-calls") == "$call"$'\n'"$call" ]] ||
+  fail "unexpected publish calls: $(<"$test_root/publish-calls")"
+# A failing publish never stops a launch.
+printf '#!/bin/bash\nexit 1\n' >"$publish"
+output=$(launch) || fail "a failing publish script stopped the launch: $output"
+assert_contains "$output" "Publishing native install exports failed (status 1)"
+rm "$publish"
+# A storage folder with a comma is escaped, not refused.
+launch_env=(OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1 OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/with,comma" OMARCHY_QEMU_GPU_FACTORY_CACHE="$state/shell-factory")
+output=$(launch)
+assert_contains "$output" "path=$test_root/with,,comma/native-exports,"
+[[ -d $test_root/with,comma/native-exports ]] || fail "the outbox was not created beside the VM"
+launch_env=()
+
 # --- invalid inputs are refused before storage is touched ----------------------------------
 untouched="$test_root/untouched"
 for setting in OMARCHY_QEMU_GPU_CPUS=2 OMARCHY_QEMU_GPU_MEMORY_MIB=1024 OMARCHY_QEMU_GPU_MEMORY_MIB=lots \
   OMARCHY_QEMU_GPU_DISK_GIB=0 OMARCHY_QEMU_GPU_DISK_GIB=9000 OMARCHY_QEMU_GPU_LOCALE=xx_XX.UTF-8 \
   'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac,romfile=/etc/hosts' 'OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x05ac -s' \
   OMARCHY_QEMU_GPU_HVF_TRACE_LOG=relative.log OMARCHY_QEMU_GPU_IMMERSIVE=2 OMARCHY_QEMU_GPU_DRY_RUN=2 \
-  OMARCHY_QEMU_GPU_NESTED_VIRT=yes \
+  OMARCHY_QEMU_GPU_NESTED_VIRT=yes OMARCHY_QEMU_GPU_NATIVE_EXPORTS=yes \
   OMARCHY_QEMU_GPU_SHARED_FOLDER=/etc,x OMARCHY_SHELL_INSTALL_PACKAGE=/etc/hosts OMARCHY_NETWORK_MODE=vmnet \
-  OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:22:22:22; do
+  OMARCHY_QEMU_GPU_PORT_FORWARDS=tcp:22:22:22 OMARCHY_QEMU_GPU_EXPORTS_ROOT=relative/path; do
   launch_env=("$setting" OMARCHY_QEMU_GPU_STATE_ROOT="$untouched")
   output=$(launch) && fail "$setting was accepted"
   [[ $output == *run-qemu-gpu:* || $output == *'Network mode'* || $output == *forward* ]] ||

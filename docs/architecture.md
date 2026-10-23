@@ -220,6 +220,8 @@ host credential as `omarchy.shared_folder_name=<base64url>`.
 The personal share uses `cache=readahead`, which omits 9p writeback caching.
 See [shared-folder safety](shared-folder-safety.md).
 
+When the Omarchy installer's run mode asks for it, the launcher also attaches a writable outbox share, `native-exports` in the storage folder. The guest writes exports for a native install there, and the launcher publishes verified ones to the Exports folder the Omarchy installer reads. See [native install export](native-install-export.md).
+
 Optional port mappings are stored as a versioned launcher setting, validated
 again at every Swift-to-shell boundary, and translated into QEMU user-network
 `hostfwd` rules. The host side is always bound explicitly to `127.0.0.1`; the

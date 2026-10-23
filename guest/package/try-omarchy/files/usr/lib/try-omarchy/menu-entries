@@ -90,6 +90,12 @@ ROWS = (
         "description": "Copy files from the VM of an earlier Try Omarchy",
         "when": "test -b /dev/disk/by-id/virtio-omarchy-previous",
         "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-import-previous"})),
+    # Shown while the app offers the export outbox (docs/native-install-export.md).
+    ("setup.move-to-native-install", 9, own({
+        "icon": "\U000f0552", "label": "Move to Native Install",
+        "description": "Export your files for the Omarchy installer on your Mac",
+        "when": "grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline",
+        "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-export-home"})),
     # Omarchy's Timezone row opens the picker with Same as macOS first.
     ("update.timezone", 3, changed("update.timezone", set_action(TIMEZONE_ACTION))),
     # A direct UEFI entry would skip Limine and its snapshots; a VM has no
@@ -111,7 +117,7 @@ ROWS = (
     ("install.gaming.battlenet", 5, changed("install.gaming.battlenet", hide_unless("omarchy-hw-x86"))),
     ("install.gaming.lutris", 5, changed("install.gaming.lutris", hide_unless("omarchy-hw-x86"))),
 )
-RELEASE = 8
+RELEASE = 9
 
 # Rows earlier packages wrote with only the changed field, which Omarchy's
 # merge turned into rows without a label or an action. Still exactly as

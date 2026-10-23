@@ -1,0 +1,3 @@
+# Move to Native Install exports the caller's own home from a read-only
+# snapshot. The helper takes no arguments; only the passphrase on stdin.
+%wheel ALL=(root) NOPASSWD: /usr/lib/try-omarchy/export-home ""
