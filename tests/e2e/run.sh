@@ -283,7 +283,7 @@ grep -E '^(ok|FAIL|note)' "$out/export.txt" | record
 export_id=$(sed -n 's/^export-id //p' "$out/export.txt")
 [[ -n $export_id && -f $state/native-exports/$export_id/bundle.age && -f $state/native-exports/$export_id/receipt.json ]] &&
   pass "the export waits in the outbox on the Mac while Omarchy runs" || miss "no finished export in $state/native-exports"
-[[ ! -e $exports ]] && pass "nothing is published while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
+[[ ! -e $exports ]] && pass "nothing is published, and no Exports folder made, while Omarchy runs" || miss "the Exports folder changed while Omarchy ran"
 
 # --- shutdown and a second cold boot -------------------------------------------------------
 log "Shutdown"

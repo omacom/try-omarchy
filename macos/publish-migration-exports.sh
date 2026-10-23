@@ -44,6 +44,9 @@ uuid_pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 [[ -e $outbox ]] || exit 0
 [[ -d $outbox && ! -L $outbox && $(stat -f %u "$outbox") == "$(id -u)" ]] || fail "unsafe outbox: $outbox"
+shopt -s nullglob dotglob
+entries=("$outbox"/*)
+((${#entries[@]})) || exit 0
 mkdir -p "$destination"
 chmod 700 "$destination"
 [[ -d $destination && ! -L $destination && $(stat -f %u "$destination") == "$(id -u)" ]] ||
@@ -95,8 +98,7 @@ publish() { # folder name
   echo "$published"
 }
 
-shopt -s nullglob dotglob
-for folder in "$outbox"/*; do
+for folder in "${entries[@]}"; do
   name=${folder##*/}
   if reason=$(check "$folder" "$name"); then
     publish "$folder" "$name"

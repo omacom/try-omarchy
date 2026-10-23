@@ -112,6 +112,11 @@ class PublishMigrationExports(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.destination.exists())
 
+    def test_nothing_to_do_with_an_empty_outbox(self):
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.destination.exists())
+
     def test_refuses_an_outbox_that_is_a_link(self):
         self.outbox.rmdir()
         self.outbox.symlink_to(self.vm)
