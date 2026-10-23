@@ -1,7 +1,7 @@
 From: Try Omarchy contributors
 Subject: [PATCH] cocoa: keep held modifiers when the pointer moves
 
-Applies after the Korean Caps Lock patch.
+Applies after the other Try Omarchy Cocoa patches.
 
 The modifier sync at the top of handleEventLocked: runs for every event and
 releases each guest modifier whose flag the event lacks. A pointer event that
@@ -19,7 +19,7 @@ raiseAllKeys when focus is lost.
 diff --git a/ui/cocoa.m b/ui/cocoa.m
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1919,49 +1919,58 @@
+@@ -1947,49 +1947,58 @@
       *   completely leaving your hands from the keyboard, which hopefully makes
       *   this implementation usable enough.
       */

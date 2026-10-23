@@ -83,7 +83,7 @@ mouse grab cannot authorize global keyboard capture after switching to a Mac
 app. App deactivation and window focus loss both release the guest's held keys
 and mouse buttons; returning to the VM does not require typing to reset capture.
 
-Held modifiers follow the keyboard. Cocoa releases a guest Shift, Control, Option or Command that an event's flags lack only on a key down, key up or modifier change. Pointer and scroll events never release one: with an external keyboard and mouse, wired or Bluetooth, one that arrives within a few milliseconds of a modifier press can lack that modifier, which ended Shift+click and Control+click at that motion. Losing focus still releases everything the guest holds.
+Held modifiers follow the keyboard. Cocoa releases a guest Shift, Control, Option or Command that an event's flags lack only on a key down, key up or modifier change. Pointer and scroll events never release one. With an external keyboard and mouse, wired or Bluetooth, a pointer event that arrives within a few milliseconds of a modifier press can lack that modifier, which ended Shift+click and Control+click at that motion. Losing focus still releases everything the guest holds.
 
 If input appears stuck while using an older runtime, focus the VM and press
 Control–Option–G to release its mouse grab, then select the Mac application.
