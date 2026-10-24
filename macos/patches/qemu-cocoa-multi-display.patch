@@ -1,0 +1,1658 @@
+--- a/include/ui/console.h
++++ b/include/ui/console.h
+@@ -230,6 +230,9 @@
+     /* required if GL */
+     void (*dpy_gl_update)(DisplayChangeListener *dcl,
+                           uint32_t x, uint32_t y, uint32_t w, uint32_t h);
++    /* optional: a guest client created a GL rendering context */
++    void (*dpy_gl_context_created)(DisplayChangeListener *dcl,
++                                   const char *name);
+ 
+ } DisplayChangeListenerOps;
+ 
+@@ -293,6 +296,7 @@
+                                pixman_format_code_t format);
+ 
+ void qemu_console_gl_scanout_disable(QemuConsole *con);
++void qemu_console_gl_context_created(QemuConsole *con, const char *name);
+ void qemu_console_gl_scanout_texture(QemuConsole *con, uint32_t backing_id,
+                                      DisplayGLTextureBorrower backing_borrow,
+                                      uint32_t x, uint32_t y,
+--- a/ui/console.c
++++ b/ui/console.c
+@@ -950,6 +950,21 @@
+     }
+ }
+ 
++void qemu_console_gl_context_created(QemuConsole *con, const char *name)
++{
++    DisplayState *s = con->ds;
++    DisplayChangeListener *dcl;
++
++    QLIST_FOREACH(dcl, &s->listeners, next) {
++        if (con != dcl->con) {
++            continue;
++        }
++        if (dcl->ops->dpy_gl_context_created) {
++            dcl->ops->dpy_gl_context_created(dcl, name);
++        }
++    }
++}
++
+ void qemu_console_gl_scanout_texture(QemuConsole *con,
+                                      uint32_t backing_id,
+                                      DisplayGLTextureBorrower backing_borrow,
+--- a/hw/display/virtio-gpu-virgl.c
++++ b/hw/display/virtio-gpu-virgl.c
+@@ -474,10 +474,30 @@
+     }
+ }
+ 
++/*
++ * The display may want to know that a guest client renders with GL: the
++ * kernel's console and the firmware never create a context, a compositor
++ * does. The name is the guest's, bounded, printable or replaced.
++ */
++static void virgl_context_created(VirtIOGPU *g,
++                                  const struct virtio_gpu_ctx_create *cc)
++{
++    char name[sizeof(cc->debug_name) + 1];
++    size_t length = MIN(cc->nlen, sizeof(cc->debug_name));
++
++    for (size_t i = 0; i < length; i++) {
++        name[i] = cc->debug_name[i] >= 0x20 && cc->debug_name[i] < 0x7f ?
++                  cc->debug_name[i] : '?';
++    }
++    name[length] = '\0';
++    qemu_console_gl_context_created(g->parent_obj.scanout[0].con, name);
++}
++
+ static void virgl_cmd_context_create(VirtIOGPU *g,
+                                      struct virtio_gpu_ctrl_command *cmd)
+ {
+     struct virtio_gpu_ctx_create cc;
++    int ret;
+ 
+     VIRTIO_GPU_FILL_CMD(cc);
+     trace_virtio_gpu_cmd_ctx_create(cc.hdr.ctx_id,
+@@ -492,15 +512,21 @@
+         }
+ 
+ #if VIRGL_VERSION_MAJOR >= 1
+-        virgl_renderer_context_create_with_flags(cc.hdr.ctx_id,
+-                                                 cc.context_init,
+-                                                 cc.nlen,
+-                                                 cc.debug_name);
++        ret = virgl_renderer_context_create_with_flags(cc.hdr.ctx_id,
++                                                       cc.context_init,
++                                                       cc.nlen,
++                                                       cc.debug_name);
++        if (ret == 0) {
++            virgl_context_created(g, &cc);
++        }
+         return;
+ #endif
+     }
+ 
+-    virgl_renderer_context_create(cc.hdr.ctx_id, cc.nlen, cc.debug_name);
++    ret = virgl_renderer_context_create(cc.hdr.ctx_id, cc.nlen, cc.debug_name);
++    if (ret == 0) {
++        virgl_context_created(g, &cc);
++    }
+ }
+ 
+ static void virgl_cmd_context_destroy(VirtIOGPU *g,
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -48,6 +48,7 @@
+ #include "system/runstate.h"
+ #include "system/reset.h"
+ #include "system/runstate-action.h"
++#include "system/reset.h"
+ #include "system/cpu-throttle.h"
+ #include "qapi/error.h"
+ #include "qapi/qapi-commands-block.h"
+@@ -109,8 +110,51 @@
+     .dpy_mouse_set = cocoa_mouse_set,
+     .dpy_cursor_define = cocoa_cursor_define,
+ };
+-static DisplayChangeListener dcl;
+-static DisplaySurface *surface;
++@class QemuCocoaView;
++
++/*
++ * One virtio-gpu head: its console, listener, surface and window. Immersive
++ * mode gives every Mac display a head; TRYOMARCHY_DISPLAY_LAYOUT names each
++ * output's place on the guest desktop, in Hyprland's logical pixels, so one
++ * absolute pointer can cover every window. A window has one head.
++ */
++#define COCOA_MAX_HEADS 4
++#define COCOA_MAX_DESKTOP 99999
++typedef struct QemuCocoaHead {
++    DisplayChangeListener dcl;
++    DisplaySurface *surface;
++    QemuCocoaView *view;
++    NSWindow *window;
++    unsigned index;
++    bool placed;
++    int desktop_x;
++    int desktop_y;
++    /* The guest's logical size of this output, the window's size in points. */
++    NSSize logicalSize;
++    bool full_screen_wanted;
++    bool full_screen_entering;
++    unsigned full_screen_tries;
++#ifdef CONFIG_OPENGL
++    bool gl_dirty;
++    uint32_t gl_scanout_id;
++    DisplayGLTextureBorrower gl_scanout_borrow;
++#endif
++} QemuCocoaHead;
++static QemuCocoaHead heads[COCOA_MAX_HEADS];
++static unsigned head_count = 1;
++static NSScreen *cocoa_first_head_screen(void);
++/*
++ * Linux sizes its console to the smallest connected display and keeps that
++ * size, which would shrink first-boot setup on the built-in panel. The
++ * console and the firmware never create a GL context; a compositor does.
++ * So the other heads join once a guest client renders with GL, and the
++ * guest sees them plugged in then. A guest reset takes them away again
++ * until the next compositor, so a reboot's console keeps the panel's size.
++ */
++static bool secondary_heads_enabled;
++/* Full screen, one window after another: AppKit runs one transition at a time. */
++static bool full_screen_chain;
++#define cocoa_head_of(listener) container_of(listener, QemuCocoaHead, dcl)
+ static QKbdState *kbd;
+ static int64_t injectedTextSource;
+ static int cursor_hide = 1;
+@@ -136,7 +180,6 @@
+ static bool full_grab_enabled;
+ static bool immersive_mode_enabled = true;
+ static bool notch_panel_enabled = true;
+-@class QemuCocoaView;
+ extern QemuCocoaView *cocoaView;
+ static NSMenuItem *fullScreenMenuItem;
+ 
+@@ -160,13 +203,15 @@
+ #ifdef CONFIG_OPENGL
+ 
+ @interface QemuCGLLayer : CAOpenGLLayer
++{
++    @public
++    QemuCocoaHead *head;
++}
+ @end
+ 
+-static bool gl_dirty;
+-static uint32_t gl_scanout_id;
+-static DisplayGLTextureBorrower gl_scanout_borrow;
+ static QEMUGLContext gl_view_ctx;
+ static NSOpenGLContext *gl_view_nsctx;
++static BOOL cocoa_cgl;
+ 
+ static bool cocoa_gl_trace_enabled_flag;
+ static bool cocoa_gl_trace_clear;
+@@ -218,7 +263,7 @@
+ static void cocoa_gl_switch(DisplayChangeListener *dcl,
+                             DisplaySurface *new_surface);
+ 
+-static void cocoa_gl_render(void);
++static void cocoa_gl_render(QemuCocoaHead *head);
+ 
+ static bool cocoa_gl_is_compatible_dcl(DisplayGLCtx *dgc,
+                                        DisplayChangeListener *dcl);
+@@ -282,9 +327,11 @@
+              displayTime:(const CVTimeStamp *)ts
+ {
+     CGLSetCurrentContext(ctx);
+-    
++
+     BQL_LOCK_GUARD();
+-    cocoa_gl_render();
++    if (head) {
++        cocoa_gl_render(head);
++    }
+ 
+     [super drawInCGLContext:ctx
+                 pixelFormat:pf
+@@ -646,7 +693,7 @@
+          cocoa_monotonic_ms() - cocoa_caps_lock_sent_ms < COCOA_CAPS_LOCK_LED_SETTLE_MS)) {
+         return counted;
+     }
+-    return !!(qemu_input_get_leds_mask(dcl.con) & QEMU_CAPS_LOCK_LED);
++    return !!(qemu_input_get_leds_mask(heads[0].dcl.con) & QEMU_CAPS_LOCK_LED);
+ }
+ 
+ static void cocoa_caps_lock_send_input_source(int action)
+@@ -749,6 +796,7 @@
+ */
+ @interface QemuCocoaView : NSView
+ {
++    QemuCocoaHead *head;
+     QEMUScreen screen;
+     /* The state surrounding mouse grabbing is potentially confusing.
+      * isAbsoluteEnabled tracks qemu_input_is_absolute() [ie "is the emulated
+@@ -778,9 +826,13 @@
+     BOOL leftCommandGuestDown;
+     BOOL rightCommandGuestDown;
+ }
++- (QemuCocoaHead *) head;
+ - (bool) coversNotch;
+ - (void) updateNotchLevel;
+ - (void) updateNotchReveal;
++- (bool) usesImmersivePointerTracking;
++- (void) updatePointerTracking;
++- (bool) vmHasTheKeyboard;
+ - (void) setNotchLeaving:(bool)leaving;
+ - (void) setMenuTracking:(bool)tracking;
+ - (void) grabMouse;
+@@ -807,11 +859,98 @@
+ QemuCocoaView *cocoaView;
+ static VMChangeStateEntry *pinch_vm_change;
+ 
++/* The console input devices without a console of their own answer to. */
++static QemuConsole *cocoa_input_console(void)
++{
++    return heads[0].dcl.con;
++}
++
++/* The guest desktop every head's output lies on, in logical pixels. */
++static NSRect cocoa_desktop_rect(void)
++{
++    NSRect desktop = NSZeroRect;
++
++    for (unsigned i = 0; i < head_count; i++) {
++        NSSize size = heads[i].logicalSize;
++        NSRect output;
++
++        if (size.width <= 0 || size.height <= 0) {
++            continue;
++        }
++        output = NSMakeRect(heads[i].desktop_x, heads[i].desktop_y,
++                            size.width, size.height);
++        desktop = NSIsEmptyRect(desktop) ? output : NSUnionRect(desktop, output);
++    }
++    return desktop;
++}
++
++static bool cocoa_head_window_is_key(void)
++{
++    for (unsigned i = 0; i < head_count; i++) {
++        if (heads[i].window && [heads[i].window isKeyWindow]) {
++            return true;
++        }
++    }
++    return false;
++}
++
++/* The head whose window an AppKit notification or event names, else the first. */
++static QemuCocoaView *cocoa_view_of_window(id window)
++{
++    for (unsigned i = 0; i < head_count; i++) {
++        if (heads[i].window && heads[i].window == window) {
++            return heads[i].view;
++        }
++    }
++    return cocoaView;
++}
++
++/*
++ * Full screen at launch. The first request is made at display init, as it
++ * always was, whether or not the app is active yet: nothing activates QEMU
++ * for the person, and AppKit takes the request all the same. One that
++ * produced no transition (a locked Mac, another app's full screen, or a
++ * request AppKit drops while starting) is repeated a few times, once the
++ * app is active.
++ */
++#define COCOA_FULL_SCREEN_TRIES 3
++#define COCOA_FULL_SCREEN_RETRY_NS (2 * NSEC_PER_SEC)
++static void cocoa_enter_full_screen(unsigned index)
++{
++    QemuCocoaHead *head = &heads[index];
++
++    if (!head->full_screen_wanted || !head->window || head->full_screen_entering ||
++        ([head->window styleMask] & NSWindowStyleMaskFullScreen)) {
++        return;
++    }
++    if (head->full_screen_tries > 0 && ![NSApp isActive]) {
++        info_report("Try Omarchy: display %u enters full screen once the app is active",
++                    index + 1);
++        return;
++    }
++    if (head->full_screen_tries >= COCOA_FULL_SCREEN_TRIES) {
++        warn_report("Try Omarchy: display %u did not enter full screen", index + 1);
++        head->full_screen_wanted = false;
++        return;
++    }
++    if (head->full_screen_tries++) {
++        info_report("Try Omarchy: display %u did not enter full screen; asking again",
++                    index + 1);
++    }
++    [head->window toggleFullScreen:nil];
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, COCOA_FULL_SCREEN_RETRY_NS),
++                   dispatch_get_main_queue(), ^{
++        cocoa_enter_full_screen(index);
++    });
++}
++
+ /* VM state callbacks hold the BQL; this method only touches input state. */
+ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+ {
+-    [cocoaView resetPinchLocked:running];
+-    [cocoaView endTouchScrollLocked];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view resetPinchLocked:running];
++        [heads[i].view endTouchScrollLocked];
++    }
+ }
+ 
+ 
+@@ -860,15 +999,17 @@
+ static void cocoa_touchpad_send(bool down, const int x[2], int y,
+                                 const int id[2])
+ {
++    QemuConsole *con = cocoa_input_console();
++
+     for (int slot = 0; slot < 2; slot++) {
+-        qemu_input_queue_mtt(dcl.con,
++        qemu_input_queue_mtt(con,
+                             down ? INPUT_MULTI_TOUCH_TYPE_UPDATE :
+                                    INPUT_MULTI_TOUCH_TYPE_END,
+                             slot, down ? id[slot] : -1);
+         if (down) {
+-            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_X, x[slot], 0,
++            qemu_input_queue_mtt_abs(con, INPUT_AXIS_X, x[slot], 0,
+                                     COCOA_PINCH_AXIS_MAX, slot, id[slot]);
+-            qemu_input_queue_mtt_abs(dcl.con, INPUT_AXIS_Y, y, 0,
++            qemu_input_queue_mtt_abs(con, INPUT_AXIS_Y, y, 0,
+                                     COCOA_PINCH_AXIS_MAX, slot, id[slot]);
+         }
+     }
+@@ -970,6 +1111,20 @@
+  */
+ static BOOL (*cocoa_reserves_menu_bar)(id, SEL);
+ 
++/*
++ * The hook cannot tell which window is entering full screen; the camera
++ * strip is left uncovered on every display while a head is on the panel.
++ */
++static bool cocoa_head_on_notch_screen(void)
++{
++    for (unsigned i = 0; i < head_count; i++) {
++        if (heads[i].window && cocoa_notch_strip([heads[i].window screen]) > 0) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ static BOOL cocoa_notch_reserves_menu_bar(id self, SEL cmd)
+ {
+     BOOL reserves = cocoa_reserves_menu_bar(self, cmd);
+@@ -983,7 +1138,7 @@
+             boolForKey:@"AppleMenuBarVisibleInFullscreen"]) {
+         return reserves;
+     }
+-    return reserves && cocoa_notch_strip([[(NSView *)cocoaView window] screen]) <= 0;
++    return reserves && !cocoa_head_on_notch_screen();
+ }
+ 
+ static void cocoa_notch_hook_install(void)
+@@ -1010,25 +1165,15 @@
+ #ifdef CONFIG_OPENGL
+                 cgl:(BOOL)cgl
+ #endif
++               head:(QemuCocoaHead *)givenHead
+ {
+     COCOA_DEBUG("QemuCocoaView: initWithFrame\n");
+ 
+     self = [super initWithFrame:frameRect];
+     if (self) {
++        head = givenHead;
+ 
+-        NSTrackingAreaOptions options = NSTrackingActiveInKeyWindow |
+-                                        NSTrackingMouseEnteredAndExited |
+-                                        NSTrackingMouseMoved |
+-                                        NSTrackingInVisibleRect;
+-
+-        NSTrackingArea *trackingArea =
+-            [[NSTrackingArea alloc] initWithRect:CGRectZero
+-                                         options:options
+-                                           owner:self
+-                                        userInfo:nil];
+-
+-        [self addTrackingArea:trackingArea];
+-        [trackingArea release];
++        [self updatePointerTracking];
+         /* The frame is in points; the guest's size is in pixels. */
+         CGFloat initialScale = MAX(1, [[NSScreen mainScreen] backingScaleFactor]);
+         screen.width = frameRect.size.width * initialScale;
+@@ -1040,6 +1185,7 @@
+         [self setWantsLayer:YES];
+         if (cgl) {
+             QemuCGLLayer *layer = [[QemuCGLLayer alloc] init];
++            layer->head = givenHead;
+             [self setLayer:layer];
+             [layer release];
+         }
+@@ -1071,6 +1217,11 @@
+     return YES;
+ }
+ 
++- (QemuCocoaHead *) head
++{
++    return head;
++}
++
+ #ifdef CONFIG_OPENGL
+ - (BOOL)wantsUpdateLayer
+ {
+@@ -1086,13 +1237,14 @@
+ - (void) selectConsoleLocked:(unsigned int)index
+ {
+     QemuConsole *con = qemu_console_lookup_by_index(index);
+-    if (!con) {
++    /* With a window per head, every console already has its window. */
++    if (!con || head_count > 1) {
+         return;
+     }
+ 
+-    qemu_console_unregister_listener(&dcl);
++    qemu_console_unregister_listener(&head->dcl);
+     qkbd_state_switch_console(kbd, con);
+-    qemu_console_register_listener(con, &dcl, dcl.ops);
++    qemu_console_register_listener(con, &head->dcl, head->dcl.ops);
+     [self notifyMouseModeChange];
+     [self updateUIInfo];
+ }
+@@ -1198,6 +1350,7 @@
+     // get CoreGraphic context
+     CGContextRef viewContextRef = [[NSGraphicsContext currentContext] CGContext];
+     BQL_LOCK_GUARD();
++    DisplaySurface *surface = head->surface;
+ 
+     CGContextSetInterpolationQuality(viewContextRef,
+                                      zoom_interpolation ? kCGInterpolationLow :
+@@ -1302,17 +1455,19 @@
+ /*
+  * The menu bar's black strip (window level 24) covers the camera strip of a
+  * full-screen window. Raise the window just above it while it covers the
+- * notch and has the keyboard. Everything else sits lower again: an alert or
+- * another app that takes the keyboard, the way out of full screen, and the
+- * menu bar or Dock that non-immersive full screen reveals.
++ * notch and a window of the VM has the keyboard, on whichever display.
++ * Everything else sits lower again: an alert or another app that takes the
++ * keyboard, the way out of full screen, and the menu bar or Dock that
++ * non-immersive full screen reveals.
+  */
+ - (void) updateNotchLevel
+ {
+     NSWindow *window = [self window];
+     bool covered = [self coversNotch];
+-    bool raised = covered && !notchLeaving && [window isKeyWindow] &&
+-                  [NSApp isActive] && notchReveal == COCOA_REVEAL_NONE &&
+-                  !menuTracking;
++    /* A level change while the transition runs makes AppKit give it up. */
++    bool raised = covered && !head->full_screen_entering && !notchLeaving &&
++                  cocoa_head_window_is_key() && [NSApp isActive] &&
++                  notchReveal == COCOA_REVEAL_NONE && !menuTracking;
+     NSWindowLevel level = raised ? NSStatusWindowLevel : NSNormalWindowLevel;
+ 
+     if ([window level] != level) {
+@@ -1468,7 +1623,10 @@
+     NSSize frameSize;
+     QemuUIInfo info = { 0 };
+ 
+-    if (!qemu_console_is_graphic(dcl.con)) {
++    if (!qemu_console_is_graphic(head->dcl.con)) {
++        return;
++    }
++    if (head->index > 0 && !secondary_heads_enabled) {
+         return;
+     }
+ 
+@@ -1501,7 +1659,7 @@
+         }
+ 
+         if (refreshRate) {
+-            qemu_console_listener_set_refresh(&dcl,
++            qemu_console_listener_set_refresh(&head->dcl,
+                                               MAX(1u, 1000000u / refreshRate));
+             info.refresh_rate = refreshRate;
+         }
+@@ -1524,6 +1682,7 @@
+ 
+     info.xoff = 0;
+     info.yoff = 0;
++    head->logicalSize = frameSize;
+     NSSize backingFrameSize = [self convertSizeToBacking:frameSize];
+     CGFloat backingScale = [[self window] backingScaleFactor];
+     /* Keep the corresponding Hyprland logical dimensions integral. */
+@@ -1536,7 +1695,7 @@
+                       (uint32_t)backingFrameSize.height / cleanScaleDivisor *
+                           cleanScaleDivisor);
+ 
+-    qemu_console_set_ui_info(dcl.con, &info, TRUE);
++    qemu_console_set_ui_info(head->dcl.con, &info, TRUE);
+ }
+ 
+ #pragma clang diagnostic pop
+@@ -1679,7 +1838,7 @@
+     }
+ 
+     if (keysym) {
+-        QemuTextConsole *con = QEMU_TEXT_CONSOLE(dcl.con);
++        QemuTextConsole *con = QEMU_TEXT_CONSOLE(head->dcl.con);
+         qemu_text_console_put_keysym(con, keysym);
+     }
+ }
+@@ -1700,9 +1859,9 @@
+     NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
+     unsigned action = 0;
+     bool eligible = [event window] == [self window] &&
+-                    [[self window] isKeyWindow] &&
++                    [self vmHasTheKeyboard] &&
+                     NSPointInRect(point, [self bounds]) &&
+-                    qemu_console_is_graphic(dcl.con) &&
++                    qemu_console_is_graphic(head->dcl.con) &&
+                     runstate_is_running();
+ 
+     if (phase & NSEventPhaseBegan) {
+@@ -1735,9 +1894,9 @@
+     unsigned action = 0;
+     bool eligible = [event hasPreciseScrollingDeltas] &&
+                     [event window] == [self window] &&
+-                    [[self window] isKeyWindow] &&
++                    [self vmHasTheKeyboard] &&
+                     NSPointInRect(point, [self bounds]) &&
+-                    qemu_console_is_graphic(dcl.con) &&
++                    qemu_console_is_graphic(head->dcl.con) &&
+                     runstate_is_running();
+ 
+     if (phase & NSEventPhaseBegan) {
+@@ -1987,7 +2146,7 @@
+         rightCommandGuestDown = NO;
+     }
+ 
+-    if (qemu_console_is_graphic(dcl.con) && [self handleInjectedText:event]) {
++    if (qemu_console_is_graphic(head->dcl.con) && [self handleInjectedText:event]) {
+         return true;
+     }
+ 
+@@ -2095,7 +2254,7 @@
+                 }
+             }
+ 
+-            if (qemu_console_is_graphic(dcl.con)) {
++            if (qemu_console_is_graphic(head->dcl.con)) {
+                 qkbd_state_key_event(kbd, keycode, true);
+             } else {
+                 [self handleMonitorInput: event];
+@@ -2111,7 +2270,7 @@
+                 return true;
+             }
+ 
+-            if (qemu_console_is_graphic(dcl.con)) {
++            if (qemu_console_is_graphic(head->dcl.con)) {
+                 qkbd_state_key_event(kbd, keycode, false);
+             }
+             return true;
+@@ -2142,10 +2301,10 @@
+                                             [event scrollingDeltaY]);
+                 /* Cocoa's positive X means left; Linux REL_HWHEEL is right. */
+                 if (frame.x) {
+-                    qemu_input_queue_rel(dcl.con, INPUT_AXIS_HWHEEL, -frame.x);
++                    qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_HWHEEL, -frame.x);
+                 }
+                 if (frame.y) {
+-                    qemu_input_queue_rel(dcl.con, INPUT_AXIS_WHEEL, frame.y);
++                    qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_WHEEL, frame.y);
+                 }
+                 if (frame.x || frame.y) {
+                     qemu_input_event_sync();
+@@ -2168,9 +2327,9 @@
+                 return true;
+             }
+ 
+-            qemu_input_queue_btn(dcl.con, button, true);
++            qemu_input_queue_btn(head->dcl.con, button, true);
+             qemu_input_event_sync();
+-            qemu_input_queue_btn(dcl.con, button, false);
++            qemu_input_queue_btn(head->dcl.con, button, false);
+             qemu_input_event_sync();
+ 
+             return true;
+@@ -2186,7 +2345,7 @@
+     }
+ 
+     with_bql(^{
+-        qemu_input_queue_btn(dcl.con, button, down);
++        qemu_input_queue_btn(head->dcl.con, button, down);
+     });
+ 
+     [self handleMouseEvent:event];
+@@ -2201,21 +2360,39 @@
+     with_bql(^{
+         if (isAbsoluteEnabled) {
+             /*
+-             * The guest image fills the view on both axes, so map each axis
+-             * on its own: the guest's mode can lag the view's aspect.
++             * One absolute pointer covers the whole guest desktop. Place the
++             * point on this head's output, by where it falls on the view (in
++             * screen coordinates, so a drag that leaves the window keeps its
++             * bearings), then on the desktop every head's output lies on.
++             * Note that the origin for Cocoa coords is bottom left, not top left.
+              */
+-            NSRect bounds = [self bounds];
+-            NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+-            CGFloat x = NSWidth(bounds) > 0 ?
+-                (p.x - NSMinX(bounds)) * screen.width / NSWidth(bounds) : 0;
+-            CGFloat y = NSHeight(bounds) > 0 ?
+-                (NSMaxY(bounds) - p.y) * screen.height / NSHeight(bounds) : 0;
++            NSRect area = [[self window] convertRectToScreen:
++                           [self convertRect:[self bounds] toView:nil]];
++            NSPoint point = [[self window] convertPointToScreen:[event locationInWindow]];
++            NSSize logical = head->logicalSize;
++            NSRect desktop;
++            CGFloat x, y;
+ 
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, x, 0, screen.width);
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, y, 0, screen.height);
++            if (logical.width <= 0 || logical.height <= 0) {
++                logical = area.size;
++            }
++            if (NSWidth(area) <= 0 || NSHeight(area) <= 0) {
++                return;
++            }
++            x = head->desktop_x + (point.x - NSMinX(area)) / NSWidth(area) * logical.width;
++            y = head->desktop_y + (NSMaxY(area) - point.y) / NSHeight(area) * logical.height;
++            desktop = cocoa_desktop_rect();
++            if (NSIsEmptyRect(desktop)) {
++                desktop = NSMakeRect(head->desktop_x, head->desktop_y,
++                                     logical.width, logical.height);
++            }
++            qemu_input_queue_abs(head->dcl.con, INPUT_AXIS_X,
++                                 lround(x - NSMinX(desktop)), 0, lround(NSWidth(desktop)));
++            qemu_input_queue_abs(head->dcl.con, INPUT_AXIS_Y,
++                                 lround(y - NSMinY(desktop)), 0, lround(NSHeight(desktop)));
+         } else {
+-            qemu_input_queue_rel(dcl.con, INPUT_AXIS_X, [event deltaX]);
+-            qemu_input_queue_rel(dcl.con, INPUT_AXIS_Y, [event deltaY]);
++            qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_X, [event deltaX]);
++            qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_Y, [event deltaY]);
+         }
+ 
+         qemu_input_event_sync();
+@@ -2236,6 +2413,68 @@
+     }
+ }
+ 
++/*
++ * In immersive full screen every head's window is on a display of its own,
++ * so the pointer belongs to the window it is over, key or not: the guest
++ * gets its motion and its first click there. Elsewhere the key window keeps
++ * the pointer, as in upstream QEMU.
++ */
++- (bool) usesImmersivePointerTracking
++{
++    return immersive_mode_enabled &&
++           ([[self window] styleMask] & NSWindowStyleMaskFullScreen) != 0;
++}
++
++/*
++ * Gestures follow the keyboard, which is one for all of the VM's windows: in
++ * immersive full screen the window under the pointer takes them while any of
++ * them is key, as it takes the pointer.
++ */
++- (bool) vmHasTheKeyboard
++{
++    return [[self window] isKeyWindow] ||
++           ([self usesImmersivePointerTracking] && cocoa_head_window_is_key());
++}
++
++- (void) updatePointerTracking
++{
++    NSTrackingAreaOptions options =
++        ([self usesImmersivePointerTracking] ? NSTrackingActiveInActiveApp
++                                             : NSTrackingActiveInKeyWindow) |
++        NSTrackingMouseEnteredAndExited |
++        NSTrackingMouseMoved |
++        NSTrackingInVisibleRect;
++    NSArray *areas = [[self trackingAreas] copy];
++    NSTrackingArea *area;
++
++    for (area in areas) {
++        if ([area owner] != self) {
++            continue;
++        }
++        if ([area options] == options) {
++            [areas release];
++            return;
++        }
++        [self removeTrackingArea:area];
++    }
++    [areas release];
++
++    area = [[NSTrackingArea alloc] initWithRect:NSZeroRect
++                                        options:options
++                                          owner:self
++                                       userInfo:nil];
++    [self addTrackingArea:area];
++    [area release];
++}
++
++- (BOOL) acceptsFirstMouse:(NSEvent *)event
++{
++    if ([self usesImmersivePointerTracking]) {
++        return isMouseGrabbed;
++    }
++    return [super acceptsFirstMouse:event];
++}
++
+ - (void) mouseMoved:(NSEvent *)event
+ {
+     [self updateNotchReveal];
+@@ -2321,7 +2560,7 @@
+ 
+ - (void) notifyMouseModeChange {
+     bool tIsAbsoluteEnabled = bool_with_bql(^{
+-        return qemu_input_is_absolute(dcl.con);
++        return qemu_input_is_absolute(head->dcl.con);
+     });
+ 
+     if (tIsAbsoluteEnabled == isAbsoluteEnabled) {
+@@ -2357,7 +2596,8 @@
+     NSRunningApplication *frontmost =
+         [[NSWorkspace sharedWorkspace] frontmostApplication];
+     pid_t foregroundPID = frontmost ? [frontmost processIdentifier] : -1;
+-    BOOL keyWindow = [[self window] isKeyWindow];
++    /* Any head's window: the keyboard is one, whichever display has it. */
++    BOOL keyWindow = cocoa_head_window_is_key();
+     BOOL captured = foregroundPID == getpid() && keyWindow &&
+                     (isMouseGrabbed || full_grab_enabled);
+ 
+@@ -2389,7 +2629,7 @@
+ - (void) capsLockInputSourceChanged
+ {
+     bool input_method = cocoa_input_source_is_input_method();
+-    bool active = [NSApp isActive] && [[self window] isKeyWindow];
++    bool active = [NSApp isActive] && cocoa_head_window_is_key();
+ 
+     with_bql(^{
+         int sent = cocoa_caps_lock_input_source(&cocoa_caps_lock_state,
+@@ -2436,9 +2676,9 @@
+ - (void) raiseAllButtons
+ {
+     with_bql(^{
+-        qemu_input_queue_btn(dcl.con, INPUT_BUTTON_LEFT, false);
+-        qemu_input_queue_btn(dcl.con, INPUT_BUTTON_RIGHT, false);
+-        qemu_input_queue_btn(dcl.con, INPUT_BUTTON_MIDDLE, false);
++        qemu_input_queue_btn(head->dcl.con, INPUT_BUTTON_LEFT, false);
++        qemu_input_queue_btn(head->dcl.con, INPUT_BUTTON_RIGHT, false);
++        qemu_input_queue_btn(head->dcl.con, INPUT_BUTTON_MIDDLE, false);
+     });
+ }
+ @end
+@@ -2472,9 +2712,8 @@
+ - (void)adjustSpeed:(id)sender;
+ @end
+ 
+-static NSRect cocoa_initial_window_frame(void)
++static NSRect cocoa_window_frame_on(NSScreen *hostScreen)
+ {
+-    NSScreen *hostScreen = [NSScreen mainScreen];
+     if (!hostScreen) {
+         return NSMakeRect(0.0, 0.0, 1280.0, 720.0);
+     }
+@@ -2502,18 +2741,20 @@
+ 
+     self = [super init];
+     if (self) {
+-        NSRect frame = cocoa_initial_window_frame();
++        NSRect frame = cocoa_window_frame_on(cocoa_first_head_screen());
+ 
+         // create a view and add it to the window
+ #ifdef CONFIG_OPENGL
+-        cocoaView = [[QemuCocoaView alloc] initWithFrame:frame cgl:cgl];
++        cocoa_cgl = cgl;
++        cocoaView = [[QemuCocoaView alloc] initWithFrame:frame cgl:cgl head:&heads[0]];
+ #else
+-        cocoaView = [[QemuCocoaView alloc] initWithFrame:frame];
++        cocoaView = [[QemuCocoaView alloc] initWithFrame:frame head:&heads[0]];
+ #endif
+         if(!cocoaView) {
+             error_report("(cocoa) can't create a view");
+             exit(1);
+         }
++        heads[0].view = cocoaView;
+ 
+         // create a window
+         window = [[NSWindow alloc] initWithContentRect:frame
+@@ -2529,9 +2770,15 @@
+             ? [NSString stringWithUTF8String:qemu_name]
+             : @"QEMU"];
+         [window setContentView:cocoaView];
++        if (heads[0].placed) {
++            [window setFrame:[window frameRectForContentRect:frame] display:NO];
++        }
+         [window makeKeyAndOrderFront:self];
+-        [window center];
++        if (!heads[0].placed) {
++            [window center];
++        }
+         [window setDelegate: self];
++        heads[0].window = window;
+ 
+         /* Used for displaying pause on the screen */
+         pauseLabel = [NSTextField new];
+@@ -2558,12 +2805,16 @@
+ 
+ - (void)menuDidBeginTracking:(NSNotification *)notification
+ {
+-    [cocoaView setMenuTracking:true];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view setMenuTracking:true];
++    }
+ }
+ 
+ - (void)menuDidEndTracking:(NSNotification *)notification
+ {
+-    [cocoaView setMenuTracking:false];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view setMenuTracking:false];
++    }
+ }
+ 
+ - (void) dealloc
+@@ -2579,6 +2830,10 @@
+ {
+     COCOA_DEBUG("QemuCocoaAppController: applicationDidFinishLaunching\n");
+     allow_events = true;
++    /* A head that never resizes still has to tell the guest its size. */
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view updateUIInfo];
++    }
+ }
+ 
+ - (void)applicationWillTerminate:(NSNotification *)aNotification
+@@ -2610,63 +2865,106 @@
+     return [self verifyQuit];
+ }
+ 
++/* Every window is a head's; the notification says which. */
+ - (void)windowDidChangeScreen:(NSNotification *)notification
+ {
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
+-    [cocoaView updateNotchLevel];
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
++    [view updateScale];
++    [view updateUIInfo];
++    [view updateNotchLevel];
+ }
+ 
+ - (void)windowDidChangeBackingProperties:(NSNotification *)notification
+ {
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
++    [view updateScale];
++    [view updateUIInfo];
+ }
+ 
+ - (void)windowWillEnterFullScreen:(NSNotification *)notification
+ {
+-    [cocoaView setNotchLeaving:false];
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
++    [view head]->full_screen_entering = true;
++    [view setNotchLeaving:false];
++}
++
++- (void)windowDidFailToEnterFullScreen:(NSWindow *)window
++{
++    QemuCocoaHead *head = [cocoa_view_of_window(window) head];
++
++    head->full_screen_entering = false;
++    warn_report("Try Omarchy: display %u failed to enter full screen (active %d, level %ld)",
++                head->index + 1, [NSApp isActive], (long)[window level]);
+ }
+ 
+ - (void)windowDidEnterFullScreen:(NSNotification *)notification
+ {
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
++    [view head]->full_screen_entering = false;
+     [fullScreenMenuItem setTitle:@"Exit Full Screen"];
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
+-    [cocoaView updateNotchLevel];
+-    [cocoaView grabMouse];
++    [view updateScale];
++    [view updateUIInfo];
++    [view updateNotchLevel];
++    [view grabMouse];
++
++    /* The chain runs the launch only; the menu toggles every window itself. */
++    if ([view head]->full_screen_wanted && full_screen_chain) {
++        unsigned next = [view head]->index + 1;
++
++        if (next < head_count) {
++            heads[next].full_screen_wanted = true;
++            cocoa_enter_full_screen(next);
++        }
++    }
++    [view head]->full_screen_wanted = false;
++    [view updatePointerTracking];
+ }
+ 
+ - (void)windowWillExitFullScreen:(NSNotification *)notification
+ {
+-    [cocoaView setNotchLeaving:true];
++    [cocoa_view_of_window([notification object]) setNotchLeaving:true];
+ }
+ 
+ - (void)windowDidExitFullScreen:(NSNotification *)notification
+ {
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
+     [fullScreenMenuItem setTitle:@"Enter Full Screen"];
+-    [cocoaView setNotchLeaving:false];
+-    [cocoaView resizeWindow];
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
+-    [cocoaView ungrabMouse];
++    [view head]->full_screen_wanted = false;
++    [view setNotchLeaving:false];
++    [view resizeWindow];
++    [view updateScale];
++    [view updateUIInfo];
++    [view ungrabMouse];
++    [view updatePointerTracking];
+ }
+ 
+ - (void)windowDidResize:(NSNotification *)notification
+ {
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
+-    [cocoaView updateNotchLevel];
++    QemuCocoaView *view = cocoa_view_of_window([notification object]);
++
++    [view updateScale];
++    [view updateUIInfo];
++    [view updateNotchLevel];
+ }
+ 
+ - (void)windowDidBecomeKey:(NSNotification *)notification
+ {
+-    [cocoaView updateNotchLevel];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view updateNotchLevel];
++    }
+ }
+ 
+ - (void)applicationDidBecomeActive:(NSNotification *)notification
+ {
+-    [cocoaView updateNotchLevel];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view updateNotchLevel];
++        cocoa_enter_full_screen(i);
++    }
+ }
+ 
+ /* Called when the user clicks on a window's close button */
+@@ -2702,18 +3000,49 @@
+  */
+ - (void) windowDidResignKey: (NSNotification *)aNotification
+ {
++    QemuCocoaView *view = cocoa_view_of_window([aNotification object]);
++
++    bool pointerFollowsDisplays = [view usesImmersivePointerTracking];
++
+     COCOA_DEBUG("%s\n", __func__);
+-    [cocoaView ungrabMouse];
+-    [cocoaView raiseAllKeys];
+-    [cocoaView updateNotchLevel];
++    if (!pointerFollowsDisplays) {
++        [view ungrabMouse];
++    }
++    /*
++     * The next key window is not known yet. Keys held while focus moves to
++     * another head's window stay down, and are lifted once no window of the
++     * VM is key; the windows stay above the camera strip the same way. The
++     * pointer, shared by the heads, is let go then too, so a click that moves
++     * the keyboard to another display keeps its button.
++     */
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (!cocoa_head_window_is_key()) {
++            if (pointerFollowsDisplays) {
++                for (unsigned i = 0; i < head_count; i++) {
++                    [heads[i].view ungrabMouse];
++                }
++                with_bql(^{
++                    qemu_input_event_sync();
++                });
++            }
++            for (unsigned i = 0; i < head_count; i++) {
++                [heads[i].view raiseAllKeys];
++            }
++        }
++        for (unsigned i = 0; i < head_count; i++) {
++            [heads[i].view updateNotchLevel];
++        }
++    });
+ }
+ /* App deactivation can arrive independently of a key-window notification.
+  * Release both paths so a delayed window transition cannot strand input. */
+ - (void) applicationDidResignActive: (NSNotification *)aNotification
+ {
+-    [cocoaView ungrabMouse];
+-    [cocoaView raiseAllKeys];
+-    [cocoaView updateNotchLevel];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view ungrabMouse];
++        [heads[i].view raiseAllKeys];
++        [heads[i].view updateNotchLevel];
++    }
+ }
+ 
+ 
+@@ -2723,7 +3052,10 @@
+  */
+ - (void) doToggleFullScreen:(id)sender
+ {
+-    [[cocoaView window] toggleFullScreen:sender];
++    for (unsigned i = 0; i < head_count; i++) {
++        heads[i].full_screen_wanted = false;
++        [heads[i].window toggleFullScreen:sender];
++    }
+ }
+ 
+ - (void) setFullGrab:(id)sender
+@@ -2772,9 +3104,13 @@
+ {
+     NSWindowStyleMask styleMask = [[cocoaView window] styleMask] ^ NSWindowStyleMaskResizable;
+ 
+-    [[cocoaView window] setStyleMask:styleMask];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].window setStyleMask:styleMask];
++    }
+     [sender setState:styleMask & NSWindowStyleMaskResizable ? NSControlStateValueOn : NSControlStateValueOff];
+-    [cocoaView resizeWindow];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view resizeWindow];
++    }
+ }
+ 
+ - (void)toggleZoomInterpolation:(id) sender
+@@ -2990,6 +3326,8 @@
+ @implementation QemuApplication
+ - (void)sendEvent:(NSEvent *)event
+ {
++    QemuCocoaView *view = cocoaView;
++
+     COCOA_DEBUG("QemuApplication: sendEvent\n");
+     if (cocoa_caps_lock_key_event(event)) {
+         /*
+@@ -3002,7 +3340,19 @@
+         [super sendEvent:event];
+         return;
+     }
+-    if (![cocoaView handleEvent:event]) {
++    /*
++     * Keys go to the first head's view, which keeps the keyboard state for
++     * all of them. Gestures and wheels belong to the window under them.
++     */
++    switch ([event type]) {
++    case NSEventTypeMagnify:
++    case NSEventTypeScrollWheel:
++        view = cocoa_view_of_window([event window]);
++        break;
++    default:
++        break;
++    }
++    if (![view handleEvent:event]) {
+         [super sendEvent: event];
+     }
+ }
+@@ -3192,7 +3542,9 @@
+ static void cocoa_mouse_mode_change_notify(Notifier *notifier, void *data)
+ {
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [cocoaView notifyMouseModeChange];
++        for (unsigned i = 0; i < head_count; i++) {
++            [heads[i].view notifyMouseModeChange];
++        }
+     });
+ }
+ 
+@@ -3342,28 +3694,31 @@
+ static void cocoa_update(DisplayChangeListener *dcl,
+                          int x, int y, int w, int h)
+ {
+-    NSRect rect = NSMakeRect(x, surface_height(surface) - y - h, w, h);
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++    NSRect rect = NSMakeRect(x, surface_height(head->surface) - y - h, w, h);
+ 
+     COCOA_DEBUG("qemu_cocoa: cocoa_update\n");
+ 
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [cocoaView setNeedsDisplayInRect:rect];
++        [head->view setNeedsDisplayInRect:rect];
+     });
+ }
+ 
+ static void cocoa_switch(DisplayChangeListener *dcl,
+                          DisplaySurface *new_surface)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     COCOA_DEBUG("qemu_cocoa: cocoa_switch\n");
+ 
+-    surface = new_surface;
++    head->surface = new_surface;
+ 
+     dispatch_async(dispatch_get_main_queue(), ^{
+         BQL_LOCK_GUARD();
+-        int w = surface_width(surface);
+-        int h = surface_height(surface);
++        int w = surface_width(head->surface);
++        int h = surface_height(head->surface);
+ 
+-        [cocoaView updateScreenWidth:w height:h];
++        [head->view updateScreenWidth:w height:h];
+     });
+ }
+ 
+@@ -3374,7 +3729,9 @@
+     COCOA_DEBUG("qemu_cocoa: cocoa_refresh\n");
+     qemu_console_hw_update(dcl->con);
+ 
+-    if (cbchangecount != [[NSPasteboard generalPasteboard] changeCount]) {
++    /* The pasteboard is one; the first head's listener watches it. */
++    if (dcl == &heads[0].dcl &&
++        cbchangecount != [[NSPasteboard generalPasteboard] changeCount]) {
+         qemu_clipboard_info_unref(cbinfo);
+         cbinfo = qemu_clipboard_info_new(&cbpeer, QEMU_CLIPBOARD_SELECTION_CLIPBOARD);
+         if ([[NSPasteboard generalPasteboard] availableTypeFromArray:@[NSPasteboardTypeString]]) {
+@@ -3390,16 +3747,20 @@
+ 
+ static void cocoa_mouse_set(DisplayChangeListener *dcl, int x, int y, bool on)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        [cocoaView setMouseX:x y:y on:on];
++        [head->view setMouseX:x y:y on:on];
+     });
+ }
+ 
+ static void cocoa_cursor_define(DisplayChangeListener *dcl, QEMUCursor *cursor)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     dispatch_async(dispatch_get_main_queue(), ^{
+         BQL_LOCK_GUARD();
+-        [cocoaView setCursor:qemu_console_get_cursor(dcl->con)];
++        [head->view setCursor:qemu_console_get_cursor(dcl->con)];
+     });
+ }
+ 
+@@ -3492,7 +3853,7 @@
+     }
+ #endif
+ 
+-    bpp = PIXMAN_FORMAT_BPP(surface_format(surface));
++    bpp = PIXMAN_FORMAT_BPP(surface_format(heads[0].surface));
+     format = cocoa_gl_create_cgl_pixel_format(bpp);
+     CGLCreateContext(format, gl_view_ctx, &ctx);
+     CGLDestroyPixelFormat(format);
+@@ -3515,33 +3876,39 @@
+ static void cocoa_gl_update(DisplayChangeListener *dcl,
+                             int x, int y, int w, int h)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     with_gl_view_ctx(^{
+-        surface_gl_update_texture(dgc.gls, surface, x, y, w, h);
+-        gl_dirty = true;
++        surface_gl_update_texture(dgc.gls, head->surface, x, y, w, h);
++        head->gl_dirty = true;
+     });
+ }
+ 
+ static void cocoa_gl_switch(DisplayChangeListener *dcl,
+                             DisplaySurface *new_surface)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     with_gl_view_ctx(^{
+-        surface_gl_destroy_texture(dgc.gls, surface);
++        surface_gl_destroy_texture(dgc.gls, head->surface);
+         surface_gl_create_texture(dgc.gls, new_surface);
+     });
+ 
+     cocoa_switch(dcl, new_surface);
+-    gl_dirty = true;
++    head->gl_dirty = true;
+ }
+ 
+-static void cocoa_gl_render(void)
++static void cocoa_gl_render(QemuCocoaHead *head)
+ {
+-    NSSize size = [cocoaView convertSizeToBacking:[cocoaView frame].size];
++    QemuCocoaView *view = head->view;
++    DisplaySurface *surface = head->surface;
++    NSSize size = [view convertSizeToBacking:[view frame].size];
+     GLint filter = qatomic_read(&zoom_interpolation) ? GL_LINEAR : GL_NEAREST;
+ 
+     if (cocoa_gl_trace_enabled()) {
+-        cocoa_gl_log("render start size=%.0fx%.0f dirty=%d scanout=%d filter=%s",
+-                     size.width, size.height, gl_dirty,
+-                     gl_scanout_borrow != NULL,
++        cocoa_gl_log("render start head=%u size=%.0fx%.0f dirty=%d scanout=%d filter=%s",
++                     head->index, size.width, size.height, head->gl_dirty,
++                     head->gl_scanout_borrow != NULL,
+                      filter == GL_LINEAR ? "linear" : "nearest");
+         if (cocoa_gl_trace_clear) {
+             glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
+@@ -3567,8 +3934,8 @@
+         }
+     }
+ 
+-    if (gl_scanout_borrow) {
+-        DisplayGLTexture texture = gl_scanout_borrow(gl_scanout_id);
++    if (head->gl_scanout_borrow) {
++        DisplayGLTexture texture = head->gl_scanout_borrow(head->gl_scanout_id);
+ 
+         if (cocoa_gl_trace_enabled()) {
+             GLint fb = 0;
+@@ -3621,25 +3988,27 @@
+     }
+ 
+     /* Clear dirty flag after render completes to ensure clean handoff */
+-    gl_dirty = false;
++    head->gl_dirty = false;
+ }
+ 
+ static void cocoa_gl_refresh(DisplayChangeListener *dcl)
+ {
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
+     cocoa_refresh(dcl);
+ 
+-    if (gl_dirty) {
++    if (head->gl_dirty) {
+ 
+         if (cocoa_gl_trace_enabled()) {
+-            cocoa_gl_log("refresh: triggering render dirty scanout=%d egl_surface=%d",
+-                         gl_scanout_borrow != NULL,
++            cocoa_gl_log("refresh: triggering render head=%u dirty scanout=%d egl_surface=%d",
++                         head->index, head->gl_scanout_borrow != NULL,
+                          egl_surface != NULL);
+         }
+ 
+ #ifdef CONFIG_EGL
+         if (egl_surface) {
+             with_gl_view_ctx(^{
+-                cocoa_gl_render();
++                cocoa_gl_render(head);
+                 eglSwapBuffers(qemu_egl_display, egl_surface);
+                 cocoa_gl_log_error("eglSwapBuffers");
+             });
+@@ -3649,17 +4018,19 @@
+ #endif
+ 
+         dispatch_async(dispatch_get_main_queue(), ^{
+-            [[cocoaView layer] setNeedsDisplay];
++            [[head->view layer] setNeedsDisplay];
+         });
+     }
+ }
+ 
+ static void cocoa_gl_scanout_disable(DisplayChangeListener *dcl)
+ {
+-    gl_scanout_borrow = NULL;
+-    gl_dirty = true;
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
++    head->gl_scanout_borrow = NULL;
++    head->gl_dirty = true;
+ 
+-    cocoa_gl_log("scanout disable");
++    cocoa_gl_log("scanout disable head=%u", head->index);
+ }
+ 
+ static void cocoa_gl_scanout_texture(DisplayChangeListener *dcl,
+@@ -3668,21 +4039,61 @@
+                                      uint32_t x, uint32_t y,
+                                      uint32_t w, uint32_t h)
+ {
+-    gl_scanout_id = backing_id;
+-    gl_scanout_borrow = backing_borrow;
+-    gl_dirty = true;
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
++    head->gl_scanout_id = backing_id;
++    head->gl_scanout_borrow = backing_borrow;
++    head->gl_dirty = true;
++
++    cocoa_gl_log("scanout texture head=%u id=%u region=%ux%u+%u+%u",
++                 head->index, backing_id, w, h, x, y);
++}
++
++static void cocoa_gl_context_created(DisplayChangeListener *dcl,
++                                     const char *name)
++{
++    QemuCocoaHead *head = cocoa_head_of(dcl);
++
++    if (head->index != 0 || head_count < 2 || secondary_heads_enabled) {
++        return;
++    }
++    secondary_heads_enabled = true;
++    info_report("Try Omarchy: '%s' renders with GL; %u more display(s) join",
++                name, head_count - 1);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        for (unsigned i = 1; i < head_count; i++) {
++            [heads[i].view updateUIInfo];
++        }
++    });
++}
++
++/* Runs with the BQL, before the guest starts again. */
++static void cocoa_guest_reset(void *opaque)
++{
++    if (!secondary_heads_enabled) {
++        return;
++    }
++    secondary_heads_enabled = false;
++    for (unsigned i = 1; i < head_count; i++) {
++        QemuUIInfo info = { 0 };
+ 
+-    cocoa_gl_log("scanout texture id=%u region=%ux%u+%u+%u",
+-                 backing_id, w, h, x, y);
++        heads[i].logicalSize = NSZeroSize;
++        qemu_console_set_ui_info(heads[i].dcl.con, &info, false);
++    }
++    info_report("Try Omarchy: guest reset; %u display(s) wait for the next desktop",
++                head_count - 1);
+ }
+ 
+ static void cocoa_gl_scanout_flush(DisplayChangeListener *dcl,
+                                    uint32_t x, uint32_t y,
+                                    uint32_t w, uint32_t h)
+ {
+-    gl_dirty = true;
++    QemuCocoaHead *head = cocoa_head_of(dcl);
+ 
+-    cocoa_gl_log("scanout flush region=%ux%u+%u+%u", w, h, x, y);
++    head->gl_dirty = true;
++
++    cocoa_gl_log("scanout flush head=%u region=%ux%u+%u+%u",
++                 head->index, w, h, x, y);
+ }
+ 
+ static const DisplayChangeListenerOps dcl_gl_ops = {
+@@ -3697,6 +4108,7 @@
+     .dpy_gl_scanout_disable = cocoa_gl_scanout_disable,
+     .dpy_gl_scanout_texture = cocoa_gl_scanout_texture,
+     .dpy_gl_update          = cocoa_gl_scanout_flush,
++    .dpy_gl_context_created = cocoa_gl_context_created,
+ };
+ 
+ static bool cocoa_gl_is_compatible_dcl(DisplayGLCtx *dgc,
+@@ -3739,6 +4151,148 @@
+     }
+ }
+ 
++/*
++ * The top of the part of a display the guest covers: below the camera strip
++ * when full screen stays out of it (TRYOMARCHY_NOTCH=0), as the launcher
++ * measures it. Read from the environment because the heads are placed before
++ * the display options are.
++ */
++static CGFloat cocoa_display_top(NSScreen *screen)
++{
++    const char *notch = getenv("TRYOMARCHY_NOTCH");
++    CGFloat inset = notch && !strcmp(notch, "0") ? MAX(0, [screen safeAreaInsets].top) : 0;
++
++    return NSMaxY([screen frame]) - inset;
++}
++
++/*
++ * The display at a place on the guest desktop. The launcher lists the Mac's
++ * main display first and places the others from the same arrangement, in
++ * points, so a display is found by its offset from the main one, whatever
++ * else is connected.
++ */
++static NSScreen *cocoa_screen_at_desktop_position(int x, int y)
++{
++    NSArray *screens = [NSScreen screens];
++    NSScreen *main = [screens firstObject];
++
++    if (!main) {
++        return nil;
++    }
++    for (NSScreen *screen in screens) {
++        if (lround(NSMinX([screen frame]) - NSMinX([main frame])) == x - heads[0].desktop_x &&
++            lround(cocoa_display_top(main) - cocoa_display_top(screen)) == y - heads[0].desktop_y) {
++            return screen;
++        }
++    }
++    return nil;
++}
++
++/*
++ * TRYOMARCHY_DISPLAY_LAYOUT names the launcher's arrangement, the Mac's main
++ * display first: "Virtual-1:0x458,Virtual-2:1512x0". Head N-1 shows output
++ * Virtual-N on the display at that place. Without it, or with one entry,
++ * there is one head, as before.
++ */
++static void cocoa_place_heads(void)
++{
++    const char *layout = getenv("TRYOMARCHY_DISPLAY_LAYOUT");
++    g_auto(GStrv) entries = NULL;
++    unsigned placed = 0;
++
++    heads[0].index = 0;
++    if (!layout || !*layout) {
++        return;
++    }
++    entries = g_strsplit(layout, ",", COCOA_MAX_HEADS + 1);
++    for (unsigned i = 0; entries[i] && i < COCOA_MAX_HEADS; i++) {
++        unsigned output;
++        int x, y, end = -1;
++
++        if (sscanf(entries[i], "Virtual-%u:%dx%d%n", &output, &x, &y, &end) != 3 ||
++            end < 0 || entries[i][end] || output != i + 1 ||
++            x < 0 || y < 0 || x > COCOA_MAX_DESKTOP || y > COCOA_MAX_DESKTOP) {
++            warn_report("Try Omarchy: ignoring display layout entry '%s'", entries[i]);
++            break;
++        }
++        heads[i].index = i;
++        heads[i].placed = true;
++        heads[i].desktop_x = x;
++        heads[i].desktop_y = y;
++        placed = i + 1;
++    }
++    head_count = MAX(1, placed);
++}
++
++/*
++ * A window made without a screen is kept on the main display, so a head on
++ * another display gets its frame again once the window exists.
++ */
++static NSScreen *cocoa_first_head_screen(void)
++{
++    NSScreen *screen = nil;
++
++    if (heads[0].placed) {
++        screen = cocoa_screen_at_desktop_position(heads[0].desktop_x, heads[0].desktop_y);
++    }
++    return screen ? screen : [NSScreen mainScreen];
++}
++
++/* A window on its own display for each head after the first. */
++static void cocoa_add_heads(QemuCocoaAppController *controller)
++{
++    unsigned count = head_count;
++
++    head_count = 1;
++    for (unsigned i = 1; i < count; i++) {
++        QemuCocoaHead *head = &heads[i];
++        QemuConsole *con = qemu_console_lookup_by_device_name("omarchy-gpu", i, NULL);
++        NSScreen *screen = cocoa_screen_at_desktop_position(head->desktop_x, head->desktop_y);
++        NSRect frame;
++        NSWindow *window;
++
++        if (!con) {
++            con = qemu_console_lookup_by_index(i);
++        }
++        if (!con || !qemu_console_is_graphic(con)) {
++            warn_report("Try Omarchy: no console for display %u; using %u display(s)", i + 1, i);
++            break;
++        }
++        if (!screen) {
++            warn_report("Try Omarchy: no display at %dx%d for Virtual-%u; using %u display(s)",
++                        head->desktop_x, head->desktop_y, i + 1, i);
++            break;
++        }
++
++        frame = cocoa_window_frame_on(screen);
++        head->dcl.con = con;
++        head->dcl.ops = heads[0].dcl.ops;
++        head->surface = qemu_console_surface(con);
++#ifdef CONFIG_OPENGL
++        head->view = [[QemuCocoaView alloc] initWithFrame:frame cgl:cocoa_cgl head:head];
++#else
++        head->view = [[QemuCocoaView alloc] initWithFrame:frame head:head];
++#endif
++        window = [[NSWindow alloc] initWithContentRect:frame
++            styleMask:[heads[0].window styleMask]
++            backing:NSBackingStoreBuffered defer:NO];
++        if (!head->view || !window) {
++            error_report("(cocoa) can't create a window for display %u", i + 1);
++            exit(1);
++        }
++        [window setAcceptsMouseMovedEvents:YES];
++        [window setCollectionBehavior:NSWindowCollectionBehaviorFullScreenPrimary];
++        [window setTitle:[NSString stringWithFormat:@"%s (%u)",
++                          qemu_name ? qemu_name : "QEMU", i + 1]];
++        [window setContentView:head->view];
++        [window setFrame:[window frameRectForContentRect:frame] display:NO];
++        [window setDelegate:controller];
++        [window orderFront:nil];
++        head->window = window;
++        head_count = i + 1;
++    }
++}
++
+ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ {
+     NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
+@@ -3755,9 +4309,12 @@
+     [QemuApplication sharedApplication];
+     cocoa_set_product_icon();
+ 
+-    dcl.con = qemu_console_lookup_default();
+-    kbd = qkbd_state_init(dcl.con);
+-    surface = dcl.con ? qemu_console_surface(dcl.con) : NULL;
++    heads[0].dcl.con = qemu_console_lookup_default();
++    kbd = qkbd_state_init(heads[0].dcl.con);
++    heads[0].surface = heads[0].dcl.con ? qemu_console_surface(heads[0].dcl.con) : NULL;
++    cocoa_place_heads();
++    immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
++                             opts->u.cocoa.immersive;
+ 
+     // Create an Application controller
+ #ifdef CONFIG_OPENGL
+@@ -3801,7 +4358,7 @@
+         }
+ 
+         dgc.gls = qemu_gl_init_shader();
+-        dcl.ops = &dcl_gl_ops;
++        heads[0].dcl.ops = &dcl_gl_ops;
+ 
+         for (unsigned int index = 0; ; index++) {
+             QemuConsole *con = qemu_console_lookup_by_index(index);
+@@ -3816,23 +4373,24 @@
+         exit(1);
+ #endif
+     } else {
+-        dcl.ops = &dcl_ops;
++        heads[0].dcl.ops = &dcl_ops;
+     }
+ 
+     full_grab_enabled = opts->u.cocoa.has_full_grab &&
+                         opts->u.cocoa.full_grab;
+-    immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
+-                             opts->u.cocoa.immersive;
+     notch_panel_enabled = !getenv("TRYOMARCHY_NOTCH") ||
+                           strcmp(getenv("TRYOMARCHY_NOTCH"), "0") != 0;
+     if (!notch_panel_enabled) {
+         info_report("Try Omarchy: full screen stays below the camera strip (TRYOMARCHY_NOTCH=0)");
+     }
+     cocoa_notch_hook_install();
++    cocoa_add_heads(controller);
+ 
+     /* if fullscreen mode is to be used */
+     if (opts->has_full_screen && opts->full_screen) {
+-        [[cocoaView window] toggleFullScreen: nil];
++        full_screen_chain = head_count > 1;
++        heads[0].full_screen_wanted = true;
++        cocoa_enter_full_screen(0);
+     }
+     if (full_grab_enabled) {
+         [controller setFullGrab: nil];
+@@ -3850,7 +4408,9 @@
+     }
+ 
+     if (opts->u.cocoa.has_zoom_to_fit && opts->u.cocoa.zoom_to_fit) {
+-        [cocoaView window].styleMask |= NSWindowStyleMaskResizable;
++        for (unsigned i = 0; i < head_count; i++) {
++            heads[i].window.styleMask |= NSWindowStyleMaskResizable;
++        }
+     }
+ 
+     zoom_interpolation = opts->u.cocoa.has_zoom_interpolation &&
+@@ -3867,12 +4427,20 @@
+     add_console_menu_entries();
+     addRemovableDevicesMenuItems();
+ 
+-    qemu_console_register_listener(qemu_console_lookup_default(),
+-                                   &dcl, dcl.ops);
+-    kbd = qkbd_state_init(dcl.con);
++    for (unsigned i = 0; i < head_count; i++) {
++        qemu_console_register_listener(heads[i].dcl.con, &heads[i].dcl,
++                                       heads[i].dcl.ops);
++    }
++    kbd = qkbd_state_init(heads[0].dcl.con);
+     qemu_add_mouse_mode_change_notifier(&mouse_mode_change_notifier);
+-    [cocoaView notifyMouseModeChange];
+-    [cocoaView updateUIInfo];
++    for (unsigned i = 0; i < head_count; i++) {
++        [heads[i].view notifyMouseModeChange];
++        [heads[i].view updateUIInfo];
++    }
++    if (head_count > 1) {
++        info_report("Try Omarchy: %u displays", head_count);
++        qemu_register_reset(cocoa_guest_reset, NULL);
++    }
+     qemu_register_reset(cocoa_caps_lock_reset, NULL);
+     if (cocoa_caps_lock_follows_input_source()) {
+         qemu_input_led_notifier_add(&cocoa_guest_leds_notifier);
+@@ -3913,7 +4481,10 @@
+         return;
+     }
+ 
+-    qemu_console_unregister_listener(&dcl);
++    for (unsigned i = 0; i < head_count; i++) {
++        heads[i].full_screen_wanted = false;
++        qemu_console_unregister_listener(&heads[i].dcl);
++    }
+     g_clear_pointer(&kbd, qkbd_state_free);
+     qemu_del_vm_change_state_handler(pinch_vm_change);
+     qemu_remove_mouse_mode_change_notifier(&mouse_mode_change_notifier);

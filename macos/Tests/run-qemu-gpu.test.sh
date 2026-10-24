@@ -46,6 +46,9 @@ case $1 in
   --host-keyboard-geometry) echo "${FAKE_KEYBOARD-jis}" ;;
   --host-caps-lock-input) printf '%s\n' "${FAKE_CAPS_LOCK_INPUT-}" ;;
   --host-display-cutouts) printf '%s\n' "${FAKE_DISPLAY_CUTOUTS-3024x1964:64,2048x1330:44}" ;;
+  --host-display-layout) printf '%s\n' "${FAKE_DISPLAY_LAYOUT-Virtual-1:0x0}" ;;
+  --host-display-panel) printf '%s\n' "${FAKE_DISPLAY_PANEL-Virtual-1}" ;;
+  --host-display-pixels) printf '%s\n' "${FAKE_DISPLAY_PIXELS-3024x1964}" ;;
   --host-timezone) echo America/Sao_Paulo ;;
   --sparsify) exit 0 ;;
   *) exit 1 ;;
@@ -68,7 +71,7 @@ if [[ "\$*" == "-device help" ]]; then
 fi
 # The nested-virtualization probe fails, as on M1/M2 Macs.
 [[ "\$*" == *"-qmp stdio"* ]] && exit 1
-printf '%s\n' "\$*" >>"$test_root/qemu-invocations"
+printf '%s\n' "\$*" "TRYOMARCHY_DISPLAY_LAYOUT=\${TRYOMARCHY_DISPLAY_LAYOUT-unset}" >>"$test_root/qemu-invocations"
 printf '%s -> %s\n' "\$0" "\$(readlink "\$0")" >>"$test_root/qemu-executables"
 info="\$(dirname "\$0")/../Info.plist"
 if [[ -f \$info ]]; then
@@ -286,6 +289,56 @@ output=$(launch) && fail "an unknown storage layout launched"
 assert_contains "$output" "this VM uses a storage layout this version does not know"
 mv "$test_root/vm.json" "$state/shell/vm.json"
 
+# --- immersive mode gets one virtio-gpu head per Mac display ------------------------
+output=$(launch)
+assert_contains "$output" "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=1,xres=3024,yres=1964,"
+# A window keeps the first mode of old; a bad answer or none does too.
+output=$(OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
+assert_contains "$output" "max_outputs=1,xres=1920,yres=1080,"
+for pixels in '' '3024x1964;reboot' '99999x1964' '30x20'; do
+  output=$(FAKE_DISPLAY_PIXELS=$pixels launch)
+  assert_contains "$output" "xres=1920,yres=1080,"
+done
+assert_contains "$(FAKE_DISPLAY_PIXELS=99999x1964 launch)" "ignoring unexpected display size"
+output=$(launch)
+assert_not_contains "$output" "tryomarchy.display_layout"
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
+assert_contains "$output" "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=2,"
+assert_contains "$output" "tryomarchy.display_layout=Virtual-1:0x458,Virtual-2:1512x0 tryomarchy.display_panel=Virtual-1"
+# The panel is whichever output the helper names, as long as the layout has it.
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=Virtual-2 launch)
+assert_contains "$output" "tryomarchy.display_panel=Virtual-2"
+for panel in Virtual-3 HDMI-A-1 'Virtual-2 tryomarchy.ssh_from=any'; do
+  output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=$panel launch)
+  assert_contains "$output" "ignoring unexpected display panel"
+  assert_not_contains "$output" "display_panel"
+done
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL= launch)
+assert_contains "$output" "tryomarchy.display_layout="
+assert_not_contains "$output" "display_panel"
+# A window, or the launcher's Use all displays setting off, keeps one head.
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
+assert_not_contains "$output" "tryomarchy.display_panel"
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_DISPLAYS=0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
+assert_not_contains "$output" "tryomarchy.display_panel"
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=all launch) && fail "an invalid displays setting launched"
+assert_contains "$output" "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1"
+# Anything but Virtual-1..4 placements, or more than four, is left out.
+for layout in 'Virtual-1:0x0,HDMI-A-1:1512x0' 'Virtual-1:0x0,Virtual-2:1512x0 tryomarchy.ssh_from=any' \
+  'Virtual-1:0x0,Virtual-2:1x0,Virtual-3:2x0,Virtual-4:3x0,Virtual-5:4x0'; do
+  output=$(FAKE_DISPLAY_LAYOUT=$layout launch)
+  assert_contains "$output" "ignoring unexpected display layout"
+  assert_contains "$output" "max_outputs=1,"
+  assert_not_contains "$(grep "host settings:" <<<"$output")" "display_layout"
+done
+output=$(FAKE_DISPLAY_LAYOUT= launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "ignoring unexpected display layout"
+
 # --- the VM persists; the package offer can be turned off --------------------------
 printf 'guest data' | dd of="$state/shell/disk.img" conv=notrunc 2>/dev/null
 launch_env=(OMARCHY_SHELL_INSTALL_PACKAGE=)
@@ -336,6 +389,15 @@ product_start=$(head -1 "$test_root/qemu-executables")
 [[ $(tail -n +2 "$test_root/qemu-executables") == $'CFBundleExecutable=Omarchy Installer\nCFBundleName=Omarchy Installer\nCFBundleDisplayName=Omarchy Installer\nCFBundlePackageType=APPL' ]] ||
   fail "the product's app bundle does not name the product"
 assert_contains "$(<"$test_root/qemu-invocations")" "-name guest=Omarchy Installer "
+# QEMU sees the layout the helper reports, never one inherited from the environment.
+: >"$test_root/qemu-invocations"
+launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
+FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch >/dev/null && fail "the fake QEMU launch succeeded"
+assert_contains "$(<"$test_root/qemu-invocations")" "TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0"
+: >"$test_root/qemu-invocations"
+launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 OMARCHY_QEMU_GPU_IMMERSIVE=0 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
+launch >/dev/null && fail "the fake QEMU launch succeeded"
+assert_contains "$(<"$test_root/qemu-invocations")" "TRYOMARCHY_DISPLAY_LAYOUT=unset"
 : >"$test_root/qemu-invocations"
 
 # The lock refuses a second launch of the same VM.

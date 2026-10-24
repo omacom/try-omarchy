@@ -283,6 +283,7 @@ expected = {
     "OMARCHY_QEMU_GPU_CPUS": "4",
     "OMARCHY_QEMU_GPU_STATE_ROOT": str(vm),
     "OMARCHY_QEMU_GPU_IMMERSIVE": "1",
+    "OMARCHY_QEMU_GPU_DISPLAYS": "1",
 }
 for key, value in expected.items():
     if environment.get(key) != value:

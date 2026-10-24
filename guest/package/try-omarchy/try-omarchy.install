@@ -62,8 +62,8 @@ post_upgrade() {
   fi
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
-  # camera cutouts it writes.
-  if [ "$(vercmp "$2" 0.1.0-28)" -lt 0 ]; then
+  # camera cutouts, the display layout and the panel's output it writes.
+  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
     systemctl try-restart try-omarchy-host-config.service >/dev/null 2>&1 || true
   fi
   _reload_logind

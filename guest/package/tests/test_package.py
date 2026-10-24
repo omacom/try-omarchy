@@ -197,6 +197,41 @@ class HostConfig(unittest.TestCase):
         self.assertNotEqual(run(LIB / "host-config", env=self.env, check=False).returncode, 0)
         self.assertFalse(self.output.exists())
 
+    def test_publishes_the_macs_display_arrangement(self):
+        layout = self.tmp / "run/try-omarchy/display-layout"
+        (self.credentials / "tryomarchy.host").write_text(
+            "omarchy.qemu_virgl=1 tryomarchy.display_layout=Virtual-1:0x458,Virtual-2:1512x0\n")
+        run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(layout)})
+        self.assertEqual(layout.read_text(), "Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.assertEqual(stat.S_IMODE(layout.stat().st_mode), 0o644)
+
+    def test_one_display_or_a_malformed_arrangement_publishes_none(self):
+        layout = self.tmp / "run/try-omarchy/display-layout"
+        layout.parent.mkdir(parents=True)
+        for value in ("tryomarchy.keyboard=ansi",
+                      "tryomarchy.display_layout=Virtual-1:0x0,",
+                      "tryomarchy.display_layout=Virtual-1:0x0,HDMI-A-1:1512x0",
+                      "tryomarchy.display_layout=Virtual-1:-10x0",
+                      'tryomarchy.display_layout=Virtual-1:0x0"}'):
+            layout.write_text("stale\n")
+            (self.credentials / "tryomarchy.host").write_text(value + "\n")
+            run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(layout)})
+            self.assertFalse(layout.exists(), value)
+
+    def test_the_camera_housing_names_the_built_in_panels_output(self):
+        # The Mac's main display is the first output; the panel is whichever
+        # the app names, and without a name it is the only output.
+        for tokens, connector in (("tryomarchy.display_layout=Virtual-1:0x0,Virtual-2:248x1440 "
+                                   "tryomarchy.display_panel=Virtual-2", "Virtual-2"),
+                                  ("tryomarchy.display_panel=Virtual-1", "Virtual-1"),
+                                  ("", "Virtual-1"),
+                                  ("tryomarchy.display_panel=HDMI-A-1", "Virtual-1"),
+                                  ('tryomarchy.display_panel=Virtual-2"}', "Virtual-1")):
+            (self.credentials / "tryomarchy.host").write_text(
+                f"{tokens} tryomarchy.display_cutouts=3024x1964:64\n")
+            run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(self.tmp / "layout")})
+            self.assertEqual(json.loads(self.cutouts.read_text())["panels"][0]["connector"], connector, tokens)
+
 
 class NotchRefresh(unittest.TestCase):
     """notch-refresh nudges Quickshell only when the cutout's answer can change."""
@@ -213,9 +248,9 @@ class NotchRefresh(unittest.TestCase):
                     "TRY_OMARCHY_DISPLAY_CUTOUTS": str(self.cutouts),
                     "TRY_OMARCHY_NOTCH_STATE": str(self.tmp / "state/notch-mode")}
 
-    def nudges(self, mode):
+    def nudges(self, mode, *output):
         before = self.log.read_text().count("create") if self.log.exists() else 0
-        run(LIB / "notch-refresh", mode, env=self.env)
+        run(LIB / "notch-refresh", mode, *output, env=self.env)
         return self.log.read_text().count("create") - before if self.log.exists() else 0
 
     def test_only_entering_leaving_or_changing_a_notch_mode_nudges(self):
@@ -235,13 +270,30 @@ class NotchRefresh(unittest.TestCase):
 
     def test_a_mac_without_a_notch_or_a_bad_mode_does_nothing(self):
         self.assertEqual(self.nudges("3024x1964"), 0)
-        result = run(LIB / "notch-refresh", "3024x1964;reboot", env=self.env, check=False)
-        self.assertEqual(result.returncode, 2)
+        for args in (("3024x1964;reboot",), ("3024x1964", "Virtual-1;reboot")):
+            result = run(LIB / "notch-refresh", *args, env=self.env, check=False)
+            self.assertEqual(result.returncode, 2)
         self.assertFalse(self.log.exists())
+
+    def test_only_the_panel_with_the_housing_nudges(self):
+        # An external display can show one of the panel's modes too, and its
+        # own modes must not read as the panel leaving the housing.
+        (self.credentials_dir() / "tryomarchy.host").write_text(
+            "tryomarchy.display_layout=Virtual-1:0x0,Virtual-2:248x1440 tryomarchy.display_panel=Virtual-2 "
+            "tryomarchy.display_cutouts=3024x1964:64\n")
+        run(LIB / "host-config", env={"CREDENTIALS_DIRECTORY": str(self.credentials_dir()),
+                                     "TRY_OMARCHY_HOST_CONFIG_OUTPUT": str(self.tmp / "cmdline"),
+                                     "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(self.tmp / "layout"),
+                                     "TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT": str(self.cutouts)})
+        self.assertEqual(self.nudges("3024x1964", "Virtual-2"), 1)   # the panel covers the notch
+        self.assertEqual(self.nudges("3024x1964", "Virtual-1"), 0)   # the external at the same mode
+        self.assertEqual(self.nudges("2560x1440", "Virtual-1"), 0)
+        self.assertEqual(self.nudges("3024x1964", "Virtual-2"), 0)   # still there
+        self.assertEqual(self.nudges("1940x1260", "Virtual-2"), 1)   # back to a window
 
     def test_display_sync_passes_each_applied_mode(self):
         sync = (FILES / "usr/bin/omarchy-native-display-sync").read_text()
-        self.assertIn('"$notch_refresh" "${width}x$height" || true', sync)
+        self.assertIn('"$notch_refresh" "${width}x$height" "$output" || true', sync)
         # Only after Hyprland accepted the mode.
         self.assertLess(sync.index('elif [[ $response != ok ]]'), sync.index('"$notch_refresh"'))
 
@@ -249,6 +301,152 @@ class NotchRefresh(unittest.TestCase):
         path = self.tmp / "credentials"
         path.mkdir(exist_ok=True)
         return path
+
+
+def edid(width, height, physical_mm):
+    """A base EDID block whose one detailed timing is WIDTHxHEIGHT@60 on a
+    panel of PHYSICAL_MM (width, height), the legacy form the helper reads."""
+    hblank, hfront, hsync, vblank, vfront, vsync = 280, 88, 44, 45, 4, 5
+    clock = (width + hblank) * (height + vblank) * 60 // 10_000
+    timing = bytes([
+        clock & 0xFF, clock >> 8,
+        width & 0xFF, hblank & 0xFF, (width >> 8) << 4 | hblank >> 8,
+        height & 0xFF, vblank & 0xFF, (height >> 8) << 4 | vblank >> 8,
+        hfront & 0xFF, hsync & 0xFF, (vfront & 0xF) << 4 | vsync & 0xF,
+        (hfront >> 8) << 6 | (hsync >> 8) << 4 | (vfront >> 4) << 2 | vsync >> 4,
+        physical_mm[0] & 0xFF, physical_mm[1] & 0xFF, (physical_mm[0] >> 8) << 4 | physical_mm[1] >> 8,
+        0, 0, 0x1E,  # digital separate sync, +hsync +vsync, progressive
+    ])
+    block = bytearray(128)
+    block[:8] = b"\x00\xff\xff\xff\xff\xff\xff\x00"
+    block[18] = 1   # EDID 1.4
+    block[54:72] = timing
+    block[127] = (-sum(block)) % 256
+    return bytes(block)
+
+
+def modeline(width, height):
+    hblank, hfront, hsync, vblank, vfront, vsync = 280, 88, 44, 45, 4, 5
+    clock_mhz = ((width + hblank) * (height + vblank) * 60 + 500_000) // 1_000_000
+    return (f"modeline {clock_mhz} {width} {width + hfront} {width + hfront + hsync} {width + hblank} "
+            f"{height} {height + vfront} {height + vfront + vsync} {height + vblank} +hsync +vsync")
+
+
+class DisplaySync(unittest.TestCase):
+    """omarchy-native-display-sync gives each connected output its own rule,
+    placed as the Mac arranges its displays."""
+
+    PANEL = (3024, 1964, (300, 195))      # Retina density, scale 2
+    EXTERNAL = (2560, 1440, (597, 336))   # 27", scale 1
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.drm = self.tmp / "drm"
+        self.monitors = self.tmp / "monitors.lua"
+        self.layout = self.tmp / "display-layout"
+        self.log = self.tmp / "log"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        (shims / "hyprctl").write_text('#!/bin/bash\necho "hyprctl $*" >>"$SYNC_LOG"\necho ok\n')
+        (shims / "notch-refresh").write_text('#!/bin/bash\necho "notch-refresh $*" >>"$SYNC_LOG"\n')
+        for shim in shims.iterdir():
+            shim.chmod(0o755)
+        self.env = {"PATH": f"{shims}:{os.environ['PATH']}", "SYNC_LOG": str(self.log),
+                    "OMARCHY_DISPLAY_SYNC_DRM_ROOT": str(self.drm),
+                    "OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG": str(self.monitors),
+                    "OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH": str(shims / "notch-refresh"),
+                    "OMARCHY_DISPLAY_SYNC_LAYOUT": str(self.layout),
+                    "OMARCHY_DISPLAY_SYNC_LOCK": str(self.tmp / "lock")}
+        self.monitors.write_text(
+            'local omarchy_monitor_scale = "auto"\n'
+            'hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })\n'
+            '-- hl.monitor({ output = "Virtual-2", mode = "2560x1440@144", position = "0x0", scale = 1 })\n')
+
+    def connect(self, output, display, status="connected"):
+        connector = self.drm / f"card0-{output}"
+        connector.mkdir(parents=True)
+        (connector / "status").write_text(status + "\n")
+        (connector / "edid").write_bytes(edid(*display))
+
+    def sync(self):
+        run(FILES / "usr/bin/omarchy-native-display-sync", "--once", env=self.env)
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_places_each_output_as_the_mac_arranges_them(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.assertEqual(self.sync(), [
+            f'hyprctl eval hl.monitor({{ output = "Virtual-1", mode = "{modeline(3024, 1964)}", '
+            'position = "0x458", scale = "2" })',
+            "notch-refresh 3024x1964 Virtual-1",
+            f'hyprctl eval hl.monitor({{ output = "Virtual-2", mode = "{modeline(2560, 1440)}", '
+            'position = "1512x0", scale = "1" })',
+            "notch-refresh 2560x1440 Virtual-2",
+        ])
+
+    def test_one_display_or_no_arrangement_leaves_placement_to_hyprland(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL, status="disconnected")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+        self.assertIn('position = "auto"', rules[0])
+
+    def test_an_output_the_user_configured_is_theirs(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        # The commented example in setUp names Virtual-2 and does not count.
+        self.monitors.write_text(self.monitors.read_text()
+                                 + 'hl.monitor({ output = "Virtual-2", mode = "preferred", position = "auto", scale = 1 })\n')
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_rule_in_a_block_comment_does_not_count(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "--[[\nhl.monitor({ output = \"Virtual-2\", mode = \"preferred\" })\n]]\n"
+                                   "--[==[ hl.monitor({ output = \"Virtual-1\" }) ]==]\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+
+    def test_a_rule_after_a_block_comment_counts(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "--[[ an example ]] hl.monitor({ output = \"Virtual-2\", mode = \"preferred\" })\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_user_rule_counts_however_it_is_laid_out(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "hl.monitor (\n  {\n    output = 'Virtual-2', -- the big one\n"
+                                   "    mode = 'preferred',\n  }\n)\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_chosen_scale_leaves_placement_to_hyprland(self):
+        # Logical sizes no longer match the Mac's points, so its arrangement
+        # would leave gaps or overlaps.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "2"))
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+        for rule in rules:
+            self.assertIn('position = "auto"', rule)
+            self.assertIn('scale = "2"', rule)
 
 
 class SshAccess(unittest.TestCase):
@@ -668,9 +866,9 @@ class Power(unittest.TestCase):
                                         'print((a > b) - (a < b))\n')
             for tool in ("systemctl", "vercmp"):
                 (tmp / tool).chmod(0o755)
-            for old, restarted in (("0.1.0-27", True), ("0.1.0-28", False)):
+            for old, restarted in (("0.1.0-27", True), ("0.1.0-36", True), ("0.1.0-37", False)):
                 log.write_text("")
-                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-28 "$2"', "bash",
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-37 "$2"', "bash",
                                 str(PACKAGE / "try-omarchy.install"), old], check=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log)})
                 self.assertEqual("try-restart try-omarchy-host-config.service" in log.read_text().splitlines(),

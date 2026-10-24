@@ -6,8 +6,11 @@ struct FullscreenPreferences: Equatable {
     /// Omarchy's bar then sits (docs/camera-notch.md). Off, it stays below the
     /// notch. Macs without a notch never show or use it.
     var usesNotch: Bool = true
+    /// Immersive mode puts Omarchy on every display the Mac has, arranged as
+    /// in System Settings. Off, it uses one display, like a window.
+    var usesAllDisplays: Bool = true
 
-    static let defaults = Self(isImmersive: true, usesNotch: true)
+    static let defaults = Self(isImmersive: true, usesNotch: true, usesAllDisplays: true)
 }
 
 struct FullscreenPreferenceStore {
@@ -32,7 +35,8 @@ struct FullscreenPreferenceStore {
         }
         return FullscreenPreferences(
             isImmersive: payload.isImmersive,
-            usesNotch: payload.usesNotch ?? FullscreenPreferences.defaults.usesNotch
+            usesNotch: payload.usesNotch ?? FullscreenPreferences.defaults.usesNotch,
+            usesAllDisplays: payload.usesAllDisplays ?? FullscreenPreferences.defaults.usesAllDisplays
         )
     }
 
@@ -40,24 +44,27 @@ struct FullscreenPreferenceStore {
         let payload = Payload(
             schemaVersion: Self.schemaVersion,
             isImmersive: preferences.isImmersive,
-            usesNotch: preferences.usesNotch
+            usesNotch: preferences.usesNotch,
+            usesAllDisplays: preferences.usesAllDisplays
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? storage.setSettingData(data, forKey: Self.key)
     }
 
-    /// `usesNotch` is optional so settings saved before it existed keep their
-    /// Immersive choice and take the notch's default.
+    /// `usesNotch` and `usesAllDisplays` are optional so settings saved before
+    /// they existed keep their Immersive choice and take the defaults.
     private struct Payload: Codable {
         let schemaVersion: Int
         let isImmersive: Bool
         let usesNotch: Bool?
+        let usesAllDisplays: Bool?
     }
 }
 
 struct FullscreenLaunchConfiguration: Equatable {
     static let immersiveEnvironmentKey = "OMARCHY_QEMU_GPU_IMMERSIVE"
     static let notchEnvironmentKey = "OMARCHY_QEMU_GPU_NOTCH"
+    static let displaysEnvironmentKey = "OMARCHY_QEMU_GPU_DISPLAYS"
 
     let environment: [String: String]
 
@@ -69,6 +76,7 @@ struct FullscreenLaunchConfiguration: Equatable {
         environment.removeValue(forKey: immersiveEnvironmentKey)
         environment[immersiveEnvironmentKey] = preferences.isImmersive ? "1" : "0"
         environment[notchEnvironmentKey] = preferences.usesNotch ? "1" : "0"
+        environment[displaysEnvironmentKey] = preferences.usesAllDisplays ? "1" : "0"
         return Self(environment: environment)
     }
 }
