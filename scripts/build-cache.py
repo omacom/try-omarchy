@@ -87,12 +87,18 @@ def regular_files(
 
 
 # What the factory takes from the guest package beyond installing it: the
-# kernel command line it builds into the boot image. Everything else in the
-# package reaches every VM, new ones included, when the app installs the newer
+# kernel command line and the identity handoff before hardware provisioning.
+# Everything else in the package reaches every VM, new ones included, when
+# the app installs the newer
 # package before first-boot setup, so a package change rebuilds only the
 # package. The factory also installs the package's dependencies; those enter
 # its fingerprint through package_dependencies().
-GUEST_PACKAGE_FACTORY_INPUTS = ("try-omarchy/files/etc/limine-entry-tool.d",)
+GUEST_PACKAGE_FACTORY_INPUTS = (
+    "try-omarchy/files/etc/limine-entry-tool.d",
+    "try-omarchy/files/usr/lib/try-omarchy/factory-boot-identity",
+    "try-omarchy/files/usr/lib/systemd/system/omarchy-provision-hardware.service.d",
+    "try-omarchy/files/usr/lib/systemd/system/omarchy-provision-owner.service.d",
+)
 
 
 def guest_package_files(root: Path) -> list[Path]:

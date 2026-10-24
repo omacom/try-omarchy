@@ -267,6 +267,24 @@ class BuildCacheTests(unittest.TestCase):
             recipe.write_text(recipe.read_text().replace("'wf-recorder: x'", "'wf-recorder: x'\n  'mpv: y'"))
             self.assertNotEqual(after_console, build_cache.fingerprint(root, "guest", factory))
 
+    def test_identity_handoff_changes_rebuild_the_factory_before_package_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "LICENSE").write_text("license\n")
+            factory = [str(root / "guest/build.sh"), "--factory-only"]
+            for relative in (
+                "usr/lib/try-omarchy/factory-boot-identity",
+                "usr/lib/systemd/system/omarchy-provision-hardware.service.d/10-try-omarchy-factory-boot.conf",
+                "usr/lib/systemd/system/omarchy-provision-owner.service.d/10-try-omarchy-native.conf",
+            ):
+                with self.subTest(path=relative):
+                    path = root / "guest/package/try-omarchy/files" / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("before\n")
+                    before = build_cache.fingerprint(root, "guest", factory)
+                    path.write_text("after\n")
+                    self.assertNotEqual(before, build_cache.fingerprint(root, "guest", factory))
+
     def test_pinned_downloads_are_kept_and_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)

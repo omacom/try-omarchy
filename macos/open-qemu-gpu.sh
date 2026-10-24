@@ -85,10 +85,16 @@ if [[ -n ${OMARCHY_QEMU_GPU_USB_HOST:-} ]]; then
   usb_environment=(--env "OMARCHY_QEMU_GPU_USB_HOST=$OMARCHY_QEMU_GPU_USB_HOST")
 fi
 
+fido_environment=()
+if [[ -n ${OMARCHY_QEMU_GPU_FIDO_DEVICE:-} ]]; then
+  fido_environment=(--env "OMARCHY_QEMU_GPU_FIDO_DEVICE=$OMARCHY_QEMU_GPU_FIDO_DEVICE")
+fi
+
 exec /usr/bin/open \
   -n \
   -W \
   ${usb_environment[@]+"${usb_environment[@]}"} \
+  ${fido_environment[@]+"${fido_environment[@]}"} \
   --stdin /dev/null \
   --stdout /dev/null \
   --stderr /dev/null \

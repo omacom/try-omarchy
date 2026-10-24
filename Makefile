@@ -23,7 +23,7 @@ SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest guest-package refresh runtime firmware app kit build run run-ephemeral reset version-preflight package package-preflight release release-preflight publish clean clean-all clean-guest
-.PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
+.PHONY: test-all test-contracts test-guest test-swift test-fido-simulated test-shell $(SHELL_TEST_TARGETS)
 .PHONY: test-upstream test-guest-install test-kit e2e
 
 help:
@@ -32,6 +32,7 @@ help:
 	  '' \
 	  '  make doctor         Check the local toolchain' \
 	  '  make test           Run native and guest contract tests' \
+	  '  make test-fido-simulated  Run FIDO unit tests without a key or VM' \
 	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make test-upstream  Check the guest package against the current Omarchy (network)' \
 	  '  make test-guest-install  Install, upgrade and remove the guest package (Docker, network)' \
@@ -121,6 +122,14 @@ test-contracts:
 
 test-guest:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_package.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_fido.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_fido_simulated.py"
+
+test-fido-simulated:
+	@mkdir -p "$(ROOT)/macos/.build/module-cache/swift" "$(ROOT)/macos/.build/module-cache/clang"
+	@cd "$(ROOT)/macos" && SWIFT_MODULECACHE_PATH="$(ROOT)/macos/.build/module-cache/swift" CLANG_MODULE_CACHE_PATH="$(ROOT)/macos/.build/module-cache/clang" swift test --disable-sandbox --filter FIDO
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_fido.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/guest/package/tests/test_fido_simulated.py"
 
 # The package's contracts with the Omarchy the factory installs today.
 test-upstream:

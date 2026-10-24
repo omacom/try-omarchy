@@ -211,8 +211,8 @@ log "Installing the base system and $kernel"
 target_install base "$kernel" "$kernel-headers" mkinitcpio
 
 # A build-time identity for limine-entry-tool, which keys entries by machine
-# ID. Sealing empties it; owner provisioning rebuilds the entries for the VM's
-# own ID (omarchy-provision-owner limine_entries_stale).
+# ID. Sealing records it before clearing it; the guest package hands the
+# generated entry to the VM's own identity before provisioning rebuilds it.
 systemd-machine-id-setup --root="$target" >/dev/null
 
 log "Installing the early Omarchy packages"
@@ -423,6 +423,8 @@ kernel_version=$(awk -v k="$kernel" '$1 == k { print $2 }' "$state/packages.txt"
 # --- seal ------------------------------------------------------------------------
 log "Sealing the image"
 # No shared identity: machine ID, random seed, SSH host keys, pacman keyring.
+[[ -x $target/usr/lib/try-omarchy/factory-boot-identity ]] || fail "the factory requires the try-omarchy boot identity handoff"
+install -Dm0644 "$target/etc/machine-id" "$target/var/lib/try-omarchy/factory-machine-id"
 : >"$target/etc/machine-id"
 rm -f "$target/var/lib/systemd/random-seed" "$target"/etc/ssh/ssh_host_*
 rm -rf "$target/etc/pacman.d/gnupg"

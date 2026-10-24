@@ -8,3 +8,4 @@ enable try-omarchy-locale.service
 enable try-omarchy-timezone.service
 enable try-omarchy-clock-recovery.timer
 enable try-omarchy-grow-root.service
+enable omarchy-native-fido-bridge.service

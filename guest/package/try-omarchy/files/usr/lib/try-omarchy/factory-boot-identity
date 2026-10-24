@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+import tempfile
+
+
+def handoff(config, factory_identity, machine_identity):
+    if not factory_identity.exists():
+        return False
+    factory = factory_identity.read_bytes().strip()
+    machine = machine_identity.read_bytes().strip()
+    for identity in (factory, machine):
+        if not re.fullmatch(rb"[0-9a-f]{32}", identity) or identity == b"0" * 32:
+            raise ValueError("invalid machine identity; keeping the factory boot entry")
+    original = config.read_bytes()
+    entries = re.split(rb"(?m)(?=^/[^/\r\n])", original)
+    pattern = re.compile(rb"(?m)^(comment: machine-id=)" + factory + rb"(?=[\t \r\n]|$)")
+    changed = []
+    for index, entry in enumerate(entries):
+        if not entry.startswith(b"/"):
+            continue
+        child = re.search(rb"(?m)^[\t ]*//", entry)
+        header_end = child.start() if child else len(entry)
+        header = pattern.sub(lambda match: match[1] + machine, entry[:header_end])
+        if header != entry[:header_end]:
+            changed.append((index, header + entry[header_end:]))
+    if len(changed) > 1:
+        raise ValueError("ambiguous factory boot identity; keeping the boot entries")
+    for index, entry in changed:
+        entries[index] = entry
+    updated = b"".join(entries)
+    if updated != original:
+        pending = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=config.parent, prefix=".limine.conf.", delete=False) as output:
+                pending = Path(output.name)
+                output.write(updated)
+                output.flush()
+                os.fsync(output.fileno())
+                os.fchmod(output.fileno(), stat.S_IMODE(config.stat().st_mode))
+            os.replace(pending, config)
+        finally:
+            if pending is not None:
+                pending.unlink(missing_ok=True)
+    factory_identity.unlink()
+    return updated != original
+
+
+if __name__ == "__main__":
+    try:
+        handoff(Path("/boot/limine.conf"), Path("/var/lib/try-omarchy/factory-machine-id"),
+                Path("/etc/machine-id"))
+    except (OSError, ValueError) as error:
+        sys.exit(f"factory-boot-identity: {error}")

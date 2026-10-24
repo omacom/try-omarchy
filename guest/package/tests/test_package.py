@@ -89,7 +89,7 @@ class PackageLayout(unittest.TestCase):
             for match in re.finditer(r"^Exec\w*=-?(/\S+)", unit.read_text(), re.M):
                 program = match.group(1)
                 # Other packages' programs: coreutils, python, rtkit (a drop-in).
-                if program.startswith(("/usr/bin/rm", "/usr/bin/python3", "/usr/lib/rtkit-daemon")):
+                if program.startswith(("/usr/bin/rm", "/usr/bin/python3", "/usr/lib/rtkit-daemon", "/usr/bin/modprobe")):
                     continue
                 self.assertTrue((FILES / program.lstrip("/")).is_file(), f"{unit.name}: {program}")
 
@@ -711,6 +711,119 @@ class PowerKey(unittest.TestCase):
         # Omarchy's 10-ignore-power-button.conf sorts first, so this one wins.
         self.assertGreater(dropin.name, "10-ignore-power-button.conf")
         self.assertIn("systemctl kill -s HUP systemd-logind.service", (PACKAGE / "try-omarchy.install").read_text())
+
+
+class FactoryBootIdentity(unittest.TestCase):
+    FACTORY = "0123456789abcdef0123456789abcdef"
+    MACHINE = "abcdef0123456789abcdef0123456789"
+    OTHER = FACTORY[:-1] + "0"
+    CONFIG = ("timeout: 7\nquiet: no\ndefault_entry: 2\nhash_mismatch_panic: yes\n\n"
+              "/+Omarchy\ncomment: machine-id={factory} order-priority=50\n"
+              "  //linux-omarchy\n  protocol: efi\n"
+              "  path: boot():/EFI/Linux/omarchy_linux-omarchy.efi#factory-hash\n\n"
+              "/Other system\ncomment: machine-id={other} order-priority=99\n"
+              "  //Custom kernel\n  protocol: efi\n  path: boot():/other.efi#other-hash\n\n"
+              "/EFI fallback\nprotocol: efi\npath: boot():/EFI/BOOT/BOOTAA64.EFI\n")
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.config = self.root / "limine.conf"
+        self.factory = self.root / "factory-machine-id"
+        self.machine = self.root / "machine-id"
+        self.original = self.CONFIG.format(factory=self.FACTORY, other=self.OTHER).encode()
+        self.config.write_bytes(self.original)
+        self.factory.write_text(self.FACTORY + "\n")
+        self.machine.write_text(self.MACHINE + "\n")
+        self.module = load(LIB / "factory-boot-identity", "factory_boot_identity")
+
+    def handoff(self):
+        return self.module.handoff(self.config, self.factory, self.machine)
+
+    def test_factory_entry_becomes_this_vms_entry_without_changing_its_boot(self):
+        self.assertTrue(self.handoff())
+        expected = self.original.replace(self.FACTORY.encode(), self.MACHINE.encode())
+        self.assertEqual(self.config.read_bytes(), expected)
+        self.assertFalse(self.factory.exists())
+
+    def test_an_unmarked_image_is_not_guessed_from_other_machine_entries(self):
+        self.factory.unlink()
+        self.assertFalse(self.handoff())
+        self.assertEqual(self.config.read_bytes(), self.original)
+
+    def test_global_comments_and_kernel_options_are_not_identity_metadata(self):
+        header = f"comment: machine-id={self.FACTORY}\n".encode()
+        entry = self.original.replace(b"#factory-hash\n", b"#factory-hash\n  " + header)
+        self.config.write_bytes(header + entry)
+        self.handoff()
+        expected_entry = entry.replace(f"\ncomment: machine-id={self.FACTORY} ".encode(),
+                                       f"\ncomment: machine-id={self.MACHINE} ".encode())
+        self.assertEqual(self.config.read_bytes(), header + expected_entry)
+
+    def test_duplicate_factory_identity_is_not_guessed(self):
+        duplicate = self.original + self.original[self.original.index(b"/+Omarchy"):]
+        self.config.write_bytes(duplicate)
+        with self.assertRaises(ValueError):
+            self.handoff()
+        self.assertEqual(self.config.read_bytes(), duplicate)
+        self.assertTrue(self.factory.exists())
+
+    def test_handoff_is_idempotent(self):
+        self.handoff()
+        after = self.config.stat()
+        self.assertFalse(self.handoff())
+        self.assertEqual(self.config.stat().st_mtime_ns, after.st_mtime_ns)
+
+    def test_retry_after_config_was_committed_retires_the_marker(self):
+        expected = self.original.replace(self.FACTORY.encode(), self.MACHINE.encode())
+        self.config.write_bytes(expected)
+        self.assertFalse(self.handoff())
+        self.assertEqual(self.config.read_bytes(), expected)
+        self.assertFalse(self.factory.exists())
+
+    def test_absent_factory_entry_keeps_custom_configuration(self):
+        custom = self.original[self.original.index(b"/Other system"):]
+        self.config.write_bytes(custom)
+        self.assertFalse(self.handoff())
+        self.assertEqual(self.config.read_bytes(), custom)
+        self.assertFalse(self.factory.exists())
+
+    def test_invalid_identity_does_not_change_the_entry_or_retire_the_marker(self):
+        for path in (self.factory, self.machine):
+            for value in ("", "uninitialized", "0" * 32, self.MACHINE + "x"):
+                with self.subTest(path=path.name, value=value):
+                    self.factory.write_text(self.FACTORY + "\n")
+                    self.machine.write_text(self.MACHINE + "\n")
+                    path.write_text(value + "\n")
+                    with self.assertRaises(ValueError):
+                        self.handoff()
+                    self.assertEqual(self.config.read_bytes(), self.original)
+                    self.assertTrue(self.factory.exists())
+
+    def test_failed_config_commit_leaves_a_retryable_boot_and_marker(self):
+        with mock.patch.object(self.module.os, "replace", side_effect=OSError("unavailable")):
+            with self.assertRaises(OSError):
+                self.handoff()
+        self.assertEqual(self.config.read_bytes(), self.original)
+        self.assertTrue(self.factory.exists())
+        self.assertEqual(sorted(path.name for path in self.root.iterdir()),
+                         ["factory-machine-id", "limine.conf", "machine-id"])
+
+    def test_replacement_keeps_the_config_mode(self):
+        self.config.chmod(0o640)
+        self.handoff()
+        self.assertEqual(stat.S_IMODE(self.config.stat().st_mode), 0o640)
+
+    def test_identity_is_handed_off_before_hardware_or_owner_provisioning(self):
+        for unit in ("omarchy-provision-hardware", "omarchy-provision-owner"):
+            drop_ins = FILES / f"usr/lib/systemd/system/{unit}.service.d"
+            self.assertIn("ExecStartPre=/usr/lib/try-omarchy/factory-boot-identity",
+                          "\n".join(path.read_text() for path in drop_ins.glob("*.conf")))
+        factory = (PACKAGE.parent.parent / "factory/build-image.sh").read_text()
+        marker = 'install -Dm0644 "$target/etc/machine-id" "$target/var/lib/try-omarchy/factory-machine-id"'
+        self.assertLess(factory.index(marker), factory.index(': >"$target/etc/machine-id"'))
+        self.assertLess(factory.index(marker), factory.index('btrfs -q subvolume snapshot -r'))
 
 
 class Recipe(unittest.TestCase):

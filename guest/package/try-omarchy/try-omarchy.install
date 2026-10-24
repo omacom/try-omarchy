@@ -1,7 +1,7 @@
 # Units are enabled through presets on first install; later upgrades keep the
 # administrator's choices. systemd and udev reload through their own pacman hooks.
 _units='try-omarchy-host-config.service try-omarchy-grow-root.service try-omarchy-ssh-access.service try-omarchy-guest-status.service
-try-omarchy-package-install.service omarchy-native-battery-bridge.service omarchy-native-mac-share.service
+try-omarchy-package-install.service omarchy-native-battery-bridge.service omarchy-native-fido-bridge.service omarchy-native-mac-share.service
 try-omarchy-locale.service try-omarchy-timezone.service try-omarchy-clock-recovery.timer'
 _user_units='omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service
 omarchy-native-clipboard-bridge.service omarchy-native-mac-share-link.service try-omarchy-session.service'
@@ -42,6 +42,15 @@ pre_remove() {
   systemctl --global disable $_user_units >/dev/null 2>&1 || true
 }
 
+pre_upgrade() {
+  if [ -f /usr/lib/systemd/system/omarchy-native-fido-bridge.service ]; then
+    mkdir -p /run/try-omarchy
+    touch /run/try-omarchy/fido-unit-present
+  else
+    rm -f /run/try-omarchy/fido-unit-present
+  fi
+}
+
 post_upgrade() {
   # Earlier packages started these in every user manager, including SSH and
   # owner provisioning, before logind granted the desktop's device access.
@@ -60,6 +69,18 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-27)" -lt 0 ]; then
     _hide_sme
   fi
+  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    if [ ! -e /run/try-omarchy/fido-unit-present ]; then
+      systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
+    fi
+    if [ "$(systemctl is-enabled omarchy-native-fido-bridge.service 2>/dev/null)" = enabled ]; then
+      systemctl restart --no-block omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
+    else
+      systemctl stop --no-block omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
+    fi
+  fi
+  rm -f /run/try-omarchy/fido-unit-present
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the
   # camera cutouts it writes.

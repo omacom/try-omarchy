@@ -11,6 +11,7 @@ How Try Omarchy works, for contributors. User guides are in the [manual](../manu
   - [audio continuity](audio-continuity.md)
   - [camera notch](camera-notch.md)
   - [host battery](host-battery.md)
+  - [USB FIDO keys](fido.md)
   - [time zone](host-timezone.md)
   - [clock recovery](guest-clock-recovery.md)
   - [Mac keyboard](mac-keyboard.md)

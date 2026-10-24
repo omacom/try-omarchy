@@ -376,6 +376,14 @@ credential() { # name value
   printf 'io.systemd.credential.binary:%s=%s' "$1" "$(printf '%s' "$2" | base64 | tr -d '\n')"
 }
 
+fido_device=${OMARCHY_QEMU_GPU_FIDO_DEVICE:-}
+if [[ -n $fido_device ]]; then
+  [[ $fido_device =~ ^0x[0-9A-Fa-f]{1,16}$ && ! $fido_device =~ ^0x0+$ ]] ||
+    fail "OMARCHY_QEMU_GPU_FIDO_DEVICE must be one ID from --list-fido-devices"
+  [[ -z ${OMARCHY_QEMU_GPU_USB_HOST:-} ]] ||
+    fail "choose FIDO forwarding or experimental whole-device USB passthrough"
+fi
+
 # Experimental host USB passthrough: usb-host properties, either a device
 # class (vendorid=0x05ac) or exact host ports. Anything else is refused rather
 # than reinterpreted as further QEMU options.
@@ -670,6 +678,7 @@ qmp_socket="$socket_dir/qmp.sock"
 audio_socket="$socket_dir/audio.sock"
 clipboard_socket="$socket_dir/clipboard.sock"
 authentication_socket="$socket_dir/authentication.sock"
+fido_socket="$socket_dir/fido.sock"
 camera_socket="$socket_dir/camera.sock"
 battery_socket="$socket_dir/battery.sock"
 timezone_socket="$socket_dir/timezone.sock"
@@ -777,6 +786,12 @@ if [[ -n $shared_folder ]]; then
     -device 'virtio-9p-pci,fsdev=omarchy-share,mount_tag=mac,romfile='
   )
 fi
+if [[ -n $fido_device ]]; then
+  qemu_args+=(
+    -chardev "socket,id=omarchy-fido-bridge,path=$fido_socket,server=on,wait=off"
+    -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2'
+  )
+fi
 if [[ -n $usb_host_properties ]]; then
   qemu_args+=(
     -device "usb-host,bus=omarchy-usb.0,id=omarchy-usb-host,$usb_host_properties"
@@ -834,6 +849,7 @@ for bridge in clipboard authentication camera battery timezone; do
   bridge_enabled "$bridge" && bridge_names+=("$bridge")
 done
 bridge_names+=(guest-status)
+[[ -z $fido_device ]] || bridge_names+=(fido)
 bridge_restarts=()
 for _ in "${bridge_names[@]}"; do bridge_restarts+=(0); done
 start_bridge() { # index
@@ -842,6 +858,7 @@ start_bridge() { # index
     clipboard) "$native_bridge" --bridge-native-clipboard "$qemu_pid" "$clipboard_socket" 9>&- & ;;
     authentication) "$native_bridge" --bridge-native-authentication "$qemu_pid" "$authentication_socket" 9>&- & ;;
     camera) "$native_bridge" --bridge-native-camera "$qemu_pid" "$camera_socket" 9>&- & ;;
+    fido) "$native_bridge" --bridge-native-fido "$qemu_pid" "$fido_socket" "$fido_device" 9>&- & ;;
     battery) "$native_bridge" --bridge-native-battery "$qemu_pid" "$battery_socket" 9>&- & ;;
     timezone) "$native_bridge" --bridge-native-timezone "$qemu_pid" "$timezone_socket" 9>&- & ;;
     guest-status) "$native_bridge" --bridge-guest-status "$qemu_pid" "$guest_socket" "$status_file" 9>&- & ;;

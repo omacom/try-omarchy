@@ -62,6 +62,10 @@ guest/factory/build-container.sh --size-gib 24   # a larger virtual disk
    keyring, an empty package cache, and a read-only `@factory` snapshot for
    Omarchy's own factory reset.
 
+Sealing records the build identity at `/var/lib/try-omarchy/factory-machine-id`. The package's provisioning drop-ins hand that generated Limine entry to the VM's new machine ID before hardware setup can rebuild its UKI. The entry stays in place with its settings and verified hash; it is not mistaken for another system's entry. The marker is removed after a successful handoff, and retries leave the other entries unchanged. The VM still generates its own unique machine ID.
+
+Older images have no ownership marker. The helper does not guess which of their entries came from the factory or change their boot configuration. A VM already stopped at a bootloader prompt needs recovery before Linux can install an update; this handoff prevents the stale entry in newly built images.
+
 On aarch64 the `edge` channel installs `omarchy-dev` and
 `omarchy-settings-dev`, as `omarchy-channel-set edge` does. Those packages are
 built from Omarchy's `quattro` branch, where the aarch64 platform support

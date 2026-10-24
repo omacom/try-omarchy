@@ -6,7 +6,7 @@ import TryOmarchyKitClient
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET | --list-fido-devices | --bridge-native-fido QEMU_PID SOCKET DEVICE_ID\n", stderr)
     exit(64)
 }
 
@@ -171,6 +171,31 @@ do {
             terminationSignalSources.append(source)
         }
         fputs("[authentication-bridge] Signed Touch ID sudo authentication is available inside Omarchy.\n", stderr)
+        try bridge.run()
+        exit(0)
+    }
+
+    if arguments.first == "--list-fido-devices" {
+        guard arguments.count == 1 else { usage() }
+        let devices: [[String: Any]] = HostFIDODevices.connected().map {
+            ["id": $0.selector, "name": $0.name, "supported": $0.isSupported]
+        }
+        let data = try JSONSerialization.data(withJSONObject: devices, options: [.sortedKeys])
+        print(String(decoding: data, as: UTF8.self))
+        exit(0)
+    }
+
+    if arguments.first == "--bridge-native-fido" {
+        guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1,
+              let id = FIDODevicePolicy.registryID(arguments[3]) else { usage() }
+        let bridge = try NativeFIDOBridge(targetPID: pid, socketPath: arguments[2], registryID: id)
+        for signalNumber in [SIGINT, SIGTERM] {
+            Darwin.signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .global(qos: .userInitiated))
+            source.setEventHandler { bridge.stop() }
+            source.resume()
+            terminationSignalSources.append(source)
+        }
         try bridge.run()
         exit(0)
     }

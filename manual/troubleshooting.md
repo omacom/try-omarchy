@@ -12,6 +12,10 @@
 | SSH warns that the host key changed | A new VM has a new key. Run `ssh-keygen -R '[127.0.0.1]:2222'` |
 | The VM's external drive isn't connected | Connect it again, or switch back to the default folder when the app offers to |
 
+## Bootloader confirmation
+
+New factory images hand their temporary boot entry to the VM's unique identity before first-boot setup. This prevents a stale kernel hash from stopping later boots at a Limine confirmation. Existing images without the factory ownership marker are left unchanged; an update inside Linux cannot repair a VM that is already stopped before Linux starts.
+
 ## Report a problem
 
 - **If it also happens on Omarchy on real hardware,** report it to [Omarchy](https://github.com/omacom/omarchy/issues).
