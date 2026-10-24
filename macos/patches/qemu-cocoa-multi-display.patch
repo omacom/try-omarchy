@@ -298,12 +298,12 @@
 +}
 +
 +/*
-+ * Full screen at launch. AppKit refuses the transition while the app is not
-+ * active (a locked Mac, another app's full screen), and drops a request now
-+ * and then while the app is still starting, without a word. So a request
-+ * waits for the app to become active, and one that produced no transition
-+ * is repeated a few times. The first request is made at display init, as it
-+ * always was.
++ * Full screen at launch. The first request is made at display init, as it
++ * always was, whether or not the app is active yet: nothing activates QEMU
++ * for the person, and AppKit takes the request all the same. One that
++ * produced no transition (a locked Mac, another app's full screen, or a
++ * request AppKit drops while starting) is repeated a few times, once the
++ * app is active.
 + */
 +#define COCOA_FULL_SCREEN_TRIES 3
 +#define COCOA_FULL_SCREEN_RETRY_NS (2 * NSEC_PER_SEC)
@@ -315,7 +315,7 @@
 +        ([head->window styleMask] & NSWindowStyleMaskFullScreen)) {
 +        return;
 +    }
-+    if (![NSApp isActive]) {
++    if (head->full_screen_tries > 0 && ![NSApp isActive]) {
 +        info_report("Try Omarchy: display %u enters full screen once the app is active",
 +                    index + 1);
 +        return;

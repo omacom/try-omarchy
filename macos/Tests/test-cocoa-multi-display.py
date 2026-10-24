@@ -57,6 +57,9 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         # same path.
         self.assertIn("- (void)windowDidFailToEnterFullScreen:(NSWindow *)window", added)
         self.assertIn("    cocoa_enter_full_screen(0);\n", added)
+        # The first request goes out whether or not the app is active yet;
+        # nothing activates QEMU for the person, so waiting could last forever.
+        self.assertIn("    if (head->full_screen_tries > 0 && ![NSApp isActive]) {", added)
         self.assertIn("            heads[next].full_screen_wanted = true;\n            cocoa_enter_full_screen(next);", added)
         self.assertNotIn("[heads[0].window toggleFullScreen: nil];", added)
         # The level guard lifts before the window entered full screen is
