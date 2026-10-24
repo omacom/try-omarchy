@@ -245,7 +245,7 @@ class FIDOSetup(unittest.TestCase):
                    "FIDO_TEST_CALLS": str(calls), "FIDO_TEST_STATE_FILE": str(state_file),
                    "FIDO_TEST_INSTALLED_HELPER": str(installed_helper),
                    "FIDO_TEST_RUNNING_HELPER": str(running_helper)}
-            upgrades = [(36, old) for old in (30, 32, 33, 34, 35, 36)] + [(37, 36), (37, 37)]
+            upgrades = [(37, old) for old in (30, 32, 33, 34, 35, 36, 37)] + [(38, 37), (38, 38)]
             for new_release, old_release in upgrades:
                 new, old = f"0.1.0-{new_release}", f"0.1.0-{old_release}"
                 for present in (False, True):
@@ -270,8 +270,8 @@ class FIDOSetup(unittest.TestCase):
                             expected = []
                             final_state = state
                             final_helper = old
-                            if old_release < 36:
-                                if old_release < 35 and not present:
+                            if old_release < 37:
+                                if not present:
                                     expected.append("preset omarchy-native-fido-bridge.service")
                                     if state != "masked":
                                         final_state = "enabled"
@@ -286,7 +286,7 @@ class FIDOSetup(unittest.TestCase):
                             self.assertEqual(running_helper.read_text(), final_helper)
                             self.assertEqual(fido_calls, expected)
                             operations = calls.read_text().splitlines()
-                            if old_release < 36:
+                            if old_release < 37:
                                 self.assertLess(operations.index("daemon-reload"),
                                                 operations.index(fido_calls[0]))
                             else:

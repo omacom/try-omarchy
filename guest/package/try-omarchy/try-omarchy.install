@@ -76,9 +76,9 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then
     _remove_factory_boot_entry
   fi
-  if [ "$(vercmp "$2" 0.1.0-36)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
     systemctl daemon-reload >/dev/null 2>&1 || true
-    if [ "$(vercmp "$2" 0.1.0-35)" -lt 0 ] && [ ! -e /run/try-omarchy/fido-unit-present ]; then
+    if [ ! -e /run/try-omarchy/fido-unit-present ]; then
       systemctl preset omarchy-native-fido-bridge.service >/dev/null 2>&1 || true
     fi
     if [ "$(systemctl is-enabled omarchy-native-fido-bridge.service 2>/dev/null)" = enabled ]; then
