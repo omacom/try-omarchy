@@ -48,6 +48,7 @@ trap cleanup EXIT
 
 echo "==> Building this tree's package"
 "$repo_dir/guest/package/build.sh" --output "$work/new" >/dev/null
+"$repo_dir/guest/tests/migration-policy.sh" "$work"/new/try-omarchy-*.pkg.tar.zst
 
 mounts=(-v "$work/new:/packages/new:ro")
 arguments=(/packages/new/try-omarchy-*.pkg.tar.zst)

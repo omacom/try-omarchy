@@ -21,7 +21,7 @@ The installer starts the VM through the kit's run mode. Its configuration asks f
 - `/usr/bin/try-omarchy-export-home` is the menu row's command. It asks for the passphrase and runs the helper.
 - `/usr/lib/try-omarchy/export-home` is the root half. It takes no arguments and reads the passphrase as one line on standard input. `/etc/sudoers.d/try-omarchy-export` lets members of `wheel` run it, without arguments, without a password.
 - The exporter and `age` 1.3.2 ship in the `try-omarchy` package under `/usr/lib/try-omarchy/migration/`, so an export works offline on every VM. The `PKGBUILD` pins `age` by its release checksum and the binary's digest, and the exporter by its commit and archive checksum. The helper checks the `age` digest before each export.
-- The exporter's policy, one per Try build, decides what stays behind: Try's menu rows, the VM's Hyprland and display settings, the idle overrides, the Fcitx config, SSH and GPG keys, browser data and saved credentials. A change to a file the policy cites needs a new policy revision in the exporter, which `omarchy-migration evidence` reports.
+- The exporter's policy, one per Try build, decides what stays behind: Try's menu rows, the VM's Hyprland and display settings, the idle overrides, the Fcitx config, SSH and GPG keys, browser data and saved credentials. A change to a file the policy cites needs a new policy revision in the exporter. `make test-guest-install`, and CI's guest package job, run `guest/tests/migration-policy.sh`, which fails when the built package's policy no longer matches the tree.
 
 VMs from before the shell, a bare ext4 root in `disks/`, are not exported. Import them first with **Import Previous VM**.
 
