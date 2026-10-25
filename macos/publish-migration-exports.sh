@@ -60,6 +60,16 @@ receipt_field() { # receipt key type
   plutil -extract "$2" raw -expect "$3" -o - "$1" 2>/dev/null
 }
 
+# An age v1 file with exactly one scrypt recipient at work factor 18, the
+# header the receipt's age-v1-scrypt names and the installer accepts.
+scrypt_age_header() { # bundle
+  local b64='[A-Za-z0-9+/]' version stanza body mac
+  { IFS= read -r version && IFS= read -r stanza && IFS= read -r body && IFS= read -r mac; } < <(head -c 324 "$1") ||
+    return 1
+  [[ $version == age-encryption.org/v1 && $stanza =~ ^"-> scrypt "$b64{22}" 18"$ &&
+     $body =~ ^$b64{43}$ && $mac =~ ^"--- "$b64{43}$ ]]
+}
+
 check() { # folder name
   local folder=$1 name=$2 bundle receipt bytes
   [[ $name =~ $uuid_pattern ]] || { echo 'not an export'; return 1; }
@@ -74,7 +84,7 @@ check() { # folder name
   bytes=$(receipt_field "$receipt" bundle.bytes integer) || { echo 'receipt has no size'; return 1; }
   [[ $bytes =~ ^[1-9][0-9]*$ ]] && ((bytes <= maximum_bundle_bytes)) &&
     [[ $(stat -f %z "$bundle") == "$bytes" ]] || { echo 'size differs from the receipt'; return 1; }
-  [[ $(head -c 22 "$bundle") == age-encryption.org/v1 ]] || { echo 'not an age bundle'; return 1; }
+  scrypt_age_header "$bundle" || { echo 'not an age-v1-scrypt bundle'; return 1; }
   [[ $(sha256 "$bundle") == "$(receipt_field "$receipt" bundle.sha256 string)" ]] ||
     { echo 'digest differs from the receipt'; return 1; }
 }

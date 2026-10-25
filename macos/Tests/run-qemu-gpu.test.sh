@@ -444,6 +444,18 @@ assert_contains "$output" "[qemu-gpu] Publishing native install exports"
 call="--outbox $state/native-exports --destination $test_root/Exports"
 [[ $(<"$test_root/publish-calls") == "$call"$'\n'"$call" ]] ||
   fail "unexpected publish calls: $(<"$test_root/publish-calls")"
+# A signal while publishing waits for it: at shutdown the launcher finishes
+# publishing, still holding the storage folder's lock; at start it then stops.
+rm -f "$test_root/publish-calls" "$test_root/publish-alive"
+printf '#!/bin/bash\necho call >>"%s/publish-calls"\n[[ $(wc -l <"%s/publish-calls") -eq ${SIGNAL_ON_CALL:-0} ]] || exit 0\nkill -TERM "$PPID"\nsleep 0.3\nkill -0 "$PPID" 2>/dev/null && echo alive >>"%s/publish-alive"\n' "$test_root" "$test_root" "$test_root" >"$publish"
+output=$(SIGNAL_ON_CALL=2 launch) || fail "a signal while publishing at shutdown changed the outcome: $output"
+[[ $(<"$test_root/publish-alive") == alive ]] || fail "a signal while publishing at shutdown ended the launcher"
+rm -f "$test_root/publish-calls" "$test_root/publish-alive" "$test_root/qemu-invocations"
+status=0
+output=$(SIGNAL_ON_CALL=1 launch) || status=$?
+[[ $(<"$test_root/publish-alive") == alive ]] || fail "a signal while publishing at start ended the launcher at once"
+((status == 143)) || fail "a signal while publishing at start did not stop the launch (status $status)"
+! qemu_ran || fail "a signal while publishing at start still started QEMU"
 # A failing publish never stops a launch.
 printf '#!/bin/bash\nexit 1\n' >"$publish"
 output=$(launch) || fail "a failing publish script stopped the launch: $output"

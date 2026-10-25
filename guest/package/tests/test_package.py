@@ -433,6 +433,11 @@ fi
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("don't match", result.stdout)
         self.assertEqual((self.tmp / "received").read_text(), self.PASSPHRASE + "\n")
+        spaced = f"  {self.PASSPHRASE}\t "
+        (self.tmp / "received").unlink()
+        result = subprocess.run(command, input=f"{spaced}\n{spaced}\n", text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.tmp / "received").read_text(), spaced + "\n")
 
 
 class UserSetup(unittest.TestCase):

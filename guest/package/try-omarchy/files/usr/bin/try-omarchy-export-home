@@ -40,13 +40,13 @@ EOF
 
 secret=''
 for _ in 1 2 3; do
-  read -r -s -p 'Transfer passphrase: ' secret
+  IFS= read -r -s -p 'Transfer passphrase: ' secret
   echo
   if ((${#secret} < minimum)); then
     echo "Use at least $minimum characters."
     continue
   fi
-  read -r -s -p 'Repeat passphrase: ' again
+  IFS= read -r -s -p 'Repeat passphrase: ' again
   echo
   if [[ $secret != "$again" ]]; then
     echo "The passphrases don't match."

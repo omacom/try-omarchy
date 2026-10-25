@@ -387,13 +387,21 @@ exports_root=${OMARCHY_QEMU_GPU_EXPORTS_ROOT:-"$HOME/Library/Application Support
 [[ $exports_root == /* && $exports_root != *$'\n'* && $exports_root != *$'\r'* ]] ||
   fail "the Exports folder must be an absolute single-line path"
 publish_script="$script_dir/publish-migration-exports.sh"
+# A signal while publishing waits for it to finish, so the launcher keeps the
+# storage folder's lock until the export is in place; the run mode's forced
+# stop signals it a minute after asking Omarchy to shut down, and a large
+# export can take longer. Returns the signal's exit status, or 0.
 publish_native_exports() {
   [[ -f $publish_script && -x $publish_script ]] || return 0
-  local status=0
+  local status=0 signalled=0
   echo '[qemu-gpu] Publishing native install exports' >&2
+  trap 'signalled=129' HUP
+  trap 'signalled=130' INT
+  trap 'signalled=143' TERM
   "$publish_script" --outbox "$native_exports" --destination "$exports_root" >&2 9>&- || status=$?
+  trap - HUP INT TERM
   ((status == 0)) || echo "[qemu-gpu] Publishing native install exports failed (status $status)" >&2
-  return 0
+  return "$signalled"
 }
 
 # The guest names its settings row after the app that runs it; without the
@@ -474,7 +482,7 @@ if ((native_exports_offered)); then
   native_exports="$state_root/native-exports"
   mkdir -p "$native_exports"
   chmod 700 "$native_exports"
-  publish_native_exports
+  publish_native_exports || exit
 fi
 
 # The decompressed factory is kept once per factory identity and cloned (APFS

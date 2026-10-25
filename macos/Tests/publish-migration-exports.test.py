@@ -14,6 +14,10 @@ EXPORT_ID = "6022f2ec-746c-4636-b786-2240103a7efb"
 OTHER_ID = "c4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e03"
 
 
+SALT, KEY, MAC = "A" * 22, "B" * 43, "C" * 43
+HEADER = f"age-encryption.org/v1\n-> scrypt {SALT} 18\n{KEY}\n--- {MAC}\n".encode()
+
+
 class PublishMigrationExports(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -23,7 +27,7 @@ class PublishMigrationExports(unittest.TestCase):
         (self.vm / "disk.img").write_text("the VM disk")
         self.destination = self.root / "Exports"
 
-    def write_export(self, name=EXPORT_ID, bundle=b"age-encryption.org/v1\n-> scrypt salt 18\nbody\n--- mac\n\x00\x01",
+    def write_export(self, name=EXPORT_ID, bundle=HEADER + b"\x00\x01",
                      **receipt_changes):
         folder = self.outbox / name
         folder.mkdir()
@@ -72,6 +76,11 @@ class PublishMigrationExports(unittest.TestCase):
         self.write_export("c4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e05", bundle=b"ustar plaintext")
         self.write_export("c4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e06", export_id=OTHER_ID)
         self.write_export("c4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e07", format="age-v1-x25519")
+        for index, header in enumerate((
+                HEADER.replace(b"scrypt", b"X25519"), HEADER.replace(b" 18\n", b" 22\n"),
+                HEADER.replace(f"{SALT}".encode(), b"A" * 21), HEADER[:-1],
+                HEADER.replace(b"--- ", b"-> scrypt " + SALT.encode() + b" 18\n" + KEY.encode() + b"\n--- "))):
+            self.write_export(f"d4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e0{index}", bundle=header)
         linked = self.write_export("c4e6a8b0-2d4f-4a6c-9e8f-0a1b2c3d4e08")
         (self.root / "elsewhere").write_bytes((linked / "bundle.age").read_bytes())
         (linked / "bundle.age").unlink()
@@ -82,7 +91,7 @@ class PublishMigrationExports(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.published(), [])
         self.assertEqual(list(self.outbox.iterdir()), [])
-        self.assertEqual(result.stderr.count("skipped"), 9, result.stderr)
+        self.assertEqual(result.stderr.count("skipped"), 14, result.stderr)
         self.assertNotIn(".export.", result.stderr)
         self.assertTrue((self.root / "elsewhere").exists())
 
