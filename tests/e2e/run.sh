@@ -147,7 +147,7 @@ for setting in OMARCHY_QEMU_GPU_MEMORY_MIB OMARCHY_QEMU_GPU_CPUS; do
 done
 launcher_args=()
 [[ -z $factory ]] || launcher_args=("$factory")
-run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone"], "network": "shared"}))' "$state")
+run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone"], "network": "shared", "nativeExports": True}))' "$state")
 launch() { # log
   if ((run_mode)); then
     # The run mode reads its configuration, then commands, until its input

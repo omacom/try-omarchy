@@ -1,6 +1,6 @@
 # Native install export
 
-Status: the export, the outbox, publishing and the installer's Migrate to Native are built. Staging the export onto the native disk and importing it there are not built yet; they belong to the installer.
+Status: built end to end. The installer stages the chosen export onto the native disk, and the native system claims it at first boot and offers to import it ([native import](https://github.com/omacom/omarchy-mac-installer/blob/main/docs/native-import.md)).
 
 Someone who runs Omarchy in the VM from the Omarchy installer can move their home folder to Omarchy installed on the Mac itself. Try Omarchy on its own doesn't offer it, since only the installer takes exports. The guest produces an encrypted export, the launcher moves it into a folder the Omarchy installer reads, and the installer brings it to the native install. The exporter, the bundle format and the receipt belong to `omarchy-migration`, in the [installer's repository](https://github.com/omacom/omarchy-mac-installer). This page describes the parts inside Try and the contract between them and the installer.
 
@@ -72,5 +72,4 @@ The bundle stays encrypted from the guest until the person types the transfer pa
 
 ## Not built yet
 
-- Staging the chosen export onto the native disk during the install, and the import offer on the native system after its first boot. Both belong to the installer.
-- Removing an export once the native install has imported it. Until then, exports stay in Exports and the VM stays in place.
+- Removing an export once the native install has imported it. Exports stay in Exports and the VM stays in place.

@@ -10,8 +10,11 @@
 # command as the user, with only the package's sudo rule, and prints
 # "export-id ID" when it finishes.
 # import: restores the published export in DIR (bundle.age and receipt.json)
-# into a scratch folder with the exporter's own importer, as the native
-# install will, and checks what came across and what stayed behind.
+# into a scratch folder with the exporter's own importer, and checks what came
+# across and what stayed behind. Then imports it as the native install does,
+# into a home seeded from this Omarchy's /etc/skel with --defaults /etc/skel:
+# the Omarchy setting the VM changed replaces the untouched default, and a
+# setting the owner changed stays.
 # Prints "ok", "FAIL" or "note" lines.
 
 set -uo pipefail
@@ -25,6 +28,46 @@ home=/home/$user
 as_user() { runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" "$@"; }
 migration=/usr/lib/try-omarchy/migration
 menu=.config/omarchy/extensions/omarchy-menu.jsonc
+skel_record=/var/lib/e2e-native-export-skel
+# Omarchy settings in /etc/skel the export's policy carries as written.
+skel_settings() {
+  (cd /etc/skel && find .config -type f | LC_ALL=C sort |
+    grep -vE 'monitors\.lua|fcitx5|omarchy/extensions|omarchy/toggles|shell\.json|chromium-flags')
+}
+
+# The native install's import: a fresh home from /etc/skel, --defaults /etc/skel.
+native_import() { # dir token passphrase work
+  local dir=$1 token=$2 passphrase=$3 work=$4 setting changed native=$4/native plan plan_id
+  setting=$(cat "$skel_record" 2>/dev/null)
+  [[ -n $setting ]] || { bad "the export recorded no changed Omarchy setting"; return; }
+  changed=$(skel_settings | grep -vxF "$setting" | head -1)
+  install -d -m 0700 -o "$user" "$native" "$work/native-job"
+  cp -a /etc/skel/. "$native/"
+  chown -R "$user:" "$native"
+  [[ -n $changed ]] && printf '\n# owner-change\n' >>"$native/$changed"
+  native_importer() { # operation [plan id]
+    as_user "$migration/omarchy-migration/bin/omarchy-migration" "$1" --bundle "$work/bundle.age" \
+      --receipt "$work/receipt.json" --target "$native" --job "$work/native-job" --passphrase-fd 0 \
+      --defaults /etc/skel --age "$migration/age" --age-sha256 "$(<"$migration/age.sha256")" ${2:+--plan-id "$2"}
+  }
+  plan=$(native_importer plan <<<"$passphrase" 2>"$work/native-plan.err")
+  plan_id=$(python3 -I -c 'import json, sys; print(json.load(sys.stdin)["plan_id"])' <<<"$plan" 2>/dev/null)
+  if [[ -z $plan_id ]]; then
+    bad "the native import could not plan: $(tr '\n' ' ' <"$work/native-plan.err")"
+    return
+  fi
+  if native_importer apply "$plan_id" <<<"$passphrase" >/dev/null 2>"$work/native-apply.err"; then
+    ok "the native import applies its plan over a home from /etc/skel"
+  else
+    bad "the native import could not apply its plan: $(tr '\n' ' ' <"$work/native-apply.err")"
+  fi
+  grep -qF "# $token" "$native/$setting" && ok "the setting the VM changed replaces the untouched default ($setting)" ||
+    bad "the untouched default $setting was not replaced"
+  if [[ -n $changed ]]; then
+    grep -qF "# owner-change" "$native/$changed" && ok "a setting the owner changed stays ($changed)" ||
+      bad "the native import replaced $changed, which the owner changed"
+  fi
+}
 
 case $mode in
   export)
@@ -43,6 +86,14 @@ case $mode in
     grep -qsw tryomarchy.native_exports=1 /run/try-omarchy/cmdline && grep -q '"setup.move-to-native-install"' "$home/$menu" &&
       ok "Setup shows Move to Native Install" || bad "Setup has no Move to Native Install row"
     as_user sh -c "mkdir -p ~/Projects/e2e-export ~/.ssh && printf '%s' '$token' >~/Projects/e2e-export/canary && printf key >~/.ssh/id_e2e_export"
+    setting=$(skel_settings | while read -r path; do [[ -f $home/$path ]] && { echo "$path"; break; }; done)
+    if [[ -n $setting ]]; then
+      as_user sh -c "printf '\n# %s\n' '$token' >>\"\$HOME/$setting\""
+      printf '%s\n' "$setting" >"$skel_record"
+      ok "the VM changes an Omarchy setting from /etc/skel ($setting)"
+    else
+      bad "no Omarchy setting from /etc/skel is in the home"
+    fi
 
     # Only the package's rule: the run's own NOPASSWD rule steps aside.
     aside=$(mktemp -d)
@@ -92,6 +143,7 @@ case $mode in
       bad "the importer could not plan the export: $(tr '\n' ' ' <"$work/plan.err")"
     fi
     restored=$work/home
+    native_import "$dir" "$token" "$passphrase" "$work"
     [[ $(cat "$restored/Projects/e2e-export/canary" 2>/dev/null) == "$token" ]] && ok "files in the home come across" ||
       bad "Projects/e2e-export/canary did not come across"
     [[ -e $restored/.ssh/id_e2e_export ]] && bad "an SSH key came across" || ok "SSH keys stay behind"
