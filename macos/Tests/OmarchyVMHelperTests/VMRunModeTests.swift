@@ -86,13 +86,19 @@ struct VMRunProtocolTests {
             storageRoot: "/Users/someone/VM",
             bridges: [.clipboard, .camera],
             memoryMiB: 8_192,
-            cpus: 4
+            cpus: 4,
+            nativeExports: true
         )
         #expect(try VMRunConfiguration.decode(line: configuration.encodedLine()) == configuration)
         let defaults = VMRunConfiguration(productName: "Omarchy Installer")
         #expect(try VMRunConfiguration.decode(line: defaults.encodedLine()) == defaults)
         #expect(defaults.bridges == VMRunBridge.allCases)
         #expect(defaults.network == .shared)
+        #expect(!defaults.nativeExports)
+        #expect(!String(decoding: try defaults.encodedLine(), as: UTF8.self).contains("nativeExports"))
+        #expect(try VMRunConfiguration.decode(line: Data(
+            #"{"version":1,"productName":"x","bridges":[],"network":"shared","nativeExports":false}"#.utf8
+        )).nativeExports == false)
 
         var invalid: [VMRunConfiguration] = []
         for change: (inout VMRunConfiguration) -> Void in [
@@ -119,6 +125,8 @@ struct VMRunProtocolTests {
             #"{"version":1,"productName":"x","bridges":[],"network":"shared","sharedFolder":"/"}"#,
             #"{"version":1,"productName":"x","bridges":[],"network":"host"}"#,
             #"{"version":2,"productName":"x","bridges":[],"network":"shared"}"#,
+            #"{"version":1,"productName":"x","bridges":[],"network":"shared","nativeExports":1}"#,
+            #"{"version":1,"productName":"x","bridges":[],"network":"shared","nativeExports":"yes"}"#,
         ] {
             #expect(throws: (any Error).self) { try VMRunConfiguration.decode(line: Data(line.utf8)) }
         }

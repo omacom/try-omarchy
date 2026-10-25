@@ -45,6 +45,13 @@ public enum TryOmarchyKitVersion: Comparable, Hashable, Sendable, CustomStringCo
     }
 }
 
+/// What a kit can do beyond the run-mode protocol's version, so that an app
+/// asks only for what the kit it runs knows. A kit that predates a
+/// capability refuses a configuration that asks for it.
+public enum TryOmarchyKitCapability: String, CaseIterable, Sendable {
+    case nativeExports = "native-exports"
+}
+
 public enum TryOmarchyKitManifestError: Error, Equatable, Sendable {
     /// The kit has no manifest: it predates them, or it is damaged.
     case missing
@@ -64,12 +71,18 @@ public struct TryOmarchyKitManifest: Equatable, Sendable {
     /// The run-mode protocol the kit's helper speaks (`VMRunProtocol.version`).
     public let runProtocolVersion: Int
     public let buildDate: Date
+    /// Names this client does not know are dropped.
+    public let capabilities: Set<TryOmarchyKitCapability>
 
-    public init(version: TryOmarchyKitVersion, runProtocolVersion: Int, buildDate: Date) {
+    public init(version: TryOmarchyKitVersion, runProtocolVersion: Int, buildDate: Date,
+                capabilities: Set<TryOmarchyKitCapability> = []) {
         self.version = version
         self.runProtocolVersion = runProtocolVersion
         self.buildDate = buildDate
+        self.capabilities = capabilities
     }
+
+    public func supports(_ capability: TryOmarchyKitCapability) -> Bool { capabilities.contains(capability) }
 
     /// Whether this client library can run the kit.
     public var isSupported: Bool { runProtocolVersion == VMRunProtocol.version }
@@ -85,7 +98,13 @@ public struct TryOmarchyKitManifest: Equatable, Sendable {
               dateText.utf8.count == 20,
               let buildDate = ISO8601DateFormatter().date(from: dateText)
         else { throw TryOmarchyKitManifestError.invalid }
-        return Self(version: version, runProtocolVersion: runProtocolVersion, buildDate: buildDate)
+        var capabilities: Set<TryOmarchyKitCapability> = []
+        if let value = object["capabilities"] {
+            guard let names = value as? [String] else { throw TryOmarchyKitManifestError.invalid }
+            capabilities = Set(names.compactMap(TryOmarchyKitCapability.init(rawValue:)))
+        }
+        return Self(version: version, runProtocolVersion: runProtocolVersion, buildDate: buildDate,
+                    capabilities: capabilities)
     }
 }
 

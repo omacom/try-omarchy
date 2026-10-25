@@ -55,13 +55,15 @@ Every kit carries a manifest, `Contents/Resources/kit.json`, and each release al
   "format": 1,
   "version": "v1.2.3",
   "runProtocolVersion": 1,
-  "buildDate": "2026-10-23T09:30:05Z"
+  "buildDate": "2026-10-23T09:30:05Z",
+  "capabilities": ["native-exports"]
 }
 ```
 
 - `version` is the release tag the kit was built from. A kit built from anything else, such as `make kit` on an untagged or modified commit, says `development`.
 - `runProtocolVersion` is the run-mode protocol its helper speaks. A client runs only a kit with its own protocol version (`isSupported`).
 - `buildDate` is when the kit was built, in UTC.
+- `capabilities` names what the kit can do beyond its protocol version, so an app asks only for what the kit knows. A kit without the key has none. `native-exports` means the configuration may ask for `nativeExports`.
 - Readers ignore keys they do not know. `format` changes only when a known key changes meaning.
 
 Releases compare by their numbers (`TryOmarchyKitVersion`). A development kit compares newer than every release, so an app built with one keeps it rather than replacing it with a fetched kit. For that reason an installer refuses a fetched kit whose version is `development`, and an installer's release build refuses to embed one; `TryOmarchyKitVersion.isDevelopment` checks it. An app never runs a kit older than the one it embeds. A kit without a manifest predates it, so it is older than any kit that has one.
@@ -72,7 +74,7 @@ Releases compare by their numbers (`TryOmarchyKitVersion`). A development kit co
 
 The app starts `omarchy-vm-helper --run-vm` from the kit, writes one configuration line to its standard input, and reads one event per line from its standard output. Diagnostics go to standard error. The protocol and its validation are in `macos/Sources/TryOmarchyKitClient/VMRunProtocol.swift`.
 
-The configuration names the product, its icon (an `.icns` or `.png` file; the kit's own icon when absent) and the optional bridges. Its storage folder, memory, CPUs and network are fallbacks for a VM with no stored settings ([settings](#settings)). `network` is `shared` or `bridged`; any other value, or none, fails with `invalid-configuration`. Audio, guest status and the settings bridge always run.
+The configuration names the product, its icon (an `.icns` or `.png` file; the kit's own icon when absent) and the optional bridges. Its storage folder, memory, CPUs and network are fallbacks for a VM with no stored settings ([settings](#settings)). `network` is `shared` or `bridged`; any other value, or none, fails with `invalid-configuration`. `nativeExports: true` offers Omarchy's Move to Native Install and its outbox ([native install export](native-install-export.md)); only an app that can stage the export onto a native install asks for it. A kit refuses a key it does not know, so `VMRunClient` drops `nativeExports` when the kit's manifest does not list `native-exports`. Audio, guest status and the settings bridge always run.
 
 The Omarchy window, its Dock entry and its application menu carry the product's name and icon. The Dock names a process that has no app bundle after its file, even when it starts through a link. So the launcher starts QEMU from a minimal app bundle named after the product, in the run's private folder, whose executable links to the signed binary. That bundle has no identifier either, so Launch Services never records a second app, and the run's permissions stay with the app that started it. The binary stays in place, so its signature and the bridges' check of the QEMU process, which reads the path of the running file, are unchanged. A name that cannot be a file name, with a `/` or longer than 251 bytes, keeps the binary's name in the Dock.
 

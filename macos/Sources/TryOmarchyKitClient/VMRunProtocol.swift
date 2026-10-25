@@ -45,6 +45,11 @@ public struct VMRunConfiguration: Equatable, Sendable {
     /// Used when no network is stored. A bridged one that cannot start fails
     /// with `bridgedNetworkUnavailable`.
     public var network: VMRunNetwork
+    /// Offers Omarchy's Move to Native Install, with the outbox it exports
+    /// into (docs/native-install-export.md). Only an app that can stage the
+    /// export onto a native install asks for it, and only from a kit whose
+    /// manifest lists `TryOmarchyKitCapability.nativeExports`.
+    public var nativeExports: Bool
 
     public init(
         productName: String,
@@ -53,7 +58,8 @@ public struct VMRunConfiguration: Equatable, Sendable {
         bridges: [VMRunBridge] = VMRunBridge.allCases,
         memoryMiB: Int? = nil,
         cpus: Int? = nil,
-        network: VMRunNetwork = .shared
+        network: VMRunNetwork = .shared,
+        nativeExports: Bool = false
     ) {
         self.productName = productName
         self.iconPath = iconPath
@@ -62,6 +68,7 @@ public struct VMRunConfiguration: Equatable, Sendable {
         self.memoryMiB = memoryMiB
         self.cpus = cpus
         self.network = network
+        self.nativeExports = nativeExports
     }
 
     public func encodedLine() throws -> Data {
@@ -76,12 +83,14 @@ public struct VMRunConfiguration: Equatable, Sendable {
         if let storageRoot { object["storageRoot"] = storageRoot }
         if let memoryMiB { object["memoryMiB"] = memoryMiB }
         if let cpus { object["cpus"] = cpus }
+        if nativeExports { object["nativeExports"] = true }
         return try VMRunLine.encode(object)
     }
 
     public static func decode(line: Data) throws -> Self {
         let object = try VMRunLine.decode(line)
-        let allowed: Set = ["version", "productName", "iconPath", "storageRoot", "bridges", "memoryMiB", "cpus", "network"]
+        let allowed: Set = ["version", "productName", "iconPath", "storageRoot", "bridges", "memoryMiB", "cpus", "network",
+                            "nativeExports"]
         guard Set(object.keys).isSubset(of: allowed),
               VMRunLine.integer(object["version"]) == VMRunProtocol.version,
               let productName = object["productName"] as? String,
@@ -112,6 +121,12 @@ public struct VMRunConfiguration: Equatable, Sendable {
         if let value = object["cpus"] {
             guard let cpus = VMRunLine.integer(value) else { throw VMRunProtocolError.invalidConfiguration }
             configuration.cpus = cpus
+        }
+        if let value = object["nativeExports"] {
+            guard let offered = value as? Bool, CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {
+                throw VMRunProtocolError.invalidConfiguration
+            }
+            configuration.nativeExports = offered
         }
         try configuration.validate()
         return configuration

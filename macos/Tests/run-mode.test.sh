@@ -282,11 +282,12 @@ expected = {
     "OMARCHY_QEMU_GPU_CPUS": "4",
     "OMARCHY_QEMU_GPU_STATE_ROOT": str(vm),
     "OMARCHY_QEMU_GPU_IMMERSIVE": "1",
-    "OMARCHY_QEMU_GPU_NATIVE_EXPORTS": "1",
 }
 for key, value in expected.items():
     if environment.get(key) != value:
         fail(f"the launcher got {key}={environment.get(key)!r}, not {value!r}")
+if "OMARCHY_QEMU_GPU_NATIVE_EXPORTS" in environment:
+    fail("a configuration that did not ask for native exports offered them")
 if "OMARCHY_QEMU_GPU_DRY_RUN" in environment or "OMARCHY_QEMU_GPU_INSPECT_ONLY" in environment:
     fail("the run mode passed the launcher's test settings on")
 if {"factory": image_sha} not in entries:
@@ -314,6 +315,15 @@ if entries[0]["environment"].get("OMARCHY_QEMU_GPU_IMMERSIVE") != "0":
     fail("the stored Immersive Mode setting did not reach the launcher")
 if {"qmp": "system_powerdown"} not in entries:
     fail(f"the end of input did not reach QMP: {entries}")
+
+# Only a configuration that asks for native exports gets the outbox.
+run = RunMode({**configuration, "nativeExports": True})
+run.until("ready")
+run.send("shutdown")
+run.until("exited")
+run.process.wait(timeout=10)
+if launcher_log()[0]["environment"].get("OMARCHY_QEMU_GPU_NATIVE_EXPORTS") != "1":
+    fail("a configuration that asked for native exports did not get the outbox")
 
 # A stored bridged choice that cannot start says so in a notice, then starts
 # with shared networking. A kit asks the daemon its embedding app registered,

@@ -14,7 +14,7 @@ Someone who runs Omarchy in the VM from the Omarchy installer can move their hom
 6. When the VM stops, and again when it next starts, the launcher publishes the outbox into Exports.
 7. In the Omarchy installer, **Migrate to Native** finds the export, checks it against its receipt, and carries it into the install.
 
-The installer starts the VM through the kit's run mode, which asks the launch script for the outbox. Try Omarchy starts it through the same script without asking, so its VMs get no outbox and no menu row.
+The installer starts the VM through the kit's run mode. Its configuration asks for the outbox with `nativeExports`, and only an installer that can stage the export onto the native disk asks. The run mode then asks the launch script for the outbox. Try Omarchy starts the VM through the same script without asking, so its VMs get no outbox and no menu row. So does a newer kit under an older installer.
 
 ## In the guest
 
@@ -27,7 +27,7 @@ VMs from before the shell, a bare ext4 root in `disks/`, are not exported. Impor
 
 ## The outbox share
 
-With `OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1`, which only the run mode sets, the launcher creates `native-exports` beside `shell` in the VM storage folder, private to the user, and attaches it as a writable virtio-9p share with mount tag `tryomarchy-native-exports`. Try Omarchy strips the setting from its own launches. The guest sees the Mac user as the Omarchy owner account, as on the Mac shared folder. A disposable VM gets no outbox even when asked: it holds no lock on the storage folder, so another VM may be exporting into it, and its home is thrown away.
+With `OMARCHY_QEMU_GPU_NATIVE_EXPORTS=1`, which only the run mode sets when its configuration asks, the launcher creates `native-exports` beside `shell` in the VM storage folder, private to the user, and attaches it as a writable virtio-9p share with mount tag `tryomarchy-native-exports`. Try Omarchy strips the setting from its own launches. The guest sees the Mac user as the Omarchy owner account, as on the Mac shared folder. A disposable VM gets no outbox even when asked: it holds no lock on the storage folder, so another VM may be exporting into it, and its home is thrown away.
 
 The host settings line, published in the guest at `/run/try-omarchy/cmdline`, carries `tryomarchy.native_exports=1` whenever the share is attached. The menu row shows on that token. The helper mounts the tag itself, under `/run/try-omarchy/export.*/`, and unmounts it when done.
 

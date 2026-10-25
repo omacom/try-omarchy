@@ -46,14 +46,19 @@ class KitManifestTests(unittest.TestCase):
                     "format": 1, "version": version,
                     "runProtocolVersion": kit_manifest.run_protocol_version(REPOSITORY),
                     "buildDate": "2026-10-23T09:30:05Z",
+                    "capabilities": ["native-exports"],
                 })
 
     def test_rejects_invalid_manifests(self) -> None:
         valid = {"format": 1, "version": "v1.2.3", "runProtocolVersion": 1, "buildDate": "2026-10-23T09:30:05Z"}
         self.assertEqual(kit_manifest.validate(dict(valid, extra=True)), dict(valid, extra=True))
+        self.assertEqual(kit_manifest.validate(dict(valid, capabilities=["native-exports", "later"]))["capabilities"],
+                         ["native-exports", "later"])
         for change in ({"format": 2}, {"format": True}, {"version": "1.2.3"}, {"version": "v1.2"},
                        {"version": "dev"}, {"runProtocolVersion": 0}, {"runProtocolVersion": "1"},
-                       {"runProtocolVersion": True}, {"buildDate": "2026-10-23"}, {"buildDate": 0}):
+                       {"runProtocolVersion": True}, {"buildDate": "2026-10-23"}, {"buildDate": 0},
+                       {"capabilities": "native-exports"}, {"capabilities": ["native-exports", "native-exports"]},
+                       {"capabilities": ["Native Exports"]}, {"capabilities": [1]}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 kit_manifest.validate(dict(valid, **change))
         for value in ([], "v1.2.3", None):
