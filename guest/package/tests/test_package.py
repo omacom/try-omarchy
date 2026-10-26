@@ -571,6 +571,45 @@ def load(path, name):
     return module
 
 
+class AudioBridge(unittest.TestCase):
+    # Each pactl run is a client PipeWire, WirePlumber and the shell react to;
+    # polling them every 0.25 s kept ~70% of a core busy on an idle desktop.
+    def test_queries_pipewire_only_on_relevant_events(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        sent, calls = [], []
+        mirror = bridge.PipeWireMirror(sent.append)
+        mirror.module_ids = ["7"]
+        mirror.output_uids = {"omarchy_host_output_a": "A"}
+        defaults = {"get-default-sink": "omarchy_host_output_a\n", "get-default-source": "x\n"}
+        modules = ["7\tmodule-remap-sink\tsink_name=omarchy_host_output_a"]
+
+        def pactl(*arguments, check=True):
+            calls.append(arguments)
+            if arguments == ("list", "short", "modules"):
+                return "\n".join(modules)
+            return defaults[arguments[0]]
+
+        with mock.patch.object(bridge, "run_pactl", pactl):
+            for line in ("Event 'new' on client #41", "Event 'remove' on client #41",
+                         "Event 'change' on sink-input #3", "Event 'remove' on module #8"):
+                mirror.handle_event(line)
+            self.assertEqual((calls, sent), ([], []))
+
+            mirror.handle_event("Event 'change' on server #4294967295")
+            self.assertEqual(calls, [("get-default-sink",), ("get-default-source",)])
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
+
+            # A rebuild's late removal of a reused id: still loaded, no new rebuild.
+            mirror.inventory = ()
+            mirror.handle_event("Event 'remove' on module #7")
+            self.assertEqual(len(sent), 1)
+
+            modules.clear()
+            mirror.handle_event("Event 'remove' on module #7")
+            self.assertEqual(sent[-1], {"type": "get-catalog"})
+            self.assertIsNone(mirror.inventory)
+
+
 class ClockRecovery(unittest.TestCase):
     def recover(self, rtc_name):
         module = load(LIB / "guest-clock-recover", "guest_clock_recover")
