@@ -583,31 +583,52 @@ class AudioBridge(unittest.TestCase):
         defaults = {"get-default-sink": "omarchy_host_output_a\n", "get-default-source": "x\n"}
         modules = ["7\tmodule-remap-sink\tsink_name=omarchy_host_output_a"]
 
+        failing = []
+
         def pactl(*arguments, check=True):
             calls.append(arguments)
+            if arguments[0] in failing:
+                raise RuntimeError(f"pactl {arguments[0]}: timed out")
             if arguments == ("list", "short", "modules"):
                 return "\n".join(modules)
             return defaults[arguments[0]]
 
+        def handle(line):
+            mirror.handle_event(line)
+            mirror.run_pending()
+
         with mock.patch.object(bridge, "run_pactl", pactl):
             for line in ("Event 'new' on client #41", "Event 'remove' on client #41",
                          "Event 'change' on sink-input #3", "Event 'remove' on module #8"):
-                mirror.handle_event(line)
+                handle(line)
             self.assertEqual((calls, sent), ([], []))
 
-            mirror.handle_event("Event 'change' on server #4294967295")
+            handle("Event 'change' on server #4294967295")
             self.assertEqual(calls, [("get-default-sink",), ("get-default-source",)])
             self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
 
             # A rebuild's late removal of a reused id: still loaded, no new rebuild.
             mirror.inventory = ()
-            mirror.handle_event("Event 'remove' on module #7")
+            handle("Event 'remove' on module #7")
             self.assertEqual(len(sent), 1)
 
             modules.clear()
-            mirror.handle_event("Event 'remove' on module #7")
+            handle("Event 'remove' on module #7")
             self.assertEqual(sent[-1], {"type": "get-catalog"})
             self.assertIsNone(mirror.inventory)
+
+            # A failed check is kept for the next retry, not dropped.
+            sent.clear()
+            mirror.last_sent["output"] = None
+            failing.append("get-default-sink")
+            mirror.handle_event("Event 'change' on server #4294967295")
+            with self.assertRaises(RuntimeError):
+                mirror.run_pending()
+            self.assertEqual((mirror.pending, sent), ({"defaults"}, []))
+            failing.clear()
+            mirror.run_pending()
+            self.assertEqual(mirror.pending, set())
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
 
 
 class ClockRecovery(unittest.TestCase):

@@ -114,6 +114,9 @@ class PipeWireMirror:
             "output": object(),
             "input": object(),
         }
+        # Checks the event stream asked for that have not succeeded yet. With
+        # no timed poll, a failed one is retried from here, not dropped.
+        self.pending: set[str] = set()
 
     def close(self) -> None:
         for module_id in reversed(self.module_ids):
@@ -148,15 +151,24 @@ class PipeWireMirror:
         # Every pactl run is a new client that PipeWire, WirePlumber and the
         # shell all react to, so query only when the graph says something changed.
         if " on server " in line:
-            self.poll_selection()
+            self.pending.add("defaults")
         elif line.startswith("Event 'remove' on module #"):
+            if line.rpartition("#")[2].strip() in self.module_ids:
+                self.pending.add("modules")
+
+    def run_pending(self) -> None:
+        # A check leaves `pending` only once it succeeds; a RuntimeError keeps
+        # it there for the caller's next retry.
+        if "modules" in self.pending:
             # PipeWire reuses module ids, so the removals a rebuild causes can
             # arrive after the new modules took the same ids: confirm the loss.
-            if line.rpartition("#")[2].strip() in self.module_ids and not set(
-                self.module_ids
-            ).issubset(loaded_module_ids()):
+            if not set(self.module_ids).issubset(loaded_module_ids()):
                 self.inventory = None
                 self.send({"type": "get-catalog"})
+            self.pending.discard("modules")
+        if "defaults" in self.pending:
+            self.poll_selection()
+            self.pending.discard("defaults")
 
     def poll_selection(self) -> None:
         for direction, command, mapping in (
@@ -305,9 +317,12 @@ def main() -> int:
     assert subscriber.stdout is not None
     event_descriptor = subscriber.stdout.fileno()
     send({"type": "get-catalog"})
+    retry_delay: float | None = None
     try:
         while True:
-            ready, _, _ = select.select([descriptor, event_descriptor], [], [])
+            # Sleep until an event, or until the next retry of a failed check.
+            timeout = retry_delay if mirror.pending else None
+            ready, _, _ = select.select([descriptor, event_descriptor], [], [], timeout)
             if event_descriptor in ready:
                 chunk = os.read(event_descriptor, 65536)
                 if not chunk:
@@ -316,10 +331,14 @@ def main() -> int:
                 while b"\n" in events:
                     line, _, remainder = events.partition(b"\n")
                     events = bytearray(remainder)
-                    try:
-                        mirror.handle_event(line.decode(errors="replace"))
-                    except RuntimeError as error:
-                        log(str(error))
+                    mirror.handle_event(line.decode(errors="replace"))
+            if mirror.pending:
+                try:
+                    mirror.run_pending()
+                    retry_delay = None
+                except RuntimeError as error:
+                    log(str(error))
+                    retry_delay = 1 if retry_delay is None else min(retry_delay * 2, RETRY_DELAY_MAX)
             if descriptor in ready:
                 chunk = os.read(descriptor, 65536)
                 if not chunk:
