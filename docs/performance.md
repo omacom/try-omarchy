@@ -34,9 +34,14 @@ the removal of one of its own modules, confirmed with one module listing,
 asks the host for the catalog again. The confirmation matters: PipeWire
 reuses module ids, so a rebuild's own removals arrive after the new modules
 took the same ids, and acting on them rebuilt the endpoints in a loop.
-`pactl subscribe` exits when PipeWire restarts, the bridge exits with it, and
-systemd restarts it to rebuild the graph. `AudioBridge` in
-`guest/package/tests/test_package.py` covers which events query PipeWire.
+A check whose `pactl` fails (a timeout or a non-zero exit) stays pending and
+retries with backoff, 1 s up to 30 s. `pactl subscribe` exits when PipeWire
+restarts; the bridge subscribes again a second later (backing off while
+PipeWire stays down) and rebuilds from a fresh host catalog. It does not exit
+for this: systemd's restart delay for the unit grows with every automatic
+restart and never resets, so recovery would slow to 30 s after a few PipeWire
+restarts. `AudioBridge` in `guest/package/tests/test_package.py` covers which
+events query PipeWire and that a failed read is retried.
 
 Measured 2026-10-26 on an M-series MacBook Pro, 7 vCPUs, 12 GiB, package
 0.1.0-33, Omarchy edge r7311, idle desktop, `profile-process.py` over 120 s

@@ -175,7 +175,10 @@ class PipeWireMirror:
             ("output", "get-default-sink", self.output_uids),
             ("input", "get-default-source", self.input_uids),
         ):
-            current = run_pactl(command, check=False).strip()
+            # A failed read must raise so the check stays pending: pipewire-pulse
+            # sends no new event until the default moves again. No default is
+            # not a failure (it reads "@DEFAULT_SINK@" and maps to nothing).
+            current = run_pactl(command)
             if current not in mapping:
                 continue
             uid = mapping[current]
@@ -304,19 +307,22 @@ def main() -> int:
     mirror = PipeWireMirror(send)
     buffer = bytearray()
     events = bytearray()
+    def subscribe() -> subprocess.Popen[bytes]:
+        # Its event lines are translated, so parse them in the C locale.
+        return subprocess.Popen(
+            ["pactl", "subscribe"],
+            env={**os.environ, "LC_ALL": "C"},
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
     # Subscribe before asking for the catalog so no change falls in between.
-    # pactl exits when PipeWire restarts; the unit's restart rebuilds the graph.
-    # Its event lines are translated, so parse them in the C locale.
-    subscriber = subprocess.Popen(
-        ["pactl", "subscribe"],
-        env={**os.environ, "LC_ALL": "C"},
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    subscriber = subscribe()
     assert subscriber.stdout is not None
     event_descriptor = subscriber.stdout.fileno()
     send({"type": "get-catalog"})
+    resubscribe_delay = 1
     retry_delay: float | None = None
     next_retry = 0.0  # monotonic time before which a failed check waits
     try:
@@ -328,7 +334,28 @@ def main() -> int:
             if event_descriptor in ready:
                 chunk = os.read(event_descriptor, 65536)
                 if not chunk:
-                    raise RuntimeError("pactl subscribe ended")
+                    # pactl exits when PipeWire restarts, and the endpoints go
+                    # with it. Recover here rather than exiting: the unit's
+                    # restart delay grows with every automatic restart and never
+                    # resets, so later PipeWire restarts would take up to 30 s.
+                    subscriber.wait()
+                    log(f"pactl subscribe ended; subscribing again in {resubscribe_delay} s")
+                    time.sleep(resubscribe_delay)
+                    # Back off while PipeWire stays down; any event resets it.
+                    resubscribe_delay = min(resubscribe_delay * 2, RETRY_DELAY_MAX)
+                    subscriber = subscribe()
+                    assert subscriber.stdout is not None
+                    event_descriptor = subscriber.stdout.fileno()
+                    events.clear()
+                    # The old modules died with PipeWire (or, if only pactl
+                    # died, the rebuild's stale-module sweep removes them);
+                    # their ids may now belong to someone else's modules.
+                    mirror.module_ids.clear()
+                    mirror.inventory = None
+                    mirror.pending.clear()
+                    send({"type": "get-catalog"})
+                    continue
+                resubscribe_delay = 1
                 events.extend(chunk)
                 while b"\n" in events:
                     line, _, remainder = events.partition(b"\n")

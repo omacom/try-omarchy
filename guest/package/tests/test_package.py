@@ -586,12 +586,16 @@ class AudioBridge(unittest.TestCase):
         failing = []
 
         def pactl(*arguments, check=True):
+            # Like run_pactl: a non-zero exit with empty stdout raises only
+            # when the caller checks it.
             calls.append(arguments)
             if arguments[0] in failing:
-                raise RuntimeError(f"pactl {arguments[0]}: timed out")
+                if check:
+                    raise RuntimeError(f"pactl {arguments[0]}: status 1")
+                return ""
             if arguments == ("list", "short", "modules"):
                 return "\n".join(modules)
-            return defaults[arguments[0]]
+            return defaults[arguments[0]].strip()
 
         def handle(line):
             mirror.handle_event(line)
@@ -617,7 +621,7 @@ class AudioBridge(unittest.TestCase):
             self.assertEqual(sent[-1], {"type": "get-catalog"})
             self.assertIsNone(mirror.inventory)
 
-            # A failed check is kept for the next retry, not dropped.
+            # A failed read (non-zero exit) is kept for the next retry, not dropped.
             sent.clear()
             mirror.last_sent["output"] = None
             failing.append("get-default-sink")
