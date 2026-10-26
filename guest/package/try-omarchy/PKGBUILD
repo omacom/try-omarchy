@@ -49,14 +49,14 @@ _battery=try-omarchy-battery
 _battery_version=1.3.0
 _age_version=1.3.2
 _age_sha256=41b072352f4561018949623c674d16ef704019b9108a9bbdbd21292efebfc94f
-_migration_commit=bd8af61748e9dd1cd6342b0c9aaaa79b88124301
+_migration_commit=4c29b585b5ce1fdc4690025da8459e2c41de0761
 source=(
   "age-v$_age_version-linux-arm64.tar.gz::https://github.com/FiloSottile/age/releases/download/v$_age_version/age-v$_age_version-linux-arm64.tar.gz"
   "omarchy-migration-$_migration_commit.tar.gz::https://github.com/omacom/omarchy-mac-installer/archive/$_migration_commit.tar.gz"
 )
 sha256sums=(
   '6b8dc4333c53a5a57c9e5834e3a48f92605d7154014cd07269ff3327db5d37f4'
-  'd2e382897eec09cb9511644dc612ddd075adb0680519e1d72e306b7fbeea78ad'
+  '02c489c421ef730a60747a50fcb1fa0c7e27143d0fdfb8d4ac95e38632288dc9'
 )
 
 package() {
