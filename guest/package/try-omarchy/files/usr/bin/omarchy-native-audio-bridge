@@ -318,10 +318,12 @@ def main() -> int:
     event_descriptor = subscriber.stdout.fileno()
     send({"type": "get-catalog"})
     retry_delay: float | None = None
+    next_retry = 0.0  # monotonic time before which a failed check waits
     try:
         while True:
             # Sleep until an event, or until the next retry of a failed check.
-            timeout = retry_delay if mirror.pending else None
+            # Other events arriving meanwhile only add to the pending checks.
+            timeout = max(0.0, next_retry - time.monotonic()) if mirror.pending else None
             ready, _, _ = select.select([descriptor, event_descriptor], [], [], timeout)
             if event_descriptor in ready:
                 chunk = os.read(event_descriptor, 65536)
@@ -332,13 +334,14 @@ def main() -> int:
                     line, _, remainder = events.partition(b"\n")
                     events = bytearray(remainder)
                     mirror.handle_event(line.decode(errors="replace"))
-            if mirror.pending:
+            if mirror.pending and time.monotonic() >= next_retry:
                 try:
                     mirror.run_pending()
                     retry_delay = None
                 except RuntimeError as error:
                     log(str(error))
                     retry_delay = 1 if retry_delay is None else min(retry_delay * 2, RETRY_DELAY_MAX)
+                    next_retry = time.monotonic() + retry_delay
             if descriptor in ready:
                 chunk = os.read(descriptor, 65536)
                 if not chunk:
