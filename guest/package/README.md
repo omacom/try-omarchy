@@ -70,16 +70,14 @@ not ignore, so caches and other local files never reach the package.
   are replaced), so each changed row carries Omarchy's complete row, read from
   the installed Omarchy at every login, with our change applied. Rows still
   exactly as written follow Omarchy's later changes; rows the user edits or
-  removes are left alone. The settings row is named after the Mac app that
-  runs the VM (`tryomarchy.product_name`), and says Try Omarchy without it.
-  Its desktop entry, which the app launcher hides, says VM Settings, because
-  a packaged file cannot follow the name of each boot.
+  removes are left alone. The settings row and its desktop entry, which the app
+  launcher hides, say Try Omarchy Settings in every app that runs the VM.
 
 ## Host interfaces
 
 | Port or share | Direction | Use |
 | --- | --- | --- |
-| credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags, and the name of the app running the VM when it is not Try Omarchy |
+| credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags |
 | credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | The app's bundled package, installed before login when newer |
 | `dev.tryomarchy.guest` | guest → host | Status reports (protocol 1, JSON lines every 10 s) |
 | `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The host bridges, one port per integration |

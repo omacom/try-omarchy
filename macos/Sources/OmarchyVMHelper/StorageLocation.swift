@@ -55,13 +55,12 @@ struct StorageLocationPreferenceStore {
         return nil
     }
 
-    func save(_ preference: StorageLocationPreference) {
+    func save(_ preference: StorageLocationPreference) throws {
         let payload = Payload(
             schemaVersion: Self.schemaVersion,
             containerPath: preference.containerPath
         )
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        storage.setSettingData(data, forKey: Self.key)
+        try storage.setSettingData(JSONEncoder().encode(payload), forKey: Self.key)
     }
 
     private struct Payload: Codable {

@@ -976,14 +976,14 @@ int main(void)
             )
             self.assertEqual(subprocess.run([str(binary)], check=False).returncode, 0)
 
-    def test_builder_pins_and_applies_the_patch_last(self) -> None:
+    def test_builder_pins_and_applies_the_patch_after_the_input_patches(self) -> None:
         builder = BUILDER.read_text(encoding="utf-8")
         expected = re.search(r"^korean_caps_lock_patch_sha256=([a-f0-9]{64})$", builder, re.M)
         self.assertIsNotNone(expected)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         self.assertIn('verify_file_sha "Try Omarchy Cocoa Korean Caps Lock patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        self.assertEqual(applied[-1], "korean_caps_lock_patch")
+        self.assertEqual(applied[-2:], ["korean_caps_lock_patch", "pointer_mapping_patch"])
 
     def test_runner_sets_the_mode_only_from_the_helper_and_never_on_jis(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")

@@ -1,0 +1,92 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: map the pointer per axis and keep the window size
+
+The guest image fills the view on both axes, so the absolute pointer and the
+guest cursor use a ratio per axis, in view coordinates. The window keeps its
+size, never goes below the guest minimum, and tells the guest its size,
+which the guest follows.
+Applies after the other Try Omarchy Cocoa patches.
+
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -1036,8 +1036,10 @@
+ 
+         [self addTrackingArea:trackingArea];
+         [trackingArea release];
+-        screen.width = frameRect.size.width;
+-        screen.height = frameRect.size.height;
++        /* The frame is in points; the guest's size is in pixels. */
++        CGFloat initialScale = MAX(1, [[NSScreen mainScreen] backingScaleFactor]);
++        screen.width = frameRect.size.width * initialScale;
++        screen.height = frameRect.size.height * initialScale;
+         colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+ #if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
+         [self setClipsToBounds:YES];
+@@ -1125,11 +1127,12 @@
+ 
+     if (cursor) {
+         CGFloat scale = [self bounds].size.width / screen.width;
++        CGFloat scaleY = [self bounds].size.height / screen.height;
+         CGPoint position;
+         CGRect bounds = CGRectZero;
+ 
+         position.x = mouseX * scale;
+-        position.y = (screen.height - mouseY) * scale;
++        position.y = (screen.height - mouseY) * scaleY;
+ 
+         bounds.size.width = cursor->width * scale;
+         bounds.size.height = cursor->height * scale;
+@@ -1397,8 +1400,26 @@
+     return size;
+ }
+ 
++static NSSize cocoa_guest_frame_size(NSSize size, CGFloat scale);
++
+ - (void) resizeWindow
+ {
++    NSWindowStyleMask styleMask = [[self window] styleMask];
++
++    if ((styleMask & NSWindowStyleMaskResizable) &&
++        !(styleMask & NSWindowStyleMaskFullScreen)) {
++        /*
++         * The guest follows the window (updateUIInfo), so the window keeps
++         * its size and aspect. Fitting the window to each guest mode instead
++         * shrank it at every boot stage, down to below the guest's minimum.
++         */
++        [[self window] setContentResizeIncrements:NSMakeSize(1, 1)];
++        [[self window] setContentMinSize:cocoa_guest_frame_size(
++            NSZeroSize, [[self window] backingScaleFactor])];
++        [self updateUIInfo];
++        return;
++    }
++
+     [[self window] setContentAspectRatio:NSMakeSize(screen.width, screen.height)];
+ 
+     if ([self coversNotch]) {
+@@ -2186,12 +2207,19 @@
+ 
+     with_bql(^{
+         if (isAbsoluteEnabled) {
+-            CGFloat d = (CGFloat)screen.height / [self frame].size.height;
+-            NSPoint p = [event locationInWindow];
+-
+-            /* Note that the origin for Cocoa mouse coords is bottom left, not top left. */
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, p.x * d, 0, screen.width);
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, screen.height - p.y * d, 0, screen.height);
++            /*
++             * The guest image fills the view on both axes, so map each axis
++             * on its own: the guest's mode can lag the view's aspect.
++             */
++            NSRect bounds = [self bounds];
++            NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
++            CGFloat x = NSWidth(bounds) > 0 ?
++                (p.x - NSMinX(bounds)) * screen.width / NSWidth(bounds) : 0;
++            CGFloat y = NSHeight(bounds) > 0 ?
++                (NSMaxY(bounds) - p.y) * screen.height / NSHeight(bounds) : 0;
++
++            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, x, 0, screen.width);
++            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, y, 0, screen.height);
+         } else {
+             qemu_input_queue_rel(dcl.con, INPUT_AXIS_X, [event deltaX]);
+             qemu_input_queue_rel(dcl.con, INPUT_AXIS_Y, [event deltaY]);

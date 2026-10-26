@@ -48,7 +48,7 @@ struct SharedFolderPreferenceStore {
             isEnabled: preference.isEnabled
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        storage.setSettingData(data, forKey: Self.key)
+        try? storage.setSettingData(data, forKey: Self.key)
     }
 
     private struct Payload: Codable {

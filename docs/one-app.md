@@ -6,7 +6,7 @@ Status: proposed on 2026-10-22. It replaces the installer trial plan of the same
 
 [Omarchy Installer](https://github.com/omacom/omarchy-mac-installer) becomes the one app for Omarchy on a Mac. It has two modes, **Install** and **Try**. Install puts Omarchy on the Mac's own hardware. Try runs it in a virtual machine, in a window beside macOS.
 
-- The first page offers both, side by side: **Install on this Mac** and **Try in a VM**.
+- The first page offers both, side by side: **Install on this Mac** and **Try it in a VM**.
 - On a Mac it cannot install on, and on a Mac with Omarchy already installed, Install stays on the page, unavailable, with the reason under it. Whatever the installer can still do for that Mac stays in its menu.
 - Once a VM exists, the one app opens straight into Try and starts Omarchy, and **Install on this Mac** becomes **Migrate to Native**.
 
@@ -23,34 +23,34 @@ Shells all the way down: Try is a shell for Omarchy, and the installer is a shel
 ## First launch
 
 1. The one app inspects the Mac, as the installer does today.
-2. The first page is the landing page: this Mac in a line, then two buttons side by side, **Install on this Mac** on the left and **Try in a VM** on the right, each with a line under it.
+2. The first page is the landing page: this Mac in a line, a few short lines, then two buttons of the same width side by side, **Install on this Mac** on the left and **Try it in a VM** on the right. The lines say why Install is unavailable, what Try has and the space for it, or with nothing to say, name both choices.
 3. Install continues into the plan the installer shows today. While the Mac is checked, Install is unavailable and says so.
-4. On a Mac Omarchy cannot be installed on, Install stays unavailable, with the reason under it, **Details** and **Check again**. A Mac that fails only the disk check can still try Omarchy, because the VM needs free space, not a partition.
+4. On a Mac Omarchy cannot be installed on, Install stays unavailable, and the lines give the reason, with **Details** and **Check again**. A Mac that fails only the disk check can still try Omarchy, because the VM needs free space, not a partition.
 5. On a Mac with Omarchy already installed natively, Install is unavailable, with a line saying Omarchy is installed. **Remove Omarchy…** stays in the Installation menu, as today.
-6. **Try in a VM** is always available. It opens the Try page, whose **Back** returns to the landing page.
+6. **Try it in a VM** is always available. It opens the Try page, whose **Back** returns to the landing page.
 
 The Try page is the trial's Try screen as built: Accessibility, so Command works as Super, the microphone and the camera, all optional, the space the VM needs and the space free, and **Download and start**. The free space in the header and on the Try page is one reading, so the same disk shows the same number on both.
 
 ## Try
 
-Starting downloads the image once, unpacks it, and boots Omarchy in its own window, as the trial does today. While Omarchy runs, the page shows its state, **Shut Down** and, on a supported Mac, **Migrate to Native** ([install from Try](#install-from-try)). The page also lists any permission still not granted, with **Allow**; a grant takes effect at the next start.
+Starting downloads the image once, unpacks it, and boots Omarchy in its own window, as the trial does today. Once Omarchy's window is up, the installer's window closes and the app leaves the Dock, as the launcher does, so Omarchy's window is the one Dock tile. The window comes back when Omarchy shuts down or fails, and opening the app again brings it back while Omarchy runs. It then shows Omarchy's state, **Shut Down** and, on a supported Mac, **Migrate to Native** ([install from Try](#install-from-try)). It also lists any permission still not granted, with **Allow**; a grant takes effect at the next start.
 
-A VM is the remembered choice, in the default folder or in the folder chosen in Try Omarchy ([finding the VM](vm-kit.md#finding-the-vm)). Every later launch:
+A VM in the default folder is the remembered choice. The one app always boots the default folder ([finding the VM](vm-kit.md#finding-the-vm)). Every later launch:
 
-- starts Omarchy at once, with the page showing its state, when the one app has every permission the Try page offers or has started Omarchy before;
-- otherwise shows the landing page, with **Migrate to Native** and **Try in a VM**, and Try opens the Try page with **Allow** and **Start**, as on the first launch after Try Omarchy 1.2;
+- opens on the Try page, with **Allow** and **Launch**, and starts nothing until the person presses Launch;
+- leads back to the landing page, with **Migrate to Native** and **Try it in a VM**, through **Back**;
 - still inspects the Mac in the background, so Migrate to Native knows whether this Mac is supported;
 - offers **Migrate to Native…** in the Installation menu, beside **Remove Omarchy…**.
 
-**Delete Virtual Machine…** in the same menu removes a VM in the default folder, after a confirmation that names the space it frees, and returns the one app to the landing page. A VM in a folder chosen in Try Omarchy is Try Omarchy's to move or delete.
+**Delete Virtual Machine…** in the same menu removes the VM in the default folder, after a confirmation that names the space it frees, and returns the one app to the landing page. A VM moved in Try Omarchy is Try Omarchy's to move or delete.
 
 Shut Down, quitting the app and closing the Omarchy window shut Omarchy down over QMP, wait up to a minute, and then stop QEMU, as today. The app shows **Shutting down** until the VM has exited and quits only then.
 
 ### Settings
 
-The one app has no settings page of its own. Settings live in the kit: the launcher window Try Omarchy has today, with its sharing, network, virtual machine and storage sections. The run mode serves the settings bridge, so Omarchy's Setup menu keeps its settings row, and choosing it opens the kit's launcher window beside the Omarchy window, named after the one app. Changes apply at the next start, as in Try Omarchy.
+The one app has no settings page of its own. Settings live in the kit: the launcher window Try Omarchy has today, with its sharing, network, virtual machine and storage sections. The run mode serves the settings bridge, so Omarchy's Setup menu keeps its settings row, Try Omarchy Settings, and choosing it opens the kit's launcher window beside the Omarchy window, named after the one app. Changes apply at the next start, as in Try Omarchy.
 
-The run mode reads the same stored settings the launcher writes, so memory and CPUs, networking, port forwarding, the shared folder, USB devices and the storage folder all take effect in Try without the one app knowing them. The run-mode configuration keeps only what the app knows: the product name and the optional bridges.
+The run mode reads the same stored settings the launcher writes, so memory and CPUs, networking, port forwarding, the shared folder and USB devices all take effect in Try without the one app knowing them. The run-mode configuration keeps only what the app knows: the product name, the default folder and the optional bridges.
 
 The settings move out of the app's preferences domain into a file in the VM's folder, where the startup choice already lives. Any kit then reads the same settings, whichever bundle it runs from and whichever kit version it is.
 
@@ -64,7 +64,7 @@ The plan review counts the space the VM's folder actually uses against free spac
 
 ## One VM
 
-The one app and Try Omarchy open the same VM, in the `Try Omarchy` folder under Application Support or the folder chosen in Try Omarchy, with the same settings. Until the person updates Try Omarchy 1.2, the one app reads 1.2's settings at every start ([settings](vm-kit.md#settings)). The lock on the VM folder stops both from running it at once; the run mode reports `vm-already-open`, the one app says that Omarchy is open in Try Omarchy, and Try Omarchy says that it is open in another app, such as Omarchy Installer. Either app can boot a VM the other made, and the `try-omarchy` package only upgrades ([integration updates](integration-updates.md)), so an older kit never downgrades the guest.
+The one app and Try Omarchy open the same VM, in the default folder under `Application Support/Try Omarchy`, with the same settings. The one app always boots that folder. A VM moved in Try Omarchy to another folder or drive is not what the one app boots: Try then starts a new VM in the default folder. Until the person updates Try Omarchy 1.2, the one app reads 1.2's settings at every start ([settings](vm-kit.md#settings)). The lock on the default folder stops both from running it at once; the run mode reports `vm-already-open`, the one app says that Omarchy is open in Try Omarchy, and Try Omarchy says that it is open in another app, such as Omarchy Installer. Either app can boot a VM the other made, and the `try-omarchy` package only upgrades ([integration updates](integration-updates.md)), so an older kit never downgrades the guest.
 
 The trial's **Open in Try Omarchy** handoff goes away: the one app always runs the VM itself.
 
@@ -120,13 +120,14 @@ Next, in this repository:
 
 Next, in the installer:
 
-1. Done: the landing page, with **Install on this Mac** and **Try in a VM** side by side on every Mac, and **Migrate to Native** once a VM exists.
+1. Done: the landing page, with **Install on this Mac** and **Try it in a VM** side by side on every Mac, and **Migrate to Native** once a VM exists.
 2. Done: the remembered choice: a VM in the default folder opens Try and starts Omarchy, with the inspection in the background.
 3. Done: **Install on this Mac…** and **Delete Virtual Machine…** in the Installation menu, and the Allow rows on the running page.
 4. Done: the **Open in Try Omarchy** handoff is gone, and `vm-already-open` names Try Omarchy.
 5. Done: the kit built into the installer's bundle under its identity.
 6. Done: fetching, verifying and switching to newer kits.
 7. Done: registering the kit's networking daemon as the installer, offered on the `bridged-network-unavailable` notice ([what the embedding app does](vm-kit.md#what-the-embedding-app-does)).
+8. The default folder named in the run mode's configuration, and the VM, its space and Delete Virtual Machine read from that folder alone.
 
 ## Testing
 

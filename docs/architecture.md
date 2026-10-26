@@ -100,9 +100,7 @@ per-boot settings as the systemd credential `tryomarchy.host` over SMBIOS
 type 11: one line of tokens such as `tryomarchy.keyboard=jis`,
 `tryomarchy.locale=ja_JP.UTF-8`, `tryomarchy.timezone=Asia/Tokyo`,
 `tryomarchy.ssh_access=1`, `omarchy.shared_folder_name=<base64url>` and the
-VirGL flags. An app other than Try Omarchy that runs the VM adds
-`tryomarchy.product_name=<base64url>`, and the guest names its Setup menu's
-settings row after it. In the guest, `try-omarchy-host-config.service` publishes that
+VirGL flags. In the guest, `try-omarchy-host-config.service` publishes that
 line at `/run/try-omarchy/cmdline`, which the package's units and scripts
 read. systemd imports credentials natively and they have no length limit.
 
@@ -414,6 +412,8 @@ absent setting uses the live EDID's pixel density. If a resized display cannot
 represent the requested zoom exactly, the helper selects the nearest supported
 scale with integral logical dimensions. Explicit per-output monitor rules still
 take precedence over the helper's catch-all rule.
+
+A resizable window keeps its size, and the guest follows it. The window never goes below the guest's smallest mode, 800x600 pixels. The guest image fills the window on both axes, so the pointer and the guest's cursor map each axis on its own, and stay aligned while the guest's mode catches up with the window.
 
 On a MacBook with a camera notch, full screen covers the whole panel, the
 strip beside the housing included, and the guest describes the housing to

@@ -404,12 +404,6 @@ publish_native_exports() {
   return "$signalled"
 }
 
-# The guest names its settings row after the app that runs it; without the
-# key it says Try Omarchy. The name travels as URL-safe base64.
-if [[ $product_name != "Try Omarchy" ]] && (($(printf '%s' "$product_name" | wc -c) <= 255)); then
-  host_options+=" tryomarchy.product_name=$(printf '%s' "$product_name" | base64 | tr '+/' '-_' | tr -d '=\n')"
-fi
-
 credential() { # name value
   printf 'io.systemd.credential.binary:%s=%s' "$1" "$(printf '%s' "$2" | base64 | tr -d '\n')"
 }

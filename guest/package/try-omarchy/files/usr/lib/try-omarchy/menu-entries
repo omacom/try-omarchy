@@ -16,57 +16,20 @@ edited is left as it is.
 A marker in ~/.local/state/try-omarchy records the newest release of rows
 added, so rows the user deletes stay deleted and a later release adds only its
 new rows. menu-rows.json beside it records the text written for each row.
-
-The settings row is named after the Mac app that runs the VM, which the host
-settings name for this boot (tryomarchy.product_name). `menu-entries
---product-name` prints that name.
 """
 
-import base64
 import json
 import os
 from pathlib import Path
 import re
 import sys
 import tempfile
-import unicodedata
 
 MAXIMUM_BYTES = 256 * 1024
 HEADER = "  // Try Omarchy: Mac integration rows and VM adjustments (added once each; safe to remove).\n"
 TIMEZONE_ACTION = ("if [[ -x /usr/bin/try-omarchy-timezone-menu ]]; then exec /usr/bin/try-omarchy-timezone-menu; "
                    "else exec omarchy-menu-timezone; fi")
 BATTERY_PRESENT = "compgen -G '/sys/class/power_supply/BAT*' >/dev/null"
-DEFAULT_PRODUCT_NAME = "Try Omarchy"
-PRODUCT_NAME_PARAMETER = "tryomarchy.product_name="
-# Omarchy's menu can read a label as markup, and the name is the host's data.
-PRODUCT_NAME_REFUSED = set("<>&\\`$\"'")
-
-
-def product_name():
-    path = Path(os.environ.get("TRY_OMARCHY_HOST_CMDLINE") or "/run/try-omarchy/cmdline")
-    try:
-        with path.open("rb") as stream:
-            tokens = stream.read(16384).decode("ascii", "replace").split()
-    except OSError:
-        return DEFAULT_PRODUCT_NAME
-    encoded = next((token[len(PRODUCT_NAME_PARAMETER):] for token in reversed(tokens)
-                    if token.startswith(PRODUCT_NAME_PARAMETER)), "")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,344}", encoded):
-        return DEFAULT_PRODUCT_NAME
-    try:
-        name = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        return DEFAULT_PRODUCT_NAME
-    valid = (0 < len(name) <= 64 and name == name.strip(" ") and "  " not in name
-             and not PRODUCT_NAME_REFUSED.intersection(name)
-             and all(character == " " or unicodedata.category(character)[0] not in "CZ" for character in name))
-    return name if valid else DEFAULT_PRODUCT_NAME
-
-
-def settings_row(omarchy, name=None):
-    return {"icon": "", "iconFont": "omarchy", "label": f"{name or product_name()} Settings",
-            "description": "Open the Mac app settings", "action": "omarchy-native-settings",
-            "when": "test -w /dev/virtio-ports/dev.tryomarchy.settings"}
 
 
 def own(entry):
@@ -107,7 +70,10 @@ def laptop_or(condition):
 
 # (key, release that added it, builder from Omarchy's rows to our entry).
 ROWS = (
-    ("setup.try-omarchy", 1, settings_row),
+    ("setup.try-omarchy", 1, own({
+        "icon": "", "iconFont": "omarchy", "label": "Try Omarchy Settings",
+        "description": "Open the Mac app settings", "action": "omarchy-native-settings",
+        "when": "test -w /dev/virtio-ports/dev.tryomarchy.settings"})),
     ("setup.security.touch-id", 1, own({
         "icon": "\U000f0237", "label": "Touch ID for sudo",
         "when": "[[ -x /usr/bin/try-omarchy-touch-id ]]",
@@ -210,9 +176,6 @@ def write(path, text):
 
 
 def main():
-    if sys.argv[1:] == ["--product-name"]:
-        print(product_name())
-        return 0
     home = Path(os.environ["HOME"])
     config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
     state = Path(os.environ.get("XDG_STATE_HOME") or home / ".local/state")
@@ -239,9 +202,6 @@ def main():
     except (OSError, ValueError):
         written = {}
 
-    # Before rows followed the product, the settings row always said Try
-    # Omarchy; one still exactly as written then follows the product too.
-    legacy = {**LEGACY, "setup.try-omarchy": render("setup.try-omarchy", settings_row({}, DEFAULT_PRODUCT_NAME))}
     done = added_release(state)
     omarchy = omarchy_rows()
     new_rows = ""
@@ -251,7 +211,7 @@ def main():
         line = re.search(rf'^  "{re.escape(key)}":[^\n]*\n', text, re.M)
         if line or f'"{key}"' in text:
             current = line.group(0) if line else None
-            if row and current and current != row and current in (written.get(key), legacy.get(key)):
+            if row and current and current != row and current in (written.get(key), LEGACY.get(key)):
                 text = text.replace(current, row, 1)
                 written[key] = row
             elif row and current == row:

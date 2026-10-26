@@ -618,23 +618,26 @@ struct VMRunLaunchSettingsTests {
         #expect(settings.bridgedNetwork == nil && settings.notice == nil)
     }
 
-    @Test func theStoredFolderWinsAndTheEnvironmentOverrideWinsOverIt() throws {
+    @Test func theConfiguredFolderWinsOverTheChosenOneAndTheEnvironmentOverrideWinsOverBoth() throws {
         let chosen = try LauncherSettingsFixture()
         let configured = try LauncherSettingsFixture()
         let override = try LauncherSettingsFixture()
         for fixture in [chosen, configured, override] { try fixture.markWorkspace() }
         let configuration = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: configured.root.path)
+        let unnamed = VMRunConfiguration(productName: "Omarchy Installer")
         let preference = StorageLocationPreference(containerPath: chosen.root.path)
+        let chosenRoot = StorageLocationPolicy.stateRoot(forContainer: chosen.root.resolvingSymlinksInPath().path)
 
         #expect(try resolve(configuration).get().stateRoot.path == configured.root.path)
-        let stored = try resolve(configuration, storageLocation: preference).get()
-        #expect(stored.stateRoot.path == StorageLocationPolicy.stateRoot(forContainer: chosen.root.resolvingSymlinksInPath().path))
+        #expect(try resolve(configuration, storageLocation: preference).get().stateRoot.path == configured.root.path)
+        #expect(try resolve(unnamed, storageLocation: preference).get().stateRoot.path == chosenRoot)
         let overridden = try resolve(configuration, storageLocation: preference,
             environment: [StorageLocationPolicy.environmentKey: override.root.path]).get()
         #expect(overridden.stateRoot.path == override.root.path)
 
         let missing = StorageLocationPreference(containerPath: chosen.root.appendingPathComponent("gone").path)
-        guard case .failure(let error) = resolve(configuration, storageLocation: missing) else {
+        #expect(try resolve(configuration, storageLocation: missing).get().stateRoot.path == configured.root.path)
+        guard case .failure(let error) = resolve(unnamed, storageLocation: missing) else {
             Issue.record("a missing chosen folder fell back to another VM"); return
         }
         #expect(error.code == .storageUnavailable)
@@ -654,16 +657,21 @@ struct VMRunLaunchSettingsTests {
     @Test func anUnreadableFolderChoiceNeverFallsBackToAnotherVM() throws {
         let fixture = try LauncherSettingsFixture()
         try fixture.markWorkspace()
-        let configuration = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: fixture.root.path)
-        let resolved = VMRunLaunchSettings.make(
-            baseEnvironment: [:], configuration: configuration, storageLocation: .default,
-            storageLocationProblem: "storage-location.json is not a private file.",
-            settings: { root in LauncherSettingsFile.vmSettings(legacy: nil) { root } },
-            bridgedNetwork: { Issue.record("checked bridged networking"); return .available },
-            limits: limits, connectedUSBDevices: { [] },
-            homeDirectory: "/Users/nobody", metrics: nil, probe: Volume(), volumeRootDetector: NotVolumeRoot())
-        guard case .failure(let error) = resolved else { Issue.record("started without knowing the VM folder"); return }
+        let start = { (configuration: VMRunConfiguration) in
+            VMRunLaunchSettings.make(
+                baseEnvironment: [:], configuration: configuration, storageLocation: .default,
+                storageLocationProblem: "storage-location.json is not a private file.",
+                settings: { root in LauncherSettingsFile.vmSettings(legacy: nil) { root } },
+                bridgedNetwork: { Issue.record("checked bridged networking"); return .available },
+                limits: limits, connectedUSBDevices: { [] },
+                homeDirectory: "/Users/nobody", metrics: nil, probe: Volume(), volumeRootDetector: NotVolumeRoot())
+        }
+        guard case .failure(let error) = start(VMRunConfiguration(productName: "Omarchy Installer")) else {
+            Issue.record("started without knowing the VM folder"); return
+        }
         #expect(error.code == .storageUnavailable)
+        let named = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: fixture.root.path)
+        #expect(try start(named).get().stateRoot.path == fixture.root.path)
     }
 
     @Test func developmentOverridesStillWin() throws {

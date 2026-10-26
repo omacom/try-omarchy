@@ -3,8 +3,8 @@ import Foundation
 
 protocol LauncherSettingsStorage: AnyObject {
     func settingData(forKey key: String) -> Data?
-    func setSettingData(_ data: Data, forKey key: String)
-    func removeSetting(forKey key: String)
+    func setSettingData(_ data: Data, forKey key: String) throws
+    func removeSetting(forKey key: String) throws
     /// Set when values are stored but cannot be trusted, so their absence
     /// must not be read as the default.
     var untrustedReason: String? { get }
@@ -123,14 +123,13 @@ final class LauncherSettingsFile: LauncherSettingsStorage {
         return try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
     }
 
-    func setSettingData(_ data: Data, forKey key: String) {
-        guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return }
-        update(key: key, value: value)
+    func setSettingData(_ data: Data, forKey key: String) throws {
+        try update(key: key, value: JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
     }
 
     /// Kept as null rather than dropped, so a legacy value never comes back.
-    func removeSetting(forKey key: String) {
-        update(key: key, value: NSNull())
+    func removeSetting(forKey key: String) throws {
+        try update(key: key, value: NSNull())
     }
 
     var untrustedReason: String? {
@@ -164,11 +163,11 @@ final class LauncherSettingsFile: LauncherSettingsStorage {
         return legacyKeys.contains { legacy.object(forKey: $0) != nil }
     }
 
-    private func update(key: String, value: Any) {
+    private func update(key: String, value: Any) throws {
         guard let folder = readyFolder(creating: true) else {
             guard let legacy, legacyIsWritable, adoptsLegacy() else {
                 fputs("[settings] The settings folder is unavailable; \(key) was not saved.\n", stderr)
-                return
+                throw HelperError.io("The settings folder is unavailable.")
             }
             if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
                !(value is NSNull) {
@@ -188,6 +187,7 @@ final class LauncherSettingsFile: LauncherSettingsStorage {
             }
         } catch {
             fputs("[settings] \(key) was not saved: \(error.localizedDescription)\n", stderr)
+            throw error
         }
     }
 

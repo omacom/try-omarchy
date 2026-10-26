@@ -69,6 +69,7 @@ iso_swap_patch="$native_dir/patches/qemu-cocoa-iso-section-grave-swap.patch"
 injected_text_patch="$native_dir/patches/qemu-cocoa-injected-text.patch"
 command_chord_patch="$native_dir/patches/qemu-cocoa-command-chord-hold.patch"
 korean_caps_lock_patch="$native_dir/patches/qemu-cocoa-korean-caps-lock.patch"
+pointer_mapping_patch="$native_dir/patches/qemu-cocoa-pointer-mapping.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 audio_recovery_patch="$native_dir/patches/qemu-hda-full-ring-recovery.patch"
 shared_folder_patch="$native_dir/patches/qemu-9p-guest-owner.patch"
@@ -112,6 +113,7 @@ iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284
 injected_text_patch_sha256=18d64d52f715d0cf1b2b6d1761059371e1859ee61faf3cc4800e2effc1ed4dd1
 command_chord_patch_sha256=d2a6cc3827ddac15f5baa063b36ab857b9571221ca1ce4ef25896cae914ff9f6
 korean_caps_lock_patch_sha256=2de69757123f964dcd9a2ebda8de29ac9218f9638e2e30b73a740a6de0b6a355
+pointer_mapping_patch_sha256=3094b2f00063af1da6e25f84ccf837ff628aae8cbdaba13f82ccfb520eb07d5d
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
@@ -256,6 +258,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa ISO Section/Grave swap patch: $iso_swap_patch"
 [[ -f $korean_caps_lock_patch && ! -L $korean_caps_lock_patch ]] || \
   die "missing Cocoa Korean Caps Lock patch: $korean_caps_lock_patch"
+[[ -f $pointer_mapping_patch && ! -L $pointer_mapping_patch ]] || \
+  die "missing Cocoa pointer-mapping patch: $pointer_mapping_patch"
 [[ -f $audio_device_patch && ! -L $audio_device_patch ]] || \
   die "missing SDL audio-device patch: $audio_device_patch"
 [[ -f $texture_patch && ! -L $texture_patch ]] || \
@@ -506,6 +510,8 @@ verify_file_sha "Try Omarchy Cocoa Command-chord patch" \
   "$command_chord_patch" "$command_chord_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa Korean Caps Lock patch" \
   "$korean_caps_lock_patch" "$korean_caps_lock_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa pointer-mapping patch" \
+  "$pointer_mapping_patch" "$pointer_mapping_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio-device patch" \
   "$audio_device_patch" "$audio_device_patch_sha256"
 verify_file_sha "Try Omarchy 9p shared-folder patch" \
@@ -568,6 +574,7 @@ patch -d "$source_dir" -p1 -f -i "$notch_patch"
 patch -d "$source_dir" -p1 -f -i "$command_chord_patch"
 patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$korean_caps_lock_patch"
+patch -d "$source_dir" -p1 -f -i "$pointer_mapping_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

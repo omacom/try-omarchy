@@ -24,9 +24,9 @@ public enum VMRunNetwork: String, Codable, Sendable {
     case bridged
 }
 
-/// What the run mode needs to start the VM. The settings stored for the VM
-/// win: the storage folder, memory, CPUs and network here apply only where
-/// the launcher stored nothing (docs/vm-kit.md).
+/// What the run mode needs to start the VM. The storage folder here is the
+/// VM. The settings stored for that VM win: memory, CPUs and network here
+/// apply only where the launcher stored nothing (docs/vm-kit.md).
 public struct VMRunConfiguration: Equatable, Sendable {
     /// Names the app in messages, the Touch ID prompt, and the Omarchy
     /// window's Dock entry and menus.
@@ -34,8 +34,8 @@ public struct VMRunConfiguration: Equatable, Sendable {
     /// The Omarchy window's Dock icon: an existing .icns or .png file. Nil is
     /// the kit's own icon.
     public var iconPath: String?
-    /// The VM's storage folder when none was chosen in the settings. Nil is
-    /// the full app's default folder.
+    /// The VM's storage folder, whatever folder Try Omarchy chose. Nil is the
+    /// folder chosen in Try Omarchy, else its default folder.
     public var storageRoot: String?
     public var bridges: [VMRunBridge]
     /// Used when no resources are stored. Nil leaves the size to the

@@ -9,17 +9,6 @@ import sys
 import time
 
 PORT = Path("/dev/virtio-ports/dev.tryomarchy.settings")
-MENU_ENTRIES = os.environ.get("TRY_OMARCHY_MENU_ENTRIES") or "/usr/lib/try-omarchy/menu-entries"
-
-
-def product_name():
-    """The Mac app running this VM, validated by menu-entries."""
-    try:
-        result = subprocess.run([MENU_ENTRIES, "--product-name"], capture_output=True, text=True, timeout=3)
-    except (OSError, subprocess.TimeoutExpired):
-        return "Try Omarchy"
-    name = result.stdout.strip()
-    return name if result.returncode == 0 and name else "Try Omarchy"
 
 
 def open_settings(descriptor, timeout=3.0):
@@ -30,7 +19,7 @@ def open_settings(descriptor, timeout=3.0):
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError("The Mac app did not respond. Close and reopen it, then try again.")
+            raise TimeoutError("The Mac app did not respond. Close and reopen Try Omarchy, then try again.")
         readable, writable, _ = select.select(
             [] if pending else [descriptor], [descriptor] if pending else [], [], remaining
         )
@@ -65,11 +54,10 @@ def main():
     except (OSError, TimeoutError) as error:
         message = str(error)
         if isinstance(error, FileNotFoundError):
-            message = "This VM needs a version of the Mac app with settings access."
-        title = f"{product_name()} Settings"
-        print(f"{title}: {message}", file=sys.stderr)
+            message = "This VM needs a version of the Try Omarchy Mac app with settings access."
+        print(f"Try Omarchy Settings: {message}", file=sys.stderr)
         try:
-            subprocess.run(["notify-send", title, message], check=False, timeout=3)
+            subprocess.run(["notify-send", "Try Omarchy Settings", message], check=False, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             pass
         return 1

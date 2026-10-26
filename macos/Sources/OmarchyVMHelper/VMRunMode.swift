@@ -225,7 +225,10 @@ final class VMRunModeController: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).async {
             let availability = layout.bridgedNetwork(productName: productName)
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { self.currentBridgedNetwork = availability }
+                MainActor.assumeIsolated {
+                    self.currentBridgedNetwork = availability
+                    self.settingsWindow?.networkServiceChanged()
+                }
             }
         }
     }

@@ -3,8 +3,9 @@ import ApplicationServices
 import Foundation
 import TryOmarchyKitClient
 
-/// The run mode's launch settings: what the launcher window stored for this
-/// VM, with the run-mode configuration only where nothing is stored.
+/// The run mode's launch settings: the VM folder the configuration names, or
+/// else the one chosen in Try Omarchy, and what the launcher window stored for
+/// that VM, with the configuration only where nothing is stored.
 struct VMRunLaunchSettings {
     let environment: [String: String]
     let stateRoot: URL
@@ -41,11 +42,10 @@ struct VMRunLaunchSettings {
     ) -> Result<Self, VMRunError> {
         var environment = baseEnvironment
         let inheritsStateRoot = environment[StorageLocationPolicy.environmentKey]?.isEmpty == false
-        if !inheritsStateRoot, let storageLocationProblem {
-            return .failure(VMRunError(code: .storageUnavailable, message: storageLocationProblem))
-        }
-        if !inheritsStateRoot, storageLocation.isDefault, let storageRoot = configuration.storageRoot {
+        if !inheritsStateRoot, let storageRoot = configuration.storageRoot {
             environment[StorageLocationPolicy.environmentKey] = storageRoot
+        } else if !inheritsStateRoot, let storageLocationProblem {
+            return .failure(VMRunError(code: .storageUnavailable, message: storageLocationProblem))
         }
         let storage = StorageLocationLaunchConfiguration.make(
             baseEnvironment: environment,
@@ -195,6 +195,10 @@ final class VMRunSettingsWindow {
         return true
     }
 
+    func networkServiceChanged() {
+        startMenuWindow?.networkServiceChanged()
+    }
+
     func close() {
         startMenuWindow?.dismiss()
         activationController.setDesiredPolicy(.prohibited)
@@ -213,9 +217,10 @@ final class VMRunSettingsWindow {
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         let stateRoot = stateRoot
         let resources = bundle.resourceURL
+        let followsChoice = configuration.storageRoot == nil
         let storageStatus: () -> StorageLocationMenuState = { [storageLocationStore] in
             let preference = storageLocationStore.load()
-            guard let container = preference.containerPath,
+            guard followsChoice, let container = preference.containerPath,
                   StorageLocationPolicy.stateRoot(forContainer: container) == stateRoot.path else { return .defaultLocation }
             return StorageLocationMenuState.make(preference: preference, metrics: nil, homeDirectory: homeDirectory)
         }

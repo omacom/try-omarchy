@@ -7,7 +7,8 @@
 # the progress and ready events, shutdown over QMP from the command and from
 # the end of input, the stored settings winning over the configuration, the
 # launcher's errors as stable codes, signals, bridged networking from the
-# configuration, and the configurations the run mode refuses. Needs no hypervisor and no network.
+# configuration, the configured folder winning over Try Omarchy's choice, and
+# the configurations the run mode refuses. Needs no hypervisor and no network.
 
 set -euo pipefail
 macos_dir=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -451,6 +452,35 @@ if run.next()["event"] != "stopping":
     fail(f"two signals did not report stopping; {run.diagnostics()}")
 wait_exited(run, 5)
 launcher_log()
+
+# A folder the configuration names is the VM, whatever folder Try Omarchy
+# chose, even when that choice cannot be read. With no folder named, the choice
+# decides, and one that cannot be read stops the run.
+pointer_folder = scratch / "home/Library/Application Support/Try Omarchy"
+pointer_folder.mkdir(mode=0o700, parents=True)
+pointer = pointer_folder / "storage-location.json"
+other = scratch / "chosen"
+named = {**configuration, "storageRoot": str(vm)}
+for permissions in (0o600, 0o644):
+    pointer.write_text(json.dumps({"schemaVersion": 1, "settings": {"storageLocationPreferences": {
+        "schemaVersion": 1, "containerPath": str(other)}}}))
+    pointer.chmod(permissions)
+    run = RunMode(named, OMARCHY_QEMU_GPU_STATE_ROOT="")
+    run.until("ready")
+    run.send("shutdown")
+    run.until("exited")
+    run.process.wait(timeout=10)
+    root = launcher_log()[0]["environment"].get("OMARCHY_QEMU_GPU_STATE_ROOT")
+    if root != str(vm) or other.exists():
+        fail(f"a named folder with a {permissions:o} pointer started in {root!r}; {run.diagnostics()}")
+run = RunMode(configuration, OMARCHY_QEMU_GPU_STATE_ROOT="")
+event = run.next()
+if event["event"] != "error" or event["code"] != "storage-unavailable":
+    fail(f"an unreadable pointer with no folder named gave {event}; {run.diagnostics()}")
+run.finish(1)
+if launcher_log():
+    fail("the launcher started with an unreadable pointer and no folder named")
+pointer.unlink()
 
 # The launcher's own explanation becomes a stable error code.
 for explanation, code in [("this VM is already open", "vm-already-open"),

@@ -90,7 +90,15 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        if state.isRunning { window.level = .floating }
         onAppReleasePromptOpportunity?()
+    }
+
+    /// While Omarchy runs the window floats above Omarchy's, so it drops to
+    /// the normal level before Finder or System Settings opens, and floats
+    /// again once it is key.
+    private func yieldToAnotherApp() {
+        window.level = .normal
     }
     private var prelaunchControlsLocked: Bool { state.prelaunchLocked }
     private var settingsResetConfirmation: NSAlert?
@@ -489,6 +497,25 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         return false
     }
 
+    /// The networking helper can change while the window is open.
+    func networkServiceChanged() {
+        refreshNetwork()
+        networkEditor?.serviceChanged()
+    }
+
+    private func refreshNetwork() {
+        let network = networkPreferences()
+        let networkSummary = LauncherState.networkSummary(
+            network,
+            bridgeAvailable: network.mode != .bridged
+                || VMBridgeInterfaces.available().contains { $0.name == network.interface },
+            serviceEnabled: network.mode != .bridged || networkService.isReady()
+        )
+        state.networkIsBridged = network.mode == .bridged
+        state.networkDetail = networkSummary.detail
+        state.networkWarning = networkSummary.warning
+    }
+
     /// Reads every setting the launcher shows. Only explicit refreshes call
     /// this; app activation refreshes permissions alone.
     private func refresh() {
@@ -502,16 +529,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.usbDeviceState = usbDevice
         state.usbDevice = StartMenuPresentation.usbDevice(state: usbDevice)
 
-        let network = networkPreferences()
-        let networkSummary = LauncherState.networkSummary(
-            network,
-            bridgeAvailable: network.mode != .bridged
-                || VMBridgeInterfaces.available().contains { $0.name == network.interface },
-            serviceEnabled: network.mode != .bridged || networkService.isReady()
-        )
-        state.networkIsBridged = network.mode == .bridged
-        state.networkDetail = networkSummary.detail
-        state.networkWarning = networkSummary.warning
+        refreshNetwork()
         let portMappings = portForwardingStatus()
         state.portCount = portMappings.count
         state.portForwarding = StartMenuPresentation.portForwarding(mappings: portMappings)
@@ -547,6 +565,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
 
     private func beginAccessibilityRequest() {
+        yieldToAnotherApp()
         requestAccessibility()
         updatePermissionState()
     }
@@ -583,6 +602,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)"
         ) else { return }
+        yieldToAnotherApp()
         NSWorkspace.shared.open(url)
     }
 
@@ -613,6 +633,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                     attributes: [.posixPermissions: 0o700]
                 )
             }
+            yieldToAnotherApp()
             guard NSWorkspace.shared.open(storageLocationURL) else {
                 throw NSError(
                     domain: "TryOmarchy.StorageLocation",

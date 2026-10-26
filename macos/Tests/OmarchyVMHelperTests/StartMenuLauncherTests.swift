@@ -170,6 +170,21 @@ struct StartMenuLauncherTests {
         #expect(launchCount == 1)
     }
 
+    @Test("running settings drop below another app's window when they open it, and float again once key")
+    func runningSettingsYieldToAnotherApp() {
+        _ = NSApplication.shared
+        let menu = makeMenu(accessibilityStatus: { false })
+        defer { menu.dismiss() }
+        menu.launchOmarchy()
+        menu.virtualMachineDidStart {}
+        #expect(menu.window.level == .floating)
+
+        menu.actions.accessibilityAction()
+        #expect(menu.window.level == .normal)
+        menu.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: menu.window))
+        #expect(menu.window.level == .floating)
+    }
+
     @Test("the camera notch setting shows only on a Mac with a notch and saves its choice")
     func cameraNotchSetting() {
         _ = NSApplication.shared
@@ -447,6 +462,25 @@ struct StartMenuLauncherTests {
             == "Networking helper setup required")
     }
 
+    @Test("bridged networking clears its warning once the helper becomes ready while the window is open")
+    func networkServiceChangeRefreshesTheWindow() {
+        _ = NSApplication.shared
+        var bridged = VMNetworkPreferences()
+        bridged.mode = .bridged
+        bridged.interface = VMBridgeInterfaces.available().first?.name ?? "en0"
+        var ready = false
+        let service = NetworkServiceControls(status: { ready ? "ready" : "setup required" }, isReady: { ready },
+                                             repair: nil, remove: nil)
+        let menu = makeMenu(networkPreferences: { bridged }, networkService: service)
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        #expect(menu.state.networkWarning != nil)
+
+        ready = true
+        menu.networkServiceChanged()
+        #expect(menu.state.networkWarning != "Networking helper setup required")
+    }
+
     @Test("reset settings asks once and keeps settings when cancelled", arguments: [false, true])
     func settingsReset(confirmed: Bool) {
         _ = NSApplication.shared
@@ -487,6 +521,8 @@ struct StartMenuLauncherTests {
         requestPermission: ((@escaping (Bool) -> Void) -> Void)? = nil,
         usbState: @escaping () -> USBDeviceMenuState = { .disabled },
         resetSettings: @escaping () -> Void = {},
+        networkPreferences: @escaping () -> VMNetworkPreferences = { VMNetworkPreferences() },
+        networkService: NetworkServiceControls = .thisApp,
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
@@ -524,6 +560,8 @@ struct StartMenuLauncherTests {
             connectedUSBDevices: { [] },
             saveUSBDevice: { _ in },
             portForwardingStatus: { [] },
+            networkPreferences: networkPreferences,
+            networkService: networkService,
             immersiveMode: { true },
             setImmersiveMode: { _ in },
             notchAvailable: notchAvailable,

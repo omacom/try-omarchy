@@ -32,7 +32,7 @@ struct VMNetworkPreferenceStore {
         if preferences.mode == .bridged && !VMNetworkPolicy.validInterface(preferences.interface) {
             throw HelperError.io("Choose an available interface for bridged networking.")
         }
-        storage.setSettingData(try JSONEncoder().encode(Payload(version: 1, preferences: preferences)), forKey: Self.key)
+        try storage.setSettingData(JSONEncoder().encode(Payload(version: 1, preferences: preferences)), forKey: Self.key)
     }
 
     private struct Payload: Codable {

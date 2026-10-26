@@ -43,7 +43,7 @@ struct FullscreenPreferenceStore {
             usesNotch: preferences.usesNotch
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        storage.setSettingData(data, forKey: Self.key)
+        try? storage.setSettingData(data, forKey: Self.key)
     }
 
     /// `usesNotch` is optional so settings saved before it existed keep their

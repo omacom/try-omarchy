@@ -74,7 +74,7 @@ Releases compare by their numbers (`TryOmarchyKitVersion`). A development kit co
 
 The app starts `omarchy-vm-helper --run-vm` from the kit, writes one configuration line to its standard input, and reads one event per line from its standard output. Diagnostics go to standard error. The protocol and its validation are in `macos/Sources/TryOmarchyKitClient/VMRunProtocol.swift`.
 
-The configuration names the product, its icon (an `.icns` or `.png` file; the kit's own icon when absent) and the optional bridges. Its storage folder, memory, CPUs and network are fallbacks for a VM with no stored settings ([settings](#settings)). `network` is `shared` or `bridged`; any other value, or none, fails with `invalid-configuration`. `nativeExports: true` offers Omarchy's Move to Native Install and its outbox ([native install export](native-install-export.md)); only an app that can stage the export onto a native install asks for it. A kit refuses a key it does not know, so `VMRunClient` drops `nativeExports` when the kit's manifest does not list `native-exports`. Audio, guest status and the settings bridge always run.
+The configuration names the product, its icon (an `.icns` or `.png` file; the kit's own icon when absent), the optional bridges and the VM's folder. Its memory, CPUs and network are fallbacks for a VM with no stored settings ([settings](#settings)). `network` is `shared` or `bridged`; any other value, or none, fails with `invalid-configuration`. `nativeExports: true` offers Omarchy's Move to Native Install and its outbox ([native install export](native-install-export.md)); only an app that can stage the export onto a native install asks for it. A kit refuses a key it does not know, so `VMRunClient` drops `nativeExports` when the kit's manifest does not list `native-exports`. Audio, guest status and the settings bridge always run.
 
 The Omarchy window, its Dock entry and its application menu carry the product's name and icon. The Dock names a process that has no app bundle after its file, even when it starts through a link. So the launcher starts QEMU from a minimal app bundle named after the product, in the run's private folder, whose executable links to the signed binary. That bundle has no identifier either, so Launch Services never records a second app, and the run's permissions stay with the app that started it. The binary stays in place, so its signature and the bridges' check of the QEMU process, which reads the path of the running file, are unchanged. A name that cannot be a file name, with a `/` or longer than 251 bytes, keeps the binary's name in the Dock.
 
@@ -90,16 +90,16 @@ The image download pauses on cellular and Low Data Mode connections and keeps th
 
 ## Settings
 
-The run mode starts the VM with the settings the launcher window stored, and uses the configuration only for what was never stored:
+The run mode boots the VM in the folder its configuration names, and starts it with the settings the launcher window stored for that VM. It uses the configuration only for what was never stored:
 
-- **the VM folder:** the folder chosen in the launcher, then the configuration's `storageRoot`, then the default folder. A chosen folder that is missing, or a choice that cannot be read, stops the run with `storage-unavailable`; it never falls back to another VM.
+- **the VM folder:** the configuration's `storageRoot`. The run mode then ignores the folder chosen in the launcher, so a VM moved in Try Omarchy, or a choice that cannot be read, never changes which VM it boots. Without a `storageRoot`, it is the folder chosen in the launcher, else the default folder; a chosen folder that is missing, or a choice that cannot be read, stops the run with `storage-unavailable`, and it never falls back to another VM.
 - **memory and CPUs** (and the disk's maximum size): the stored resources, then the configuration's `memoryMiB` and `cpus`, then the launcher's automatic choice.
 - **networking:** the stored mode, then the configuration's `network`. Bridged networking from the configuration uses the first interface the Networking settings list, which they select until someone picks one; a Mac with none fails with `bridged-network-unavailable`. When bridged networking cannot start ([bridged networking](#bridged-networking)), a configuration that asks for it fails with `bridged-network-unavailable`, and a stored bridged choice starts with shared networking and a notice instead, so Try is never stuck.
 - **port forwarding, the shared folder, the USB device, Immersive Mode and the camera notch:** stored only. A port that is in use fails with `launch-failed`.
 
 Audio follows the Mac's default devices. The development overrides (`OMARCHY_QEMU_GPU_STATE_ROOT`, `OMARCHY_QEMU_GPU_PORT_FORWARDS` and the like) still win, and `VMRunClient` never passes them on.
 
-Choosing Omarchy's settings row in its Setup menu opens the launcher's window from the run mode's process, named after the product. Like the full app's settings while Omarchy runs, it is an accessory window: it comes to the front with the keyboard, and the process never appears in the Dock or the menu bar. The process takes the configuration's icon, and its About panel names the product, so no system UI shows the kit. The window has the full app's sharing, network, virtual machine and Immersive Mode settings, and the permission rows, which ask macOS in the embedding app's name. It has no launch, restart, shut down, Skip Launcher or update check: the embedding app owns those. Changes apply at the next start. Quitting from the window shuts Omarchy down, like the `shutdown` command.
+Choosing Try Omarchy Settings in Omarchy's Setup menu opens the launcher's window from the run mode's process, named after the product. Like the full app's settings while Omarchy runs, it is an accessory window: it comes to the front with the keyboard, and the process never appears in the Dock or the menu bar. The process takes the configuration's icon, and its About panel names the product, so no system UI shows the kit. The window has the full app's sharing, network, virtual machine and Immersive Mode settings, and the permission rows, which ask macOS in the embedding app's name. It has no launch, restart, shut down, Skip Launcher or update check: the embedding app owns those. Changes apply at the next start. Quitting from the window shuts Omarchy down, like the `shutdown` command.
 
 Settings are stored in files, not in an app's preferences, so any kit reads the same ones whichever app it runs under:
 
@@ -117,22 +117,16 @@ So the files and the UserDefaults never disagree about who wins, whichever app r
 
 - The run mode reads those UserDefaults at every start and never changes them. It follows a change made in 1.2, such as memory, a VM move or **Use default**, until the file has that key.
 - The run mode's own saves, from its settings window, write only the keys they save. They win over 1.2 from then on.
-- The run mode never writes `storage-location.json`, so it follows the VM folder chosen in 1.2 until the full app moves that choice.
+- The run mode never writes `storage-location.json`. When its configuration names no folder, it follows the VM folder chosen in 1.2 until the full app moves that choice.
 - Only the full app, which owns those UserDefaults, moves values. When it opens the VM it copies each value the file lacks into the file, and removes from its UserDefaults every value the file has. No setting changes when it does, and from then on the files are the only source.
 
-A VM folder set by `OMARCHY_QEMU_GPU_STATE_ROOT` never takes them.
+A folder the configuration names takes them, like any other. A VM folder set by `OMARCHY_QEMU_GPU_STATE_ROOT` never takes them.
 
 ### Finding the VM
 
-The full app can move the VM to another folder or drive, so the VM is not always in the default folder. `TryOmarchyStorage.resolvedRoot()` in the client returns the folder the run mode uses when its configuration has no `storageRoot`:
+The full app can move the VM to another folder or drive. An embedding app does not follow it there: it names the default folder, `TryOmarchyStorage.defaultRoot()`, as the configuration's `storageRoot`, and the run mode boots that folder.
 
-1. the folder in `storage-location.json`;
-2. else the folder chosen in Try Omarchy 1.2, from its UserDefaults;
-3. else the default folder, `defaultRoot()`.
-
-It reads both without changing them, and checks them as the run mode does. A choice the run mode would refuse, such as a pointer that is not private or comes from a newer version, gives the default folder, and the run mode then stops with `storage-unavailable`. A chosen folder on a drive that is not connected is still that folder, so `hasVM(at:)` is false for it. `resolvedRoot(inApplicationSupport:legacyPreferences:)` takes another home and preferences, for tests.
-
-An embedding app uses `resolvedRoot()` for whether a VM exists (`hasVM(at:)`), the free space it needs (`requiredFreeBytes(at:)` and `freeBytes(at:)`) and the space it takes (`allocatedBytes(at:)`). It deletes a VM only when `resolvedRoot()` is `defaultRoot()`, and deletes only that folder. A VM elsewhere is the full app's to move or delete.
+An embedding app uses the same folder for whether a VM exists (`hasVM(at:)`), the free space it needs (`requiredFreeBytes(at:)` and `freeBytes(at:)`) and the space it takes (`allocatedBytes(at:)`). It deletes only that folder. A VM the full app moved elsewhere is not the one the embedding app boots, and is the full app's to move or delete.
 
 ## Bridged networking
 
@@ -166,4 +160,4 @@ A fetched kit lives outside the embedding app's bundle, and the registered daemo
 
 ## Sharing a VM
 
-The full app and an embedding app open the same VM, in the default folder or the one chosen in the full app ([finding the VM](#finding-the-vm)), never at once: the VM folder's lock refuses the second. The run mode reports `vm-already-open`, and the full app says that Omarchy is open in another app, such as Omarchy Installer. Either can boot a VM the other made. The `try-omarchy` package only upgrades, so an older kit never downgrades the guest. A launcher refuses a VM whose `vm.json` names a storage layout it does not know (`storage-layout-unknown`).
+The full app and an embedding app open the same VM in the default folder ([finding the VM](#finding-the-vm)), never at once: the VM folder's lock refuses the second. The run mode reports `vm-already-open`, and the full app says that Omarchy is open in another app, such as Omarchy Installer. Either can boot a VM the other made. The `try-omarchy` package only upgrades, so an older kit never downgrades the guest. A launcher refuses a VM whose `vm.json` names a storage layout it does not know (`storage-layout-unknown`).

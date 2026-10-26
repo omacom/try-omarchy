@@ -92,7 +92,7 @@ struct LauncherSettingsFileTests {
         DispatchQueue.concurrentPerform(iterations: 2) { writer in
             let file = LauncherSettingsFile.vmSettings(legacy: nil) { root }
             for index in 0..<25 {
-                file.setSettingData(Data("\(index)".utf8), forKey: "writer\(writer)-\(index)")
+                try? file.setSettingData(Data("\(index)".utf8), forKey: "writer\(writer)-\(index)")
             }
         }
         let settings = try #require(fixture.settingsFile()["settings"] as? [String: Any])
@@ -200,18 +200,18 @@ struct LauncherSettingsFileTests {
                 legacy: fixture.legacy, legacyIsWritable: false, directory: folder))
         }
         VMResourcePreferenceStore(defaults: fixture.legacy).save(VMResources(cpuCount: 4, memoryGiB: 8))
-        StorageLocationPreferenceStore(defaults: fixture.legacy)
+        try StorageLocationPreferenceStore(defaults: fixture.legacy)
             .save(StorageLocationPreference(containerPath: "/Volumes/Old/Omarchy"))
         #expect(VMResourcePreferenceStore(storage: fixture.vmSettings(writable: false)).load()?.memoryGiB == 8)
         #expect(pointer().load().containerPath == "/Volumes/Old/Omarchy")
 
         VMResourcePreferenceStore(defaults: fixture.legacy).save(VMResources(cpuCount: 4, memoryGiB: 12))
-        StorageLocationPreferenceStore(defaults: fixture.legacy)
+        try StorageLocationPreferenceStore(defaults: fixture.legacy)
             .save(StorageLocationPreference(containerPath: "/Volumes/New/Omarchy"))
         #expect(VMResourcePreferenceStore(storage: fixture.vmSettings(writable: false)).load()?.memoryGiB == 12)
         #expect(pointer().load().containerPath == "/Volumes/New/Omarchy")
 
-        StorageLocationPreferenceStore(defaults: fixture.legacy).save(.default)
+        try StorageLocationPreferenceStore(defaults: fixture.legacy).save(.default)
         #expect(pointer().load() == .default)
         #expect(pointer().problem() == nil)
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
@@ -347,7 +347,7 @@ struct LauncherSettingsFileTests {
             StorageLocationPreferenceStore(storage: LauncherSettingsFile.storageLocation(legacy: nil, directory: folder))
         }
         #expect(store().load() == .default)
-        store().save(StorageLocationPreference(containerPath: "/Volumes/Drive/Omarchy"))
+        try store().save(StorageLocationPreference(containerPath: "/Volumes/Drive/Omarchy"))
         #expect(store().load() == StorageLocationPreference(containerPath: "/Volumes/Drive/Omarchy"))
         let attributes = try FileManager.default.attributesOfItem(atPath: folder.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
@@ -373,11 +373,27 @@ struct LauncherSettingsFileTests {
         #expect(store().problem() != nil)
     }
 
+    @Test("a VM folder choice that cannot be saved fails, so a move never looks complete")
+    func storageLocationSaveFailureThrows() throws {
+        let fixture = try LauncherSettingsFixture()
+        let folder = fixture.root.appendingPathComponent("Try Omarchy", isDirectory: true)
+        let store = StorageLocationPreferenceStore(
+            storage: LauncherSettingsFile.storageLocation(legacy: nil, directory: folder))
+        try store.save(StorageLocationPreference(containerPath: "/Volumes/Old/Omarchy"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+
+        #expect(throws: HelperError.self) {
+            try store.save(StorageLocationPreference(containerPath: "/Volumes/New/Omarchy"))
+        }
+        #expect(store.load() == StorageLocationPreference(containerPath: "/Volumes/Old/Omarchy"))
+    }
+
     @Test("the full app's VM folder choice moves into the pointer file, creating its folder")
     func migratesStorageLocation() throws {
         let fixture = try LauncherSettingsFixture()
         let folder = fixture.root.appendingPathComponent("Try Omarchy", isDirectory: true)
-        StorageLocationPreferenceStore(defaults: fixture.legacy)
+        try StorageLocationPreferenceStore(defaults: fixture.legacy)
             .save(StorageLocationPreference(containerPath: "/Volumes/Drive/Omarchy"))
         let migrated = StorageLocationPreferenceStore(
             storage: LauncherSettingsFile.storageLocation(legacy: fixture.legacy, directory: folder)
@@ -394,7 +410,7 @@ struct LauncherSettingsFileTests {
         let fixture = try LauncherSettingsFixture()
         let folder = fixture.root.appendingPathComponent("Try Omarchy", isDirectory: true)
         let chosen = StorageLocationPreference(containerPath: "/Volumes/Drive/Omarchy")
-        StorageLocationPreferenceStore(defaults: fixture.legacy).save(chosen)
+        try StorageLocationPreferenceStore(defaults: fixture.legacy).save(chosen)
         let runMode = StorageLocationPreferenceStore(storage: LauncherSettingsFile.storageLocation(
             legacy: fixture.legacy, legacyIsWritable: false, directory: folder))
         #expect(runMode.load() == chosen)

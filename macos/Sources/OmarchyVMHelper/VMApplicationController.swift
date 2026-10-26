@@ -786,7 +786,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 probe: volumeProbe,
                 volumeRootDetector: volumeRootDetector
             )
-            storageLocationStore.save(
+            try storageLocationStore.save(
                 StorageLocationPreference(containerPath: resolution.containerPath)
             )
             return nil
@@ -893,7 +893,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func useDefaultStorageLocation() {
-        storageLocationStore.save(.default)
+        try? storageLocationStore.save(.default)
     }
 
     /// What the user decided once their chosen drive turned out to be missing.
@@ -967,7 +967,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Use Default Folder")
             guard alert.runModal() == .alertSecondButtonReturn else { return .cancelled }
-            storageLocationStore.save(.default)
+            try? storageLocationStore.save(.default)
             return .switchedToDefault
         }
     }

@@ -250,15 +250,9 @@ printf 'icon' >"$resources/TryOmarchy.icns"
 printf 'icon' >"$test_root/Installer.icns"
 output=$(launch)
 assert_contains "$output" "Product icon: $resources/TryOmarchy.icns"
-assert_not_contains "$output" "tryomarchy.product_name="
 output=$(OMARCHY_PRODUCT_NAME='Omarchy, Installer' OMARCHY_PRODUCT_ICON="$test_root/Installer.icns" launch)
 assert_contains "$output" "/product/Omarchy, Installer.app/Contents/MacOS/Omarchy, Installer -name guest=Omarchy,, Installer "
-assert_contains "$output" " tryomarchy.product_name=T21hcmNoeSwgSW5zdGFsbGVy"
 assert_contains "$output" "Product icon: $test_root/Installer.icns"
-output=$(OMARCHY_PRODUCT_NAME='オマーキー' launch)
-assert_contains "$output" " tryomarchy.product_name=44Kq44Oe44O844Kt44O8"
-output=$(OMARCHY_PRODUCT_NAME='Omarchy?>' launch)
-assert_contains "$output" " tryomarchy.product_name=T21hcmNoeT8-"
 output=$(OMARCHY_PRODUCT_NAME='Omarchy/Installer' launch)
 assert_contains "$output" "$resources/runtime/bin/Try Omarchy -name guest=Omarchy/Installer "
 # 64 flags are 512 bytes, over the 255-byte limit for a file name.
@@ -266,7 +260,6 @@ flags=$(printf '\xf0\x9f\x87\xa7\xf0\x9f\x87\xb7%.0s' {1..64})
 output=$(OMARCHY_PRODUCT_NAME=$flags launch)
 assert_contains "$output" "$resources/runtime/bin/Try Omarchy -name "
 assert_not_contains "$output" "/product/"
-assert_not_contains "$output" "tryomarchy.product_name="
 # The bundle adds .app, so 252 bytes no longer fit.
 long_name=$(printf 'x%.0s' {1..252})
 output=$(OMARCHY_PRODUCT_NAME=$long_name launch)

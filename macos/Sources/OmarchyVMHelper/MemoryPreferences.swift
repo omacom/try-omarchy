@@ -89,7 +89,7 @@ struct MemoryPreferenceStore {
             memoryMiB: preferences.memoryMiB
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        storage.setSettingData(data, forKey: Self.key)
+        try? storage.setSettingData(data, forKey: Self.key)
     }
 
     private struct Payload: Codable {

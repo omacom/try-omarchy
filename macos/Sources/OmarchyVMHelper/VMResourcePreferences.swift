@@ -123,14 +123,14 @@ struct VMResourcePreferenceStore {
     /// Back to the host defaults, including the older memory-only preference
     /// that `load()` would otherwise adopt again.
     func clear() {
-        storage.removeSetting(forKey: Self.key)
-        storage.removeSetting(forKey: MemoryPreferenceStore.key)
+        try? storage.removeSetting(forKey: Self.key)
+        try? storage.removeSetting(forKey: MemoryPreferenceStore.key)
     }
 
     func save(_ resources: VMResources) {
         let payload = Payload(schemaVersion: Self.schemaVersion, resources: resources)
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        storage.setSettingData(data, forKey: Self.key)
+        try? storage.setSettingData(data, forKey: Self.key)
     }
 
     private struct Payload: Codable {

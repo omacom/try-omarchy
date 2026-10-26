@@ -517,7 +517,7 @@ struct StorageLocationPreferenceStoreTests {
         let (subject, defaults, name) = try store()
         defer { defaults.removePersistentDomain(forName: name) }
 
-        subject.save(StorageLocationPreference(containerPath: "/Volumes/Data"))
+        try subject.save(StorageLocationPreference(containerPath: "/Volumes/Data"))
         #expect(subject.load() == StorageLocationPreference(containerPath: "/Volumes/Data"))
         #expect(subject.load().isDefault == false)
     }

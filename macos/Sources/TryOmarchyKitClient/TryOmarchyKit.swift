@@ -44,8 +44,9 @@ public struct TryOmarchyKit: Sendable {
     }
 }
 
-/// Where the VM is. The full app and the run mode share it, so either opens
-/// the VM the other made.
+/// Where the VM is. An app that names `defaultRoot()` in the run mode's
+/// configuration opens the VM that Try Omarchy keeps there, and Try Omarchy
+/// opens the one that app made.
 public enum TryOmarchyStorage {
     /// Free space a first start needs: the download, the unpacked disk and room
     /// to run, as the full app's manual asks.
@@ -53,88 +54,9 @@ public enum TryOmarchyStorage {
     /// Free space to start a VM that already exists.
     public static let requiredFreeBytesForExistingVM: Int64 = 1_073_741_824
 
-    static let folderName = "Try Omarchy"
-    static let storageLocationFileName = "storage-location.json"
-    static let storageLocationKey = "storageLocationPreferences"
-    static let maximumStorageLocationBytes = 65_536
-    static let unsafeRoots: Set<String> = ["/", "/Users", "/private", "/private/tmp", "/tmp", "/Volumes"]
-
     public static func defaultRoot(fileManager: FileManager = .default) -> URL? {
-        applicationSupport(fileManager: fileManager).map(defaultRoot(inApplicationSupport:))
-    }
-
-    /// The VM folder the run mode uses when its configuration names none: the
-    /// folder chosen in the full app, or else the default folder. A choice the
-    /// run mode would refuse as untrusted gives the default folder, and a
-    /// chosen folder on a drive that is not connected is still that folder.
-    public static func resolvedRoot(fileManager: FileManager = .default) -> URL? {
-        applicationSupport(fileManager: fileManager).map {
-            resolvedRoot(inApplicationSupport: $0,
-                         legacyPreferences: UserDefaults(suiteName: TryOmarchyApp.bundleIdentifier))
-        }
-    }
-
-    public static func resolvedRoot(inApplicationSupport applicationSupport: URL,
-                                    legacyPreferences: UserDefaults?) -> URL {
-        let fallback = defaultRoot(inApplicationSupport: applicationSupport)
-        let choice: Data?
-        switch storedLocation(in: applicationSupport.appendingPathComponent(folderName, isDirectory: true)) {
-        case .untrusted, .reset: return fallback
-        case .stored(let data): choice = data
-        case .absent: choice = legacyPreferences?.data(forKey: storageLocationKey)
-        }
-        guard let choice else { return fallback }
-        return chosenRoot(from: choice) ?? fallback
-    }
-
-    private static func applicationSupport(fileManager: FileManager) -> URL? {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-    }
-
-    private static func defaultRoot(inApplicationSupport applicationSupport: URL) -> URL {
-        applicationSupport.appendingPathComponent("\(folderName)/VM/v1", isDirectory: true)
-    }
-
-    private enum StoredLocation {
-        case absent
-        case reset
-        case stored(Data)
-        case untrusted
-    }
-
-    private static func storedLocation(in folder: URL) -> StoredLocation {
-        var information = stat()
-        guard lstat(folder.path, &information) == 0 else { return .absent }
-        guard information.st_mode & S_IFMT == S_IFDIR, information.st_uid == getuid(),
-              information.st_mode & 0o022 == 0 else { return .untrusted }
-        let file = folder.appendingPathComponent(storageLocationFileName, isDirectory: false)
-        guard lstat(file.path, &information) == 0 else { return errno == ENOENT ? .absent : .untrusted }
-        guard information.st_mode & S_IFMT == S_IFREG, information.st_uid == getuid(),
-              information.st_mode & 0o777 == 0o600, information.st_size <= maximumStorageLocationBytes,
-              let data = try? Data(contentsOf: file),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let version = object["schemaVersion"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(),
-              version.doubleValue == 1, let settings = object["settings"] as? [String: Any]
-        else { return .untrusted }
-        guard let value = settings[storageLocationKey] else { return .absent }
-        guard !(value is NSNull) else { return .reset }
-        guard let choice = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
-        else { return .untrusted }
-        return .stored(choice)
-    }
-
-    private struct StorageLocationChoice: Decodable {
-        let schemaVersion: Int
-        let containerPath: String?
-    }
-
-    private static func chosenRoot(from data: Data) -> URL? {
-        guard let choice = try? JSONDecoder().decode(StorageLocationChoice.self, from: data),
-              choice.schemaVersion == 1, let path = choice.containerPath,
-              path.hasPrefix("/"), !path.contains("\n"), !path.contains("\r"), !path.utf8.contains(0)
-        else { return nil }
-        let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
-        return unsafeRoots.contains(root.path) ? nil : root
+        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Try Omarchy/VM/v1", isDirectory: true)
     }
 
     public static func hasVM(at root: URL) -> Bool {

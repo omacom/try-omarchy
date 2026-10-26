@@ -123,7 +123,7 @@ struct PortForwardingPreferenceStore {
     func save(_ mappings: [PortForwardMapping]) throws {
         try PortForwardPolicy.validate(mappings)
         let payload = Payload(schemaVersion: Self.schemaVersion, mappings: mappings)
-        storage.setSettingData(try JSONEncoder().encode(payload), forKey: Self.key)
+        try storage.setSettingData(JSONEncoder().encode(payload), forKey: Self.key)
     }
 
     private struct Payload: Codable {

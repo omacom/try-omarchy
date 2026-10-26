@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=VM Settings
+Name=Try Omarchy Settings
 Comment=Open the settings of the Mac app that runs this VM
 Exec=omarchy-native-settings
 TryExec=omarchy-native-settings
