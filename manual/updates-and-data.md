@@ -39,6 +39,19 @@ Set CPU cores, memory and the maximum disk size in **Resources → Configure…*
 - **Reset settings:** **Virtual Machine → Reset Settings…** returns every setting to its default. The VM is not touched.
 - **Fresh Omarchy:** delete the VM in **Manage VMs**. The next launch creates a new one from the latest image, with default settings.
 
+## Moving to a native install
+
+When the Omarchy installer runs your VM, you can move your files from it to Omarchy installed on this Mac. Try Omarchy on its own doesn't offer this.
+
+1. Start Omarchy from the Omarchy installer. In the Omarchy menu, choose **Setup → Move to Native Install**.
+2. Choose a transfer passphrase of at least 12 characters. Keep it: Omarchy asks for it on the native install, and it can't be recovered.
+3. When the export is ready, the command offers to shut Omarchy down, which saves the export on your Mac. Press **Y**, or choose **No** and shut down later.
+4. In the Omarchy installer, choose **Migrate to Native**. It finds the export and checks it before the install.
+
+The export holds your files, projects and settings. SSH and GPG keys, saved logins and tokens, browser data, and the VM's own display and keyboard settings stay behind. It is encrypted with your passphrase, and the VM is left as it was.
+
+Exports are kept in `~/Library/Application Support/Try Omarchy/Exports`.
+
 ## VMs from older versions
 
 Versions of the app before 1.0 used a different kind of VM, which this version can't launch. Your old VM's files stay where they were, and the new VM can read them. To copy your files and packages over, choose **Setup → Import Previous VM** in the Omarchy menu, or run `try-omarchy-import-previous --dry-run` to see what would be copied.

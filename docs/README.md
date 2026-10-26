@@ -18,6 +18,7 @@ How Try Omarchy works, for contributors. User guides are in the [manual](../manu
   - [trackpad scrolling](trackpad-scrolling.md)
   - [memory reclamation](memory-reclamation.md)
   - [shared-folder safety](shared-folder-safety.md)
+  - [native install export](native-install-export.md)
 - Networking: [ICMP replies](nat-icmp-reply-matching.md) and [UDP replies](nat-udp-reply-translation.md)
 
 ## Working on it

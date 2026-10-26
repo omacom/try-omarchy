@@ -1,0 +1,158 @@
+#!/bin/bash
+#
+# Root half of try-omarchy-export-home. Exports the owner's home from a
+# read-only btrfs snapshot, so the running desktop can't change files during
+# the export. The exporter and a pinned age ship in this package. Only
+# bundle.age and receipt.json reach the app's outbox share (tryomarchy-native-exports),
+# renamed into <export id>/ when complete; the Mac checks and publishes them
+# after the VM stops. The transfer passphrase arrives as one line on stdin.
+
+set -euo pipefail
+
+virtio_root=${TRY_OMARCHY_VIRTIO_ROOT:-/sys/bus/virtio/drivers/9pnet_virtio}
+migration=${TRY_OMARCHY_EXPORT_MIGRATION:-/usr/lib/try-omarchy/migration}
+run_parent=${TRY_OMARCHY_EXPORT_RUN:-/run/try-omarchy}
+home_root=${TRY_OMARCHY_EXPORT_HOME_ROOT:-/home}
+scratch=${TRY_OMARCHY_EXPORT_SCRATCH:-/tmp}
+minimum_uid=${TRY_OMARCHY_EXPORT_MINIMUM_UID:-1000}
+mount=${TRY_OMARCHY_MOUNT:-mount}
+umount=${TRY_OMARCHY_UMOUNT:-umount}
+btrfs=${TRY_OMARCHY_BTRFS:-btrfs}
+setpriv=${TRY_OMARCHY_SETPRIV:-setpriv}
+uuid_pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+
+fail() {
+  echo "Export stopped: $*" >&2
+  exit 1
+}
+
+has_share() {
+  local device
+  for device in "$virtio_root"/virtio*; do
+    [[ -r $device/mount_tag && $(tr -d '\0' <"$device/mount_tag") == "$1" ]] && return 0
+  done
+  return 1
+}
+
+[[ ${TRY_OMARCHY_EXPORT_UNPRIVILEGED:-} == 1 ]] || ((EUID == 0)) || fail 'run try-omarchy-export-home instead'
+uid=${SUDO_UID:-}
+[[ $uid =~ ^[0-9]+$ ]] && ((uid >= minimum_uid)) || fail 'run try-omarchy-export-home as the Omarchy user'
+has_share tryomarchy-native-exports || fail 'this Try Omarchy app has no export outbox'
+
+IFS= read -r secret || fail 'no passphrase'
+[[ -n $secret && $secret != *$'\r'* ]] || fail 'invalid passphrase'
+
+account=$(python3 -I -c 'import pwd, sys; p = pwd.getpwuid(int(sys.argv[1])); print(p.pw_name, p.pw_gid)' "$uid") ||
+  fail 'no account for this user'
+read -r owner gid <<<"$account"
+[[ $owner =~ ^[a-z_][a-z0-9_-]*$ && $gid =~ ^[0-9]+$ ]] || fail 'unexpected account name'
+home=$home_root/$owner
+[[ -d $home && ! -L $home ]] || fail "$home is missing"
+[[ $(python3 -I -c 'import os, sys; print(os.stat(sys.argv[1]).st_uid)' "$home") == "$uid" ]] ||
+  fail "$home does not belong to $owner"
+
+install -d -m 0755 "$run_parent"
+run=$(mktemp -d "$run_parent/export.XXXXXX")
+chmod 0711 "$run"
+outbox=$run/outbox source=$run/source
+mkdir "$outbox" "$source"
+suffix=${run##*.}
+snapshot=$home_root/.try-omarchy-export.$suffix
+mounted=() snapshot_taken=0 work=''
+
+cleanup() {
+  local status=$? index
+  trap - EXIT HUP INT TERM
+  [[ -z $work ]] || rm -rf -- "$work"
+  for ((index = ${#mounted[@]} - 1; index >= 0; index--)); do
+    $umount "${mounted[index]}" 2>/dev/null || true
+  done
+  ((snapshot_taken == 0)) || $btrfs subvolume delete "$snapshot" >/dev/null 2>&1 || true
+  # Directories only: a share that failed to unmount must keep its files.
+  rmdir "$outbox" "$source" 2>/dev/null || true
+  rm -f "$run/request.json" "$run/progress.ndjson" "$run/exporter.log"
+  rmdir "$run" 2>/dev/null || true
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
+
+$mount -t 9p -o trans=virtio,version=9p2000.L tryomarchy-native-exports "$outbox" || fail 'could not open the export outbox'
+mounted+=("$outbox")
+
+exporter=$migration/omarchy-migration/bin/omarchy-migration
+age=$migration/age
+[[ -f $exporter && -x $exporter && -f $age && -x $age && -f $migration/age.sha256 ]] ||
+  fail 'the exporter is not installed'
+age_sha256=$(<"$migration/age.sha256")
+[[ $age_sha256 =~ ^[0-9a-f]{64}$ ]] || fail 'the exporter has no age digest'
+[[ $(python3 -I -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$age") == "$age_sha256" ]] ||
+  fail 'age differs from its digest'
+
+python3 -I - "$migration/omarchy-migration/lib/omarchy_migration/policies" "$run/request.json" <<'EOF' ||
+import json, os, re, sys, uuid
+policies, request = sys.argv[1], sys.argv[2]
+names = [name for name in os.listdir(policies) if name.endswith(".json")]
+if len(names) != 1:
+    sys.exit("expected exactly one export policy")
+with open(os.path.join(policies, names[0])) as policy:
+    revision = json.load(policy).get("revision")
+if not isinstance(revision, str) or not re.fullmatch(r"[a-z0-9-]+/[0-9a-f]+/[0-9]+", revision):
+    sys.exit("invalid policy revision")
+document = {
+    "schema": "omarchy-migration/export-request/2",
+    "request_id": str(uuid.uuid4()),
+    "inventory_id": str(uuid.uuid4()),
+    "policy_revision": revision,
+    "selection": {"categories": ["configuration", "files-and-projects"],
+                  "credential_stores": [], "mounts": [], "share_stores": []},
+}
+with open(request, "x") as output:
+    json.dump(document, output, sort_keys=True)
+    output.write("\n")
+EOF
+  fail 'could not prepare the export request'
+chmod 0644 "$run/request.json"
+
+$btrfs subvolume snapshot -r "$home_root" "$snapshot" >/dev/null || fail 'could not snapshot /home'
+snapshot_taken=1
+$mount --bind -o ro "$snapshot" "$source" || fail 'could not mount the snapshot read-only'
+mounted+=("$source")
+
+work=$outbox/.export.$suffix
+mkdir "$work"
+echo 'Exporting… this can take a few minutes.'
+status=0
+printf '%s\n' "$secret" | $setpriv --reuid="$uid" --regid="$gid" --init-groups --reset-env -- \
+  "$exporter" export --request "$run/request.json" --output "$work/export" --passphrase-fd 0 \
+  --home "$source/$owner" --age "$age" --age-sha256 "$age_sha256" --read-only-source --scratch "$scratch" \
+  >"$run/progress.ndjson" 2>"$run/exporter.log" || status=$?
+unset secret
+if ((status != 0)); then
+  tail -n 5 "$run/exporter.log" >&2
+  fail "the exporter exited with status $status"
+fi
+
+result=$work/export
+for name in bundle.age receipt.json; do
+  [[ -f $result/$name && ! -L $result/$name ]] || fail "the exporter left no $name"
+done
+rm -f "$result/request.json"
+[[ -z $(ls -A "$result" | grep -v -x -e bundle.age -e receipt.json || true) ]] || fail 'unexpected export contents'
+export_id=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["export_id"])' "$result/receipt.json") ||
+  fail 'the receipt has no export id'
+[[ $export_id =~ $uuid_pattern ]] || fail 'invalid export id'
+[[ ! -e $outbox/$export_id ]] || fail "export $export_id is already waiting"
+mv "$result/bundle.age" "$result/receipt.json" "$work/"
+rmdir "$result"
+sync
+mv "$work" "$outbox/$export_id"
+work=''
+sync
+
+cat <<EOF
+
+Export $export_id is ready.
+Shut down Omarchy to save it on your Mac, then choose Migrate to Native in the
+Omarchy installer. Keep your transfer passphrase for the import.
+EOF

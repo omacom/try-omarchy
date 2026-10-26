@@ -25,6 +25,7 @@ enum QEMUGPURuntimeEnvironment {
         environment.removeValue(forKey: dryRunKey)
         environment.removeValue(forKey: factoryCacheKey)
         environment.removeValue(forKey: factoryImageKey)
+        environment.removeValue(forKey: NativeInstallExports.environmentKey)
         return environment
     }
 

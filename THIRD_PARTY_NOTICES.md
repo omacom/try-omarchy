@@ -22,6 +22,13 @@ code.
   from the pinned QEMU source archive.
 - **ANGLE, VirGLRenderer, libepoxy, SDL, libslirp, GLib, Pixman, and other QEMU
   dependencies** — retain their respective upstream licenses.
+- **age** — BSD-3-Clause, Copyright 2019 The age Authors, 2019 Google LLC and 2022 Filippo Valsorda,
+  [github.com/FiloSottile/age](https://github.com/FiloSottile/age). The
+  `try-omarchy` package ships the unmodified v1.3.2 `linux-arm64` release
+  binary and its license.
+- **omarchy-migration** — MIT, from
+  [omacom/omarchy-mac-installer](https://github.com/omacom/omarchy-mac-installer).
+  The `try-omarchy` package ships it at a pinned commit with its license.
 - **OmacVM** — MIT, Copyright (c) 2026 Gilles Goetsch,
   [github.com/gillesgoetsch/OmacVM](https://github.com/gillesgoetsch/OmacVM).
   The QEMU patches `qemu-hda-no-catch-up`, `qemu-sdl-audio-capture-thread`,

@@ -82,6 +82,7 @@ struct QEMUGPURuntimeEnvironmentTests {
             QEMUGPURuntimeEnvironment.inspectOnlyKey: "1",
             QEMUGPURuntimeEnvironment.dryRunKey: "1",
             QEMUGPURuntimeEnvironment.factoryCacheKey: "/private/tmp/inherited",
+            NativeInstallExports.environmentKey: "1",
         ])
 
         #expect(environment == ["KEEP_ME": "yes"])

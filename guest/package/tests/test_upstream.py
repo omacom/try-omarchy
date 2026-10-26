@@ -27,7 +27,7 @@ OMARCHY = ROOT / "usr/share/omarchy" if ROOT else None
 # Names the package uses that are not upstream commands: its own programs and
 # Omarchy's package names.
 OWN_PREFIXES = ("omarchy-native-",)
-NOT_COMMANDS = {"omarchy-dev", "omarchy-settings-dev"}
+NOT_COMMANDS = {"omarchy-dev", "omarchy-settings-dev", "omarchy-migration"}
 
 
 def strip_jsonc(text):

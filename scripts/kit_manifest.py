@@ -16,6 +16,8 @@ FORMAT = 1
 DEVELOPMENT = "development"
 RELEASE = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 PROTOCOL_SOURCE = "macos/Sources/TryOmarchyKitClient/VMRunProtocol.swift"
+CAPABILITIES = ["native-exports"]
+CAPABILITY = re.compile(r"[a-z][a-z0-9-]{0,63}")
 DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 
 
@@ -37,6 +39,7 @@ def manifest(version: str, protocol: int, built: datetime) -> dict:
         "version": version,
         "runProtocolVersion": protocol,
         "buildDate": built.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "capabilities": CAPABILITIES,
     }
 
 
@@ -49,6 +52,10 @@ def validate(value: object) -> dict:
             or type(protocol) is not int or protocol < 1
             or not isinstance(built, str) or not DATE.fullmatch(built)):
         raise ValueError("the kit manifest is invalid")
+    capabilities = value.get("capabilities", [])
+    if (not isinstance(capabilities, list) or len(set(map(str, capabilities))) != len(capabilities)
+            or not all(isinstance(name, str) and CAPABILITY.fullmatch(name) for name in capabilities)):
+        raise ValueError("the kit manifest's capabilities are invalid")
     return value
 
 

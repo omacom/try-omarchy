@@ -53,6 +53,8 @@ struct TryOmarchyKitManifestTests {
         #expect(manifest.runProtocolVersion == VMRunProtocol.version)
         #expect(manifest.isSupported)
         #expect(manifest.buildDate == Date(timeIntervalSince1970: 1_792_747_805))
+        #expect(manifest.capabilities.isEmpty)
+        #expect(!manifest.supports(.nativeExports))
 
         try FileManager.default.removeItem(at: kit.manifestURL)
         try FileManager.default.createSymbolicLink(at: kit.manifestURL,
@@ -70,6 +72,7 @@ struct TryOmarchyKitManifestTests {
             ["version": "1.2.3"], ["version": 1],
             ["runProtocolVersion": 0], ["runProtocolVersion": 1.5], ["runProtocolVersion": true],
             ["buildDate": "2026-10-23"], ["buildDate": "2026-10-23T09:30:05.123Z"], ["buildDate": "yesterday"],
+            ["capabilities": "native-exports"], ["capabilities": [1]],
         ]
         for change in changes {
             let object = valid.merging(change) { $1 }
@@ -82,5 +85,26 @@ struct TryOmarchyKitManifestTests {
         let protocolTwo = TryOmarchyKitManifest(version: .development, runProtocolVersion: VMRunProtocol.version + 1,
                                                 buildDate: Date())
         #expect(!protocolTwo.isSupported)
+    }
+
+    @Test func capabilitiesKnownToTheClientAreRead() throws {
+        let object: [String: Any] = ["format": 1, "version": "v1.3.1", "runProtocolVersion": 1,
+                                     "buildDate": "2026-10-23T09:30:05Z", "capabilities": ["native-exports", "later"]]
+        let manifest = try TryOmarchyKitManifest.decode(JSONSerialization.data(withJSONObject: object))
+        #expect(manifest.capabilities == [.nativeExports])
+        #expect(manifest.supports(.nativeExports))
+    }
+
+    @Test func nativeExportsReachOnlyAKitThatListsThem() throws {
+        let asked = VMRunConfiguration(productName: "Omarchy", nativeExports: true)
+        let listing = TryOmarchyKitManifest(version: .development, runProtocolVersion: VMRunProtocol.version,
+                                            buildDate: Date(), capabilities: [.nativeExports])
+        let older = TryOmarchyKitManifest(version: .release(major: 1, minor: 3, patch: 0),
+                                          runProtocolVersion: VMRunProtocol.version, buildDate: Date())
+        #expect(VMRunClient.offered(asked, by: listing).nativeExports)
+        #expect(!VMRunClient.offered(asked, by: older).nativeExports)
+        #expect(!VMRunClient.offered(asked, by: nil).nativeExports)
+        let line = try VMRunClient.offered(asked, by: older).encodedLine()
+        #expect(!String(decoding: line, as: UTF8.self).contains("nativeExports"))
     }
 }

@@ -68,12 +68,21 @@ public final class VMRunClient: @unchecked Sendable {
         }
     }
 
+    /// The configuration without what the kit's manifest does not list, which
+    /// an older kit would refuse.
+    public static func offered(_ configuration: VMRunConfiguration,
+                               by manifest: TryOmarchyKitManifest?) -> VMRunConfiguration {
+        var configuration = configuration
+        if manifest?.supports(.nativeExports) != true { configuration.nativeExports = false }
+        return configuration
+    }
+
     public func start(
         _ configuration: VMRunConfiguration,
         environment: [String: String] = VMRunClient.cleanEnvironment(ProcessInfo.processInfo.environment),
         onEvent: @escaping EventHandler
     ) throws {
-        let configurationLine = try configuration.encodedLine()
+        let configurationLine = try Self.offered(configuration, by: try? kit.manifest()).encodedLine()
         let helper = try kit.helperURL()
         let process = Process()
         let inputPipe = Pipe()
