@@ -438,6 +438,37 @@ fi
         self.assertEqual((self.tmp / "received").read_text(), spaced + "\n")
 
 
+    def test_offers_to_shut_down_at_a_terminal_once_the_export_is_ready(self):
+        helper, shutdown = self.tmp / "helper", self.tmp / "shutdown"
+        self.fake(shutdown, f"#!/bin/bash\necho shut-down >>{self.tmp}/shut-down\n")
+        env = {**os.environ, "TRY_OMARCHY_VIRTIO_ROOT": str(self.virtio), "TRY_OMARCHY_SUDO": "",
+               "TRY_OMARCHY_EXPORT_HELPER": str(helper), "TRY_OMARCHY_GUM": "", "TRY_OMARCHY_SHUTDOWN": str(shutdown)}
+        command = ["/bin/bash", str(FILES / "usr/bin/try-omarchy-export-home")]
+        passphrase = f"{self.PASSPHRASE}\n{self.PASSPHRASE}\n"
+
+        def export(answer, interactive="1", helper_status=0):
+            self.fake(helper, f"#!/bin/bash\ncat >/dev/null\nexit {helper_status}\n")
+            return subprocess.run(command, input=passphrase + answer, text=True, capture_output=True,
+                                  env={**env, "TRY_OMARCHY_INTERACTIVE": interactive})
+
+        def shut_downs():
+            return (self.tmp / "shut-down").read_text().count("shut-down") if (self.tmp / "shut-down").exists() else 0
+
+        result = export("\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Shut down Omarchy now? [Y/n]", result.stdout)
+        self.assertEqual(shut_downs(), 1)
+        self.assertEqual(export("y\n").returncode, 0)
+        self.assertEqual(shut_downs(), 2)
+        self.assertEqual(export("n\n").returncode, 0)
+        self.assertEqual(shut_downs(), 2)
+        self.assertEqual(export("", helper_status=1).returncode, 1)
+        self.assertEqual(shut_downs(), 2)
+        # Piped input, as the e2e exports, never asks.
+        self.assertNotIn("Shut down Omarchy now?", export("\n", interactive="").stdout)
+        self.assertEqual(shut_downs(), 2)
+
+
 class UserSetup(unittest.TestCase):
     def test_offers_the_project_wallpaper_once_without_changing_the_background(self):
         home = Path(tempfile.mkdtemp())

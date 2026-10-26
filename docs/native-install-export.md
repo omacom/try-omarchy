@@ -10,7 +10,7 @@ Someone who runs Omarchy in the VM from the Omarchy installer can move their hom
 2. `try-omarchy-export-home` says what is exported and what stays behind, and asks for a transfer passphrase of at least 12 characters, twice. The passphrase stays in the guest.
 3. Through `sudo` with no password, a root helper takes a read-only btrfs snapshot of `/home` and bind-mounts it read-only, so the running desktop can't change files during the export.
 4. The helper runs `omarchy-migration export` as the owner, with the snapshot as a read-only source, scratch in `/tmp` and the passphrase on a descriptor.
-5. Only `bundle.age` and `receipt.json` reach the Mac, through the outbox share. The helper removes the snapshot and tells the user to shut down Omarchy.
+5. Only `bundle.age` and `receipt.json` reach the Mac, through the outbox share. The helper removes the snapshot and tells the user to shut down Omarchy. At a terminal, the command then offers to shut down with `omarchy-system shutdown`.
 6. When the VM stops, and again when it next starts, the launcher publishes the outbox into Exports.
 7. In the Omarchy installer, **Migrate to Native** finds the export, checks it against its receipt, and carries it into the install.
 

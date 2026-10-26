@@ -4,12 +4,15 @@
 # to a native Omarchy install. Asks for a transfer passphrase, then runs the
 # root half (export-home) through sudo, which needs no password for it
 # (sudoers.d/try-omarchy-export), with the passphrase on its stdin. The
-# passphrase never leaves the guest.
+# passphrase never leaves the guest. At a terminal, it then offers to shut
+# Omarchy down, which saves the export on the Mac.
 
 set -euo pipefail
 
 helper=${TRY_OMARCHY_EXPORT_HELPER:-/usr/lib/try-omarchy/export-home}
 sudo=${TRY_OMARCHY_SUDO-sudo}
+gum=${TRY_OMARCHY_GUM-$(command -v gum || true)}
+interactive=${TRY_OMARCHY_INTERACTIVE-$([[ -t 0 ]] && echo 1 || true)}
 virtio_root=${TRY_OMARCHY_VIRTIO_ROOT:-/sys/bus/virtio/drivers/9pnet_virtio}
 minimum=12
 
@@ -58,8 +61,37 @@ done
 unset again
 ((${#secret} >= minimum)) || exit 1
 
+shut_down() {
+  if [[ -n ${TRY_OMARCHY_SHUTDOWN:-} ]]; then
+    $TRY_OMARCHY_SHUTDOWN
+  elif command -v omarchy-system >/dev/null; then
+    omarchy-system shutdown
+  else
+    systemctl poweroff
+  fi
+}
+
+confirm() {
+  local answer
+  if [[ -n $gum ]]; then
+    "$gum" confirm --affirmative Yes --negative No "$1"
+    return
+  fi
+  printf '%s [Y/n] ' "$1"
+  IFS= read -r answer || return 1
+  [[ -z $answer || $answer == [Yy] || $answer == [Yy][Ee][Ss] ]]
+}
+
 echo
 status=0
 printf '%s\n' "$secret" | $sudo "$helper" || status=$?
 unset secret
-exit "$status"
+((status == 0)) || exit "$status"
+
+# Shutting down is what saves the export on the Mac.
+if [[ $interactive == 1 ]]; then
+  echo
+  if confirm "Shut down Omarchy now?"; then
+    shut_down
+  fi
+fi

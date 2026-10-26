@@ -45,7 +45,7 @@ When the Omarchy installer runs your VM, you can move your files from it to Omar
 
 1. Start Omarchy from the Omarchy installer. In the Omarchy menu, choose **Setup → Move to Native Install**.
 2. Choose a transfer passphrase of at least 12 characters. Keep it: Omarchy asks for it on the native install, and it can't be recovered.
-3. Shut down Omarchy when the command says the export is ready.
+3. When the export is ready, the command offers to shut Omarchy down, which saves the export on your Mac. Press **Y**, or choose **No** and shut down later.
 4. In the Omarchy installer, choose **Migrate to Native**. It finds the export and checks it before the install.
 
 The export holds your files, projects and settings. SSH and GPG keys, saved logins and tokens, browser data, and the VM's own display and keyboard settings stay behind. It is encrypted with your passphrase, and the VM is left as it was.
