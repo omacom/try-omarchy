@@ -41,7 +41,8 @@ PipeWire stays down) and rebuilds from a fresh host catalog. It does not exit
 for this: systemd's restart delay for the unit grows with every automatic
 restart and never resets, so recovery would slow to 30 s after a few PipeWire
 restarts. `AudioBridge` in `guest/package/tests/test_package.py` covers which
-events query PipeWire and that a failed read is retried.
+events query PipeWire, that a failed read is retried, and that subscribing
+again drops the old backoff.
 
 Measured 2026-10-26 on an M-series MacBook Pro, 7 vCPUs, 12 GiB, package
 0.1.0-33, Omarchy edge r7311, idle desktop, `profile-process.py` over 120 s

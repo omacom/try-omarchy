@@ -634,6 +634,38 @@ class AudioBridge(unittest.TestCase):
             self.assertEqual(mirror.pending, set())
             self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
 
+    # A failed read backs off up to 30 s. After PipeWire restarts, the next
+    # default change must run at once, not wait for the old graph's backoff.
+    def test_resubscribe_drops_the_retry_backoff(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        mirror = bridge.PipeWireMirror(lambda message: None)
+        calls, now = [], [100.0]
+
+        def pactl(*arguments, check=True):
+            calls.append(arguments)
+            raise RuntimeError(f"pactl {arguments[0]}: status 1")
+
+        with mock.patch.object(bridge, "run_pactl", pactl), \
+                mock.patch.object(bridge.time, "monotonic", lambda: now[0]), \
+                mock.patch.object(bridge, "log", lambda message: None):
+            mirror.handle_event("Event 'change' on server #4294967295")
+            for _ in range(4):
+                mirror.run_due()
+                now[0] = mirror.retry_at
+            self.assertEqual((len(calls), mirror.retry_delay), (4, 8))
+
+            # The failed check is not due yet; a restart drops it and its backoff.
+            now[0] -= 1
+            mirror.run_due()
+            self.assertEqual(len(calls), 4)
+            mirror.forget_graph()
+            self.assertIsNone(mirror.retry_timeout())
+
+            mirror.handle_event("Event 'change' on server #4294967295")
+            self.assertEqual(mirror.retry_timeout(), 0.0)
+            mirror.run_due()
+            self.assertEqual((len(calls), mirror.retry_delay), (5, 1))
+
 
 class ClockRecovery(unittest.TestCase):
     def recover(self, rtc_name):
