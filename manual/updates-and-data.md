@@ -42,3 +42,19 @@ Set CPU cores, memory and the maximum disk size in **Resources → Configure…*
 ## VMs from older versions
 
 Versions of the app before 1.0 used a different kind of VM, which this version can't launch. Your old VM's files stay where they were, and the new VM can read them. To copy your files and packages over, choose **Setup → Import Previous VM** in the Omarchy menu, or run `try-omarchy-import-previous --dry-run` to see what would be copied.
+
+### Removing the old VM
+
+Once you have everything you need, delete the old VM to free its disk space. Until then, the new VM keeps attaching it read-only.
+
+1. In the new VM, check that your files are there. `try-omarchy-import-previous --packages --dry-run` lists any packages the old VM had that you haven't installed yet.
+2. Shut down Omarchy.
+3. In the VM folder (`~/Library/Application Support/Try Omarchy/VM/v1`, or the folder shown in **Manage…**), delete the `disks`, `boot` and `locks` folders. They belong only to the old VM. Leave `shell` alone: that's your new VM.
+
+From the Terminal, for the default folder:
+
+```sh
+rm -rf ~/Library/"Application Support/Try Omarchy/VM/v1"/{disks,boot,locks}
+```
+
+This frees the space the old VM used. To see how much first, run `du -sh` on those folders.
