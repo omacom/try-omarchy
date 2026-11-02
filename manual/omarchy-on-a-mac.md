@@ -5,6 +5,8 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 ## Keyboard and language
 
 - **Command is Super** whenever the Omarchy window is focused. For shortcuts that macOS would take first, grant Accessibility.
+- **Back to the Mac:** **Control–Option–Shift–Escape** hides Omarchy and returns to macOS while it keeps running. Click Try Omarchy in the Dock, or use Command–Tab, to come back. Command stays with Omarchy in both full screen and a window, so this is the keyboard way out.
+- **Immersive while running:** **Control–Option–Escape** switches between Immersive full screen and a resizable window. This lasts until Omarchy closes; the launcher keeps your saved choice.
 - **Mac layouts work as printed.** That covers ANSI, ISO and JIS keyboards. On JIS, **かな** and **英数** turn the input method on and off. On a Mac with a Korean, Chinese or Japanese input source, Omarchy's input method follows the Mac's: switching with **Caps Lock** (한/영 on Korean Macs) or 🌐 switches Omarchy too. Hold Caps Lock for capitals. Control–Space stays with Omarchy. This needs Accessibility.
 - **The language comes from the Mac on first boot:** English, Chinese, Korean or Japanese. Other languages fall back to English. Later, change it inside Omarchy. Omarchy's own menus are in English only.
 
