@@ -8,9 +8,9 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 - **Mac layouts work as printed.** That covers ANSI, ISO and JIS keyboards. On JIS, **かな** and **英数** turn the input method on and off. On a Mac with a Korean, Chinese or Japanese input source, Omarchy's input method follows the Mac's: switching with **Caps Lock** (한/영 on Korean Macs) or 🌐 switches Omarchy too. Hold Caps Lock for capitals. Control–Space stays with Omarchy. This needs Accessibility.
 - **The language comes from the Mac on first boot:** English, Chinese, Korean or Japanese. Other languages fall back to English. Later, change it inside Omarchy. Omarchy's own menus are in English only.
 
-### British keyboards during setup
+### British keyboard setup workaround
 
-The first-boot setup form uses Linux console keymaps. **English (UK)** uses the PC British map, where **Shift + apostrophe** types `@` and **Shift + 2** types `"`. An Apple British keyboard prints `@` above 2, so follow the console mapping while entering your email or password. The desktop uses a separate Mac-aware keyboard mapping.
+The first-boot setup form has a [known Apple British keyboard mapping bug](https://github.com/omacom/try-omarchy/issues/436): **English (UK)** uses the PC British console map, so **Shift + 2** types `"` instead of the `@` printed on the key. Until this is fixed, use **Shift + apostrophe** for `@` in the setup form. This workaround also applies to password entry. The desktop uses a separate Mac-aware keyboard mapping.
 
 Choosing **English (US)** makes **Shift + 2** type `@`, but also selects US for the installed system. It does not identify your physical keyboard as US. Keep **English (UK)** if you want a British layout.
 
