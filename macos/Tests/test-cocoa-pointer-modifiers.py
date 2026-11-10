@@ -157,13 +157,14 @@ class CocoaPointerModifierTests(unittest.TestCase):
         return subprocess.run([str(Path(self.work.name) / "sync"), scenario], check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    def test_pinned_and_applied_last(self) -> None:
+    def test_pinned_and_applied_after_the_patches_it_builds_on(self) -> None:
         builder = BUILDER.read_text()
         digest = re.search(r"^pointer_modifiers_patch_sha256=([a-f0-9]{64})$", builder, re.M)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), digest[1])
         self.assertIn('verify_file_sha "Try Omarchy Cocoa pointer modifier patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.M)
-        self.assertEqual(applied[-1], "pointer_modifiers_patch")
+        base = max(applied.index(name) for name in ("command_chord_patch", "korean_caps_lock_patch"))
+        self.assertGreater(applied.index("pointer_modifiers_patch"), base)
 
     def test_pointer_events_do_not_release_a_held_shift(self) -> None:
         self.assertEqual(self.replay("shift-click"), "shift 42+ move move down up shift-up 42-")

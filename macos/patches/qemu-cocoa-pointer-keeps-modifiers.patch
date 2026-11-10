@@ -19,7 +19,43 @@ raiseAllKeys when focus is lost.
 diff --git a/ui/cocoa.m b/ui/cocoa.m
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1947,49 +1947,58 @@
+@@ -1905,28 +1905,31 @@
+         follow_mode && caps_lock_event == COCOA_CAPS_EVENT_SYNC &&
+             cocoa_caps_lock_needs_input_source(&cocoa_caps_lock_state, cocoa_monotonic_ms(),
+                                                cocoa_caps_lock_boundary_key(event)) &&
+             cocoa_input_source_is_input_method(),
+         follow_mode && cocoa_caps_lock_boundary_key(event),
+         follow_mode ? cocoa_monotonic_ms() : 0,
+         follow_mode ? cocoa_guest_caps_lock() : qkbd_state_modifier_get(kbd, QKBD_MOD_CAPSLOCK));
+ 
+     /*
+      * Check -[NSEvent modifierFlags] here.
+      *
+      * There is a NSEventType for an event notifying the change of
+-     * -[NSEvent modifierFlags], NSEventTypeFlagsChanged but these operations
+-     * are performed for any events because a modifier state may change while
+-     * the application is inactive (i.e. no events fire) and we don't want to
+-     * wait for another modifier state change to detect such a change.
++     * -[NSEvent modifierFlags], NSEventTypeFlagsChanged. CapsLock is checked
++     * for any events because its state may change while the application is
++     * inactive (i.e. no events fire). The other flags are checked only for
++     * keyboard events: a pointer event that arrives within a few milliseconds
++     * of a modifier press can lack that modifier, and would release it in the
++     * guest while the key is still down. Keys released while the application
++     * is inactive are released by raiseAllKeys when it loses focus.
+      *
+      * NSEventModifierFlagCapsLock requires a special treatment. The other flags
+      * are handled in similar manners.
+      *
+      * NSEventModifierFlagCapsLock
+      * ---------------------------
+      *
+      * If CapsLock state is changed, "up" and "down" events will be fired in
+      * sequence, effectively updates CapsLock state on the guest.
+      *
+      * The other flags
+      * ---------------
+@@ -1947,49 +1950,52 @@
       *   completely leaving your hands from the keyboard, which hopefully makes
       *   this implementation usable enough.
       */
@@ -33,12 +69,6 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
      }
  
 -    if (!(modifiers & NSEventModifierFlagShift)) {
-+    /*
-+     * A pointer event that arrives within a few milliseconds of a modifier
-+     * press can lack that modifier, and would release it in the guest while
-+     * the key is still down. Only keyboard events say which modifiers are
-+     * held.
-+     */
 +    bool keyboard_event = flags_changed || event_type == NSEventTypeKeyDown ||
 +                          event_type == NSEventTypeKeyUp;
 +
