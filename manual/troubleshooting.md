@@ -8,6 +8,7 @@
 | The camera or microphone doesn't work | Grant the permission in the launcher, or in **System Settings → Privacy & Security** |
 | Something broke after `omarchy update` | Restart and pick the snapshot from before the update in the boot menu |
 | The desktop stays black after `omarchy update` | See [black desktop after an update](#black-desktop-after-an-update) |
+| After the first `omarchy update`, the window stays on the firmware text | The VM started the old kernel its image came with. Restart and press the down arrow key repeatedly as the firmware text appears, to show the boot menu. Pick the second **Omarchy** entry. Once Omarchy starts, an up-to-date Try Omarchy removes the old entry |
 | Omarchy doesn't boot, or hangs | Read the console log: `~/Library/Application Support/Try Omarchy/VM/v1/shell/console.log`. The previous launch's log is `console.log.1` |
 | Touch ID falls back to a password | Bring the Omarchy window to the front. If it keeps happening, check that `timedatectl` reports a synchronized clock |
 | SSH warns that the host key changed | A new VM has a new key. Run `ssh-keygen -R '[127.0.0.1]:2222'` |
