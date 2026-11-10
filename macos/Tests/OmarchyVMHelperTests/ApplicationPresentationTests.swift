@@ -181,4 +181,13 @@ struct ApplicationPresentationTests {
             #expect(item.keyEquivalent == (link == .usage ? "?" : ""))
         }
     }
+
+    @Test("a launch failure is shown with its reason")
+    func launchFailureAlert() {
+        let alert = LaunchFailureAlert.alert(for: HelperError.io("the launcher is missing"))
+        #expect(alert.alertStyle == .critical)
+        #expect(alert.messageText == "Try Omarchy can\u{2019}t start")
+        #expect(alert.informativeText.contains("the launcher is missing"))
+        #expect(alert.buttons.map(\.title) == ["Quit"])
+    }
 }

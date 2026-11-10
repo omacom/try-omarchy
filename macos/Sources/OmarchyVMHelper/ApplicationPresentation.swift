@@ -199,3 +199,23 @@ enum ApplicationPresentation {
         application.helpMenu = helpMenu
     }
 }
+
+/// A launch that fails before any window opens. The app has no Dock icon until
+/// it starts, so without this alert a failure is silent.
+@MainActor
+enum LaunchFailureAlert {
+    static func alert(for error: Error) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Try Omarchy can\u{2019}t start"
+        alert.informativeText = "\(error.localizedDescription)\n\nDownload Try Omarchy again and replace this copy. Your VM and settings are kept."
+        alert.addButton(withTitle: "Quit")
+        return alert
+    }
+
+    static func present(_ error: Error, in application: NSApplication = .shared) {
+        application.setActivationPolicy(ApplicationPresentation.prelaunchActivationPolicy)
+        application.activate(ignoringOtherApps: true)
+        alert(for: error).runModal()
+    }
+}
