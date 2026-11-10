@@ -1237,6 +1237,14 @@ class FactoryBootEntry(unittest.TestCase):
         self.assertEqual(self.machine_ids(), [VM_ID])
         self.assertTrue((self.boot / "EFI/Linux/omarchy_linux-omarchy.efi").is_file())
 
+    def test_keeps_entries_without_a_machine_id(self):
+        # FIND_BOOTLOADERS adds the firmware's fallback loader as its own entry.
+        fallback = "/EFI fallback\n  protocol: efi\n  path: boot():/EFI/BOOT/BOOTAA64.EFI\n"
+        self.write_conf(fallback, limine_os_entry(BUILD_ID, [VM_KERNEL]), limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertIn("/EFI fallback\n", self.conf.read_text())
+
     def test_ignores_indentation_as_limine_does(self):
         flat = "\n".join(line.lstrip() for line in limine_os_entry(BUILD_ID, [FACTORY_KERNEL]).splitlines()) + "\n"
         self.write_conf(flat, limine_os_entry(VM_ID, [VM_KERNEL]))

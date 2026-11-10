@@ -411,13 +411,20 @@ if [[ -x $target/usr/lib/try-omarchy/factory-boot-entry ]]; then
   conf=$target/boot/limine.conf
   [[ $(sed -n 's/^[[:space:]]*comment:[[:space:]]*machine-id=//p' "$conf" | cut -d' ' -f1) == "$build_id" ]] ||
     fail "limine.conf has entries for other machine IDs than the build's"
-  [[ $(sed -n 's|^[[:space:]]*//+\{0,1\}||p' "$conf") == linux-omarchy ]] ||
+  entry=$(awk -v id="$build_id" '
+    function flush() { if (mine) printf "%s", block; block = ""; mine = 0 }
+    /^[[:space:]]*\// { header = $0; sub(/^[[:space:]]*/, "", header); if (header !~ /^\/\//) flush() }
+    { block = block $0 "\n" }
+    tolower($0) ~ ("^[[:space:]]*comment:[[:space:]]*machine-id=" id "([[:space:]]|$)") { mine = 1 }
+    END { flush() }
+  ' "$conf")
+  [[ $(sed -n 's|^[[:space:]]*//+\{0,1\}||p' <<<"$entry") == linux-omarchy ]] ||
     fail "the build's boot entry holds more than linux-omarchy"
   paths=$(awk 'tolower($0) ~ /^[[:space:]]*[a-z_]*path[[:space:]]*:/ {
     key = tolower($0); sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*:.*/, "", key)
     value = substr($0, index($0, ":") + 1); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
     print key " " value
-  }' "$conf")
+  }' <<<"$entry")
   [[ -n $paths ]] && ! grep -Ev "^[a-z_]*path boot\(\):/$build_id/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?$|^path boot\(\):/EFI/Linux/[A-Za-z0-9]+_linux-omarchy\.efi(#[0-9a-f]+)?$" <<<"$paths" ||
     fail "the build's boot entry boots files other than linux-omarchy's"
   if [[ -e $target/boot/$build_id ]]; then
