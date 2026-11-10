@@ -373,6 +373,24 @@ struct QEMUGPULauncherPathTests {
         #expect(try fixture.resolve() == fixture.launcher)
     }
 
+    @Test("matches the helper when its path and the bundle's differ only by symlinked parents")
+    func resolvesThroughSymlinkedParents() throws {
+        let fixture = try makeFixture(bundleName: "Omarchy.app")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let linkedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("omarchy-qemu-link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: fixture.root)
+        defer { try? FileManager.default.removeItem(at: linkedRoot) }
+        let linkedBundle = linkedRoot.appendingPathComponent("Omarchy.app", isDirectory: true)
+
+        #expect(try QEMUGPULauncherPath.resolve(bundleURL: linkedBundle, executableURL: fixture.helper)
+            == fixture.launcher)
+        #expect(try QEMUGPULauncherPath.resolve(
+            bundleURL: fixture.bundle,
+            executableURL: linkedBundle.appendingPathComponent(TryOmarchyKit.helperPath)
+        ) == fixture.launcher)
+    }
+
     @Test("rejects a folder that is neither an app nor the kit", arguments: [
         "Try Omarchy", "Other.bundle", "debug",
     ])
