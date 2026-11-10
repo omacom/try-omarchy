@@ -26,6 +26,13 @@ _rebuild_limine() {
   limine-update >/dev/null 2>&1 || true
 }
 
+# VMs set up with an earlier package still boot the factory build's entry
+# first (factory-boot-entry); later ones drop it after first-boot setup.
+_remove_factory_boot_entry() {
+  [ -x /usr/lib/try-omarchy/factory-boot-entry ] || return 0
+  /usr/lib/try-omarchy/factory-boot-entry || true
+}
+
 post_install() {
   systemctl preset $_units >/dev/null 2>&1 || true
   _enable_ntp
@@ -56,6 +63,9 @@ post_upgrade() {
   fi
   if [ "$(vercmp "$2" 0.1.0-40)" -lt 0 ]; then
     _rebuild_limine
+  fi
+  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
+    _remove_factory_boot_entry
   fi
   # The app upgrades the package at boot, after the old host-config ran, and
   # before the desktop starts: run the new one so this boot already has the

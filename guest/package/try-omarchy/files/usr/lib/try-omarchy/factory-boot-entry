@@ -1,0 +1,103 @@
+#!/bin/bash
+# Remove the factory image build's Limine entry once the VM has its own.
+#
+# The factory builds the image under a machine ID of its own and seals it
+# without one, so each VM makes its own ID at first boot. Omarchy's first-boot
+# setup then adds an entry for that ID and keeps the build's, because a shared
+# ESP holds other systems' entries. The build's entry stays first in Limine's
+# menu, so after Omarchy updates the kernel the VM keeps booting the image's
+# old one (https://github.com/omacom/try-omarchy/issues/426). A VM's ESP is
+# its own, but this still removes only what the factory left: an entry and a
+# directory named by another machine ID that hold one linux-omarchy kernel
+# and its initramfs, and only once this machine's own entry can boot.
+set -uo pipefail
+
+root=${TRY_OMARCHY_ROOT:-}
+log() { echo "factory-boot-entry: $*"; }
+
+grep -qsx 'builder=try-omarchy-upstream' "$root/var/lib/omarchy/image/target" \
+  "$root/var/lib/omarchy/image/target.booted" || exit 0
+
+esp=$(sed -n 's/^ESP_PATH=["'\'']\{0,1\}\([^"'\'']*\).*/\1/p' "$root/etc/default/limine" 2>/dev/null | tail -1)
+esp=$root${esp:-/boot}
+conf=$esp/limine.conf
+current=""
+read -r current <"$root/etc/machine-id" 2>/dev/null
+[[ $current =~ ^[0-9a-f]{32}$ && -f $conf ]] || exit 0
+
+# One line per top-level entry with a machine ID: the ID, then "factory" when
+# the entry holds only the factory's kernel entry and paths, else "other",
+# then "bootable" when it has a path at all.
+entries() {
+  awk '
+    function flush() {
+      if (id != "") printf "%s %s %s\n", id, (paths && !foreign) ? "factory" : "other", paths ? "bootable" : "none"
+      id = ""; paths = foreign = kernels = 0
+    }
+    /^\/[^\/]/ { flush(); entry = 1; next }
+    !entry { next }
+    /^comment: machine-id=/ {
+      id = $2; sub(/^machine-id=/, "", id)
+      if (id !~ /^[0-9a-f]+$/ || length(id) != 32) { id = ""; entry = 0 }
+      next
+    }
+    /^[[:space:]]+\/\// {
+      name = $0; sub(/^[[:space:]]+\/\/[+]?/, "", name)
+      if (name != "linux-omarchy" || ++kernels > 1) foreign = 1
+      next
+    }
+    /^[[:space:]]*[a-z_]*path:/ {
+      paths++
+      value = $0; sub(/^[[:space:]]*[a-z_]*path:[[:space:]]*/, "", value)
+      if (value !~ ("^boot\\(\\):/" id "/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?[[:space:]]*$")) foreign = 1
+    }
+    END { flush() }
+  ' "$conf"
+}
+
+own_entry_boots() {
+  entries | awk -v id="$current" '$1 == id && $3 == "bootable" { found = 1 } END { exit !found }'
+}
+
+# The directory holds no more than linux-omarchy/vmlinuz and initramfs.
+factory_directory() {
+  local dir=$esp/$1 path
+  [[ -e $dir ]] || return 0
+  [[ -d $dir && ! -L $dir ]] || return 1
+  while IFS= read -r -d '' path; do
+    case ${path#"$dir"/} in
+      linux-omarchy) [[ -d $path && ! -L $path ]] || return 1 ;;
+      linux-omarchy/vmlinuz | linux-omarchy/initramfs) [[ -f $path && ! -L $path ]] || return 1 ;;
+      *) return 1 ;;
+    esac
+  done < <(find "$dir" -mindepth 1 -print0)
+}
+
+# An entry still names the ID or boots a file from its directory.
+referenced() {
+  grep -qF -e "/$1/" -e "machine-id=$1" "$conf"
+}
+
+own_entry_boots || exit 0
+
+listed=$(entries)
+while read -r id kind _; do
+  [[ -n $id && $id != "$current" && $kind == factory ]] || continue
+  [[ $(entries | awk -v id="$id" '$1 == id' | wc -l) -eq 1 ]] || continue
+  factory_directory "$id" || continue
+  limine-entry-tool --remove-entry "$id" || { log "limine-entry-tool could not remove $id"; continue; }
+  if entries | awk -v id="$id" '$1 == id { found = 1 } END { exit !found }'; then
+    log "the entry for $id is still there"
+    continue
+  fi
+  log "removed the factory build's boot entry $id"
+done <<<"$listed"
+
+own_entry_boots || exit 0
+for dir in "$esp"/*/; do
+  id=$(basename "$dir")
+  [[ $id =~ ^[0-9a-f]{32}$ && $id != "$current" ]] || continue
+  if [[ -d $esp/$id/linux-omarchy ]] && factory_directory "$id" && ! referenced "$id"; then
+    rm -rf -- "${esp:?}/$id" && log "removed the factory build's kernel directory $id"
+  fi
+done
