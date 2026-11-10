@@ -1,7 +1,7 @@
 From: Try Omarchy contributors
 Subject: [PATCH] cocoa: keep held modifiers when the pointer moves
 
-Applies after the other Try Omarchy Cocoa patches.
+Applies after the Command-chord and Korean Caps Lock patches.
 
 The modifier sync at the top of handleEventLocked: runs for every event and
 releases each guest modifier whose flag the event lacks. A pointer event that
