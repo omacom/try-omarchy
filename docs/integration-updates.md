@@ -83,5 +83,5 @@ The launcher attaches `disks/current/rootfs.ext4` (or another `disks/*/`
 root) to the persistent VM as a read-only virtio disk with serial
 `omarchy-previous`, and the package's `try-omarchy-import-previous` copies the
 user's files and lists or installs their packages from it. Deleting
-`disks/` detaches it. See
+`disks/` detaches it at the next launch. See
 [VMs from older versions](../manual/updates-and-data.md#vms-from-older-versions).
