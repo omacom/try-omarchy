@@ -269,10 +269,8 @@ class BuildCacheTests(unittest.TestCase):
             initramfs.write_text("MODULES+=(virtio_gpu virtio_input)\n")
             after_initramfs = build_cache.fingerprint(root, "guest", factory)
             self.assertNotEqual(after_console, after_initramfs)
-            console.write_text("console=hvc0\n")
-            initramfs.write_text("MODULES+=(virtio_gpu)\n")
             recipe.write_text(recipe.read_text().replace("'wf-recorder: x'", "'wf-recorder: x'\n  'mpv: y'"))
-            self.assertNotEqual(after_console, build_cache.fingerprint(root, "guest", factory))
+            self.assertNotEqual(after_initramfs, build_cache.fingerprint(root, "guest", factory))
 
     def test_pinned_downloads_are_kept_and_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
