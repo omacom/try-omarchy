@@ -41,7 +41,7 @@ struct FullscreenPreferenceStoreTests {
         #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesAllDisplays: false))
     }
 
-    @Test("Settings saved before the notch and displays settings keep Immersive and take the defaults")
+    @Test("Settings saved before the notch and displays settings keep Immersive, use the notch and one display")
     func olderSettingsKeepTheirChoice() throws {
         let fixture = DefaultsFixture()
         let older = try JSONSerialization.data(withJSONObject: [
@@ -49,7 +49,7 @@ struct FullscreenPreferenceStoreTests {
             "isImmersive": false,
         ])
         fixture.defaults.set(older, forKey: FullscreenPreferenceStore.key)
-        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: false, usesNotch: true, usesAllDisplays: true))
+        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: false, usesNotch: true, usesAllDisplays: false))
 
         let withNotch = try JSONSerialization.data(withJSONObject: [
             "schemaVersion": FullscreenPreferenceStore.schemaVersion,
@@ -57,7 +57,7 @@ struct FullscreenPreferenceStoreTests {
             "usesNotch": false,
         ])
         fixture.defaults.set(withNotch, forKey: FullscreenPreferenceStore.key)
-        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: true, usesNotch: false, usesAllDisplays: true))
+        #expect(fixture.store.load() == FullscreenPreferences(isImmersive: true, usesNotch: false, usesAllDisplays: false))
     }
 
     @Test("Invalid or future preferences fail safely")

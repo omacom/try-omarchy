@@ -111,6 +111,26 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         self.assertIn("placement='Virtual-[1-9][0-9]?:[0-9]{1,5}x[0-9]{1,5}'",
                       HOST_CONFIG.read_text(encoding="utf-8"))
 
+    def test_pointer_keeps_pixel_precision_on_a_desktop_in_points(self) -> None:
+        added = "\n".join(patch_lines("+"))
+        for axis in ("X", "Y"):
+            call = added[added.index(f"qemu_input_queue_abs(head->dcl.con, INPUT_AXIS_{axis},"):]
+            call = call[: call.index(";")]
+            self.assertIn("INPUT_EVENT_ABS_MAX),\n", call)
+            self.assertTrue(call.rstrip().endswith("0, INPUT_EVENT_ABS_MAX)"), call)
+
+    def test_view_menu_brings_every_window_to_the_first_ones_state(self) -> None:
+        added = "\n".join(patch_lines("+"))
+        toggle = added[added.index("    bool full_screen = heads[0].window &&"):]
+        toggle = toggle[: toggle.index("\n}")]
+        self.assertIn("!= 0) == full_screen) {\n            [heads[i].window toggleFullScreen:sender];", toggle)
+
+    def test_caps_lock_syncs_when_any_heads_window_becomes_key(self) -> None:
+        added = "\n".join(patch_lines("+"))
+        removed = "\n".join(patch_lines("-"))
+        self.assertIn("if (heads[i].window == [note object]) {", added)
+        self.assertIn("object:[cocoaView window]", removed)
+
     def test_desktop_is_the_union_of_every_heads_output(self) -> None:
         added = "\n".join(patch_lines("+"))
         function = added[added.index("static NSRect cocoa_desktop_rect(void)"):]

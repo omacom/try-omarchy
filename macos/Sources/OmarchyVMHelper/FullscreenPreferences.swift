@@ -7,7 +7,9 @@ struct FullscreenPreferences: Equatable {
     /// notch. Macs without a notch never show or use it.
     var usesNotch: Bool = true
     /// Immersive mode puts Omarchy on every display the Mac has, arranged as
-    /// in System Settings. Off, it uses one display, like a window.
+    /// in System Settings. Off, it uses one display, like a window. On for new
+    /// settings, and off for settings saved before it existed, so an update
+    /// doesn't take over a display someone already uses for macOS.
     var usesAllDisplays: Bool = true
 
     static let defaults = Self(isImmersive: true, usesNotch: true, usesAllDisplays: true)
@@ -36,7 +38,7 @@ struct FullscreenPreferenceStore {
         return FullscreenPreferences(
             isImmersive: payload.isImmersive,
             usesNotch: payload.usesNotch ?? FullscreenPreferences.defaults.usesNotch,
-            usesAllDisplays: payload.usesAllDisplays ?? FullscreenPreferences.defaults.usesAllDisplays
+            usesAllDisplays: payload.usesAllDisplays ?? false
         )
     }
 
@@ -52,7 +54,8 @@ struct FullscreenPreferenceStore {
     }
 
     /// `usesNotch` and `usesAllDisplays` are optional so settings saved before
-    /// they existed keep their Immersive choice and take the defaults.
+    /// they existed keep their Immersive choice. They then use the notch and
+    /// one display.
     private struct Payload: Codable {
         let schemaVersion: Int
         let isImmersive: Bool

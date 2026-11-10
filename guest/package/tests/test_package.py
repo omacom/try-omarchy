@@ -962,9 +962,9 @@ class Power(unittest.TestCase):
                                         'print((a > b) - (a < b))\n')
             for tool in ("systemctl", "vercmp"):
                 (tmp / tool).chmod(0o755)
-            for old, restarted in (("0.1.0-27", True), ("0.1.0-36", True), ("0.1.0-37", False)):
+            for old, restarted in (("0.1.0-27", True), ("0.1.0-38", True), ("0.1.0-39", False)):
                 log.write_text("")
-                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-37 "$2"', "bash",
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-39 "$2"', "bash",
                                 str(PACKAGE / "try-omarchy.install"), old], check=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log)})
                 self.assertEqual("try-restart try-omarchy-host-config.service" in log.read_text().splitlines(),

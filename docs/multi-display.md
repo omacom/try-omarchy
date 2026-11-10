@@ -17,7 +17,7 @@ QEMU's Cocoa display (`qemu-cocoa-multi-display.patch`) keeps one `QemuCocoaHead
 
 In the guest, `host-config` writes the arrangement to `/run/try-omarchy/display-layout`, and `omarchy-native-display-sync` gives each connected output its own rule, with its mode from the EDID and its position from that file. An output the person configured themselves in `monitors.lua` is left to them, and a chosen scale leaves placement to Hyprland, since the logical sizes no longer match the Mac's points.
 
-A window, the launcher's **All Displays** setting off, one display, or macOS with **Displays have separate Spaces** off keep one head, as before.
+A window, the launcher's **All Displays** setting off, one display, or macOS with **Displays have separate Spaces** off keep one head, as before. **All Displays** is on for new settings and off for settings saved before it existed, so an update doesn't take over a display someone already uses for macOS.
 
 ## One keyboard, one pointer
 
