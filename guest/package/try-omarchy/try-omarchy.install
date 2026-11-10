@@ -54,7 +54,7 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-13)" -lt 0 ]; then
     _enable_ntp
   fi
-  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-38)" -lt 0 ]; then
     _rebuild_limine
   fi
   # The app upgrades the package at boot, after the old host-config ran, and

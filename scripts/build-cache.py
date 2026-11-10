@@ -92,7 +92,10 @@ def regular_files(
 # package before first-boot setup, so a package change rebuilds only the
 # package. The factory also installs the package's dependencies; those enter
 # its fingerprint through package_dependencies().
-GUEST_PACKAGE_FACTORY_INPUTS = ("try-omarchy/files/etc/limine-entry-tool.d",)
+GUEST_PACKAGE_FACTORY_INPUTS = (
+    "try-omarchy/files/etc/limine-entry-tool.d",
+    "try-omarchy/files/etc/mkinitcpio.conf.d",
+)
 
 
 def guest_package_files(root: Path) -> list[Path]:

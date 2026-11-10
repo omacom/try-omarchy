@@ -32,7 +32,8 @@ not ignore, so caches and other local files never reach the package.
   `/etc/chromium-flags.conf`, the Limine drop-ins
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` and
   `50-try-omarchy-cpu.conf`, and
-  `/etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf` (all pacman `backup` files), Omarchy's sleep switch
+  `/etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf` (all pacman `backup`
+  files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
   from), `/etc/sudoers.d/try-omarchy-timezone`,

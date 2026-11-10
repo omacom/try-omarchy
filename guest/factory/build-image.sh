@@ -396,6 +396,7 @@ grep -q Omarchy "$target/boot/limine.conf" || fail "limine.conf has no Omarchy e
 # app keeps as console.log.
 if [[ -f $target/etc/limine-entry-tool.d/50-try-omarchy-console.conf ]]; then
   grep -rqa 'console=hvc0' "$target/boot" || fail "the kernel image lacks try-omarchy's console=hvc0"
+  grep -rqa 'plymouth.ignore-serial-consoles' "$target/boot" || fail "the kernel image lacks try-omarchy's plymouth.ignore-serial-consoles"
 fi
 btrfs quota disable "$target" 2>/dev/null || true
 

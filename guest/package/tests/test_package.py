@@ -859,7 +859,7 @@ class Recipe(unittest.TestCase):
                 calls = [line for line in log.read_text().splitlines() if line.startswith("limine-update")]
                 self.assertEqual(calls, expected, boot.name)
         install = (PACKAGE / "try-omarchy.install").read_text()
-        self.assertIn('if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then\n    _rebuild_limine\n', install)
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-38)" -lt 0 ]; then\n    _rebuild_limine\n', install)
 
     def test_chromium_takes_input_methods(self):
         self.assertIn("--enable-wayland-ime", (FILES / "etc/chromium-flags.conf").read_text().split())
