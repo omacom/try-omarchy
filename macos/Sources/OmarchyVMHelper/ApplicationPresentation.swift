@@ -204,18 +204,21 @@ enum ApplicationPresentation {
 /// it starts, so without this alert a failure is silent.
 @MainActor
 enum LaunchFailureAlert {
-    static func alert(for error: Error) -> NSAlert {
+    nonisolated static let damagedAppAdvice = "Download Try Omarchy again and replace this copy. Your VM and settings are kept."
+
+    static func alert(for error: Error, advice: String? = nil) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Try Omarchy can\u{2019}t start"
-        alert.informativeText = "\(error.localizedDescription)\n\nDownload Try Omarchy again and replace this copy. Your VM and settings are kept."
+        alert.informativeText = [error.localizedDescription, advice].compactMap { $0 }.joined(separator: "\n\n")
         alert.addButton(withTitle: "Quit")
         return alert
     }
 
-    static func present(_ error: Error, in application: NSApplication = .shared) {
+    static func present(_ error: Error, advice: String? = nil) {
+        let application = NSApplication.shared
         application.setActivationPolicy(ApplicationPresentation.prelaunchActivationPolicy)
         application.activate(ignoringOtherApps: true)
-        alert(for: error).runModal()
+        alert(for: error, advice: advice).runModal()
     }
 }

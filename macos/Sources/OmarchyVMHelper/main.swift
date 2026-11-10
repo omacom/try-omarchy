@@ -18,6 +18,12 @@ private func effectiveArguments() -> [String] {
     return Bundle.main.bundleURL.pathExtension == "app" ? ["--run-qemu"] : []
 }
 
+private func failLaunch(_ error: Error, advice: String? = nil) -> Never {
+    fputs("omarchy-vm-helper: \(error.localizedDescription)\n", stderr)
+    MainActor.assumeIsolated { LaunchFailureAlert.present(error, advice: advice) }
+    exit(1)
+}
+
 let arguments = effectiveArguments()
 do {
     if arguments.first == "--host-timezone" {
@@ -331,11 +337,13 @@ do {
         let launcherArguments: [String]
         do {
             launcher = try QEMUGPULauncherPath.resolve()
+        } catch {
+            failLaunch(error, advice: LaunchFailureAlert.damagedAppAdvice)
+        }
+        do {
             launcherArguments = try request.validatedScriptArguments()
         } catch {
-            fputs("omarchy-vm-helper: \(error.localizedDescription)\n", stderr)
-            MainActor.assumeIsolated { LaunchFailureAlert.present(error) }
-            exit(1)
+            failLaunch(error)
         }
 
         // The executable's top level starts on the process main thread. Make
