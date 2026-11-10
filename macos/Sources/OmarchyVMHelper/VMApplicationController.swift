@@ -335,7 +335,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 store.save(preferences)
             },
             usesAllDisplays: { [weak self] in
-                self?.fullscreenPreferenceStore.load().usesAllDisplays ?? true
+                self?.fullscreenPreferenceStore.load().usesAllDisplays ?? false
             },
             setUsesAllDisplays: { [weak self] usesAllDisplays in
                 guard let store = self?.fullscreenPreferenceStore else { return }

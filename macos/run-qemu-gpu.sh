@@ -439,9 +439,10 @@ esac
 # OUTPUT:XxY in Hyprland's logical pixels; the guest places its outputs from
 # that line, and QEMU reads it as TRYOMARCHY_DISPLAY_LAYOUT to give each
 # window its head. The built-in panel's output, named beside it, keeps the
-# camera housing. A window, the launcher's Use all displays setting off
-# (OMARCHY_QEMU_GPU_DISPLAYS=0), one display, or a failed probe keep one head.
-case ${OMARCHY_QEMU_GPU_DISPLAYS:-1} in
+# camera housing. Only the launcher's All Displays setting
+# (OMARCHY_QEMU_GPU_DISPLAYS=1, off by default) in full screen gives more than
+# one head; a window, one display, or a failed probe keep one.
+case ${OMARCHY_QEMU_GPU_DISPLAYS:-0} in
   0 | 1) ;;
   *) fail "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1" ;;
 esac
@@ -460,7 +461,7 @@ if [[ $immersive == on ]]; then
 fi
 display_count=1
 unset TRYOMARCHY_DISPLAY_LAYOUT
-if [[ $immersive == on && ${OMARCHY_QEMU_GPU_DISPLAYS:-1} == 1 ]]; then
+if [[ $immersive == on && ${OMARCHY_QEMU_GPU_DISPLAYS:-0} == 1 ]]; then
   display_layout=$("$native_bridge" --host-display-layout 2>/dev/null) || display_layout=
   placement='Virtual-[1-4]:[0-9]{1,5}x[0-9]{1,5}'
   if [[ $display_layout =~ ^$placement(,$placement){1,3}$ ]]; then

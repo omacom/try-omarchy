@@ -31,17 +31,17 @@ struct FullscreenPreferenceStoreTests {
         #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesNotch: false))
     }
 
-    @Test("Every display is used until the user turns it off")
+    @Test("One display is used until the user turns All Displays on")
     func allDisplaysChoicePersists() {
         let fixture = DefaultsFixture()
-        #expect(fixture.store.load().usesAllDisplays)
+        #expect(!fixture.store.load().usesAllDisplays)
 
-        fixture.store.save(FullscreenPreferences(isImmersive: true, usesAllDisplays: false))
+        fixture.store.save(FullscreenPreferences(isImmersive: true, usesAllDisplays: true))
         let reopened = FullscreenPreferenceStore(defaults: fixture.defaults)
-        #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesAllDisplays: false))
+        #expect(reopened.load() == FullscreenPreferences(isImmersive: true, usesAllDisplays: true))
     }
 
-    @Test("Settings saved before the notch and displays settings keep Immersive, use the notch and one display")
+    @Test("Settings saved before the notch and displays settings keep Immersive and take the defaults")
     func olderSettingsKeepTheirChoice() throws {
         let fixture = DefaultsFixture()
         let older = try JSONSerialization.data(withJSONObject: [

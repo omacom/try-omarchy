@@ -1,6 +1,6 @@
 # Multiple displays
 
-In immersive mode, every display connected to the Mac becomes one of Omarchy's outputs, arranged as macOS arranges them. This is how the app, QEMU and the guest package share that work.
+With the launcher's **All Displays** setting on (it is off by default) in immersive mode, every display connected to the Mac becomes one of Omarchy's outputs, arranged as macOS arranges them. This is how the app, QEMU and the guest package share that work.
 
 ```text
 Mac displays (System Settings)          QEMU                           Omarchy
@@ -17,7 +17,7 @@ QEMU's Cocoa display (`qemu-cocoa-multi-display.patch`) keeps one `QemuCocoaHead
 
 In the guest, `host-config` writes the arrangement to `/run/try-omarchy/display-layout`, and `omarchy-native-display-sync` gives each connected output its own rule, with its mode from the EDID and its position from that file. An output the person configured themselves in `monitors.lua` is left to them, and a chosen scale leaves placement to Hyprland, since the logical sizes no longer match the Mac's points.
 
-A window, the launcher's **All Displays** setting off, one display, or macOS with **Displays have separate Spaces** off keep one head, as before. **All Displays** is on for new settings and off for settings saved before it existed, so an update doesn't take over a display someone already uses for macOS.
+A window, the launcher's **All Displays** setting off, one display, or macOS with **Displays have separate Spaces** off keep one head, as before.
 
 ## One keyboard, one pointer
 

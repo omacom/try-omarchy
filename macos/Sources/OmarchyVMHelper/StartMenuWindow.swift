@@ -152,7 +152,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
-        usesAllDisplays: @escaping () -> Bool = { true },
+        usesAllDisplays: @escaping () -> Bool = { false },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },

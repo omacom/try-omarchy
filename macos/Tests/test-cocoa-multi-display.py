@@ -126,10 +126,14 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         self.assertIn("!= 0) == full_screen) {\n            [heads[i].window toggleFullScreen:sender];", toggle)
 
     def test_caps_lock_syncs_when_any_heads_window_becomes_key(self) -> None:
-        added = "\n".join(patch_lines("+"))
-        removed = "\n".join(patch_lines("-"))
-        self.assertIn("if (heads[i].window == [note object]) {", added)
-        self.assertIn("object:[cocoaView window]", removed)
+        patched = "\n".join(
+            line[1:] for line in PATCH.read_text(encoding="utf-8").splitlines()
+            if line[:1] in (" ", "+") and not line.startswith("+++")
+        )
+        observer = patched[patched.index("addObserverForName:NSWindowDidBecomeKeyNotification"):]
+        observer = observer[: observer.index("}];")]
+        self.assertIn("object:nil", observer)
+        self.assertIn("if (heads[i].window == [note object]) {", observer)
 
     def test_desktop_is_the_union_of_every_heads_output(self) -> None:
         added = "\n".join(patch_lines("+"))

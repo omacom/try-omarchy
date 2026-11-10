@@ -302,22 +302,22 @@ done
 assert_contains "$(FAKE_DISPLAY_PIXELS=99999x1964 launch)" "ignoring unexpected display size"
 output=$(launch)
 assert_not_contains "$output" "tryomarchy.display_layout"
-output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
 assert_contains "$output" "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=2,"
 assert_contains "$output" "tryomarchy.display_layout=Virtual-1:0x458,Virtual-2:1512x0 tryomarchy.display_panel=Virtual-1"
 # The panel is whichever output the helper names, as long as the layout has it.
-output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=Virtual-2 launch)
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=Virtual-2 launch)
 assert_contains "$output" "tryomarchy.display_panel=Virtual-2"
 for panel in Virtual-3 HDMI-A-1 'Virtual-2 tryomarchy.ssh_from=any'; do
-  output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=$panel launch)
+  output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=$panel launch)
   assert_contains "$output" "ignoring unexpected display panel"
   assert_not_contains "$output" "display_panel"
 done
-output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL= launch)
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL= launch)
 assert_contains "$output" "tryomarchy.display_layout="
 assert_not_contains "$output" "display_panel"
-# A window, or the launcher's Use all displays setting off, keeps one head.
-output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
+# A window, or the launcher's All Displays setting off or unset, keeps one head.
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
 assert_contains "$output" "max_outputs=1,"
 assert_not_contains "$output" "tryomarchy.display_layout"
 assert_not_contains "$output" "tryomarchy.display_panel"
@@ -327,15 +327,18 @@ assert_not_contains "$output" "tryomarchy.display_layout"
 assert_not_contains "$output" "tryomarchy.display_panel"
 output=$(OMARCHY_QEMU_GPU_DISPLAYS=all launch) && fail "an invalid displays setting launched"
 assert_contains "$output" "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1"
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
 # Anything but Virtual-1..4 placements, or more than four, is left out.
 for layout in 'Virtual-1:0x0,HDMI-A-1:1512x0' 'Virtual-1:0x0,Virtual-2:1512x0 tryomarchy.ssh_from=any' \
   'Virtual-1:0x0,Virtual-2:1x0,Virtual-3:2x0,Virtual-4:3x0,Virtual-5:4x0'; do
-  output=$(FAKE_DISPLAY_LAYOUT=$layout launch)
+  output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=$layout launch)
   assert_contains "$output" "ignoring unexpected display layout"
   assert_contains "$output" "max_outputs=1,"
   assert_not_contains "$(grep "host settings:" <<<"$output")" "display_layout"
 done
-output=$(FAKE_DISPLAY_LAYOUT= launch)
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT= launch)
 assert_contains "$output" "max_outputs=1,"
 assert_not_contains "$output" "ignoring unexpected display layout"
 
@@ -392,7 +395,7 @@ assert_contains "$(<"$test_root/qemu-invocations")" "-name guest=Omarchy Install
 # QEMU sees the layout the helper reports, never one inherited from the environment.
 : >"$test_root/qemu-invocations"
 launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
-FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch >/dev/null && fail "the fake QEMU launch succeeded"
+OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch >/dev/null && fail "the fake QEMU launch succeeded"
 assert_contains "$(<"$test_root/qemu-invocations")" "TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0"
 : >"$test_root/qemu-invocations"
 launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 OMARCHY_QEMU_GPU_IMMERSIVE=0 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
