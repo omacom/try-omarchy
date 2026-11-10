@@ -404,17 +404,22 @@ fi
 # The build's machine ID keys this entry, and a VM makes its own ID at first
 # boot. try-omarchy's factory-boot-entry removes the build's entry after
 # first-boot setup adds the VM's, and recognises only this layout: one
-# linux-omarchy entry whose files are in the ID's directory.
+# linux-omarchy entry booting the linux-omarchy UKI, or the vmlinuz and
+# initramfs in the ID's directory, which holds nothing else.
 if [[ -x $target/usr/lib/try-omarchy/factory-boot-entry ]]; then
   build_id=$(cat "$target/etc/machine-id")
-  [[ $(sed -n 's/^comment: machine-id=//p' "$target/boot/limine.conf" | cut -d' ' -f1) == "$build_id" ]] ||
+  conf=$target/boot/limine.conf
+  [[ $(sed -n 's/^[[:space:]]*comment:[[:space:]]*machine-id=//p' "$conf" | cut -d' ' -f1) == "$build_id" ]] ||
     fail "limine.conf has entries for other machine IDs than the build's"
-  [[ $(sed -n 's|^ *//+\{0,1\}||p' "$target/boot/limine.conf") == linux-omarchy ]] ||
+  [[ $(sed -n 's|^[[:space:]]*//+\{0,1\}||p' "$conf") == linux-omarchy ]] ||
     fail "the build's boot entry holds more than linux-omarchy"
-  ! sed -n 's/^ *[a-z_]*path: *//p' "$target/boot/limine.conf" | grep -qv "^boot():/$build_id/linux-omarchy/\(vmlinuz\|initramfs\)\(#\|$\)" ||
-    fail "the build's boot entry boots files outside boot():/$build_id/linux-omarchy/"
-  [[ $(cd "$target/boot/$build_id" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ') == "./linux-omarchy ./linux-omarchy/initramfs ./linux-omarchy/vmlinuz " ]] ||
-    fail "/boot/$build_id holds more than linux-omarchy/vmlinuz and initramfs"
+  ! sed -n 's/^[[:space:]]*\([a-z_]*path\):[[:space:]]*/\1 /p' "$conf" |
+    grep -Ev "^[a-z_]*path boot\(\):/$build_id/linux-omarchy/(vmlinuz|initramfs)(#|$)|^path boot\(\):/EFI/Linux/[A-Za-z0-9]+_linux-omarchy\.efi(#|$)" ||
+    fail "the build's boot entry boots files other than linux-omarchy's"
+  if [[ -e $target/boot/$build_id ]]; then
+    ! find "$target/boot/$build_id" -mindepth 1 | grep -vxE "$target/boot/$build_id/linux-omarchy(/vmlinuz|/initramfs)?" ||
+      fail "/boot/$build_id holds more than linux-omarchy/vmlinuz and initramfs"
+  fi
 fi
 btrfs quota disable "$target" 2>/dev/null || true
 

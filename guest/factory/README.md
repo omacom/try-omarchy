@@ -55,7 +55,7 @@ guest/factory/build-container.sh --size-gib 24   # a larger virtual disk
 5. Owner provisioning armed as the ISO arms it, with the Node.js tarball
    stashed for offline user finalization.
 6. One UKI build with `limine-update`, and upstream's aarch64 `edge` pacman
-   template and mirror list. The boot entry is keyed by the build's machine ID, and the build checks it has the layout the package's `factory-boot-entry` removes once a VM has its own entry.
+   template and mirror list. The boot entry is keyed by the build's machine ID. The build checks that it has a layout the package's `factory-boot-entry` removes once a VM has its own entry: the `linux-omarchy` UKI, or vmlinuz and initramfs in the ID's directory.
 7. A full btrfs balance, then `fstrim` of both filesystems, so the free
    space is long zero runs.
 8. Sealing: an empty machine ID, no random seed, no SSH host keys, no pacman

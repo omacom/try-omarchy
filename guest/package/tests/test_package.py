@@ -1194,8 +1194,12 @@ class FactoryBootEntry(unittest.TestCase):
                 [("path", f"boot():/{BUILD_ID}/linux-omarchy/vmlinuz#cab69b")], name="linux-omarchy-fallback")]),
             "another kernel": limine_os_entry(BUILD_ID, [limine_kernel(
                 [("path", f"boot():/{BUILD_ID}/linux-lts/vmlinuz#cab69b")], name="linux-lts")]),
-            "a UKI": limine_os_entry(BUILD_ID, [limine_kernel(
-                [("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")], protocol="efi")]),
+            "another UKI": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/arch-linux.efi#abcd")], protocol="efi")]),
+            "a UKI as a module": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("module_path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")], protocol="efi")]),
+            "unindented snapshots": limine_os_entry(BUILD_ID, [FACTORY_KERNEL, (
+                f"//+Snapshots\n///Snapshot 1\nprotocol: linux\npath: boot():/{BUILD_ID}/linux-omarchy/vmlinuz\n")]),
             "another directory": limine_os_entry(BUILD_ID, [limine_kernel(
                 [("path", f"boot():/{other}/linux-omarchy/vmlinuz#cab69b")])]),
             "no kernel": limine_os_entry(BUILD_ID, []),
@@ -1223,6 +1227,42 @@ class FactoryBootEntry(unittest.TestCase):
                 subprocess.run(["rm", "-rf", str(self.boot / BUILD_ID / extra.split("/")[0])], check=True)
                 (self.boot / BUILD_ID / "linux-omarchy").mkdir(exist_ok=True)
                 (self.boot / BUILD_ID / "linux-omarchy/vmlinuz").write_text("old kernel")
+
+    def test_removes_a_factory_entry_that_boots_the_shared_uki(self):
+        # Newer factories build the UKI that the VM's own entry later rebuilds.
+        self.write_conf(limine_os_entry(BUILD_ID, [VM_KERNEL]), limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.calls(), [f"--remove-entry {BUILD_ID}"])
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertTrue((self.boot / "EFI/Linux/omarchy_linux-omarchy.efi").is_file())
+
+    def test_ignores_indentation_as_limine_does(self):
+        flat = "\n".join(line.lstrip() for line in limine_os_entry(BUILD_ID, [FACTORY_KERNEL]).splitlines()) + "\n"
+        self.write_conf(flat, limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+
+    def test_keeps_the_factory_entry_until_this_machines_kernel_is_there(self):
+        uki = self.boot / "EFI/Linux/omarchy_linux-omarchy.efi"
+        for name, own, prepare in (
+            ("missing UKI", limine_os_entry(VM_ID, [VM_KERNEL]), lambda: uki.unlink()),
+            ("empty UKI", limine_os_entry(VM_ID, [VM_KERNEL]), lambda: uki.write_text("")),
+            ("modules only", limine_os_entry(VM_ID, [limine_kernel(
+                [("module_path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")])]), lambda: None),
+            ("outside the ESP", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/../root/vmlinuz")])]), lambda: None),
+            ("two entries", limine_os_entry(VM_ID, [VM_KERNEL]) + "\n" + limine_os_entry(VM_ID, [VM_KERNEL]),
+             lambda: None),
+        ):
+            with self.subTest(name):
+                self.log.write_text("")
+                uki.write_text("new kernel")
+                self.write_conf(limine_os_entry(BUILD_ID, [FACTORY_KERNEL]), own)
+                prepare()
+                self.run_script()
+                self.assertEqual(self.calls(), [])
+                self.assertIn(BUILD_ID, self.machine_ids())
+                self.assertTrue((self.boot / BUILD_ID / "linux-omarchy/vmlinuz").is_file())
 
     def test_never_touches_this_machines_entry_or_directory(self):
         self.write_conf(limine_os_entry(VM_ID, [limine_kernel(

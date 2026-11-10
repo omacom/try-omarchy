@@ -186,13 +186,13 @@ boot.
 
 The factory image is built under a machine ID of its own and sealed without it, so each VM makes its own ID at first boot.
 Omarchy's first-boot setup then adds a Limine entry for the VM's ID and keeps the build's, because on a shared ESP other IDs belong to other systems.
-Limine lists the build's entry first and boots it by default, so after `omarchy update` the VM would keep booting the image's kernel, whose modules the update removed.
+Limine lists the build's entry first and boots it by default. After `omarchy update` the VM would keep booting the image's kernel, whose modules the update removed, or, where the factory built a UKI, stop at a hash mismatch on the UKI both entries name.
 
 `/usr/lib/try-omarchy/factory-boot-entry` removes the build's entry with `limine-entry-tool --remove-entry`, and then its kernel directory on the ESP.
 It runs after first-boot setup (the setup service's drop-in), and once on the upgrade to `0.1.0-37` for VMs set up earlier.
-It acts only in a VM from Try Omarchy's factory (the image manifest's `builder=try-omarchy-upstream`), and only when this machine's own entry can boot.
-It removes only an entry and a directory named by another machine ID that hold one `linux-omarchy` kernel and its initramfs, as the factory leaves them.
-Entries with snapshots, other kernels or a UKI stay, and so do the VM's own entry and its UKI.
+It acts only in a VM from Try Omarchy's factory (the image manifest's `builder=try-omarchy-upstream`), and only when this machine has one entry whose files are all on the ESP.
+It removes only an entry named by another machine ID with one `linux-omarchy` kernel entry, which boots the vmlinuz and initramfs in that ID's directory or the `linux-omarchy` UKI, and that directory when it holds no more than those two files.
+Entries with snapshots, other kernels or other UKIs stay, and so do the VM's own entry and directory. UKI files are never removed.
 The factory build checks that the image has this layout.
 
 ## Hyprland
