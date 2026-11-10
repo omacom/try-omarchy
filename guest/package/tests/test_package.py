@@ -44,6 +44,11 @@ class PackageLayout(unittest.TestCase):
             for forbidden in ("usr/share/omarchy/", "etc/skel/", "usr/share/omarchy-platform/"):
                 self.assertFalse(relative.startswith(forbidden), relative)
 
+    def test_session_draws_through_aquamarines_legacy_drm_interface(self):
+        # Atomic page flips stall on virtio-gpu and leave the desktop black (#429).
+        environment = (FILES / "usr/lib/environment.d/90-try-omarchy.conf").read_text()
+        self.assertIn("\nAQ_NO_ATOMIC=1\n", environment)
+
     def test_pinch_touchpad_alone_skips_libinput_jump_detection(self):
         quirks = (FILES / "usr/share/libinput/90-try-omarchy.quirks").read_text()
         sections = [line for line in quirks.splitlines() if line.startswith("[")]
