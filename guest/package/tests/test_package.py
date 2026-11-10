@@ -571,6 +571,102 @@ def load(path, name):
     return module
 
 
+class AudioBridge(unittest.TestCase):
+    # Each pactl run is a client PipeWire, WirePlumber and the shell react to;
+    # polling them every 0.25 s kept ~70% of a core busy on an idle desktop.
+    def test_queries_pipewire_only_on_relevant_events(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        sent, calls = [], []
+        mirror = bridge.PipeWireMirror(sent.append)
+        mirror.module_ids = ["7"]
+        mirror.output_uids = {"omarchy_host_output_a": "A"}
+        defaults = {"get-default-sink": "omarchy_host_output_a\n", "get-default-source": "x\n"}
+        modules = ["7\tmodule-remap-sink\tsink_name=omarchy_host_output_a"]
+
+        failing = []
+
+        def pactl(*arguments, check=True):
+            # Like run_pactl: a non-zero exit with empty stdout raises only
+            # when the caller checks it.
+            calls.append(arguments)
+            if arguments[0] in failing:
+                if check:
+                    raise RuntimeError(f"pactl {arguments[0]}: status 1")
+                return ""
+            if arguments == ("list", "short", "modules"):
+                return "\n".join(modules)
+            return defaults[arguments[0]].strip()
+
+        def handle(line):
+            mirror.handle_event(line)
+            mirror.run_pending()
+
+        with mock.patch.object(bridge, "run_pactl", pactl):
+            for line in ("Event 'new' on client #41", "Event 'remove' on client #41",
+                         "Event 'change' on sink-input #3", "Event 'remove' on module #8"):
+                handle(line)
+            self.assertEqual((calls, sent), ([], []))
+
+            handle("Event 'change' on server #4294967295")
+            self.assertEqual(calls, [("get-default-sink",), ("get-default-source",)])
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
+
+            # A rebuild's late removal of a reused id: still loaded, no new rebuild.
+            mirror.inventory = ()
+            handle("Event 'remove' on module #7")
+            self.assertEqual(len(sent), 1)
+
+            modules.clear()
+            handle("Event 'remove' on module #7")
+            self.assertEqual(sent[-1], {"type": "get-catalog"})
+            self.assertIsNone(mirror.inventory)
+
+            # A failed read (non-zero exit) is kept for the next retry, not dropped.
+            sent.clear()
+            mirror.last_sent["output"] = None
+            failing.append("get-default-sink")
+            mirror.handle_event("Event 'change' on server #4294967295")
+            with self.assertRaises(RuntimeError):
+                mirror.run_pending()
+            self.assertEqual((mirror.pending, sent), ({"defaults"}, []))
+            failing.clear()
+            mirror.run_pending()
+            self.assertEqual(mirror.pending, set())
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
+
+    # A failed read backs off up to 30 s. After PipeWire restarts, the next
+    # default change must run at once, not wait for the old graph's backoff.
+    def test_resubscribe_drops_the_retry_backoff(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        mirror = bridge.PipeWireMirror(lambda message: None)
+        calls, now = [], [100.0]
+
+        def pactl(*arguments, check=True):
+            calls.append(arguments)
+            raise RuntimeError(f"pactl {arguments[0]}: status 1")
+
+        with mock.patch.object(bridge, "run_pactl", pactl), \
+                mock.patch.object(bridge.time, "monotonic", lambda: now[0]), \
+                mock.patch.object(bridge, "log", lambda message: None):
+            mirror.handle_event("Event 'change' on server #4294967295")
+            for _ in range(4):
+                mirror.run_due()
+                now[0] = mirror.retry_at
+            self.assertEqual((len(calls), mirror.retry_delay), (4, 8))
+
+            # The failed check is not due yet; a restart drops it and its backoff.
+            now[0] -= 1
+            mirror.run_due()
+            self.assertEqual(len(calls), 4)
+            mirror.forget_graph()
+            self.assertIsNone(mirror.retry_timeout())
+
+            mirror.handle_event("Event 'change' on server #4294967295")
+            self.assertEqual(mirror.retry_timeout(), 0.0)
+            mirror.run_due()
+            self.assertEqual((len(calls), mirror.retry_delay), (5, 1))
+
+
 class ClockRecovery(unittest.TestCase):
     def recover(self, rtc_name):
         module = load(LIB / "guest-clock-recover", "guest_clock_recover")
