@@ -56,9 +56,9 @@ parse() {
       else foreign = 1
       next
     }
-    /^[[:space:]]*[a-z_]*path:/ {
-      key = $0; sub(/^[[:space:]]*/, "", key); sub(/:.*/, "", key)
-      value = $0; sub(/^[[:space:]]*[a-z_]*path:[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
+    tolower($0) ~ /^[[:space:]]*[a-z_]*path[[:space:]]*:/ {
+      key = tolower($0); sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*:.*/, "", key)
+      value = substr($0, index($0, ":") + 1); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
       found[++count] = key " " value
       if (id == "") foreign = 1
       else if (value !~ ("^boot\\(\\):/" id "/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?$") &&
@@ -83,7 +83,7 @@ own_entry_boots() {
     file=$esp/${value#"boot():/"}
     [[ -f $file && -s $file ]] || return 1
     [[ $key == path ]] && kernel=1
-  done < <(awk -v id="$current" '$1 == "path" && $2 == id { print $3, $4 }' <<<"$parsed")
+  done < <(awk -v id="$current" '$1 == "path" && $2 == id { sub(/^path [^ ]+ /, ""); print }' <<<"$parsed")
   ((kernel))
 }
 

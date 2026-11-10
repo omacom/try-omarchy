@@ -413,8 +413,12 @@ if [[ -x $target/usr/lib/try-omarchy/factory-boot-entry ]]; then
     fail "limine.conf has entries for other machine IDs than the build's"
   [[ $(sed -n 's|^[[:space:]]*//+\{0,1\}||p' "$conf") == linux-omarchy ]] ||
     fail "the build's boot entry holds more than linux-omarchy"
-  ! sed -n 's/^[[:space:]]*\([a-z_]*path\):[[:space:]]*/\1 /p' "$conf" |
-    grep -Ev "^[a-z_]*path boot\(\):/$build_id/linux-omarchy/(vmlinuz|initramfs)(#|$)|^path boot\(\):/EFI/Linux/[A-Za-z0-9]+_linux-omarchy\.efi(#|$)" ||
+  paths=$(awk 'tolower($0) ~ /^[[:space:]]*[a-z_]*path[[:space:]]*:/ {
+    key = tolower($0); sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*:.*/, "", key)
+    value = substr($0, index($0, ":") + 1); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
+    print key " " value
+  }' "$conf")
+  [[ -n $paths ]] && ! grep -Ev "^[a-z_]*path boot\(\):/$build_id/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?$|^path boot\(\):/EFI/Linux/[A-Za-z0-9]+_linux-omarchy\.efi(#[0-9a-f]+)?$" <<<"$paths" ||
     fail "the build's boot entry boots files other than linux-omarchy's"
   if [[ -e $target/boot/$build_id ]]; then
     ! find "$target/boot/$build_id" -mindepth 1 | grep -vxE "$target/boot/$build_id/linux-omarchy(/vmlinuz|/initramfs)?" ||

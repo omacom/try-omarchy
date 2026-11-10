@@ -1198,6 +1198,7 @@ class FactoryBootEntry(unittest.TestCase):
                 [("path", "boot():/EFI/Linux/arch-linux.efi#abcd")], protocol="efi")]),
             "a UKI as a module": limine_os_entry(BUILD_ID, [limine_kernel(
                 [("module_path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")], protocol="efi")]),
+            "a path in capitals": limine_os_entry(BUILD_ID, [FACTORY_KERNEL + "  MODULE_PATH: boot():/unrelated/initramfs\n"]),
             "unindented snapshots": limine_os_entry(BUILD_ID, [FACTORY_KERNEL, (
                 f"//+Snapshots\n///Snapshot 1\nprotocol: linux\npath: boot():/{BUILD_ID}/linux-omarchy/vmlinuz\n")]),
             "another directory": limine_os_entry(BUILD_ID, [limine_kernel(
@@ -1253,6 +1254,11 @@ class FactoryBootEntry(unittest.TestCase):
                 [("path", "boot():/../root/vmlinuz")])]), lambda: None),
             ("two entries", limine_os_entry(VM_ID, [VM_KERNEL]) + "\n" + limine_os_entry(VM_ID, [VM_KERNEL]),
              lambda: None),
+            ("a space in the path", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi missing.efi")], protocol="efi")]), lambda: None),
+            ("a missing module in capitals", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi"),
+                 ("MODULE_PATH", f"boot():/{VM_ID}/linux-omarchy/missing-initramfs")])]), lambda: None),
         ):
             with self.subTest(name):
                 self.log.write_text("")
