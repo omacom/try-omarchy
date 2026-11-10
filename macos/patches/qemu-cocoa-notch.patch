@@ -28,6 +28,12 @@ past it), so the VM can use the whole panel:
   menu bar in full screen" on, non-immersive full screen stays below the
   housing.
 - The guest is offered the whole display's size, so it follows the window.
+  QEMU never sizes or moves a full-screen window on such a screen: the
+  window server takes a window it moves off the strip and keeps it off,
+  while AppKit still reports the whole display, so the pointer, mapped
+  through AppKit's frame, would land a strip away from the picture. The
+  guest's size, the scale and the level follow the window again after it
+  moves, for example when its Space comes back.
 
 Screens without a housing (external displays, Macs without a notch, the
 built-in panel's modes below the camera) report no safe-area inset and keep
@@ -44,7 +50,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  #include <stdarg.h>
  
  #include "qemu/help-texts.h"
-@@ -113,7 +114,17 @@
+@@ -113,8 +114,18 @@
  static bool swap_opt_cmd;
  static bool full_grab_enabled;
  static bool immersive_mode_enabled = true;
@@ -52,17 +58,18 @@ everywhere. QEMU's log says when full screen covers the strip.
 +@class QemuCocoaView;
 +extern QemuCocoaView *cocoaView;
  static NSMenuItem *fullScreenMenuItem;
-+
+ 
 +/* What non-immersive full screen lets macOS show over the camera strip. */
 +typedef enum {
 +    COCOA_REVEAL_NONE,
 +    COCOA_REVEAL_MENU_BAR,
 +    COCOA_REVEAL_DOCK,
 +} CocoaReveal;
- 
++
  static bool zoom_interpolation;
  static NSTextField *pauseLabel;
-@@ -427,7 +438,16 @@
+ 
+@@ -434,7 +445,16 @@
      bool mouseOn;
      CocoaPinch pinch;
      CocoaScroll scroll;
@@ -79,7 +86,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  - (void) grabMouse;
  - (void) ungrabMouse;
  - (void) setFullGrab:(id)sender;
-@@ -493,8 +513,125 @@
+@@ -500,8 +520,139 @@
          }
      }
      qemu_input_event_sync();
@@ -97,6 +104,20 @@ everywhere. QEMU's log says when full screen covers the strip.
 +        return 0;
 +    }
 +    return MAX(0, [screen safeAreaInsets].top);
++}
++
++/*
++ * Full screen on a screen with a camera housing is AppKit's to lay out: the
++ * reservation hook decides whether it covers the strip. When the app sizes
++ * or moves such a window itself, the window server takes it off the strip
++ * and keeps it off, even once AppKit hands it the whole display again. Then
++ * AppKit's frame, which the pointer is mapped through, sits a strip away from
++ * the picture until full screen is left. So QEMU leaves the window as AppKit
++ * laid it out, and the guest follows the window (updateUIInfo).
++ */
++static bool cocoa_notch_keeps_layout(NSWindowStyleMask style, CGFloat strip)
++{
++    return (style & NSWindowStyleMaskFullScreen) && strip > 0;
 +}
 +
 +/*
@@ -120,8 +141,8 @@ everywhere. QEMU's log says when full screen covers the strip.
 +        CFRelease(orientation);
 +    }
 +    return edge;
- }
- 
++}
++
 +static CGFloat cocoa_dock_reach(void)
 +{
 +    Boolean valid = false;
@@ -136,8 +157,8 @@ everywhere. QEMU's log says when full screen covers the strip.
 +        reach = MAX(reach, valid ? large : 128);
 +    }
 +    return MIN(MAX(reach, 16), 256) + 32;
-+}
-+
+ }
+ 
 +static CGFloat cocoa_edge_distance(NSPoint point, NSRect frame, NSRectEdge edge)
 +{
 +    switch (edge) {
@@ -205,7 +226,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  @implementation QemuCocoaView
  - (id)initWithFrame:(NSRect)frameRect
  #ifdef CONFIG_OPENGL
-@@ -773,12 +910,108 @@
+@@ -780,12 +931,108 @@
      }
  
      return fixed;
@@ -220,8 +241,8 @@ everywhere. QEMU's log says when full screen covers the strip.
 +    return ([window styleMask] & NSWindowStyleMaskFullScreen) &&
 +           cocoa_notch_strip(display) > 0 &&
 +           NSEqualRects([window frame], [display frame]);
-+}
-+
+ }
+ 
 +/*
 + * The menu bar's black strip (window level 24) covers the camera strip of a
 + * full-screen window. Raise the window just above it while it covers the
@@ -292,8 +313,8 @@ everywhere. QEMU's log says when full screen covers the strip.
 +    notchLeaving = leaving;
 +    notchReveal = COCOA_REVEAL_NONE;
 +    [self updateNotchLevel];
- }
- 
++}
++
 +- (void) setMenuTracking:(bool)tracking
 +{
 +    menuTracking = tracking;
@@ -314,19 +335,19 @@ everywhere. QEMU's log says when full screen covers the strip.
      size.width -= insets.left + insets.right;
      size.height -= insets.top + insets.bottom;
      return size;
-@@ -788,7 +1021,10 @@
+@@ -793,6 +1040,11 @@
+ 
+ - (void) resizeWindow
  {
++    if (cocoa_notch_keeps_layout([[self window] styleMask],
++                                 cocoa_notch_strip([[self window] screen]))) {
++        return;
++    }
++
      [[self window] setContentAspectRatio:NSMakeSize(screen.width, screen.height)];
  
--    if (!([[self window] styleMask] & NSWindowStyleMaskResizable)) {
-+    if ([self coversNotch]) {
-+        /* The guest follows the whole display; keep the window on all of it. */
-+        [[self window] setFrame:[[[self window] screen] frame] display:YES];
-+    } else if (!([[self window] styleMask] & NSWindowStyleMaskResizable)) {
-         CGFloat width = screen.width / [[self window] backingScaleFactor];
-         CGFloat height = screen.height / [[self window] backingScaleFactor];
- 
-@@ -1497,6 +1733,7 @@
+     if (!([[self window] styleMask] & NSWindowStyleMaskResizable)) {
+@@ -1504,6 +1756,7 @@
  
  - (void) mouseMoved:(NSEvent *)event
  {
@@ -334,7 +355,7 @@ everywhere. QEMU's log says when full screen covers the strip.
      [self handleMouseEvent:event];
  }
  
-@@ -1517,6 +1754,7 @@
+@@ -1524,6 +1777,7 @@
  
  - (void) mouseDragged:(NSEvent *)event
  {
@@ -342,7 +363,7 @@ everywhere. QEMU's log says when full screen covers the strip.
      [self handleMouseEvent:event];
  }
  
-@@ -1769,10 +2007,28 @@
+@@ -1768,10 +2022,33 @@
          [pauseLabel setFont: [NSFont fontWithName: @"Helvetica" size: 90]];
          [pauseLabel setTextColor: [NSColor blackColor]];
          [pauseLabel sizeToFit];
@@ -354,6 +375,11 @@ everywhere. QEMU's log says when full screen covers the strip.
 +        [[NSNotificationCenter defaultCenter] addObserver:self
 +            selector:@selector(menuDidEndTracking:)
 +            name:NSMenuDidEndTrackingNotification object:nil];
++
++        /* Coming back to the full-screen Space can move the window without resizing it. */
++        [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self
++            selector:@selector(activeSpaceDidChange:)
++            name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
      }
      return self;
  }
@@ -371,15 +397,27 @@ everywhere. QEMU's log says when full screen covers the strip.
  - (void) dealloc
  {
      COCOA_DEBUG("QemuCocoaAppController: dealloc\n");
-@@ -1821,6 +2077,7 @@
+@@ -1816,29 +2093,46 @@
+     return [self verifyQuit];
+ }
+ 
+-- (void)windowDidChangeScreen:(NSNotification *)notification
++/* The guest's size, the scale and the window's level follow the window's geometry. */
++- (void)windowGeometryDidChange
  {
      [cocoaView updateScale];
      [cocoaView updateUIInfo];
 +    [cocoaView updateNotchLevel];
  }
  
++- (void)windowDidChangeScreen:(NSNotification *)notification
++{
++    [self windowGeometryDidChange];
++}
++
  - (void)windowDidChangeBackingProperties:(NSNotification *)notification
-@@ -1829,17 +2086,29 @@
+ {
+     [cocoaView updateScale];
      [cocoaView updateUIInfo];
  }
  
@@ -391,9 +429,9 @@ everywhere. QEMU's log says when full screen covers the strip.
  - (void)windowDidEnterFullScreen:(NSNotification *)notification
  {
      [fullScreenMenuItem setTitle:@"Exit Full Screen"];
-     [cocoaView updateScale];
-     [cocoaView updateUIInfo];
-+    [cocoaView updateNotchLevel];
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
++    [self windowGeometryDidChange];
      [cocoaView grabMouse];
  }
  
@@ -409,13 +447,29 @@ everywhere. QEMU's log says when full screen covers the strip.
      [cocoaView resizeWindow];
      [cocoaView updateScale];
      [cocoaView updateUIInfo];
-@@ -1850,8 +2119,19 @@
+@@ -1847,10 +2141,33 @@
+ 
+ - (void)windowDidResize:(NSNotification *)notification
  {
-     [cocoaView updateScale];
-     [cocoaView updateUIInfo];
-+    [cocoaView updateNotchLevel];
+-    [cocoaView updateScale];
+-    [cocoaView updateUIInfo];
++    [self windowGeometryDidChange];
  }
  
++- (void)windowDidMove:(NSNotification *)notification
++{
++    if ([[cocoaView window] styleMask] & NSWindowStyleMaskFullScreen) {
++        [self windowGeometryDidChange];
++    }
++}
++
++- (void)activeSpaceDidChange:(NSNotification *)notification
++{
++    if ([[cocoaView window] styleMask] & NSWindowStyleMaskFullScreen) {
++        [self windowGeometryDidChange];
++    }
++}
++
 +- (void)windowDidBecomeKey:(NSNotification *)notification
 +{
 +    [cocoaView updateNotchLevel];
@@ -429,7 +483,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  /* Called when the user clicks on a window's close button */
  - (BOOL)windowShouldClose:(id)sender
  {
-@@ -1888,6 +2168,7 @@
+@@ -1887,6 +2204,7 @@
      COCOA_DEBUG("%s\n", __func__);
      [cocoaView ungrabMouse];
      [cocoaView raiseAllKeys];
@@ -437,7 +491,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  }
  /* App deactivation can arrive independently of a key-window notification.
   * Release both paths so a delayed window transition cannot strand input. */
-@@ -1895,6 +2176,7 @@
+@@ -1894,6 +2212,7 @@
  {
      [cocoaView ungrabMouse];
      [cocoaView raiseAllKeys];
@@ -445,7 +499,7 @@ everywhere. QEMU's log says when full screen covers the strip.
  }
  
  
-@@ -2993,6 +3275,12 @@
+@@ -3000,6 +3319,12 @@
                          opts->u.cocoa.full_grab;
      immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
                               opts->u.cocoa.immersive;

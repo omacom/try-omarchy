@@ -10,7 +10,7 @@ Applies after the other Try Omarchy Cocoa patches.
 diff --git a/ui/cocoa.m b/ui/cocoa.m
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1036,8 +1036,10 @@
+@@ -1050,8 +1050,10 @@
  
          [self addTrackingArea:trackingArea];
          [trackingArea release];
@@ -23,7 +23,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
          colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
  #if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
          [self setClipsToBounds:YES];
-@@ -1125,11 +1127,12 @@
+@@ -1139,11 +1141,12 @@
  
      if (cursor) {
          CGFloat scale = [self bounds].size.width / screen.width;
@@ -37,7 +37,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
          bounds.size.width = cursor->width * scale;
          bounds.size.height = cursor->height * scale;
-@@ -1397,8 +1400,26 @@
+@@ -1411,13 +1414,30 @@
      return size;
  }
  
@@ -45,6 +45,8 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +
  - (void) resizeWindow
  {
+-    if (cocoa_notch_keeps_layout([[self window] styleMask],
+-                                 cocoa_notch_strip([[self window] screen]))) {
 +    NSWindowStyleMask styleMask = [[self window] styleMask];
 +
 +    if ((styleMask & NSWindowStyleMaskResizable) &&
@@ -58,22 +60,22 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +        [[self window] setContentMinSize:cocoa_guest_frame_size(
 +            NSZeroSize, [[self window] backingScaleFactor])];
 +        [self updateUIInfo];
+         return;
+     }
+ 
++    if (cocoa_notch_keeps_layout(styleMask, cocoa_notch_strip([[self window] screen]))) {
 +        return;
 +    }
 +
      [[self window] setContentAspectRatio:NSMakeSize(screen.width, screen.height)];
  
-     if ([self coversNotch]) {
-@@ -2186,12 +2207,19 @@
+     if (!([[self window] styleMask] & NSWindowStyleMaskResizable)) {
+@@ -2202,12 +2222,19 @@
  
      with_bql(^{
          if (isAbsoluteEnabled) {
 -            CGFloat d = (CGFloat)screen.height / [self frame].size.height;
 -            NSPoint p = [event locationInWindow];
--
--            /* Note that the origin for Cocoa mouse coords is bottom left, not top left. */
--            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, p.x * d, 0, screen.width);
--            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, screen.height - p.y * d, 0, screen.height);
 +            /*
 +             * The guest image fills the view on both axes, so map each axis
 +             * on its own: the guest's mode can lag the view's aspect.
@@ -84,7 +86,10 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +                (p.x - NSMinX(bounds)) * screen.width / NSWidth(bounds) : 0;
 +            CGFloat y = NSHeight(bounds) > 0 ?
 +                (NSMaxY(bounds) - p.y) * screen.height / NSHeight(bounds) : 0;
-+
+ 
+-            /* Note that the origin for Cocoa mouse coords is bottom left, not top left. */
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, p.x * d, 0, screen.width);
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, screen.height - p.y * d, 0, screen.height);
 +            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, x, 0, screen.width);
 +            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, y, 0, screen.height);
          } else {
