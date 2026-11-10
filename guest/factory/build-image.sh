@@ -401,6 +401,21 @@ if [[ -f $target/etc/limine-entry-tool.d/50-try-omarchy-console.conf ]]; then
   grep -rqa 'console=hvc0' "$target/boot" || fail "the kernel image lacks try-omarchy's console=hvc0"
   grep -rqa 'plymouth.ignore-serial-consoles' "$target/boot" || fail "the kernel image lacks try-omarchy's plymouth.ignore-serial-consoles"
 fi
+# The build's machine ID keys this entry, and a VM makes its own ID at first
+# boot. try-omarchy's factory-boot-entry removes the build's entry after
+# first-boot setup adds the VM's, and recognises only this layout: one
+# linux-omarchy entry whose files are in the ID's directory.
+if [[ -x $target/usr/lib/try-omarchy/factory-boot-entry ]]; then
+  build_id=$(cat "$target/etc/machine-id")
+  [[ $(sed -n 's/^comment: machine-id=//p' "$target/boot/limine.conf" | cut -d' ' -f1) == "$build_id" ]] ||
+    fail "limine.conf has entries for other machine IDs than the build's"
+  [[ $(sed -n 's|^ *//+\{0,1\}||p' "$target/boot/limine.conf") == linux-omarchy ]] ||
+    fail "the build's boot entry holds more than linux-omarchy"
+  ! sed -n 's/^ *[a-z_]*path: *//p' "$target/boot/limine.conf" | grep -qv "^boot():/$build_id/linux-omarchy/\(vmlinuz\|initramfs\)\(#\|$\)" ||
+    fail "the build's boot entry boots files outside boot():/$build_id/linux-omarchy/"
+  [[ $(cd "$target/boot/$build_id" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ') == "./linux-omarchy ./linux-omarchy/initramfs ./linux-omarchy/vmlinuz " ]] ||
+    fail "/boot/$build_id holds more than linux-omarchy/vmlinuz and initramfs"
+fi
 btrfs quota disable "$target" 2>/dev/null || true
 
 # --- installed configuration -----------------------------------------------------

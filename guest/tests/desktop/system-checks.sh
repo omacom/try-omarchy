@@ -52,6 +52,26 @@ fi
 [[ -f /etc/sddm.conf.d/autologin.conf ]] && ok "the owner's autologin is kept (try-omarchy's drop-in)" ||
   bad "the owner's autologin was removed"
 
+# --- boot entries --------------------------------------------------------------------
+# The factory image is built under its own machine ID; once setup gives this
+# machine its entry, try-omarchy removes the build's, which Limine would boot
+# first (factory-boot-entry).
+machine_id=$(cat /etc/machine-id 2>/dev/null)
+if [[ -f /boot/limine.conf ]]; then
+  ids=$(sed -n 's/^comment: machine-id=\([0-9a-f]*\).*/\1/p' /boot/limine.conf | tr '\n' ' ')
+  ids=${ids% }
+  dirs=$(find /boot -mindepth 1 -maxdepth 1 -type d -name '????????????????????????????????' ! -name "$machine_id" -printf '%f ' 2>/dev/null)
+  if [[ $ids == "$machine_id" && -z $dirs ]]; then
+    ok "Limine has one Omarchy entry, this machine's"
+  elif [[ " $ids " != *" $machine_id "* ]] && systemd-detect-virt -cq; then
+    note "Limine has no entry for this machine in a container (entries: ${ids:-none}); first-boot setup rebuilt none"
+  else
+    bad "Limine's entries are for ${ids:-no machine}, and the ESP holds kernels for ${dirs:-no other machine}; this machine is $machine_id"
+  fi
+else
+  note "no Limine configuration at /boot/limine.conf"
+fi
+
 # --- units -----------------------------------------------------------------------------
 state=$(systemctl is-system-running 2>/dev/null)
 note "system state: $state"
