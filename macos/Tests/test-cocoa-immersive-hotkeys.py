@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import platform
 import re
+import subprocess
+import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 PATCH = ROOT / "macos/patches/qemu-cocoa-immersive-hotkeys.patch"
 BUILDER = ROOT / "macos/build-qemu-gpu-runtime.sh"
+HARNESS = ROOT / "macos/Tests/cocoa-immersive-hotkeys-harness.m"
 
 
 def body() -> list[str]:
@@ -51,6 +55,62 @@ def hunk_with(needle: str) -> str:
     return next(hunk for hunk in hunks() if needle in hunk)
 
 
+def braced(source: str, marker: str) -> str:
+    start = source.index(marker)
+    depth, end = 1, source.index("{", start) + 1
+    while depth:
+        depth += (source[end] == "{") - (source[end] == "}")
+        end += 1
+    return source[start:end]
+
+
+def method_name(line: str) -> str | None:
+    match = re.match(r"- \(\w+\) ?(\w+):", line)
+    return match[1] if match else None
+
+
+def added_statements(name: str) -> str:
+    """The lines the patch adds to an Objective-C method, which may also have
+    upstream lines the patch leaves alone."""
+    current, statements = None, []
+    for line in body():
+        if line.startswith("@@"):
+            current = method_name(line.split("@@", 2)[2].strip())
+        elif line[:1] in (" ", "+"):
+            text = line[1:]
+            if text.startswith("- ("):
+                current = method_name(text)
+            elif text.startswith(("@end", "static ")):
+                current = None
+            elif line.startswith("+") and current == name and text.startswith("    "):
+                statements.append(text)
+    if not statements:
+        raise AssertionError(f"the patch adds nothing to {name}")
+    return "\n".join(statements)
+
+
+def harness() -> str:
+    text = added()
+    state = "\n".join(line for line in text.splitlines() if re.fullmatch(r"static .*;", line))
+    functions = "\n\n".join(braced(text, signature) for signature in (
+        "static void cocoa_set_immersive(bool enabled)\n",
+        "static void cocoa_fullscreen_transition_failed(void)\n",
+        "static void cocoa_toggle_immersive(void)\n",
+        "static void cocoa_return_to_host(void)\n",
+    ))
+    delegate = "\n".join(f"- (void){name}:(id)sender\n{{\n{added_statements(name)}\n}}" for name in (
+        "windowWillEnterFullScreen", "windowDidEnterFullScreen",
+        "windowDidFailToEnterFullScreen", "windowWillExitFullScreen",
+        "windowDidExitFullScreen", "windowDidFailToExitFullScreen", "toggleImmersive",
+    ))
+    source = HARNESS.read_text(encoding="utf-8")
+    for marker, code in (("/* STATE */", state),
+                         ("/* KEYS */", braced(text, "if ([event keyCode] == kVK_Escape) {")),
+                         ("/* FUNCTIONS */", functions), ("/* DELEGATE */", delegate)):
+        source = source.replace(marker, code)
+    return source
+
+
 class CocoaImmersiveHotkeysTests(unittest.TestCase):
     def test_patch_has_no_removed_lines(self) -> None:
         removed = [line for line in body() if line.startswith("-") and not line.startswith("---")]
@@ -73,14 +133,6 @@ class CocoaImmersiveHotkeysTests(unittest.TestCase):
         self.assertLess(escape, upstream)
         self.assertNotIn("kVK_ANSI_F", added())
 
-    def test_shift_picks_hiding_over_switching(self) -> None:
-        source = hunk_with("// handle control + alt Key Combos")
-        table = source[source.index("[event keyCode] == kVK_Escape"):source.index("switch (key)")]
-        self.assertIn("bool to_host = [event modifierFlags] & NSEventModifierFlagShift;", table)
-        self.assertLess(table.index("if (to_host) {"), table.index("cocoa_return_to_host();"))
-        self.assertLess(table.index("cocoa_return_to_host();"), table.index("} else {"))
-        self.assertLess(table.index("} else {"), table.index("cocoa_toggle_immersive();"))
-
     def test_shortcuts_act_outside_the_bql_and_ignore_repeats(self) -> None:
         source = hunk_with("// handle control + alt Key Combos")
         table = source[source.index("// handle control + alt Key Combos"):source.index("switch (key)")]
@@ -89,39 +141,14 @@ class CocoaImmersiveHotkeysTests(unittest.TestCase):
         self.assertIn("cocoa_return_to_host();", table)
         self.assertIn("cocoa_toggle_immersive();", table)
 
-    def test_toggle_follows_the_window_state(self) -> None:
-        toggle = block("static void cocoa_toggle_immersive(void)\n{")
-        self.assertIn("if (fullscreen_transitioning) {", toggle)
-        self.assertIn("cocoa_set_immersive(!([window styleMask] & NSWindowStyleMaskFullScreen));", toggle)
-        self.assertIn("[window toggleFullScreen:nil];", toggle)
-        self.assertLess(toggle.index("cocoa_set_immersive("), toggle.index("toggleFullScreen"))
-
-    def test_nothing_reenters_full_screen(self) -> None:
-        self.assertNotIn("immersive_reenter_pending", added())
-        self.assertEqual(added().count("toggleFullScreen"), 1)
-
-    def test_every_transition_end_clears_the_transition_state(self) -> None:
-        for source in (block("- (void)windowDidEnterFullScreen:"),
-                       hunk_with("[cocoaView ungrabMouse];")):
-            self.assertIn("fullscreen_transitioning = false;", source)
-            self.assertIn("immersive_switch_pending = false;", source)
-        for signature in ("- (void)windowWillEnterFullScreen:",
-                          "- (void)windowWillExitFullScreen:"):
-            self.assertIn("fullscreen_transitioning = true;", block(signature), signature)
-
-    def test_a_failed_switch_restores_the_immersive_state(self) -> None:
-        for signature in ("- (void)windowDidFailToEnterFullScreen:",
-                          "- (void)windowDidFailToExitFullScreen:"):
-            self.assertIn("cocoa_fullscreen_transition_failed();", block(signature), signature)
-        failed = block("static void cocoa_fullscreen_transition_failed(void)\n{")
-        self.assertIn("fullscreen_transitioning = false;", failed)
-        self.assertIn("if (immersive_switch_pending) {", failed)
-        self.assertIn("cocoa_set_immersive(immersive_before_switch);", failed)
-
-    def test_return_to_host_hides_the_app_outside_transitions(self) -> None:
-        host = block("static void cocoa_return_to_host(void)\n{")
-        self.assertIn("if (fullscreen_transitioning) {", host)
-        self.assertIn("[NSApp hide:nil];", host)
+    @unittest.skipUnless(platform.system() == "Darwin", "requires Objective-C Foundation")
+    def test_shortcuts_switch_hide_and_recover_in_the_harness(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source, binary = Path(directory) / "test.m", Path(directory) / "test"
+            source.write_text(harness(), encoding="utf-8")
+            subprocess.run(["xcrun", "clang", "-fobjc-arc", "-Werror", "-framework", "Foundation",
+                            str(source), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
 
     def test_menu_item_reflects_the_launch_setting(self) -> None:
         text = added()

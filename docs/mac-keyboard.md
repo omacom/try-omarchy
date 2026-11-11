@@ -104,3 +104,4 @@ applies the patch after the existing Cocoa series.
 The native focus regression compiles the capture and deactivation methods from
 the full-grab patch against controlled application/window state, without
 installing a global event tap or generating keyboard events.
+The host-shortcut regression compiles the shortcut handling, the immersive switch and the full-screen callbacks from the immersive-hotkeys patch against a stand-in window. It runs successful and failed transitions, and shortcuts pressed during a transition, without a real window.
