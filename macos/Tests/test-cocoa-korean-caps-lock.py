@@ -983,7 +983,8 @@ int main(void)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         self.assertIn('verify_file_sha "Try Omarchy Cocoa Korean Caps Lock patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        self.assertEqual(applied[-2:], ["korean_caps_lock_patch", "pointer_mapping_patch"])
+        self.assertEqual(applied[applied.index("korean_caps_lock_patch") + 1:],
+                         ["pointer_mapping_patch", "pointer_modifiers_patch"])
 
     def test_runner_sets_the_mode_only_from_the_helper_and_never_on_jis(self) -> None:
         runner = RUNNER.read_text(encoding="utf-8")
