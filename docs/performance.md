@@ -21,6 +21,39 @@ sleep. The app pauses the VM for Mac sleep on its own. QEMU's log says "Try
 Omarchy: App Nap off while the VM runs". `TRYOMARCHY_APP_NAP=1` in QEMU's
 environment leaves the activity out, to measure the difference.
 
+## Idle audio bridge
+
+The guest audio bridge (`omarchy-native-audio-bridge`) used to poll PipeWire
+every 0.25 s: `pactl get-default-sink` and `get-default-source` each tick and
+`pactl list short modules` every 2 s, about 8.5 new Pulse clients a second
+(about 230 client events in 10 s).
+
+The bridge now follows one `pactl subscribe` stream (C locale, since its
+lines are translated): a `server` change rereads the default endpoints, and
+the removal of one of its own modules, confirmed with one module listing,
+asks the host for the catalog again. The confirmation matters: PipeWire
+reuses module ids, so a rebuild's own removals arrive after the new modules
+took the same ids, and acting on them rebuilt the endpoints in a loop.
+A check whose `pactl` fails (a timeout or a non-zero exit) stays pending and
+retries with backoff, 1 s up to 30 s. `pactl subscribe` exits when PipeWire
+restarts; the bridge subscribes again a second later (backing off while
+PipeWire stays down) and rebuilds from a fresh host catalog. It does not exit
+for this: systemd's restart delay for the unit grows with every automatic
+restart and never resets, so recovery would slow to 30 s after a few PipeWire
+restarts. `AudioBridge` in `guest/package/tests/test_package.py` covers which
+events query PipeWire, that a failed read is retried, and that subscribing
+again drops the old backoff.
+
+Measured 2026-10-26 on an M-series MacBook Pro, 7 vCPUs, 12 GiB, package
+0.1.0-33, Omarchy edge r7311, idle desktop, `profile-process.py` over 120 s
+with the QMP guard. QEMU: 19.7 % of one host core with the polling bridge,
+13.9 % (median 11.6 %) with the subscribed one. In the guest, WirePlumber,
+pipewire-pulse and PipeWire fell from about 4 % of a core together to under
+0.4 % each, with no Pulse events in 10 s. Any other client that answers each
+Pulse event with a `pactl` query feeds on its own clients the same way: a
+user script doing so held the three daemons at about 70 % of a core and QEMU
+at 154 %.
+
 ## Reproducible resource measurements
 
 `scripts/profile-process.py` reads interval CPU counters and memory accounting on
