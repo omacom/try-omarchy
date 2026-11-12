@@ -83,6 +83,8 @@ mouse grab cannot authorize global keyboard capture after switching to a Mac
 app. App deactivation and window focus loss both release the guest's held keys
 and mouse buttons; returning to the VM does not require typing to reset capture.
 
+Two host shortcuts sit in QEMU's Control–Option table, next to Control–Option–G. Control–Option–Escape switches between Immersive full screen and a resizable window for the session. Adding Shift hides the app and leaves the VM running. Full grab is unchanged, so Command stays with the guest either way, and Control–Option–Shift–Escape is the keyboard way back to macOS. The guest never receives Control–Option–Escape, with or without Shift.
+
 If input appears stuck while using an older runtime, focus the VM and press
 Control–Option–G to release its mouse grab, then select the Mac application.
 Quit the VM if host input still does not recover.
@@ -102,3 +104,4 @@ applies the patch after the existing Cocoa series.
 The native focus regression compiles the capture and deactivation methods from
 the full-grab patch against controlled application/window state, without
 installing a global event tap or generating keyboard events.
+The host-shortcut regression compiles the shortcut handling, the immersive switch and the full-screen callbacks from the immersive-hotkeys patch against a stand-in window. It runs successful and failed transitions, and shortcuts pressed during a transition, without a real window.

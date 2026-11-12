@@ -1,0 +1,213 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: switch immersive mode and return to macOS from the keyboard
+
+Applies after all other Try Omarchy Cocoa patches.
+
+Immersive full screen hides the Mac menu bar and Dock, and full grab gives
+every focused key to the guest, so there was no keyboard way back to macOS
+short of shutting Omarchy down, and immersive mode could only be chosen at
+launch.
+
+Add two host shortcuts to the existing Control-Option table (where
+Control-Option-1..9 and Control-Option-G already belong to QEMU):
+
+- Control-Option-Escape switches between immersive full screen and a
+  resizable window, the two choices the launcher offers. Any full screen leaves for a
+  window with immersive off; a window enters full screen with immersive on.
+  The VM keeps running and the guest follows the window size. The launcher's
+  saved setting is unchanged, and a switch requested mid-transition is
+  ignored.
+- Control-Option-Shift-Escape hides Try Omarchy, unless a full-screen
+  transition is running. Its full-screen Space goes away, and app deactivation already
+  releases the keyboard and every key held in the guest. Clicking it in the
+  Dock or Command-Tab brings it back.
+
+Full grab is unchanged, so Command stays with the guest in both presentations.
+
+Both run from the main queue after the key event returns, outside the BQL,
+because AppKit window transitions call back into code that takes it. Key
+auto-repeat is consumed without acting again. If a switch's transition fails,
+the immersive state goes back to what it was. A View menu item, labeled with
+the shortcut, shows and changes the current state while the menu bar is
+visible.
+
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index 88ddc98..939a9d7 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -135,6 +135,13 @@ static bool cocoa_command_down(NSUInteger modifiers, NSUInteger device_bit)
+ static bool swap_opt_cmd;
+ static bool full_grab_enabled;
+ static bool immersive_mode_enabled = true;
++static bool fullscreen_transitioning;
++static bool immersive_switch_pending;
++static bool immersive_before_switch;
++static NSMenuItem *immersiveMenuItem;
++static void cocoa_fullscreen_transition_failed(void);
++static void cocoa_toggle_immersive(void);
++static void cocoa_return_to_host(void);
+ static bool notch_panel_enabled = true;
+ @class QemuCocoaView;
+ extern QemuCocoaView *cocoaView;
+@@ -2085,6 +2092,27 @@ - (bool) handleEventLocked:(NSEvent *)event
+             // handle control + alt Key Combos (ctrl+alt+[1..9,g] is reserved for QEMU)
+             if (([event modifierFlags] & NSEventModifierFlagControl) && ([event modifierFlags] & NSEventModifierFlagOption)) {
+                 NSString *keychar = [event charactersIgnoringModifiers];
++
++                /*
++                 * Try Omarchy host shortcuts. They run after this event
++                 * returns, outside the BQL, because AppKit window
++                 * transitions call back into code that takes it. A held
++                 * chord's auto-repeat is consumed without acting again.
++                 */
++                if ([event keyCode] == kVK_Escape) {
++                    bool to_host = [event modifierFlags] & NSEventModifierFlagShift;
++
++                    if (![event isARepeat]) {
++                        dispatch_async(dispatch_get_main_queue(), ^{
++                            if (to_host) {
++                                cocoa_return_to_host();
++                            } else {
++                                cocoa_toggle_immersive();
++                            }
++                        });
++                    }
++                    return true;
++                }
+                 if ([keychar length] == 1) {
+                     char key = [keychar characterAtIndex:0];
+                     switch (key) {
+@@ -2624,11 +2652,24 @@ - (void)windowDidChangeBackingProperties:(NSNotification *)notification
+ 
+ - (void)windowWillEnterFullScreen:(NSNotification *)notification
+ {
++    fullscreen_transitioning = true;
+     [cocoaView setNotchLeaving:false];
+ }
+ 
++- (void)windowDidFailToEnterFullScreen:(NSWindow *)window
++{
++    cocoa_fullscreen_transition_failed();
++}
++
++- (void)windowDidFailToExitFullScreen:(NSWindow *)window
++{
++    cocoa_fullscreen_transition_failed();
++}
++
+ - (void)windowDidEnterFullScreen:(NSNotification *)notification
+ {
++    fullscreen_transitioning = false;
++    immersive_switch_pending = false;
+     [fullScreenMenuItem setTitle:@"Exit Full Screen"];
+     [cocoaView updateScale];
+     [cocoaView updateUIInfo];
+@@ -2638,6 +2679,7 @@ - (void)windowDidEnterFullScreen:(NSNotification *)notification
+ 
+ - (void)windowWillExitFullScreen:(NSNotification *)notification
+ {
++    fullscreen_transitioning = true;
+     [cocoaView setNotchLeaving:true];
+ }
+ 
+@@ -2649,6 +2691,8 @@ - (void)windowDidExitFullScreen:(NSNotification *)notification
+     [cocoaView updateScale];
+     [cocoaView updateUIInfo];
+     [cocoaView ungrabMouse];
++    fullscreen_transitioning = false;
++    immersive_switch_pending = false;
+ }
+ 
+ - (void)windowDidResize:(NSNotification *)notification
+@@ -2725,6 +2769,11 @@ - (void) doToggleFullScreen:(id)sender
+     [[cocoaView window] toggleFullScreen:sender];
+ }
+ 
++- (void) toggleImmersive:(id)sender
++{
++    cocoa_toggle_immersive();
++}
++
+ - (void) setFullGrab:(id)sender
+ {
+     COCOA_DEBUG("QemuCocoaAppController: setFullGrab\n");
+@@ -2983,6 +3032,55 @@ - (void)adjustSpeed:(id)sender
+ 
+ @end
+ 
++static void cocoa_set_immersive(bool enabled)
++{
++    immersive_mode_enabled = enabled;
++    [immersiveMenuItem setState:enabled ? NSControlStateValueOn
++                                        : NSControlStateValueOff];
++}
++
++static void cocoa_fullscreen_transition_failed(void)
++{
++    fullscreen_transitioning = false;
++    if (immersive_switch_pending) {
++        immersive_switch_pending = false;
++        cocoa_set_immersive(immersive_before_switch);
++    }
++}
++
++/*
++ * Control-Option-Escape: the launcher's two choices for this session. The saved
++ * setting is not changed.
++ */
++static void cocoa_toggle_immersive(void)
++{
++    NSWindow *window = [cocoaView window];
++
++    if (fullscreen_transitioning) {
++        return;
++    }
++    immersive_before_switch = immersive_mode_enabled;
++    immersive_switch_pending = true;
++    cocoa_set_immersive(!([window styleMask] & NSWindowStyleMaskFullScreen));
++    info_report("Try Omarchy: immersive mode %s for this session",
++                immersive_mode_enabled ? "on" : "off");
++    [window toggleFullScreen:nil];
++}
++
++/*
++ * Control-Option-Shift-Escape: hand the Mac back without stopping the VM. Hiding
++ * the app leaves its full-screen Space; resigning active releases the
++ * keyboard and every key held in the guest (applicationDidResignActive).
++ * Clicking Try Omarchy in the Dock or Command-Tab brings it back.
++ */
++static void cocoa_return_to_host(void)
++{
++    if (fullscreen_transitioning) {
++        return;
++    }
++    [NSApp hide:nil];
++}
++
+ @interface QemuApplication : NSApplication
+ @end
+ 
+@@ -3047,6 +3145,14 @@ static void create_initial_menus(void)
+     menu = [[NSMenu alloc] initWithTitle:@"View"];
+     fullScreenMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Enter Full Screen" action:@selector(doToggleFullScreen:) keyEquivalent:@"f"] autorelease];
+     [menu addItem:fullScreenMenuItem];
++    /*
++     * The key equivalent only labels the item: QemuCocoaView handles
++     * Control-Option-Escape itself, before AppKit's menus see the key.
++     */
++    immersiveMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Immersive Full Screen" action:@selector(toggleImmersive:) keyEquivalent:[NSString stringWithFormat:@"%C", (unichar)0x1b]] autorelease];
++    [immersiveMenuItem setKeyEquivalentModifierMask:NSEventModifierFlagControl | NSEventModifierFlagOption];
++    [immersiveMenuItem setState:immersive_mode_enabled ? NSControlStateValueOn : NSControlStateValueOff];
++    [menu addItem:immersiveMenuItem];
+     menuItem = [[[NSMenuItem alloc] initWithTitle:@"Zoom To Fit" action:@selector(zoomToFit:) keyEquivalent:@""] autorelease];
+     [menuItem setState: [[cocoaView window] styleMask] & NSWindowStyleMaskResizable ? NSControlStateValueOn : NSControlStateValueOff];
+     [menu addItem: menuItem];
+@@ -3830,6 +3936,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+                         opts->u.cocoa.full_grab;
+     immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
+                              opts->u.cocoa.immersive;
++    [immersiveMenuItem setState:immersive_mode_enabled ? NSControlStateValueOn
++                                                       : NSControlStateValueOff];
+     notch_panel_enabled = !getenv("TRYOMARCHY_NOTCH") ||
+                           strcmp(getenv("TRYOMARCHY_NOTCH"), "0") != 0;
+     if (!notch_panel_enabled) {
