@@ -46,10 +46,10 @@ class CocoaNotchTests(unittest.TestCase):
         self.assertIn(f"notch_patch_sha256={digest}", builder)
         self.assertIn('verify_file_sha "Try Omarchy Cocoa notch patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        # Only the Command-chord, touch-scroll, Korean Caps Lock and pointer-mapping patches, made against this one, come later.
+        # Only the Command-chord, touch-scroll, Korean Caps Lock, pointer-mapping and pointer modifier patches, made against this one, come later.
         self.assertEqual(applied[applied.index("notch_patch") + 1:],
                          ["command_chord_patch", "touch_scroll_patch", "korean_caps_lock_patch",
-                          "pointer_mapping_patch"])
+                          "pointer_mapping_patch", "pointer_modifiers_patch"])
 
     def test_one_private_method_checked_before_use(self) -> None:
         install = block(patched(), "static void cocoa_notch_hook_install(void)")
