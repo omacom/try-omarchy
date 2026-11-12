@@ -36,8 +36,9 @@ class CocoaPointerMappingTests(unittest.TestCase):
         self.assertIn(f"pointer_mapping_patch_sha256={digest}", builder)
         self.assertIn('verify_file_sha "Try Omarchy Cocoa pointer-mapping patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        # Only the multi-display patch, made against this one, comes later.
-        self.assertEqual(applied[-2:], ["pointer_mapping_patch", "multi_display_patch"])
+        # Only the pointer modifier and multi-display patches, made against this one, come later.
+        self.assertEqual(applied[applied.index("pointer_mapping_patch") + 1:],
+                         ["pointer_modifiers_patch", "multi_display_patch"])
 
     def test_absolute_pointer_maps_each_axis_in_view_coordinates(self) -> None:
         added, removed = lines("+"), lines("-")
