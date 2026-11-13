@@ -20,6 +20,7 @@ struct VMRunLaunchSettings {
         SharedFolderPolicy.environmentKey,
         FullscreenLaunchConfiguration.immersiveEnvironmentKey,
         FullscreenLaunchConfiguration.notchEnvironmentKey,
+        FullscreenLaunchConfiguration.displaysEnvironmentKey,
         VMResourceLaunchConfiguration.memoryEnvironmentKey,
         VMResourceLaunchConfiguration.cpuEnvironmentKey,
         VMResourceLaunchConfiguration.diskEnvironmentKey,
@@ -311,6 +312,12 @@ final class VMRunSettingsWindow {
             setUsesNotch: { usesNotch in
                 var preferences = fullscreenStore.load()
                 preferences.usesNotch = usesNotch
+                fullscreenStore.save(preferences)
+            },
+            usesAllDisplays: { fullscreenStore.load().usesAllDisplays },
+            setUsesAllDisplays: { usesAllDisplays in
+                var preferences = fullscreenStore.load()
+                preferences.usesAllDisplays = usesAllDisplays
                 fullscreenStore.save(preferences)
             },
             productName: configuration.productName,

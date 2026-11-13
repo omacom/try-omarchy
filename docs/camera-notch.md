@@ -34,10 +34,10 @@ changes that:
   AppKit's tile) holds only until the window server tiles the Space again,
   which every Space switch does. UTM and OmacVM hook AppKit's full-screen
   machinery for the same reason, more widely.
-- While the window covers the strip and has the keyboard, it sits at
-  `NSStatusWindowLevel`, just above the black strip. An alert, a menu,
-  another app taking the keyboard, and the way out of full screen put it back
-  at the normal level, so nothing of macOS ends up behind it.
+- While the window covers the strip and the VM has the keyboard, on any of
+  its displays, it sits at `NSStatusWindowLevel`, just above the black strip.
+  An alert, a menu, another app taking the keyboard, and the way out of full
+  screen put it back at the normal level, so nothing of macOS ends up behind it.
 - With **Immersive** off, macOS keeps its auto-hidden menu bar and Dock in
   full screen. They slide out under the raised window, so the window steps
   down while the pointer is at the top edge or the Dock's edge and comes back
@@ -79,7 +79,7 @@ the `tryomarchy.host` credential; a Mac without a notch passes nothing.
 
 In the guest, `try-omarchy-host-config.service` writes it as Omarchy's
 cutout schema to `/run/try-omarchy/display-cutouts.json`, one entry per mode
-for QEMU's `Virtual-1` output:
+for the built-in panel's output, `Virtual-1` alone or the output `tryomarchy.display_panel` names with more [displays](multi-display.md):
 
 ```json
 { "panels": [
