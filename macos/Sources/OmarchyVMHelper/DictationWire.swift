@@ -20,7 +20,8 @@ enum DictationAvailability: Equatable, Sendable {
 /// numbered by the guest; the host only echoes the numbers back.
 enum DictationGuestCommand: Equatable {
     case hello(version: Int)
-    case start(session: Int, model: DictationModel)
+    /// locale is the guest's language as a BCP 47 tag, or nil when it sent none.
+    case start(session: Int, model: DictationModel, locale: String?)
     case stop(session: Int)
     case cancel(session: Int)
     case ping(id: Int)
@@ -37,7 +38,8 @@ enum DictationGuestCommand: Equatable {
             return integer(object["version"]).map { .hello(version: $0) }
         case "start":
             return integer(object["session"]).map {
-                .start(session: $0, model: DictationModel(wire: object["model"] as? String))
+                .start(session: $0, model: DictationModel(wire: object["model"] as? String),
+                       locale: (object["locale"] as? String).flatMap { DictationLocale.languageTag(guestLocale: $0) })
             }
         case "stop":
             return integer(object["session"]).map { .stop(session: $0) }

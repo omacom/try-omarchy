@@ -1660,7 +1660,8 @@ class DictationBridge(unittest.TestCase):
 
     def start(self, port_path=None):
         env = {**os.environ, "XDG_RUNTIME_DIR": self.runtime.name,
-               "OMARCHY_DICTATION_PORT": port_path or self.port_path}
+               "OMARCHY_DICTATION_PORT": port_path or self.port_path,
+               "OMARCHY_DICTATION_LOCALE_CONF": os.path.join(self.runtime.name, "locale.conf")}
         self.process = subprocess.Popen([sys.executable, str(self.BRIDGE)], env=env,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -1754,6 +1755,18 @@ class DictationBridge(unittest.TestCase):
         self.assertEqual(self.read_events(owner, 3), [
             {"event": "recording"}, {"event": "partial", "text": "hi"},
             {"event": "final", "text": "hi", "ms": 90}, "EOF"])
+
+    def test_start_names_the_language_omarchy_uses_now(self):
+        locale_conf = os.path.join(self.runtime.name, "locale.conf")
+        self.started()
+        with open(locale_conf, "w") as file:
+            file.write('LC_TIME=en_GB.UTF-8\nLANG="ja_JP.UTF-8"\n')
+        self.request(cmd="start", model="speech")
+        self.assertEqual(self.host_read(), {"type": "start", "session": 1, "model": "speech", "locale": "ja_JP.UTF-8"})
+        with open(locale_conf, "w") as file:
+            file.write("LANG=ko_KR.UTF-8\n")
+        self.request(cmd="start", model="speech")
+        self.assertEqual(self.host_read(), {"type": "start", "session": 2, "model": "speech", "locale": "ko_KR.UTF-8"})
 
     def test_stop_and_cancel_reply_ok_and_reach_host(self):
         self.started()

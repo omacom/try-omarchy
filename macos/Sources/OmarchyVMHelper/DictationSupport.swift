@@ -50,20 +50,26 @@ enum DictationLocale {
     /// language and region the recogniser takes (ja-JP, sr-RS). Anything
     /// else is the fallback.
     static func speechIdentifier(guestLocale: String) -> String {
+        languageTag(guestLocale: guestLocale) ?? fallback
+    }
+
+    /// As speechIdentifier, but nil for anything that isn't such a locale.
+    static func languageTag(guestLocale: String) -> String? {
+        guard guestLocale.utf8.count <= 64 else { return nil }
         var name = Substring(guestLocale)
         if let at = name.firstIndex(of: "@") {
-            guard isASCII(name[name.index(after: at)...], allowing: lowercase + uppercase + digits) else { return fallback }
+            guard isASCII(name[name.index(after: at)...], allowing: lowercase + uppercase + digits) else { return nil }
             name = name[..<at]
         }
         if let dot = name.firstIndex(of: ".") {
-            guard isASCII(name[name.index(after: dot)...], allowing: lowercase + uppercase + digits + "-") else { return fallback }
+            guard isASCII(name[name.index(after: dot)...], allowing: lowercase + uppercase + digits + "-") else { return nil }
             name = name[..<dot]
         }
         let parts = name.split(separator: "_", omittingEmptySubsequences: false)
         guard parts.count == 2,
               (2...3).contains(parts[0].count), isASCII(parts[0], allowing: lowercase),
               parts[1].count == 2, isASCII(parts[1], allowing: uppercase) else {
-            return fallback
+            return nil
         }
         return "\(parts[0])-\(parts[1])"
     }
@@ -87,7 +93,7 @@ final class UnavailableDictation: DictationEngine {
 
     var availability: DictationAvailability { .unavailable(reason: reason) }
     func prepare() {}
-    func start(session: Int, model: DictationModel, events: @escaping @Sendable (DictationEvent) -> Void) {}
+    func start(session: Int, model: DictationModel, locale: String?, events: @escaping @Sendable (DictationEvent) -> Void) {}
     func stop(session: Int) {}
     func cancel(session: Int) {}
 }

@@ -8,7 +8,7 @@ protocol DictationEngine: AnyObject, Sendable {
     var availability: DictationAvailability { get }
     /// The guest (re)opened the port: warm up what can be warmed up.
     func prepare()
-    func start(session: Int, model: DictationModel, events: @escaping @Sendable (DictationEvent) -> Void)
+    func start(session: Int, model: DictationModel, locale: String?, events: @escaping @Sendable (DictationEvent) -> Void)
     func stop(session: Int)
     func cancel(session: Int)
 }
@@ -115,7 +115,7 @@ final class NativeDictationBridge: @unchecked Sendable {
             if let restarted { engine.cancel(session: restarted) }
             engine.prepare()
 
-        case let .start(session, model):
+        case let .start(session, model, locale):
             if case let .unavailable(reason) = engine.availability {
                 lock.lock()
                 remember(session)
@@ -131,7 +131,7 @@ final class NativeDictationBridge: @unchecked Sendable {
             ended.remove(session)
             lock.unlock()
             if let replaced, replaced != session { engine.cancel(session: replaced) }
-            engine.start(session: session, model: model) { [weak self] event in
+            engine.start(session: session, model: model, locale: locale) { [weak self] event in
                 self?.deliver(event, session: session)
             }
 

@@ -30,10 +30,10 @@ private final class FakeDictationEngine: DictationEngine, @unchecked Sendable {
 
     func prepare() { record("prepare") }
 
-    func start(session: Int, model: DictationModel, events: @escaping @Sendable (DictationEvent) -> Void) {
+    func start(session: Int, model: DictationModel, locale: String?, events: @escaping @Sendable (DictationEvent) -> Void) {
         lock.lock()
         sinks[session] = events
-        recorded.append("start \(session) \(model.rawValue)")
+        recorded.append("start \(session) \(model.rawValue)" + (locale.map { " \($0)" } ?? ""))
         lock.unlock()
     }
 
@@ -145,6 +145,13 @@ struct NativeDictationBridgeTests {
         #expect(harness.line() == #"{"session":7,"text":"hi","type":"partial"}"#)
         #expect(harness.line() == #"{"ms":90,"session":7,"text":"hi","type":"final"}"#)
         #expect(harness.line(timeout: 0.3) == nil)
+    }
+
+    @Test("The guest's language reaches the recogniser")
+    func guestLanguageReachesTheRecogniser() throws {
+        let harness = try DictationHarness()
+        harness.send(#"{"type":"start","session":7,"model":"dictation","locale":"ko_KR.UTF-8"}"# + "\n")
+        #expect(harness.calls(1) == ["start 7 dictation ko-KR"])
     }
 
     @Test("A start while a session is live cancels the old one first")

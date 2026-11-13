@@ -10,7 +10,7 @@ Try Omarchy adds the recogniser in the app, a virtio-serial port, a guest servic
 - An app built with Xcode 26 (the macOS 26 SDK). A build made with an older Xcode leaves the recogniser out and behaves as on macOS 15.
 - Microphone access for Try Omarchy. The bridge never asks itself; grant it from the launcher's **Microphone** row or in System Settings.
 
-The first recording in a language downloads Apple's speech assets for it. That recording ends with "Downloading Apple speech assets; try again in a moment"; later ones work. The language follows Omarchy's locale when Apple's recogniser supports it and falls back to US English otherwise.
+The first recording in a language downloads Apple's speech assets for it. That recording ends with "Downloading Apple speech assets; try again in a moment"; later ones work. The language follows Omarchy's current locale (`LANG` in `/etc/locale.conf`) when Apple's recogniser supports it and falls back to US English otherwise. A change takes effect from the next recording.
 
 ## Setting
 
@@ -32,7 +32,7 @@ Guest to host:
 
 ```json
 {"type":"hello","version":1}
-{"type":"start","session":12,"model":"speech"}
+{"type":"start","session":12,"model":"speech","locale":"ja_JP.UTF-8"}
 {"type":"stop","session":12}
 {"type":"cancel","session":12}
 {"type":"ping","id":5}
@@ -57,6 +57,7 @@ Host to guest:
 - `stop` and `cancel` for a session that isn't live are ignored.
 - `final`, `cancelled` and `error` end a session.
 - `pong` names the live session only while there is one.
+- `locale` is Omarchy's `LANG` when the recording starts. A start without a valid one uses the language the Mac chose at launch, which `hello` reports.
 - `speech` is Apple's general `SpeechTranscriber`; `dictation` is `DictationTranscriber` with punctuation. Any other model is `speech`.
 
 ## Guest service

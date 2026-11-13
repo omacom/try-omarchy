@@ -16,12 +16,20 @@ struct DictationWireTests {
     @Test("Every guest command decodes")
     func decodesEveryGuestCommand() {
         #expect(command(#"{"type":"hello","version":1}"#) == .hello(version: 1))
-        #expect(command(#"{"type":"start","session":12,"model":"dictation"}"#) == .start(session: 12, model: .dictation))
-        #expect(command(#"{"type":"start","session":12,"model":"other"}"#) == .start(session: 12, model: .speech))
-        #expect(command(#"{"type":"start","session":3}"#) == .start(session: 3, model: .speech))
+        #expect(command(#"{"type":"start","session":12,"model":"dictation"}"#) == .start(session: 12, model: .dictation, locale: nil))
+        #expect(command(#"{"type":"start","session":12,"model":"other"}"#) == .start(session: 12, model: .speech, locale: nil))
+        #expect(command(#"{"type":"start","session":3}"#) == .start(session: 3, model: .speech, locale: nil))
         #expect(command(#"{"type":"stop","session":12}"#) == .stop(session: 12))
         #expect(command(#"{"type":"cancel","session":12}"#) == .cancel(session: 12))
         #expect(command(#"{"type":"ping","id":5}"#) == .ping(id: 5))
+    }
+
+    @Test("A start carries the guest's language, and an unusable one is dropped")
+    func startCarriesTheGuestLanguage() {
+        #expect(command(#"{"type":"start","session":1,"locale":"ja_JP.UTF-8"}"#) == .start(session: 1, model: .speech, locale: "ja-JP"))
+        for bad in [#""C""#, #""en-US""#, #""../x""#, #"7"#, #"null"#, "\"\(String(repeating: "a", count: 65))_US\""] {
+            #expect(command(#"{"type":"start","session":1,"locale":"# + bad + "}") == .start(session: 1, model: .speech, locale: nil), "\(bad)")
+        }
     }
 
     @Test("Malformed or unknown commands are ignored")

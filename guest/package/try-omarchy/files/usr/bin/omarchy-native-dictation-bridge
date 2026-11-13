@@ -33,6 +33,7 @@ from typing import Any
 
 
 PORT = os.environ.get("OMARCHY_DICTATION_PORT", "/dev/virtio-ports/dev.tryomarchy.dictation")
+LOCALE_CONF = os.environ.get("OMARCHY_DICTATION_LOCALE_CONF", "/etc/locale.conf")
 SOCKET_NAME = "apple-dictation.sock"
 MAX_PORT_LINE = 64 * 1024
 MAX_CLIENT_LINE = 4096
@@ -48,6 +49,21 @@ FLUSH_SECONDS = 1.0
 
 def log(message: str) -> None:
     print(f"omarchy-native-dictation-bridge: {message}", file=sys.stderr, flush=True)
+
+
+def system_language() -> str | None:
+    """LANG from locale.conf as it is now: Omarchy's language can change after
+    the Mac seeded it at first boot, and the Mac recognises speech in it."""
+    try:
+        with open(LOCALE_CONF, encoding="utf-8", errors="replace") as file:
+            text = file.read(4096)
+    except OSError:
+        return None
+    for line in text.splitlines():
+        name, _, value = line.strip().partition("=")
+        if name == "LANG":
+            return value.strip().strip('"\'') or None
+    return None
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -208,7 +224,11 @@ class Bridge:
             self.next_session += 1
             self.live = session
             self.sessions[session] = (client, time.monotonic() + SESSION_SECONDS)
-            self.to_host({"type": "start", "session": session, "model": model})
+            start = {"type": "start", "session": session, "model": model}
+            language = system_language()
+            if language:
+                start["locale"] = language
+            self.to_host(start)
         elif command in ("stop", "cancel"):
             if self.live is not None:
                 session = self.live

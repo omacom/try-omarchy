@@ -21,13 +21,13 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
 
     private enum Command {
         case prepare
-        case start(Int, DictationModel, @Sendable (DictationEvent) -> Void)
+        case start(Int, DictationModel, String?, @Sendable (DictationEvent) -> Void)
         case stop(Int)
         case cancel(Int)
         case microphoneChanged
         case timeLimit(Int)
         case recognitionFailed(Int, String)
-        case assetsInstalled(DictationModel)
+        case assetsInstalled(String)
     }
 
     private struct Session {
@@ -45,7 +45,8 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
     private let engine = AVAudioEngine()
     private var session: Session?
     private var warmedUp: Set<DictationModel> = []
-    private var installing: Set<DictationModel> = []
+    private var installing: Set<String> = []
+    private var supportedLocales: [String: Locale] = [:]
     private var configurationObserver: NSObjectProtocol?
 
     init(localeIdentifier: String) {
@@ -82,8 +83,8 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
 
     func prepare() { commands.yield(.prepare) }
 
-    func start(session: Int, model: DictationModel, events: @escaping @Sendable (DictationEvent) -> Void) {
-        commands.yield(.start(session, model, events))
+    func start(session: Int, model: DictationModel, locale: String?, events: @escaping @Sendable (DictationEvent) -> Void) {
+        commands.yield(.start(session, model, locale, events))
     }
 
     func stop(session: Int) { commands.yield(.stop(session)) }
@@ -105,8 +106,8 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
         switch command {
         case .prepare:
             await warmUp()
-        case let .start(id, model, events):
-            await start(id, model, events)
+        case let .start(id, model, tag, events):
+            await start(id, model, await supportedLocale(tag), events)
         case let .stop(id):
             if session?.id == id { await finish() }
         case let .cancel(id):
@@ -117,15 +118,25 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
             if session?.id == id { await end(with: .error("recording stopped after 10 minutes")) }
         case let .recognitionFailed(id, message):
             if session?.id == id { await end(with: .error(message)) }
-        case let .assetsInstalled(model):
-            installing.remove(model)
+        case let .assetsInstalled(key):
+            installing.remove(key)
         }
     }
 
     // MARK: - recognisers
 
-    private func makeModule(_ model: DictationModel) -> any SpeechModule {
-        let locale = currentLocale
+    /// The guest's language when Apple recognises it, else US English. A
+    /// guest that sends none keeps the language from launch.
+    private func supportedLocale(_ tag: String?) async -> Locale {
+        guard let tag else { return currentLocale }
+        if let known = supportedLocales[tag] { return known }
+        let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: tag))
+            ?? Locale(identifier: DictationLocale.fallback)
+        supportedLocales[tag] = resolved
+        return resolved
+    }
+
+    private func makeModule(_ model: DictationModel, _ locale: Locale) -> any SpeechModule {
         switch model {
         case .dictation:
             return DictationTranscriber(locale: locale, contentHints: [.shortForm],
@@ -168,20 +179,21 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
         await AssetInventory.status(forModules: [module]) == .installed
     }
 
-    /// Starts one download per model; the next start after it finishes works.
-    private func beginInstall(_ model: DictationModel) {
-        guard !installing.contains(model) else { return }
-        installing.insert(model)
-        let module = makeModule(model)
+    /// Starts one download per model and language; the next start after it finishes works.
+    private func beginInstall(_ model: DictationModel, _ locale: Locale) {
+        let key = "\(model.rawValue) \(locale.identifier(.bcp47))"
+        guard !installing.contains(key) else { return }
+        installing.insert(key)
+        let module = makeModule(model, locale)
         Task { [weak self] in
             do {
                 if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
                     try await request.downloadAndInstall()
                 }
             } catch {
-                fputs("[dictation-bridge] speech asset download for \(model.rawValue) failed: \(error)\n", stderr)
+                fputs("[dictation-bridge] speech asset download for \(key) failed: \(error)\n", stderr)
             }
-            self?.commands.yield(.assetsInstalled(model))
+            self?.commands.yield(.assetsInstalled(key))
         }
     }
 
@@ -191,7 +203,7 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
     /// this. Nothing is downloaded here.
     private func warmUp() async {
         for model in [DictationModel.speech, .dictation] where !warmedUp.contains(model) {
-            let module = makeModule(model)
+            let module = makeModule(model, currentLocale)
             guard await assetsInstalled(module),
                   let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module]),
                   let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate / 2))
@@ -220,15 +232,16 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
 
     // MARK: - sessions
 
-    private func start(_ id: Int, _ model: DictationModel, _ events: @escaping @Sendable (DictationEvent) -> Void) async {
+    private func start(_ id: Int, _ model: DictationModel, _ locale: Locale,
+                       _ events: @escaping @Sendable (DictationEvent) -> Void) async {
         if session != nil { await end(with: .cancelled) }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             events(.error(Self.microphoneDenied))
             return
         }
-        let module = makeModule(model)
+        let module = makeModule(model, locale)
         guard await assetsInstalled(module) else {
-            beginInstall(model)
+            beginInstall(model, locale)
             events(.error(Self.downloadingAssets))
             return
         }
@@ -258,7 +271,7 @@ final class AppleSpeechDictation: DictationEngine, @unchecked Sendable {
             try? await Task.sleep(nanoseconds: Self.maximumSessionSeconds * 1_000_000_000)
             self?.commands.yield(.timeLimit(id))
         }
-        fputs("[dictation-bridge] session \(id) started (\(model.rawValue))\n", stderr)
+        fputs("[dictation-bridge] session \(id) started (\(model.rawValue), \(locale.identifier(.bcp47)))\n", stderr)
     }
 
     private func finish() async {

@@ -38,7 +38,7 @@ struct DictationSupportTests {
         #expect(engine.availability == .unavailable(reason: "x"))
         let called = Locked(false)
         engine.prepare()
-        engine.start(session: 1, model: .speech) { _ in called.set(true) }
+        engine.start(session: 1, model: .speech, locale: "ja-JP") { _ in called.set(true) }
         engine.stop(session: 1)
         engine.cancel(session: 1)
         #expect(!called.value)
