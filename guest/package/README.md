@@ -30,9 +30,11 @@ not ignore, so caches and other local files never reach the package.
 
 - **No file another package owns is edited.** The package installs under
   `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
-  `/etc/chromium-flags.conf` and
+  `/etc/chromium-flags.conf`, the Limine drop-ins
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` and
-  `50-try-omarchy-cpu.conf` (all pacman `backup` files), Omarchy's sleep switch
+  `50-try-omarchy-cpu.conf`, and
+  `/etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf` (all pacman `backup`
+  files), Omarchy's sleep switch
   `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` (a `backup` file;
   the System menu then hides Suspend and Hibernate, which a VM cannot wake
   from), `/etc/sudoers.d/try-omarchy-timezone`,
@@ -164,20 +166,28 @@ switcher offers it beside the theme's own backgrounds. Omarchy's default and
 current background stay as they are, and a link the user removes stays
 removed.
 
-## Boot console
+## Boot configuration
 
 `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` adds `console=hvc0`
 and repeats `console=tty0`, so the screen stays `/dev/console`. Kernel and
 boot messages then also reach the VM's virtio console, which the app keeps as
-`console.log`. It takes effect when Limine's entries are next rebuilt, which
-the factory build does and every kernel update does.
+`console.log`. `plymouth.ignore-serial-consoles` keeps the serial log from
+hiding Plymouth's graphical splash.
+
+`/etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf` adds `virtio_gpu` to the
+initramfs. QEMU's display modalias resolves only to `virtio_pci`, so
+mkinitcpio's autodetection otherwise leaves the GPU driver out and Plymouth
+starts before the driver loads.
 
 `/etc/limine-entry-tool.d/50-try-omarchy-cpu.conf` adds `arm64.nosme`. The
 M4 reports SME without SVE, and QEMU under HVF cannot hide SME, so programs
 that run an SVE instruction outside streaming mode crash with SIGILL. Chips
-before the M4 have no SME. It takes effect the same way as the console, and
-the upgrade that adds it also rebuilds Limine's entries once on a guest that
-still shows SME, so existing M4 VMs pick it up at their next boot.
+before the M4 have no SME.
+
+These settings take effect when Limine's boot image is rebuilt, which the
+factory build does and every kernel update does. A package upgrade that adds
+boot configuration rebuilds it once, so existing VMs pick it up at their next
+boot.
 
 ## Hyprland
 
@@ -190,3 +200,10 @@ hides the guest cursor (Cocoa draws the Mac's) and hides it again whenever a
 window closes, since Omarchy's screensaver shows it as it exits. It also keeps
 the mode in sync with the window through EDID, and applies the pinch and Apple
 keyboard input rules.
+
+The session's `environment.d` sets `AQ_NO_ATOMIC=1`, so Hyprland's Aquamarine
+backend drives virtio-gpu through the legacy DRM interface. Its atomic commits
+wait forever for a page flip there and leave the desktop black
+([#429](https://github.com/omacom/try-omarchy/issues/429),
+[aquamarine#343](https://github.com/hyprwm/aquamarine/issues/343)). The line
+goes once Omarchy's aarch64 Aquamarine carries the upstream fix.

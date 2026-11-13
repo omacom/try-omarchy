@@ -373,6 +373,9 @@ missing=()
 for module in $listed; do
   modinfo --basedir "$target" -k "$kernel_release" "$module" >/dev/null 2>&1 || missing+=("$module")
 done
+if [[ -f $target/etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf && " ${missing[*]} " == *" virtio_gpu "* ]]; then
+  fail "the kernel lacks virtio_gpu, which try-omarchy loads in the initramfs for Plymouth"
+fi
 if ((${#missing[@]})); then
   cat >"$target/etc/mkinitcpio.conf.d/zz-omarchy-absent-modules.conf" <<EOF
 # Written by the image builder. The installed kernel has no such
@@ -393,9 +396,10 @@ masked_hooks=()
 arch-chroot "$target" limine-update
 grep -q Omarchy "$target/boot/limine.conf" || fail "limine.conf has no Omarchy entry"
 # try-omarchy's limine-entry-tool drop-in adds the virtio console that the Mac
-# app keeps as console.log.
+# app keeps as console.log, and keeps Plymouth's splash beside it.
 if [[ -f $target/etc/limine-entry-tool.d/50-try-omarchy-console.conf ]]; then
   grep -rqa 'console=hvc0' "$target/boot" || fail "the kernel image lacks try-omarchy's console=hvc0"
+  grep -rqa 'plymouth.ignore-serial-consoles' "$target/boot" || fail "the kernel image lacks try-omarchy's plymouth.ignore-serial-consoles"
 fi
 btrfs quota disable "$target" 2>/dev/null || true
 
