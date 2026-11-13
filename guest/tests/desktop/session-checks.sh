@@ -285,10 +285,19 @@ fi
 
 # --- the factory's apps ---------------------------------------------------------------
 apps=("$@")
-((${#apps[@]})) || apps=(omarchy-launch-nautilus foot obsidian localsend pinta "libreoffice --writer" evince)
+((${#apps[@]})) || apps=(omarchy-launch-nautilus foot obsidian localsend pinta "libreoffice --writer")
 for app in "${apps[@]}"; do
   try_app "${app%% *}" "$app"
 done
+# Omarchy picks the PDF viewer and changes it over time, so open its default.
+if (($# == 0)); then
+  viewer=$(xdg-mime query default application/pdf 2>/dev/null)
+  if [[ $viewer == *.desktop ]]; then
+    try_app "the default PDF viewer" "uwsm app -- $viewer"
+  else
+    bad "Omarchy sets no default PDF viewer (xdg-mime query default application/pdf)"
+  fi
+fi
 
 # --- installing apps the way Omarchy's Install menu does ---------------------------
 for package in cmatrix sl cowsay; do
