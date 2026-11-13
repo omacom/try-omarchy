@@ -53,6 +53,7 @@ changes that:
   strip away from the picture. A guest mode that lags the window is scaled
   onto it instead. After the window moves, for example when its Space comes
   back, the guest's size, the scale and the window's level follow it again.
+  With several displays, each full-screen window follows its own.
 
 Screens without a housing report no safe-area inset and keep QEMU's
 behaviour: external displays, Macs without a notch, and the built-in panel's
