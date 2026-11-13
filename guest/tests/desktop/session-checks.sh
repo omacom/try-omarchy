@@ -12,6 +12,7 @@
 # CI_INSTALLS names the apps to install the way Omarchy's Install menu does
 # and then open (default: ghostty kitty 1password; also vscode, signal; empty
 # for none). Text is typed through a virtual keyboard (wtype).
+# MENU_REQUIRED=0 reports a menu that doesn't open as a note, not a failure.
 #
 # Prints one "ok", "FAIL" or "note" line per check.
 
@@ -203,7 +204,8 @@ if wait_for 45 summon_menu; then
     run_cmd "omarchy-menu close" >/dev/null
   fi
 else
-  bad "Omarchy's menu did not open after $summons summons (omarchy-menu ping: $(omarchy-menu ping 2>&1 | tr '\n' ' ' | cut -c1-200))"
+  missed="Omarchy's menu did not open after $summons summons (omarchy-menu ping: $(omarchy-menu ping 2>&1 | tr '\n' ' ' | cut -c1-200))"
+  if ((${MENU_REQUIRED:-1})); then bad "$missed"; else note "$missed"; fi
 fi
 notify-send "Try Omarchy CI" "A notification from the desktop test" 2>/dev/null
 if wait_for 20 layer omarchy-notifications; then
