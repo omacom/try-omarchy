@@ -71,7 +71,8 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         )
         entered = result[result.index("- (void)windowDidEnterFullScreen:"):]
         entered = entered[: entered.index("\n}\n")]
-        self.assertLess(entered.index("full_screen_entering = false;"), entered.index("updateNotchLevel"))
+        self.assertLess(entered.index("full_screen_entering = false;"),
+                        entered.index("[self windowGeometryDidChange:view];"))
         # The bar beside the notch stays while any window of the VM has the
         # keyboard, not only the panel's own.
         self.assertIn("cocoa_head_window_is_key() && [NSApp isActive] &&", added)
@@ -124,6 +125,33 @@ class CocoaMultiDisplayTests(unittest.TestCase):
         toggle = added[added.index("    bool full_screen = heads[0].window &&"):]
         toggle = toggle[: toggle.index("\n}")]
         self.assertIn("!= 0) == full_screen) {\n            [heads[i].window toggleFullScreen:sender];", toggle)
+
+    def test_each_heads_window_follows_its_geometry_after_a_move_or_a_space_switch(self) -> None:
+        # The notch patch's geometry refresh runs for the window that changed,
+        # and a Space switch refreshes every full-screen window (#428).
+        patched = "\n".join(
+            line[1:] for line in PATCH.read_text(encoding="utf-8").splitlines()
+            if line[:1] in (" ", "+") and not line.startswith("+++")
+        )
+
+        def method(start: str) -> str:
+            body = patched[patched.index(start + "\n{"):]
+            return body[: body.index("\n}\n") + 3]
+
+        follow = method("- (void)windowGeometryDidChange:(QemuCocoaView *)view")
+        for step in ("[view updateScale];", "[view updateUIInfo];", "[view updateNotchLevel];"):
+            self.assertIn(step, follow)
+        for delegate in ("windowDidChangeScreen", "windowDidResize"):
+            self.assertIn("[self windowGeometryDidChange:cocoa_view_of_window([notification object])];",
+                          method(f"- (void){delegate}:(NSNotification *)notification"))
+        moved = method("- (void)windowDidMove:(NSNotification *)notification")
+        self.assertIn("if ([window styleMask] & NSWindowStyleMaskFullScreen) {", moved)
+        self.assertIn("[self windowGeometryDidChange:cocoa_view_of_window(window)];", moved)
+        space = method("- (void)activeSpaceDidChange:(NSNotification *)notification")
+        self.assertIn("for (unsigned i = 0; i < head_count; i++) {", space)
+        self.assertIn("if ([heads[i].window styleMask] & NSWindowStyleMaskFullScreen) {", space)
+        self.assertIn("[self windowGeometryDidChange:heads[i].view];", space)
+        self.assertNotIn("[self windowGeometryDidChange];", patched)
 
     def test_caps_lock_syncs_when_any_heads_window_becomes_key(self) -> None:
         patched = "\n".join(
