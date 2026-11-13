@@ -13,6 +13,7 @@ install running in the Mac app (see [the architecture](../../docs/architecture.m
 - `try-omarchy-import-previous`, which copies files and packages from a VM of
   an earlier direct-boot app version that the app attaches read-only;
 - root filesystem growth;
+- removing the factory image build's boot entry once the VM has its own;
 - the Hyprland display and input profile for the VM, and the Mac's camera
   notch for Omarchy's bar ([camera notch](../../docs/camera-notch.md));
 - the guest status reporter and the integration package installer.
@@ -180,6 +181,19 @@ These settings take effect when Limine's boot image is rebuilt, which the
 factory build does and every kernel update does. A package upgrade that adds
 boot configuration rebuilds it once, so existing VMs pick it up at their next
 boot.
+
+## The factory's boot entry
+
+The factory image is built under a machine ID of its own and sealed without it, so each VM makes its own ID at first boot.
+Omarchy's first-boot setup then adds a Limine entry for the VM's ID and keeps the build's, because on a shared ESP other IDs belong to other systems.
+Limine lists the build's entry first and boots it by default. After `omarchy update` the VM would keep booting the image's kernel, whose modules the update removed, or, where the factory built a UKI, stop at a hash mismatch on the UKI both entries name.
+
+`/usr/lib/try-omarchy/factory-boot-entry` removes the build's entry with `limine-entry-tool --remove-entry`, and then its kernel directory on the ESP.
+It runs after first-boot setup (the setup service's drop-in), and once on the upgrade to `0.1.0-42` for VMs set up earlier.
+It acts only in a VM from Try Omarchy's factory (the image manifest's `builder=try-omarchy-upstream`), and only when this machine has one entry whose files are all on the ESP.
+It removes only an entry named by another machine ID with one `linux-omarchy` kernel entry, which boots the vmlinuz and initramfs in that ID's directory or the `linux-omarchy` UKI, and that directory when it holds no more than those two files.
+Entries with snapshots, other kernels or other UKIs stay, and so do the VM's own entry and directory. UKI files are never removed.
+The factory build checks that the image has this layout.
 
 ## Hyprland
 

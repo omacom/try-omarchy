@@ -401,6 +401,37 @@ if [[ -f $target/etc/limine-entry-tool.d/50-try-omarchy-console.conf ]]; then
   grep -rqa 'console=hvc0' "$target/boot" || fail "the kernel image lacks try-omarchy's console=hvc0"
   grep -rqa 'plymouth.ignore-serial-consoles' "$target/boot" || fail "the kernel image lacks try-omarchy's plymouth.ignore-serial-consoles"
 fi
+# The build's machine ID keys this entry, and a VM makes its own ID at first
+# boot. try-omarchy's factory-boot-entry removes the build's entry after
+# first-boot setup adds the VM's, and recognises only this layout: one
+# linux-omarchy entry booting the linux-omarchy UKI, or the vmlinuz and
+# initramfs in the ID's directory, which holds nothing else.
+if [[ -x $target/usr/lib/try-omarchy/factory-boot-entry ]]; then
+  build_id=$(cat "$target/etc/machine-id")
+  conf=$target/boot/limine.conf
+  [[ $(sed -n 's/^[[:space:]]*comment:[[:space:]]*machine-id=//p' "$conf" | cut -d' ' -f1) == "$build_id" ]] ||
+    fail "limine.conf has entries for other machine IDs than the build's"
+  entry=$(awk -v id="$build_id" '
+    function flush() { if (mine) printf "%s", block; block = ""; mine = 0 }
+    /^[[:space:]]*\// { header = $0; sub(/^[[:space:]]*/, "", header); if (header !~ /^\/\//) flush() }
+    { block = block $0 "\n" }
+    tolower($0) ~ ("^[[:space:]]*comment:[[:space:]]*machine-id=" id "([[:space:]]|$)") { mine = 1 }
+    END { flush() }
+  ' "$conf")
+  [[ $(sed -n 's|^[[:space:]]*//+\{0,1\}||p' <<<"$entry") == linux-omarchy ]] ||
+    fail "the build's boot entry holds more than linux-omarchy"
+  paths=$(awk 'tolower($0) ~ /^[[:space:]]*[a-z_]*path[[:space:]]*:/ {
+    key = tolower($0); sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*:.*/, "", key)
+    value = substr($0, index($0, ":") + 1); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
+    print key " " value
+  }' <<<"$entry")
+  [[ -n $paths ]] && ! grep -Ev "^[a-z_]*path boot\(\):/$build_id/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?$|^path boot\(\):/EFI/Linux/[A-Za-z0-9]+_linux-omarchy\.efi(#[0-9a-f]+)?$" <<<"$paths" ||
+    fail "the build's boot entry boots files other than linux-omarchy's"
+  if [[ -e $target/boot/$build_id ]]; then
+    ! find "$target/boot/$build_id" -mindepth 1 | grep -vxE "$target/boot/$build_id/linux-omarchy(/vmlinuz|/initramfs)?" ||
+      fail "/boot/$build_id holds more than linux-omarchy/vmlinuz and initramfs"
+  fi
+fi
 btrfs quota disable "$target" 2>/dev/null || true
 
 # --- installed configuration -----------------------------------------------------
