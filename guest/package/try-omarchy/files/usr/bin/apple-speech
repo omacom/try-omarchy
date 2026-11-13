@@ -29,7 +29,7 @@ import time
 PORT = os.environ.get("OMARCHY_DICTATION_PORT", "/dev/virtio-ports/dev.tryomarchy.dictation")
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 SOCKET = os.path.join(RUNTIME, "apple-dictation.sock")
-PENDING = os.path.join(RUNTIME, "apple-speech.pending")
+PENDING = "apple-speech.pending."
 LOCK = os.path.join(RUNTIME, "apple-speech.lock")
 MODELS = ("dictation", "speech")
 MODEL_SETTING = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
@@ -104,10 +104,10 @@ class Locked:
         os.close(self.descriptor)
 
 
-def take_pending():
-    """Removes the waiting start's mark; False when there was none."""
+def take_pending(name):
+    """Removes a waiting start's mark; False when there was none."""
     try:
-        os.unlink(PENDING)
+        os.unlink(os.path.join(RUNTIME, name))
         return True
     except FileNotFoundError:
         return False
@@ -117,16 +117,18 @@ def start_late(message):
     """The bridge isn't listening yet, as for a key pressed right at login.
     Returns the connection, or None when a stop or cancel withdrew the start
     while it waited."""
+    mark = PENDING + str(os.getpid())
     with Locked():
-        os.close(os.open(PENDING, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600))
+        os.close(os.open(os.path.join(RUNTIME, mark), os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600))
     try:
         connection = connect(STARTING_SECONDS)
     except OSError:
         with Locked():
-            take_pending()
+            if not take_pending(mark):
+                return None
         raise
     with Locked():
-        if not take_pending():
+        if not take_pending(mark):
             connection.close()
             return None
         connection.sendall(message)
@@ -134,10 +136,11 @@ def start_late(message):
 
 
 def withdraw(command):
-    """A stop or cancel that found no bridge: withdraw the start waiting for
-    it, or, if that start got through meanwhile, follow it."""
+    """A stop or cancel that found no bridge: withdraw every start waiting for
+    it, or, if none is left because one got through meanwhile, follow it."""
     with Locked():
-        if take_pending():
+        waiting = [name for name in os.listdir(RUNTIME) if name.startswith(PENDING)]
+        if [name for name in waiting if take_pending(name)]:
             return
         try:
             request(command)

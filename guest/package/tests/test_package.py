@@ -2072,30 +2072,55 @@ class AppleSpeech(unittest.TestCase):
         self.assertTrue(self.bridge.wait_for(lambda b: b.commands))
         self.assertEqual(self.bridge.commands, [{"cmd": "start", "model": "dictation"}])
 
+    def waiting_start(self):
+        starting = subprocess.Popen([sys.executable, str(self.CLIENT), "start"], env=self.client_env(),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        mark = Path(self.runtime.name) / f"apple-speech.pending.{starting.pid}"
+        deadline = time.monotonic() + 3
+        while not mark.exists():
+            self.assertLess(time.monotonic(), deadline, "start never waited for the bridge")
+            time.sleep(0.01)
+        return starting
+
+    def finished(self, process, code=0):
+        self.assertEqual(process.wait(timeout=5), code, process.stderr.read())
+        process.stderr.close()
+
+    def marks(self):
+        return [path.name for path in Path(self.runtime.name).iterdir() if path.name.startswith("apple-speech.pending")]
+
     def test_a_release_before_the_bridge_listens_withdraws_the_waiting_start(self):
         # A tap right at login: the key is released while start still waits
         # for the bridge, so the Mac must never start recording.
         import threading
-        starting = subprocess.Popen([sys.executable, str(self.CLIENT), "start"], env=self.client_env(),
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-        pending = Path(self.runtime.name) / "apple-speech.pending"
-        deadline = time.monotonic() + 3
-        while not pending.exists():
-            self.assertLess(time.monotonic(), deadline, "start never waited for the bridge")
-            time.sleep(0.01)
+        starting = self.waiting_start()
         self.assertEqual(self.run_client("stop").returncode, 0)
         later = threading.Timer(0.2, self.serve)
         later.start()
-        self.assertEqual(starting.wait(timeout=5), 0, starting.stderr.read())
-        starting.stderr.close()
+        self.finished(starting)
         later.join()
         self.assertFalse(self.bridge.wait_for(lambda b: b.commands, timeout=0.5))
-        self.assertFalse(pending.exists())
+        self.assertEqual(self.marks(), [])
+
+    def test_a_withdrawn_start_leaves_the_next_press_alone(self):
+        # The withdrawn start gives up before the bridge opens; its cleanup
+        # must not take the next press's mark with it.
+        first = self.waiting_start()
+        self.assertEqual(self.run_client("stop").returncode, 0)
+        time.sleep(0.5)  # so the next press still waits when the first gives up
+        second = self.waiting_start()
+        self.finished(first)
+        self.serve()
+        self.finished(second)
+        self.assertTrue(self.bridge.wait_for(lambda b: b.commands))
+        self.assertEqual(self.bridge.commands, [{"cmd": "start", "model": "dictation"}])
+        self.assertEqual(self.marks(), [])
+        self.assertFalse(self.log.exists(), "a withdrawn start reported the bridge missing")
 
     def test_says_so_when_dictation_is_on_but_the_bridge_never_answers(self):
         result = self.run_client("start")
         self.assertEqual(result.returncode, 1)
-        self.assertFalse((Path(self.runtime.name) / "apple-speech.pending").exists())
+        self.assertEqual(self.marks(), [])
         lines = self.logged()
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("notify-send "), lines)
