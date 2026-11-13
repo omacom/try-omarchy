@@ -18,6 +18,7 @@ the choice lives in $XDG_CONFIG_HOME/apple-speech/model and is read at each
 start.
 """
 
+import fcntl
 import json
 import os
 import socket
@@ -26,7 +27,10 @@ import sys
 import time
 
 PORT = os.environ.get("OMARCHY_DICTATION_PORT", "/dev/virtio-ports/dev.tryomarchy.dictation")
-SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}", "apple-dictation.sock")
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+SOCKET = os.path.join(RUNTIME, "apple-dictation.sock")
+PENDING = os.path.join(RUNTIME, "apple-speech.pending")
+LOCK = os.path.join(RUNTIME, "apple-speech.lock")
 MODELS = ("dictation", "speech")
 MODEL_SETTING = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
                              "apple-speech", "model")
@@ -83,10 +87,62 @@ def connect(wait=0.0):
             time.sleep(0.05)
 
 
-def request(cmd):
-    with connect() as connection:
+def request(cmd, connection=None):
+    with connection or connect() as connection:
         connection.sendall((json.dumps({"cmd": cmd}) + "\n").encode())
         return json.loads(connection.makefile("rb").readline() or b"{}")
+
+
+class Locked:
+    """Orders a start still waiting for the bridge against a stop or cancel."""
+
+    def __enter__(self):
+        self.descriptor = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(self.descriptor, fcntl.LOCK_EX)
+
+    def __exit__(self, *_):
+        os.close(self.descriptor)
+
+
+def take_pending():
+    """Removes the waiting start's mark; False when there was none."""
+    try:
+        os.unlink(PENDING)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def start_late(message):
+    """The bridge isn't listening yet, as for a key pressed right at login.
+    Returns the connection, or None when a stop or cancel withdrew the start
+    while it waited."""
+    with Locked():
+        os.close(os.open(PENDING, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600))
+    try:
+        connection = connect(STARTING_SECONDS)
+    except OSError:
+        with Locked():
+            take_pending()
+        raise
+    with Locked():
+        if not take_pending():
+            connection.close()
+            return None
+        connection.sendall(message)
+    return connection
+
+
+def withdraw(command):
+    """A stop or cancel that found no bridge: withdraw the start waiting for
+    it, or, if that start got through meanwhile, follow it."""
+    with Locked():
+        if take_pending():
+            return
+        try:
+            request(command)
+        except (OSError, ValueError):
+            pass
 
 
 def hold(connection):
@@ -109,9 +165,16 @@ def hold(connection):
 
 
 def start():
+    message = (json.dumps({"cmd": "start", "model": current_model()}) + "\n").encode()
     try:
-        connection = connect(STARTING_SECONDS)
-        connection.sendall((json.dumps({"cmd": "start", "model": current_model()}) + "\n").encode())
+        try:
+            connection = connect()
+        except OSError:
+            connection = start_late(message)
+            if connection is None:
+                return 0
+        else:
+            connection.sendall(message)
     except OSError:
         notify("Apple Speech isn't answering", "Try Omarchy's dictation bridge did not respond.")
         return 1
@@ -147,7 +210,12 @@ def main():
     if command == "start":
         return start()
     try:
-        request(command)
+        connection = connect()
+    except OSError:
+        withdraw(command)
+        return 0
+    try:
+        request(command, connection)
     except (OSError, ValueError):
         pass
     return 0

@@ -1999,12 +1999,14 @@ class AppleSpeech(unittest.TestCase):
         self.bridge = FakeDictationBridge(self.socket_path)
         return self.bridge
 
+    def client_env(self):
+        return {**os.environ, "XDG_RUNTIME_DIR": self.runtime.name, "OMARCHY_DICTATION_PORT": str(self.port),
+                "XDG_CONFIG_HOME": str(self.config), "PATH": f"{self.bin}:{os.environ['PATH']}",
+                "TEST_LOG": str(self.log)}
+
     def run_client(self, *args):
-        env = {**os.environ, "XDG_RUNTIME_DIR": self.runtime.name, "OMARCHY_DICTATION_PORT": str(self.port),
-               "XDG_CONFIG_HOME": str(self.config), "PATH": f"{self.bin}:{os.environ['PATH']}",
-               "TEST_LOG": str(self.log)}
-        return subprocess.run([sys.executable, str(self.CLIENT), *args], env=env, capture_output=True, text=True,
-                              timeout=10)
+        return subprocess.run([sys.executable, str(self.CLIENT), *args], env=self.client_env(), capture_output=True,
+                              text=True, timeout=10)
 
     def set_model(self, text):
         setting = self.config / "apple-speech/model"
@@ -2070,9 +2072,30 @@ class AppleSpeech(unittest.TestCase):
         self.assertTrue(self.bridge.wait_for(lambda b: b.commands))
         self.assertEqual(self.bridge.commands, [{"cmd": "start", "model": "dictation"}])
 
+    def test_a_release_before_the_bridge_listens_withdraws_the_waiting_start(self):
+        # A tap right at login: the key is released while start still waits
+        # for the bridge, so the Mac must never start recording.
+        import threading
+        starting = subprocess.Popen([sys.executable, str(self.CLIENT), "start"], env=self.client_env(),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        pending = Path(self.runtime.name) / "apple-speech.pending"
+        deadline = time.monotonic() + 3
+        while not pending.exists():
+            self.assertLess(time.monotonic(), deadline, "start never waited for the bridge")
+            time.sleep(0.01)
+        self.assertEqual(self.run_client("stop").returncode, 0)
+        later = threading.Timer(0.2, self.serve)
+        later.start()
+        self.assertEqual(starting.wait(timeout=5), 0, starting.stderr.read())
+        starting.stderr.close()
+        later.join()
+        self.assertFalse(self.bridge.wait_for(lambda b: b.commands, timeout=0.5))
+        self.assertFalse(pending.exists())
+
     def test_says_so_when_dictation_is_on_but_the_bridge_never_answers(self):
         result = self.run_client("start")
         self.assertEqual(result.returncode, 1)
+        self.assertFalse((Path(self.runtime.name) / "apple-speech.pending").exists())
         lines = self.logged()
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("notify-send "), lines)
