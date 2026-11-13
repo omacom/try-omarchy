@@ -42,3 +42,20 @@ Set CPU cores, memory and the maximum disk size in **Resources → Configure…*
 ## VMs from older versions
 
 Versions of the app before 1.0 used a different kind of VM, which this version can't launch. Your old VM's files stay where they were, and the new VM can read them. To copy your files and packages over, choose **Setup → Import Previous VM** in the Omarchy menu, or run `try-omarchy-import-previous --dry-run` to see what would be copied.
+
+### Removing the old VM
+
+Once you have everything you need, delete the old VM to free its disk space. Until then, the new VM keeps attaching it read-only.
+
+1. In the new VM, check that your files are there. The import copies your home folder's files and a few settings, but not the rest of `~/.config` or anything outside your home. Run `try-omarchy-import-previous --open` to browse the old VM and copy anything else you need, then `--close`. `try-omarchy-import-previous --packages --dry-run` lists any packages the old VM had that you haven't installed yet.
+2. Shut down Omarchy.
+3. In Finder, choose **Go → Go to Folder…** and open the VM folder: `~/Library/Application Support/Try Omarchy/VM/v1`, or the folder shown in **Manage…**. Move the `disks`, `boot` and `locks` folders to the Trash. They belong only to the old VM. Leave everything else alone: `shell`, `shell-factory` and `settings.json` are your new VM.
+4. Empty the Trash to free the space. Until then, you can put the folders back.
+
+To delete them permanently from the Terminal instead, for the default folder:
+
+```sh
+rm -rf ~/Library/"Application Support/Try Omarchy/VM/v1"/{disks,boot,locks}
+```
+
+To see how much space they use first, run `du -sh ~/Library/"Application Support/Try Omarchy/VM/v1"/{disks,boot,locks}`.

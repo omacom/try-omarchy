@@ -298,4 +298,10 @@ enum StartMenuPresentation {
             : "Omarchy’s dictation can’t use Apple speech recognition."
     }
 
+    static func displaysDetail(isEnabled: Bool) -> String {
+        isEnabled
+            ? "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces."
+            : "Full Screen uses one display."
+    }
+
 }

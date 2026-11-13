@@ -20,6 +20,7 @@ struct VMRunLaunchSettings {
         SharedFolderPolicy.environmentKey,
         FullscreenLaunchConfiguration.immersiveEnvironmentKey,
         FullscreenLaunchConfiguration.notchEnvironmentKey,
+        FullscreenLaunchConfiguration.displaysEnvironmentKey,
         VMResourceLaunchConfiguration.memoryEnvironmentKey,
         VMResourceLaunchConfiguration.cpuEnvironmentKey,
         VMResourceLaunchConfiguration.diskEnvironmentKey,
@@ -323,6 +324,12 @@ final class VMRunSettingsWindow {
             dictationSupported: DictationSupport.isAvailable,
             dictationEnabled: { dictationStore.load().isEnabled },
             setDictationEnabled: { dictationStore.save(DictationPreferences(isEnabled: $0)) },
+            usesAllDisplays: { fullscreenStore.load().usesAllDisplays },
+            setUsesAllDisplays: { usesAllDisplays in
+                var preferences = fullscreenStore.load()
+                preferences.usesAllDisplays = usesAllDisplays
+                fullscreenStore.save(preferences)
+            },
             productName: configuration.productName,
             runsInAnotherApp: true,
             firstBootCompleted: { true },

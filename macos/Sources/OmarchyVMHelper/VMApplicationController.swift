@@ -343,6 +343,15 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             setDictationEnabled: { [weak self] isEnabled in
                 self?.dictationPreferenceStore.save(DictationPreferences(isEnabled: isEnabled))
             },
+            usesAllDisplays: { [weak self] in
+                self?.fullscreenPreferenceStore.load().usesAllDisplays ?? false
+            },
+            setUsesAllDisplays: { [weak self] usesAllDisplays in
+                guard let store = self?.fullscreenPreferenceStore else { return }
+                var preferences = store.load()
+                preferences.usesAllDisplays = usesAllDisplays
+                store.save(preferences)
+            },
             startAutomatically: { [weak self] in
                 guard let self else { return false }
                 return self.startupPreferenceStore.load(storageRoot: self.startupPreferenceRoot())

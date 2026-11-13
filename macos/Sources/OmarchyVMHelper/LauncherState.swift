@@ -107,6 +107,7 @@ final class LauncherState {
     /// Apple speech recognition needs macOS 26.
     var dictationSupported = false
     var dictationEnabled = true
+    var usesAllDisplays = false
     var startAutomatically = false
 
     var productName = ProductName.defaultName

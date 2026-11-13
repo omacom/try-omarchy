@@ -227,6 +227,19 @@ struct StartMenuLauncherTests {
         #expect(!supported.state.dictationEnabled)
     }
 
+    @Test("the all displays setting is off by default and saves its choice")
+    func allDisplaysSetting() {
+        _ = NSApplication.shared
+        var usesAllDisplays = false
+        let menu = makeMenu(usesAllDisplays: { usesAllDisplays }, setUsesAllDisplays: { usesAllDisplays = $0 })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        #expect(!menu.state.usesAllDisplays)
+        menu.actions.setUsesAllDisplays(true)
+        #expect(usesAllDisplays)
+        #expect(menu.state.usesAllDisplays)
+    }
+
     @Test("returning to the launcher keeps its view and skips storage probes")
     func activationPreservesLauncher() throws {
         _ = NSApplication.shared
@@ -552,6 +565,8 @@ struct StartMenuLauncherTests {
         dictationSupported: Bool = false,
         dictationEnabled: @escaping () -> Bool = { false },
         setDictationEnabled: @escaping (Bool) -> Void = { _ in },
+        usesAllDisplays: @escaping () -> Bool = { false },
+        setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
@@ -596,6 +611,8 @@ struct StartMenuLauncherTests {
             dictationSupported: dictationSupported,
             dictationEnabled: dictationEnabled,
             setDictationEnabled: setDictationEnabled,
+            usesAllDisplays: usesAllDisplays,
+            setUsesAllDisplays: setUsesAllDisplays,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,
