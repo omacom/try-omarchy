@@ -795,6 +795,15 @@
  
      with_bql(^{
          int sent = cocoa_caps_lock_input_source(&cocoa_caps_lock_state,
+@@ -2410,7 +2658,7 @@
+ - (void) sendMediaKey:(int)qcode down:(bool)down
+ {
+     with_bql(^{
+-        if (qemu_console_is_graphic(dcl.con)) {
++        if (qemu_console_is_graphic(head->dcl.con)) {
+             qkbd_state_key_event(kbd, qemu_input_map_qcode_to_linux[qcode],
+                                  down);
+         }
 @@ -2437,9 +2685,9 @@
  - (void) raiseAllButtons
  {
