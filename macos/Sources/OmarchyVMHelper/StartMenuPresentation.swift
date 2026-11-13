@@ -311,4 +311,10 @@ enum StartMenuPresentation {
             ? "Full Screen fills the area beside the notch, with Omarchy’s bar around it."
             : "Full Screen stays below the notch, like other Mac apps."
     }
+
+    static func displaysDetail(isEnabled: Bool) -> String {
+        isEnabled
+            ? "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces."
+            : "Full Screen uses one display."
+    }
 }

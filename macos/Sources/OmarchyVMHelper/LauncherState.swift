@@ -106,6 +106,7 @@ final class LauncherState {
     var usesNotch = true
     var keyboardRouting = StartMenuPresentation.keyboardRouting(.defaults)
     var keyboardRoutingIsDefault = true
+    var usesAllDisplays = false
     var startAutomatically = false
 
     var productName = ProductName.defaultName

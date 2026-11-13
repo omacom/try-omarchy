@@ -22,6 +22,7 @@ struct LauncherActions {
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
     var configureKeyboard: () -> Void = {}
+    var setUsesAllDisplays: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
     var resetSettings: () -> Void = {}
     var restart: () -> Void = {}
@@ -723,6 +724,16 @@ private struct StartupSection: View {
                     detail: [StartMenuPresentation.notchDetail(isEnabled: state.usesNotch)]
                 ) {
                     LauncherSwitch("Camera Notch", isOn: state.usesNotch, set: actions.setUsesNotch)
+                }
+            }
+
+            if state.immersive {
+                SettingRow(
+                    icon: SettingIcon("display.2", .blue),
+                    title: "All Displays",
+                    detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)]
+                ) {
+                    LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
                 }
             }
 

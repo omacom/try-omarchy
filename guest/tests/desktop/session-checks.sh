@@ -175,8 +175,17 @@ for binding in "64 RETURN Terminal" "64 SPACE Omarchy menu"; do
     bad "Super + ${key,,} is not bound to $description"
 done
 
-run_cmd "omarchy-menu summon" >/dev/null
-if wait_for 30 layer omarchy-menu; then
+# Right after Omarchy's first login the shell is still loading plugins, and a
+# summon can be lost, so it repeats until the menu shows.
+summons=0
+summon_menu() {
+  layer omarchy-menu && return
+  summons=$((summons + 1))
+  run_cmd "omarchy-menu summon" >/dev/null
+  wait_for 5 layer omarchy-menu
+}
+if wait_for 45 summon_menu; then
+  ((summons == 1)) || note "Omarchy's menu opened on summon $summons"
   ok "Omarchy's menu opens (the command Super + Space runs)"
   sleep 1
   shot menu
@@ -189,7 +198,7 @@ if wait_for 30 layer omarchy-menu; then
     run_cmd "omarchy-menu close" >/dev/null
   fi
 else
-  bad "Omarchy's menu did not open"
+  bad "Omarchy's menu did not open after $summons summons (omarchy-menu ping: $(omarchy-menu ping 2>&1 | tr '\n' ' ' | cut -c1-200))"
 fi
 notify-send "Try Omarchy CI" "A notification from the desktop test" 2>/dev/null
 if wait_for 20 layer omarchy-notifications; then

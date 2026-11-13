@@ -174,9 +174,9 @@ index 7dc23ee..c5ba5b4 100644
  /*
   * Makes the target think all down keys are being released.
   * This prevents a stuck key problem, since we will not see
-@@ -2740,6 +2815,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
-         dcl.ops = &dcl_ops;
-     }
+@@ -2674,6 +2749,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ 
+     COCOA_DEBUG("qemu_cocoa: cocoa_display_init\n");
  
 +    media_keys_enabled = opts->u.cocoa.has_media_keys &&
 +                         opts->u.cocoa.media_keys;

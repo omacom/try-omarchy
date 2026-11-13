@@ -6,8 +6,13 @@ import TryOmarchyKitClient
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-display-layout | --host-display-panel | --host-display-pixels | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
+}
+
+/// The launcher's Camera notch setting, as run-qemu-gpu.sh hands it to QEMU.
+private func hostNotchEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["TRYOMARCHY_NOTCH"] != "0"
 }
 
 private func effectiveArguments() -> [String] {
@@ -266,6 +271,24 @@ do {
     if arguments.first == "--host-caps-lock-input" {
         guard arguments.count == 1 else { usage() }
         print(HostCapsLockInput.detect())
+        exit(0)
+    }
+
+    if arguments.first == "--host-display-layout" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detect(notch: hostNotchEnabled()) })
+        exit(0)
+    }
+
+    if arguments.first == "--host-display-panel" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detectPanel() })
+        exit(0)
+    }
+
+    if arguments.first == "--host-display-pixels" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detectPixels(notch: hostNotchEnabled()) })
         exit(0)
     }
 

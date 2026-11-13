@@ -155,15 +155,16 @@ index 4953dea..7dc23ee 100644
              // don't pass the guest a spurious key-up if we treated this
              // command-key combo as a host UI action
              if (![self isKeyboardCaptured] &&
-@@ -2672,6 +2740,11 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
-         dcl.ops = &dcl_ops;
-     }
+@@ -2606,6 +2674,12 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ 
+     COCOA_DEBUG("qemu_cocoa: cocoa_display_init\n");
  
 +    if (opts->u.cocoa.host_keys &&
 +        !cocoa_parse_host_keys(opts->u.cocoa.host_keys, cocoa_host_keys)) {
 +        error_report("cocoa: host-keys must be keycodes 0-255 separated by ':'");
 +        exit(1);
 +    }
-     full_grab_enabled = opts->u.cocoa.has_full_grab &&
-                         opts->u.cocoa.full_grab;
-     immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
++
+     // Pull this console process up to being a fully-fledged graphical
+     // app with a menubar and Dock icon
+     ProcessSerialNumber psn = { 0, kCurrentProcess };

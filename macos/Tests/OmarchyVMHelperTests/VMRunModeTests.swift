@@ -508,7 +508,7 @@ struct VMRunLaunchSettingsTests {
         let settings = fixture.vmSettings(legacy: false)
         VMResourcePreferenceStore(storage: settings).save(VMResources(cpuCount: 6, memoryGiB: 8, diskGiB: 96))
         try PortForwardingPreferenceStore(storage: settings).save([PortForwardPreset.ssh])
-        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false))
+        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false, usesAllDisplays: false))
         var keyboard = KeyboardRoutingPreferences.defaults
         keyboard.media = .omarchy
         KeyboardRoutingPreferenceStore(storage: settings).save(keyboard)
@@ -527,6 +527,7 @@ struct VMRunLaunchSettingsTests {
         #expect(environment[PortForwardPolicy.environmentKey] != nil)
         #expect(environment[FullscreenLaunchConfiguration.immersiveEnvironmentKey] == "0")
         #expect(environment[KeyboardRoutingLaunchConfiguration.mediaKeysEnvironmentKey] == "1")
+        #expect(environment[FullscreenLaunchConfiguration.displaysEnvironmentKey] == "0")
         #expect(environment[VMNetworkPolicy.modeKey] == VMNetworkMode.nat.rawValue)
     }
 

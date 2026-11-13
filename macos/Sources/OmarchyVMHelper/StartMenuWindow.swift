@@ -57,6 +57,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setUsesNotch: (Bool) -> Void
     private let keyboardRouting: () -> KeyboardRoutingPreferences
     private let saveKeyboardRouting: (KeyboardRoutingPreferences) -> Void
+    private let usesAllDisplays: () -> Bool
+    private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
     private let presentStartupSaveError: (NSAlert, NSWindow) -> Void
@@ -156,6 +158,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
         keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
         saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
+        usesAllDisplays: @escaping () -> Bool = { false },
+        setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { $0.beginSheetModal(for: $1) },
@@ -214,6 +218,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setUsesNotch = setUsesNotch
         self.keyboardRouting = keyboardRouting
         self.saveKeyboardRouting = saveKeyboardRouting
+        self.usesAllDisplays = usesAllDisplays
+        self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
         self.presentStartupSaveError = presentStartupSaveError
@@ -293,6 +299,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
             configureKeyboard: { [weak self] in self?.beginKeyboardConfiguration() },
+            setUsesAllDisplays: { [weak self] in self?.changeDisplaysMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
             resetSettings: { [weak self] in self?.confirmSettingsReset() },
             restart: { [weak self] in self?.requestShutdown(.restart) },
@@ -574,6 +581,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         let routing = keyboardRouting()
         state.keyboardRouting = StartMenuPresentation.keyboardRouting(routing)
         state.keyboardRoutingIsDefault = routing == .defaults
+        state.usesAllDisplays = usesAllDisplays()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
     }
@@ -835,6 +843,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             notification: .announcementRequested,
             userInfo: [
                 .announcement: StartMenuPresentation.immersiveDetail(isEnabled: isEnabled),
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
+    func changeDisplaysMode(_ isEnabled: Bool) {
+        guard !controlsBusy else { return }
+        setUsesAllDisplays(isEnabled)
+        state.usesAllDisplays = isEnabled
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: StartMenuPresentation.displaysDetail(isEnabled: isEnabled),
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
