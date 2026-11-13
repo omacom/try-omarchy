@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import TryOmarchyKitClient
 @testable import OmarchyVMHelper
 
 @Suite("QEMU GPU app launch request")
@@ -362,12 +363,71 @@ struct QEMUGPUStorageSpaceEstimateTests {
 
 @Suite("Bundled QEMU GPU launcher path")
 struct QEMUGPULauncherPathTests {
-    @Test("resolves only the executable inside the app resources")
-    func resolvesExpectedLayout() throws {
-        let fixture = try makeFixture()
+    @Test("resolves the launcher in the app, a renamed app and the kit", arguments: [
+        "Try Omarchy.app", "Omarchy.app", "Try Omarchy 2.app", TryOmarchyKit.bundleName,
+    ])
+    func resolvesBundledLauncher(bundleName: String) throws {
+        let fixture = try makeFixture(bundleName: bundleName)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
 
-        #expect(try QEMUGPULauncherPath.resolve(bundleURL: fixture.app) == fixture.launcher)
+        #expect(try fixture.resolve() == fixture.launcher)
+    }
+
+    @Test("matches the helper when its path and the bundle's differ only by symlinked parents")
+    func resolvesThroughSymlinkedParents() throws {
+        let fixture = try makeFixture(bundleName: "Omarchy.app")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let linkedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("omarchy-qemu-link-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: linkedRoot, withDestinationURL: fixture.root)
+        defer { try? FileManager.default.removeItem(at: linkedRoot) }
+        let linkedBundle = linkedRoot.appendingPathComponent("Omarchy.app", isDirectory: true)
+
+        #expect(try QEMUGPULauncherPath.resolve(bundleURL: linkedBundle, executableURL: fixture.helper)
+            == fixture.launcher)
+        #expect(try QEMUGPULauncherPath.resolve(
+            bundleURL: fixture.bundle,
+            executableURL: linkedBundle.appendingPathComponent(TryOmarchyKit.helperPath)
+        ) == fixture.launcher)
+    }
+
+    @Test("rejects a folder that is neither an app nor the kit", arguments: [
+        "Try Omarchy", "Other.bundle", "debug",
+    ])
+    func rejectsOtherFolders(bundleName: String) throws {
+        let fixture = try makeFixture(bundleName: bundleName)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        #expect(throws: HelperError.self) { try fixture.resolve() }
+    }
+
+    @Test("rejects a helper that is not the bundle's own executable")
+    func rejectsForeignExecutable() throws {
+        let fixture = try makeFixture()
+        let other = try makeFixture(bundleName: "Other.app")
+        defer {
+            try? FileManager.default.removeItem(at: fixture.root)
+            try? FileManager.default.removeItem(at: other.root)
+        }
+        let looseHelper = fixture.bundle.appendingPathComponent(TryOmarchyKit.helperName)
+
+        for executable in [other.helper, looseHelper, nil] {
+            #expect(throws: HelperError.self) {
+                try QEMUGPULauncherPath.resolve(bundleURL: fixture.bundle, executableURL: executable)
+            }
+        }
+    }
+
+    @Test("rejects a symlinked bundle")
+    func rejectsBundleSymlink() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let link = fixture.root.appendingPathComponent("Linked.app")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: fixture.bundle)
+
+        #expect(throws: HelperError.self) {
+            try QEMUGPULauncherPath.resolve(bundleURL: link, executableURL: fixture.helper)
+        }
     }
 
     @Test("rejects a launcher symlink")
@@ -379,47 +439,41 @@ struct QEMUGPULauncherPathTests {
         #expect(Darwin.chmod(other.path, 0o755) == 0)
         try FileManager.default.createSymbolicLink(at: fixture.launcher, withDestinationURL: other)
 
-        #expect(throws: HelperError.self) {
-            try QEMUGPULauncherPath.resolve(bundleURL: fixture.app)
-        }
-    }
-
-    @Test("rejects an app with the wrong bundle name")
-    func rejectsWrongBundleName() throws {
-        let fixture = try makeFixture(appName: "Other.app")
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
-
-        #expect(throws: HelperError.self) {
-            try QEMUGPULauncherPath.resolve(bundleURL: fixture.app)
-        }
+        #expect(throws: HelperError.self) { try fixture.resolve() }
     }
 
     private struct PathFixture {
         let root: URL
-        let app: URL
+        let bundle: URL
+        let helper: URL
         let launcher: URL
+
+        func resolve() throws -> URL {
+            try QEMUGPULauncherPath.resolve(bundleURL: bundle, executableURL: helper)
+        }
     }
 
     private func makeFixture(
-        appName: String = QEMUGPULauncherPath.appName,
+        bundleName: String = "Try Omarchy.app",
         createLauncher: Bool = true
     ) throws -> PathFixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("omarchy-qemu-path-\(UUID().uuidString)", isDirectory: true)
-        let app = root.appendingPathComponent(appName, isDirectory: true)
-        let scripts = app
-            .appendingPathComponent("Contents/Resources/scripts", isDirectory: true)
+            .resolvingSymlinksInPath()
+        let bundle = root.appendingPathComponent(bundleName, isDirectory: true)
+        let helper = bundle.appendingPathComponent(TryOmarchyKit.helperPath)
+        let scripts = bundle.appendingPathComponent("Contents/Resources/scripts", isDirectory: true)
         let launcher = scripts.appendingPathComponent(QEMUGPULauncherPath.launcherName)
         try FileManager.default.createDirectory(at: scripts, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: helper.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data().write(to: helper)
         if createLauncher {
             try Data("#!/bin/bash\nexit 0\n".utf8).write(to: launcher)
             #expect(Darwin.chmod(launcher.path, 0o755) == 0)
         }
-        return PathFixture(
-            root: root,
-            app: app.resolvingSymlinksInPath(),
-            launcher: launcher.resolvingSymlinksInPath()
-        )
+        return PathFixture(root: root, bundle: bundle, helper: helper, launcher: launcher)
     }
 }
 

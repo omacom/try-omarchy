@@ -23,6 +23,12 @@ private func effectiveArguments() -> [String] {
     return Bundle.main.bundleURL.pathExtension == "app" ? ["--run-qemu"] : []
 }
 
+private func failLaunch(_ error: Error, advice: String? = nil) -> Never {
+    fputs("omarchy-vm-helper: \(error.localizedDescription)\n", stderr)
+    MainActor.assumeIsolated { LaunchFailureAlert.present(error, advice: advice) }
+    exit(1)
+}
+
 let arguments = effectiveArguments()
 do {
     if arguments.first == "--host-timezone" {
@@ -315,7 +321,7 @@ do {
                              status: 64)
         }
         do {
-            launcher = try QEMUGPULauncherPath.resolve(bundleURL: Bundle.main.bundleURL)
+            launcher = try QEMUGPULauncherPath.resolve()
         } catch {
             VMRunOutput.fail(VMRunError(code: .launchFailed, message: error.localizedDescription), status: 1)
         }
@@ -350,8 +356,18 @@ do {
         guard let request = QEMUGPULaunchRequest(arguments: Array(arguments.dropFirst())) else {
             usage()
         }
-        let launcher = try QEMUGPULauncherPath.resolve(bundleURL: Bundle.main.bundleURL)
-        let launcherArguments = try request.validatedScriptArguments()
+        let launcher: URL
+        let launcherArguments: [String]
+        do {
+            launcher = try QEMUGPULauncherPath.resolve()
+        } catch {
+            failLaunch(error, advice: LaunchFailureAlert.damagedAppAdvice)
+        }
+        do {
+            launcherArguments = try request.validatedScriptArguments()
+        } catch {
+            failLaunch(error)
+        }
 
         // The executable's top level starts on the process main thread. Make
         // that invariant explicit so the AppKit lifecycle stays MainActor
