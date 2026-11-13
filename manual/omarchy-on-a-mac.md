@@ -13,6 +13,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 - **Copy and paste work in both directions,** for text and images.
 - **Audio:** Omarchy's sound controls list the Mac's speakers and microphones, plus **Mac System Default**, which follows whatever the Mac uses. Switching takes effect immediately.
 - **Camera:** the Mac's camera appears in Omarchy as **Mac Camera**. Browsers and video call apps can use it like any webcam.
+- **Dictation:** on macOS 26, choose **Apple Speech** in Omarchy under **Setup → Defaults → Dictation**. Omarchy's dictation keys then use the Mac's on-device speech recognition. Turn off **Dictation** in the launcher to stop offering it.
 
 ## Display, power and time
 

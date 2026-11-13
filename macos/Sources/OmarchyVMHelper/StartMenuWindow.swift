@@ -55,6 +55,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let notchAvailable: () -> Bool
     private let usesNotch: () -> Bool
     private let setUsesNotch: (Bool) -> Void
+    private let dictationSupported: Bool
+    private let dictationEnabled: () -> Bool
+    private let setDictationEnabled: (Bool) -> Void
     private let usesAllDisplays: () -> Bool
     private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
@@ -152,6 +155,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        dictationSupported: Bool = false,
+        dictationEnabled: @escaping () -> Bool = { false },
+        setDictationEnabled: @escaping (Bool) -> Void = { _ in },
         usesAllDisplays: @escaping () -> Bool = { false },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
@@ -210,6 +216,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.notchAvailable = notchAvailable
         self.usesNotch = usesNotch
         self.setUsesNotch = setUsesNotch
+        self.dictationSupported = dictationSupported
+        self.dictationEnabled = dictationEnabled
+        self.setDictationEnabled = setDictationEnabled
         self.usesAllDisplays = usesAllDisplays
         self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
@@ -290,6 +299,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             openStorageLocation: { [weak self] in self?.openStorageLocation() },
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
+            setDictationEnabled: { [weak self] in self?.changeDictation($0) },
             setUsesAllDisplays: { [weak self] in self?.changeDisplaysMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
             resetSettings: { [weak self] in self?.confirmSettingsReset() },
@@ -567,6 +577,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.immersive = immersiveMode()
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
+        state.dictationSupported = dictationSupported
+        state.dictationEnabled = dictationEnabled()
         state.usesAllDisplays = usesAllDisplays()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
@@ -847,6 +859,20 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         )
     }
 
+    func changeDictation(_ isEnabled: Bool) {
+        guard !controlsBusy else { return }
+        setDictationEnabled(isEnabled)
+        state.dictationEnabled = isEnabled
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: StartMenuPresentation.dictationDetail(isEnabled: isEnabled),
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+            ]
+        )
+    }
+
     /// Settings return to their defaults; the VM and which VM is selected
     /// stay as they are.
     private func confirmSettingsReset() {
@@ -857,8 +883,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
         alert.informativeText = state.runsInAnotherApp
-            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, and Camera Notch return to their defaults. Your VM and its files are not changed."
-            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, and Skip Launcher return to their defaults. Your VM and its files are not changed."
+            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, Camera Notch, and Dictation return to their defaults. Your VM and its files are not changed."
+            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, Dictation, and Skip Launcher return to their defaults. Your VM and its files are not changed."
         let reset = alert.addButton(withTitle: "Reset Settings")
         reset.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")

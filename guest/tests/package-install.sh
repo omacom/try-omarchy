@@ -141,7 +141,10 @@ check_installed() { # label
   else ok "$label: every preset unit is enabled"; fi
   check "$label: NTP is enabled" test "$(systemctl is-enabled systemd-timesyncd.service 2>/dev/null)" = enabled
   # The graphical bridges start with the desktop session, not every user manager.
-  for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service omarchy-native-clipboard-bridge.service; do
+  for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service omarchy-native-clipboard-bridge.service \
+    omarchy-native-dictation-bridge.service; do
+    # A base revision may predate a bridge.
+    [[ -e /usr/lib/systemd/user/$unit ]] || continue
     if [[ -L /etc/systemd/user/graphical-session.target.wants/$unit && ! -e /etc/systemd/user/default.target.wants/$unit ]]; then
       ok "$label: $unit starts with the graphical session"
     else
@@ -156,6 +159,7 @@ if [[ -n $base ]]; then
   install_package "$base" /tmp/base.log || die "the base package does not install"
   ok "base package installs with its dependencies"
   check_installed base
+  base_units=" $(preset_units system | tr '\n' ' ') $(preset_units user | tr '\n' ' ') "
   # The administrator's choices survive the upgrade.
   systemctl --global disable omarchy-native-camera-bridge.service >/dev/null 2>&1
   systemctl --global mask omarchy-native-clipboard-bridge.service >/dev/null 2>&1
@@ -169,6 +173,18 @@ if [[ -n $base ]]; then
     [[ $(systemctl is-enabled try-omarchy-timezone.service 2>/dev/null) == disabled ]] &&
       ok "upgrade: a disabled system unit stays disabled" || bad "upgrade: re-enabled a system unit the administrator disabled"
     check "upgrade: pacman's file check" pacman -Qkk try-omarchy
+    # A unit new in this release is enabled by the upgrade (post_upgrade), not
+    # only on fresh installs.
+    for unit in $(preset_units system); do
+      [[ $base_units == *" $unit "* ]] && continue
+      [[ $(systemctl is-enabled "$unit" 2>/dev/null) == enabled ]] &&
+        ok "upgrade: new unit $unit is enabled" || bad "upgrade: new unit $unit is not enabled"
+    done
+    for unit in $(preset_units user); do
+      [[ $base_units == *" $unit "* ]] && continue
+      [[ $(systemctl --global is-enabled "$unit" 2>/dev/null) == enabled ]] &&
+        ok "upgrade: new user unit $unit is enabled" || bad "upgrade: new user unit $unit is not enabled"
+    done
   else
     bad "upgrade $base_version -> $new_version"
   fi

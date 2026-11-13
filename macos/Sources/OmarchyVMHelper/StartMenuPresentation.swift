@@ -292,6 +292,12 @@ enum StartMenuPresentation {
             : "Full Screen stays below the notch, like other Mac apps."
     }
 
+    static func dictationDetail(isEnabled: Bool) -> String {
+        isEnabled
+            ? "Apple speech recognition for Omarchy’s dictation, using the Mac microphone."
+            : "Omarchy’s dictation can’t use Apple speech recognition."
+    }
+
     static func displaysDetail(isEnabled: Bool) -> String {
         isEnabled
             ? "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces."

@@ -30,6 +30,9 @@ HEADER = "  // Try Omarchy: Mac integration rows and VM adjustments (added once 
 TIMEZONE_ACTION = ("if [[ -x /usr/bin/try-omarchy-timezone-menu ]]; then exec /usr/bin/try-omarchy-timezone-menu; "
                    "else exec omarchy-menu-timezone; fi")
 BATTERY_PRESENT = "compgen -G '/sys/class/power_supply/BAT*' >/dev/null"
+DICTATION_PORT = "test -e /dev/virtio-ports/dev.tryomarchy.dictation"
+# The record dictation-backend keeps while the user has chosen Apple Speech.
+APPLE_SPEECH_CHOSEN = 'test -s "${XDG_STATE_HOME:-$HOME/.local/state}/try-omarchy/dictation-backend"'
 
 
 def own(entry):
@@ -65,6 +68,13 @@ def laptop_or(condition):
     """Treat condition like Omarchy's laptop check, wherever the row tests for one."""
     def change(entry):
         entry["when"] = entry.get("when", "").replace("omarchy-hw-laptop", f"(omarchy-hw-laptop || {condition})")
+    return change
+
+
+def also_show_when(condition):
+    def change(entry):
+        current = entry.get("when", "")
+        entry["when"] = f"({current}) || {condition}" if current else condition
     return change
 
 
@@ -110,8 +120,22 @@ ROWS = (
     ("install.gaming.geforce-now", 5, changed("install.gaming.geforce-now", hide_unless("omarchy-hw-x86"))),
     ("install.gaming.battlenet", 5, changed("install.gaming.battlenet", hide_unless("omarchy-hw-x86"))),
     ("install.gaming.lutris", 5, changed("install.gaming.lutris", hide_unless("omarchy-hw-x86"))),
+    # Apple Speech beside Omarchy's dictation backends, offered only while
+    # Dictation is on in the launcher (docs/host-dictation.md).
+    ("setup.default.dictation.apple-speech", 9, own({
+        "icon": "\U000f0035", "label": "Apple Speech",
+        "description": "Recognised on the Mac",
+        "when": DICTATION_PORT,
+        "checked": '[[ "$(omarchy-default-dictation)" == "apple-speech" ]]',
+        "action": "omarchy-default-dictation apple-speech"})),
+    ("remove.dictation.apple-speech", 9, own({
+        "icon": "\U000f0035", "label": "Apple Speech",
+        "when": APPLE_SPEECH_CHOSEN,
+        "action": "omarchy-launch-floating-terminal-with-presentation omarchy-remove-dictation-apple-speech"})),
+    # Omarchy shows Remove > Dictation only for the backends it installs.
+    ("remove.dictation", 9, changed("remove.dictation", also_show_when(APPLE_SPEECH_CHOSEN))),
 )
-RELEASE = 8
+RELEASE = 9
 
 # Rows earlier packages wrote with only the changed field, which Omarchy's
 # merge turned into rows without a label or an action. Still exactly as

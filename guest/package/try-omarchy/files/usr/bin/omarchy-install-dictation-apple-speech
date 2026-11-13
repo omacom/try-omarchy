@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# omarchy:summary=Use Apple speech recognition on the Mac for dictation
+
+set -e
+
+# Without the port, Dictation is off in the launcher: nothing to set up, and
+# nothing to say about it.
+[[ -e ${OMARCHY_DICTATION_PORT:-/dev/virtio-ports/dev.tryomarchy.dictation} ]] || exit 0
+
+"${TRY_OMARCHY_DICTATION_BACKEND:-/usr/lib/try-omarchy/dictation-backend}" select
+hyprctl reload >/dev/null 2>&1 || true
+notify-send -a "Apple Speech" "Apple Speech is ready" \
+  "Hold Right Alt or F9 to dictate, or press Super+Ctrl+X. The Mac recognises the speech." 2>/dev/null || true
