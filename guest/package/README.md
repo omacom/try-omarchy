@@ -192,3 +192,10 @@ hides the guest cursor (Cocoa draws the Mac's) and hides it again whenever a
 window closes, since Omarchy's screensaver shows it as it exits. It also keeps
 the mode in sync with the window through EDID, and applies the pinch and Apple
 keyboard input rules.
+
+The session's `environment.d` sets `AQ_NO_ATOMIC=1`, so Hyprland's Aquamarine
+backend drives virtio-gpu through the legacy DRM interface. Its atomic commits
+wait forever for a page flip there and leave the desktop black
+([#429](https://github.com/omacom/try-omarchy/issues/429),
+[aquamarine#343](https://github.com/hyprwm/aquamarine/issues/343)). The line
+goes once Omarchy's aarch64 Aquamarine carries the upstream fix.

@@ -86,6 +86,11 @@ errors=$(hc configerrors | sed '/^\s*$/d')
 if [[ -z $errors || $errors == "no errors"* ]]; then ok "Hyprland loaded Omarchy's and try-omarchy's configuration without errors"
 else bad "Hyprland configuration errors"; sed 's/^/     /' <<<"$errors"; fi
 
+hyprland_pid=$(pgrep -u "$(id -u)" -x Hyprland | head -1)
+tr '\0' '\n' <"/proc/$hyprland_pid/environ" 2>/dev/null | grep -qx AQ_NO_ATOMIC=1 &&
+  ok "Hyprland draws through Aquamarine's legacy DRM interface (AQ_NO_ATOMIC=1)" ||
+  bad "Hyprland runs without AQ_NO_ATOMIC=1 from try-omarchy's environment.d"
+
 wait_for 60 systemctl --user is-active graphical-session.target &&
   ok "graphical-session.target is active (uwsm)" || bad "graphical-session.target never became active"
 
