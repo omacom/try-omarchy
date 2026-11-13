@@ -10,6 +10,7 @@ How Try Omarchy works, for contributors. User guides are in the [manual](../manu
 - Integrations:
   - [audio continuity](audio-continuity.md)
   - [camera notch](camera-notch.md)
+  - [multiple displays](multi-display.md)
   - [host battery](host-battery.md)
   - [time zone](host-timezone.md)
   - [clock recovery](guest-clock-recovery.md)

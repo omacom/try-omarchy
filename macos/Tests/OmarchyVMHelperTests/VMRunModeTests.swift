@@ -508,7 +508,7 @@ struct VMRunLaunchSettingsTests {
         let settings = fixture.vmSettings(legacy: false)
         VMResourcePreferenceStore(storage: settings).save(VMResources(cpuCount: 6, memoryGiB: 8, diskGiB: 96))
         try PortForwardingPreferenceStore(storage: settings).save([PortForwardPreset.ssh])
-        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false))
+        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false, usesAllDisplays: false))
         try VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
 
         let configuration = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: fixture.root.path,
@@ -523,6 +523,7 @@ struct VMRunLaunchSettingsTests {
         #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "96")
         #expect(environment[PortForwardPolicy.environmentKey] != nil)
         #expect(environment[FullscreenLaunchConfiguration.immersiveEnvironmentKey] == "0")
+        #expect(environment[FullscreenLaunchConfiguration.displaysEnvironmentKey] == "0")
         #expect(environment[VMNetworkPolicy.modeKey] == VMNetworkMode.nat.rawValue)
     }
 

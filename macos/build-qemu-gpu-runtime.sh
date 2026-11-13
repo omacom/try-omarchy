@@ -7,7 +7,7 @@ usage() {
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
 Build the pinned QEMU/VirGL source stack for macOS 15.0 with Try Omarchy's Cocoa identity,
-dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, touch-scroll, and ISO
+dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, touch-scroll, multi-display, and ISO
 keyboard patches, then relocate, sign, validate, and
 atomically stage it at:
   macos/.build/qemu-gpu-runtime
@@ -88,6 +88,7 @@ main_loop_qos_patch="$native_dir/patches/qemu-darwin-main-loop-qos.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
+multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 virgl_upload_flush_patch="$native_dir/patches/virgl-ctx0-upload-flush.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
@@ -132,6 +133,7 @@ notch_patch_sha256=6b1a6bc134023ee9136d8b077f9663ed67259cb765653a2aaa63a5e31fb6d
 hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
 audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
+multi_display_patch_sha256=fe315784ed42221a879ab805e47d5d02d6b498797c4f32941112d6203b43937f
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
@@ -292,6 +294,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing SDL audio playback-thread patch: $audio_playback_thread_patch"
 [[ -f $main_loop_qos_patch && ! -L $main_loop_qos_patch ]] || \
   die "missing Darwin main-loop QoS patch: $main_loop_qos_patch"
+[[ -f $multi_display_patch && ! -L $multi_display_patch ]] || \
+  die "missing Cocoa multi-display patch: $multi_display_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -538,6 +542,8 @@ verify_file_sha "Try Omarchy Cocoa App Nap patch" \
   "$no_app_nap_patch" "$no_app_nap_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa notch patch" \
   "$notch_patch" "$notch_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa multi-display patch" \
+  "$multi_display_patch" "$multi_display_patch_sha256"
 verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
   "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
@@ -547,7 +553,7 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, and pointer modifier patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, and multi-display patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -582,6 +588,7 @@ patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$korean_caps_lock_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_mapping_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_modifiers_patch"
+patch -d "$source_dir" -p1 -f -i "$multi_display_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"
