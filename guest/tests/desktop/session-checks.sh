@@ -285,7 +285,7 @@ fi
 
 # --- the factory's apps ---------------------------------------------------------------
 apps=("$@")
-((${#apps[@]})) || apps=(omarchy-launch-nautilus foot obsidian localsend pinta "libreoffice --writer" evince)
+((${#apps[@]})) || apps=(omarchy-launch-nautilus foot obsidian localsend pinta "libreoffice --writer" papers)
 for app in "${apps[@]}"; do
   try_app "${app%% *}" "$app"
 done
