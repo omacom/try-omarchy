@@ -64,7 +64,7 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-40)" -lt 0 ]; then
     _rebuild_limine
   fi
-  if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then
     _remove_factory_boot_entry
   fi
   # The app upgrades the package at boot, after the old host-config ran, and

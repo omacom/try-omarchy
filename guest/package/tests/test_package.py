@@ -1305,7 +1305,7 @@ class FactoryBootEntry(unittest.TestCase):
         drop_in = (FILES / "usr/lib/systemd/system/omarchy-provision-owner.service.d/10-try-omarchy-native.conf")
         self.assertIn("\nExecStartPost=-/usr/lib/try-omarchy/factory-boot-entry\n", drop_in.read_text())
         install = (PACKAGE / "try-omarchy.install").read_text()
-        self.assertIn('if [ "$(vercmp "$2" 0.1.0-37)" -lt 0 ]; then\n    _remove_factory_boot_entry\n', install)
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then\n    _remove_factory_boot_entry\n', install)
         self.assertTrue(os.access(LIB / "factory-boot-entry", os.X_OK))
 
 

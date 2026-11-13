@@ -189,7 +189,7 @@ Omarchy's first-boot setup then adds a Limine entry for the VM's ID and keeps th
 Limine lists the build's entry first and boots it by default. After `omarchy update` the VM would keep booting the image's kernel, whose modules the update removed, or, where the factory built a UKI, stop at a hash mismatch on the UKI both entries name.
 
 `/usr/lib/try-omarchy/factory-boot-entry` removes the build's entry with `limine-entry-tool --remove-entry`, and then its kernel directory on the ESP.
-It runs after first-boot setup (the setup service's drop-in), and once on the upgrade to `0.1.0-37` for VMs set up earlier.
+It runs after first-boot setup (the setup service's drop-in), and once on the upgrade to `0.1.0-42` for VMs set up earlier.
 It acts only in a VM from Try Omarchy's factory (the image manifest's `builder=try-omarchy-upstream`), and only when this machine has one entry whose files are all on the ESP.
 It removes only an entry named by another machine ID with one `linux-omarchy` kernel entry, which boots the vmlinuz and initramfs in that ID's directory or the `linux-omarchy` UKI, and that directory when it holds no more than those two files.
 Entries with snapshots, other kernels or other UKIs stay, and so do the VM's own entry and directory. UKI files are never removed.
