@@ -21,6 +21,7 @@ struct LauncherActions {
     var openStorageLocation: () -> Void = {}
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
+    var configureKeyboard: () -> Void = {}
     var setUsesAllDisplays: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
     var resetSettings: () -> Void = {}
@@ -734,6 +735,17 @@ private struct StartupSection: View {
                 ) {
                     LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
                 }
+            }
+
+            SettingRow(
+                icon: SettingIcon("keyboard", .gray),
+                title: "Keyboard",
+                detail: [state.keyboardRouting]
+            ) {
+                if state.keyboardRoutingIsDefault {
+                    Text("Default").foregroundStyle(.secondary)
+                }
+                Button("Configure…", action: actions.configureKeyboard)
             }
 
             if !state.runsInAnotherApp {

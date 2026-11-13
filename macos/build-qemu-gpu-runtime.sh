@@ -61,6 +61,8 @@ display_patch="$native_dir/patches/qemu-cocoa-dynamic-display.patch"
 immersive_patch="$native_dir/patches/qemu-cocoa-immersive-mode.patch"
 full_grab_patch="$native_dir/patches/qemu-cocoa-full-grab-focus.patch"
 reenable_patch="$native_dir/patches/qemu-cocoa-full-grab-reenable.patch"
+host_keys_patch="$native_dir/patches/qemu-cocoa-host-keys.patch"
+media_keys_patch="$native_dir/patches/qemu-cocoa-media-keys.patch"
 pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
 pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 precise_scroll_patch="$native_dir/patches/qemu-cocoa-precise-scroll.patch"
@@ -107,6 +109,8 @@ display_patch_sha256=1ce59350b6b8e6842bc0c9ca34c97f54cb75e85e2d7b35e5b483858654c
 immersive_patch_sha256=2462463932f7db0d659f754f7f9c182884564dbcd7d4b8e523f1b57f0bd9fe5b
 full_grab_patch_sha256=4da9a9fd3017b2a9abcdacd449ad6907fd1cd415328598f3a35b895b15b0b072
 reenable_patch_sha256=e331f329afd45d61b130037119bd4099e0f618b42313f0f712ca40ab251b3de7
+host_keys_patch_sha256=c069aeee434ad7e21862fd8ede341b622a5e0235a174c39e095ed5175c5fe921
+media_keys_patch_sha256=eb26c8ea01f8a7dcd1508e73a326aa6dcc440afae51e77e38acaf5c04ab2fecf
 pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95aebd49c78a8f0
 pinch_patch_sha256=618c17eef1c2ab97d48ed82b58d9fa2b727ea3f26a0d30225199ac97985a9f06
 precise_scroll_patch_sha256=54252b3b19358aa7e2c75d5f50775a7f488ef2d8b4db8723ba4768b56316a78f
@@ -133,7 +137,7 @@ notch_patch_sha256=6b1a6bc134023ee9136d8b077f9663ed67259cb765653a2aaa63a5e31fb6d
 hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
 audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
-multi_display_patch_sha256=fe315784ed42221a879ab805e47d5d02d6b498797c4f32941112d6203b43937f
+multi_display_patch_sha256=ae625509360eb691a15277be5cb36acfbc7303e1741440a3d4317506680c79c3
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
@@ -250,6 +254,10 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa full-grab patch: $full_grab_patch"
 [[ -f $reenable_patch && ! -L $reenable_patch ]] || \
   die "missing Cocoa full-grab re-enable patch: $reenable_patch"
+[[ -f $host_keys_patch && ! -L $host_keys_patch ]] || \
+  die "missing Cocoa host-keys patch: $host_keys_patch"
+[[ -f $media_keys_patch && ! -L $media_keys_patch ]] || \
+  die "missing Cocoa media-keys patch: $media_keys_patch"
 [[ -f $pause_ownership_patch && ! -L $pause_ownership_patch ]] || \
   die "missing Cocoa pause-ownership patch: $pause_ownership_patch"
 [[ -f $pinch_patch && ! -L $pinch_patch ]] || \
@@ -502,6 +510,10 @@ verify_file_sha "Try Omarchy Cocoa full-grab patch" \
   "$full_grab_patch" "$full_grab_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa full-grab re-enable patch" \
   "$reenable_patch" "$reenable_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa host-keys patch" \
+  "$host_keys_patch" "$host_keys_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa media-keys patch" \
+  "$media_keys_patch" "$media_keys_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pause-ownership patch" \
   "$pause_ownership_patch" "$pause_ownership_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pinch-zoom patch" \
@@ -561,6 +573,8 @@ patch -d "$source_dir" -p1 -f -i "$display_patch"
 patch -d "$source_dir" -p1 -f -i "$immersive_patch"
 patch -d "$source_dir" -p1 -f -i "$full_grab_patch"
 patch -d "$source_dir" -p1 -f -i "$reenable_patch"
+patch -d "$source_dir" -p1 -f -i "$host_keys_patch"
+patch -d "$source_dir" -p1 -f -i "$media_keys_patch"
 patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
 verify_file_sha "Try Omarchy HDA full-ring recovery patch" \
   "$audio_recovery_patch" "$audio_recovery_patch_sha256"

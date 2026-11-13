@@ -434,6 +434,36 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# Mac keycodes that stay with macOS while full grab owns the keyboard. Unset
+# keeps the app's defaults (brightness, Mission Control, Spotlight,
+# Dictation, Do Not Disturb); empty sends every dedicated key to Omarchy.
+# QEMU separates options with commas, so the display option lists them with
+# colons.
+host_keys=${OMARCHY_QEMU_GPU_HOST_KEYS-131,144,145,160,176,177,178}
+cocoa_host_keys=""
+if [[ -n $host_keys ]]; then
+  host_keys_error="OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255"
+  [[ $host_keys =~ ^[0-9]{1,3}(,[0-9]{1,3})*$ ]] || fail "$host_keys_error"
+  IFS=, read -r -a host_key_list <<<"$host_keys"
+  for host_key in "${host_key_list[@]}"; do
+    ((10#$host_key <= 255)) || fail "$host_keys_error"
+  done
+  LC_ALL=C grep -aFq 'host-keys must be keycodes' "$qemu_bin" ||
+    fail "the bundled QEMU cannot leave the Mac's dedicated keys with macOS; run make runtime"
+  cocoa_host_keys=",host-keys=${host_keys//,/:}"
+fi
+
+# Media transport keys go to Omarchy only when the Keyboard setting says so.
+case ${OMARCHY_QEMU_GPU_MEDIA_KEYS:-0} in
+  0) cocoa_media_keys="" ;;
+  1) cocoa_media_keys=",media-keys=on" ;;
+  *) fail "OMARCHY_QEMU_GPU_MEDIA_KEYS must be 0 or 1" ;;
+esac
+if [[ -n $cocoa_media_keys ]]; then
+  LC_ALL=C grep -aFq 'media-keys=on|off' "$qemu_bin" ||
+    fail "the bundled QEMU cannot send the Mac's media keys to Omarchy; run make runtime"
+fi
+
 # In immersive mode, one virtio-gpu head per Mac display, arranged as the
 # Mac's display settings are. The helper lists the main display first, as
 # OUTPUT:XxY in Hyprland's logical pixels; the guest places its outputs from
@@ -770,7 +800,7 @@ qemu_args=(
   -drive "if=none,id=omarchy-root,file=${working_disk//,/,,},format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root,bootindex=0'
   -device "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=$display_count,xres=$gpu_xres,yres=$gpu_yres,romfile="
-  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
+  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='

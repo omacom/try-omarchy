@@ -104,6 +104,8 @@ final class LauncherState {
     /// Only a MacBook with a camera notch has the strip to use.
     var notchAvailable = false
     var usesNotch = true
+    var keyboardRouting = StartMenuPresentation.keyboardRouting(.defaults)
+    var keyboardRoutingIsDefault = true
     var usesAllDisplays = false
     var startAutomatically = false
 
