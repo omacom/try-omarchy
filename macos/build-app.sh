@@ -113,6 +113,7 @@ if [[ $configuration == production ]]; then
   app="$repo_dir/dist/release.noindex/Try Omarchy.app"
 fi
 contents="$app/Contents"
+sparkle="$contents/Frameworks/Sparkle.framework"
 bundled_qemu="$contents/Resources/runtime/bin/Try Omarchy"
 module_cache="$macos_dir/.build/module-cache"
 runtime_source="$macos_dir/.build/qemu-gpu-runtime"
@@ -256,6 +257,11 @@ path.write_bytes(plistlib.dumps(value))
 PYTHON
 install -m 0644 "$macos_dir/network-helper/vendor/LICENSE" "$contents/Resources/network/LICENSE.socket_vmnet"
 install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
+# Sparkle installs app updates (docs/app-updates.md). Its XPC services are only
+# for sandboxed apps.
+mkdir -p "$contents/Frameworks"
+ditto "$macos_dir/.build/release/Sparkle.framework" "$sparkle"
+rm -rf "$sparkle/Versions/B/XPCServices" "$sparkle/XPCServices"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
 python3 - "$contents/Info.plist" "$bundle_identifier" "$app_display_name" <<'PYTHON'
 import plistlib, sys
@@ -338,6 +344,11 @@ done
 codesign "${qemu_sign_options[@]}" \
   --entitlements "$macos_dir/qemu-hvf.entitlements" \
   "$bundled_qemu"
+
+# Sign Sparkle inside out, as its documentation lists for non-Xcode builds.
+codesign "${sign_options[@]}" "$sparkle/Versions/B/Autoupdate"
+codesign "${sign_options[@]}" "$sparkle/Versions/B/Updater.app"
+codesign "${sign_options[@]}" "$sparkle"
 
 bash "$macos_dir/network-helper/build-daemon.sh" "$contents/MacOS/omarchy-network-daemon" "$contents/Resources"
 codesign "${sign_options[@]}" "$contents/MacOS/omarchy-network-daemon"
