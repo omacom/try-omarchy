@@ -37,7 +37,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
          bounds.size.width = cursor->width * scale;
          bounds.size.height = cursor->height * scale;
-@@ -1397,8 +1400,26 @@
+@@ -1397,9 +1400,27 @@
      return size;
  }
  
@@ -45,6 +45,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +
  - (void) resizeWindow
  {
+-    if ([[self window] styleMask] & NSWindowStyleMaskFullScreen) {
 +    NSWindowStyleMask styleMask = [[self window] styleMask];
 +
 +    if ((styleMask & NSWindowStyleMaskResizable) &&
@@ -61,19 +62,16 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +        return;
 +    }
 +
-     [[self window] setContentAspectRatio:NSMakeSize(screen.width, screen.height)];
- 
-     if ([self coversNotch]) {
-@@ -2186,12 +2207,19 @@
++    if (styleMask & NSWindowStyleMaskFullScreen) {
+         /*
+          * Full screen is AppKit's to lay out, on every display. When the app
+          * sizes or moves a full-screen window on a screen with a camera
+@@ -2195,12 +2216,19 @@
  
      with_bql(^{
          if (isAbsoluteEnabled) {
 -            CGFloat d = (CGFloat)screen.height / [self frame].size.height;
 -            NSPoint p = [event locationInWindow];
--
--            /* Note that the origin for Cocoa mouse coords is bottom left, not top left. */
--            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, p.x * d, 0, screen.width);
--            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, screen.height - p.y * d, 0, screen.height);
 +            /*
 +             * The guest image fills the view on both axes, so map each axis
 +             * on its own: the guest's mode can lag the view's aspect.
@@ -84,7 +82,10 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +                (p.x - NSMinX(bounds)) * screen.width / NSWidth(bounds) : 0;
 +            CGFloat y = NSHeight(bounds) > 0 ?
 +                (NSMaxY(bounds) - p.y) * screen.height / NSHeight(bounds) : 0;
-+
+ 
+-            /* Note that the origin for Cocoa mouse coords is bottom left, not top left. */
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, p.x * d, 0, screen.width);
+-            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, screen.height - p.y * d, 0, screen.height);
 +            qemu_input_queue_abs(dcl.con, INPUT_AXIS_X, x, 0, screen.width);
 +            qemu_input_queue_abs(dcl.con, INPUT_AXIS_Y, y, 0, screen.height);
          } else {

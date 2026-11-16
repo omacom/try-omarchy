@@ -366,8 +366,13 @@ struct VMRunClientTests {
             read -r config
             signals=0
             trap 'signals=$((signals + 1))' TERM
+            # One sleeper and no fork per turn: two signals that land while bash
+            # forks are merged into one on a busy machine.
+            sleep 30 &
+            sleeper=$!
             echo '{"version":1,"event":"ready"}'
-            while ((signals < 2)); do sleep 0.05; done
+            while ((signals < 2)); do wait "$sleeper"; done
+            kill "$sleeper"
             echo '{"version":1,"event":"exited","status":0}'
             """)
         defer { try? FileManager.default.removeItem(at: root) }

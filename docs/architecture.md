@@ -254,6 +254,7 @@ with `platform=aarch64`, and `omarchy-apply-system --defer-provisioning
 --first-install`. Owner provisioning, hardware setup and the pacman keyring
 are deferred to the VM's first boot, so the image holds no user, machine ID,
 SSH host key or keyring. See [guest/factory](../guest/factory/README.md).
+The image's boot entry carries the build's machine ID, and Omarchy's first-boot setup adds one for the VM's own ID; the guest package then removes the build's entry, which Limine would otherwise keep booting first ([the factory's boot entry](../guest/package/README.md#the-factorys-boot-entry)).
 
 On ARM, Omarchy publishes only to the `edge` channel for now, and there it
 installs `omarchy-dev` from the `quattro` branch, where the aarch64 platform

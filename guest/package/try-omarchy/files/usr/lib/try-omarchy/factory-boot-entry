@@ -1,0 +1,132 @@
+#!/bin/bash
+# Remove the factory image build's Limine entry once the VM has its own.
+#
+# The factory builds the image under a machine ID of its own and seals it
+# without one, so each VM makes its own ID at first boot. Omarchy's first-boot
+# setup then adds an entry for that ID and keeps the build's, because a shared
+# ESP holds other systems' entries. The build's entry stays first in Limine's
+# menu and keeps booting the image's old kernel after Omarchy updates it, or
+# stops at a hash mismatch on the UKI both entries name
+# (https://github.com/omacom/try-omarchy/issues/426). A VM's ESP is its own,
+# but this still removes only what the factory left, and only once this
+# machine's own entry boots files that are there: an entry named by another
+# machine ID with one linux-omarchy kernel, booting the vmlinuz and initramfs
+# in that ID's directory or the linux-omarchy UKI, and that directory when it
+# holds no more than those two files. UKI files are never removed.
+set -uo pipefail
+
+root=${TRY_OMARCHY_ROOT:-}
+log() { echo "factory-boot-entry: $*"; }
+
+grep -qsx 'builder=try-omarchy-upstream' "$root/var/lib/omarchy/image/target" \
+  "$root/var/lib/omarchy/image/target.booted" || exit 0
+
+esp=$(sed -n 's/^ESP_PATH=["'\'']\{0,1\}\([^"'\'']*\).*/\1/p' "$root/etc/default/limine" 2>/dev/null | tail -1)
+esp=$root${esp:-/boot}
+conf=$esp/limine.conf
+current=""
+read -r current <"$root/etc/machine-id" 2>/dev/null
+[[ $current =~ ^[0-9a-f]{32}$ && -f $conf ]] || exit 0
+
+# For each top-level entry with a machine ID: "entry ID SHAPE", where SHAPE is
+# "factory" when the entry has the factory's form and "other" otherwise, then
+# "path ID KEY VALUE" for each of its paths. Limine nests entries by their
+# number of slashes, whatever the indentation.
+parse() {
+  awk '
+    function flush(  i) {
+      if (id != "") {
+        printf "entry %s %s\n", id, (count && !foreign) ? "factory" : "other"
+        for (i = 1; i <= count; i++) printf "path %s %s\n", id, found[i]
+      }
+      id = ""; count = foreign = kernels = 0; split("", found)
+    }
+    /^[[:space:]]*\// {
+      header = $0; sub(/^[[:space:]]*/, "", header)
+      depth = match(header, /[^\/]/) - 1
+      if (depth == 1) { flush(); top = 1; next }
+      name = substr(header, depth + 1); sub(/^\+/, "", name); sub(/[[:space:]]+$/, "", name)
+      if (depth != 2 || name != "linux-omarchy" || ++kernels > 1) foreign = 1
+      next
+    }
+    !top { next }
+    depth == 1 && /^[[:space:]]*comment:[[:space:]]*machine-id=/ {
+      value = $0; sub(/^[[:space:]]*comment:[[:space:]]*machine-id=/, "", value); sub(/[[:space:]].*/, "", value)
+      if (id == "" && value ~ /^[0-9a-f]+$/ && length(value) == 32) id = value
+      else foreign = 1
+      next
+    }
+    tolower($0) ~ /^[[:space:]]*[a-z_]*path[[:space:]]*:/ {
+      key = tolower($0); sub(/^[[:space:]]*/, "", key); sub(/[[:space:]]*:.*/, "", key)
+      value = substr($0, index($0, ":") + 1); sub(/^[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
+      found[++count] = key " " value
+      if (id == "") foreign = 1
+      else if (value !~ ("^boot\\(\\):/" id "/linux-omarchy/(vmlinuz|initramfs)(#[0-9a-f]+)?$") &&
+               !(key == "path" && value ~ /^boot\(\):\/EFI\/Linux\/[A-Za-z0-9]+_linux-omarchy\.efi(#[0-9a-f]+)?$/)) foreign = 1
+    }
+    END { flush() }
+  ' "$conf"
+}
+
+entry_count() { # parsed id
+  awk -v id="$2" '$1 == "entry" && $2 == id { n++ } END { print n + 0 }' <<<"$1"
+}
+
+# This machine has one entry, and every file it boots is on the ESP.
+own_entry_boots() {
+  local parsed key value file kernel=0
+  parsed=$(parse)
+  (($(entry_count "$parsed" "$current") == 1)) || return 1
+  while read -r key value; do
+    value=${value%%#*}
+    [[ $value == "boot():/"* && $value != *..* ]] || return 1
+    file=$esp/${value#"boot():/"}
+    [[ -f $file && -s $file ]] || return 1
+    [[ $key == path ]] && kernel=1
+  done < <(awk -v id="$current" '$1 == "path" && $2 == id { sub(/^path [^ ]+ /, ""); print }' <<<"$parsed")
+  ((kernel))
+}
+
+# The directory holds no more than linux-omarchy/vmlinuz and initramfs.
+factory_directory() {
+  local dir=$esp/$1 path
+  [[ -e $dir ]] || return 0
+  [[ -d $dir && ! -L $dir ]] || return 1
+  while IFS= read -r -d '' path; do
+    case ${path#"$dir"/} in
+      linux-omarchy) [[ -d $path && ! -L $path ]] || return 1 ;;
+      linux-omarchy/vmlinuz | linux-omarchy/initramfs) [[ -f $path && ! -L $path ]] || return 1 ;;
+      *) return 1 ;;
+    esac
+  done < <(find "$dir" -mindepth 1 -print0)
+}
+
+# An entry still names the ID or boots a file from its directory.
+referenced() {
+  grep -qF -e "/$1/" -e "machine-id=$1" "$conf"
+}
+
+own_entry_boots || exit 0
+
+parsed=$(parse)
+while read -r _ id shape; do
+  [[ -n $id && $id != "$current" && $shape == factory ]] || continue
+  if (($(entry_count "$parsed" "$id") != 1)) || ! factory_directory "$id"; then
+    continue
+  fi
+  limine-entry-tool --remove-entry "$id" || { log "limine-entry-tool could not remove $id"; continue; }
+  if (($(entry_count "$(parse)" "$id") > 0)); then
+    log "the entry for $id is still there"
+    continue
+  fi
+  log "removed the factory build's boot entry $id"
+done < <(awk '$1 == "entry"' <<<"$parsed")
+
+own_entry_boots || exit 0
+for dir in "$esp"/*/; do
+  id=$(basename "$dir")
+  [[ $id =~ ^[0-9a-f]{32}$ && $id != "$current" ]] || continue
+  if factory_directory "$id" && ! referenced "$id"; then
+    rm -rf -- "${esp:?}/$id" && log "removed the factory build's kernel directory $id"
+  fi
+done
