@@ -596,6 +596,10 @@ class DisplayReport(unittest.TestCase):
         for event in ("monitor.added", "monitor.removed", "monitor.layout_changed", "config.props_refreshed"):
             self.assertIn(f'"{event}"', profile)
         self.assertIn('hl.exec_cmd("/usr/lib/try-omarchy/display-report")', profile)
+        # A scale that lands after its event is caught by one more look a
+        # second after the last event of a burst.
+        self.assertIn("if event == layout_events then", profile)
+        self.assertIn('end, { timeout = 1000, type = "oneshot" })', profile)
         rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-display.rules").read_text()
         self.assertIn('ATTR{name}=="dev.tryomarchy.display"', rule)
         self.assertIn('TAG+="uaccess"', rule)
