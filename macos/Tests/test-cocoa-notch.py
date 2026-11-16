@@ -93,18 +93,20 @@ class CocoaNotchTests(unittest.TestCase):
         safe = block(patched(), "- (NSSize) screenSafeAreaSize")
         self.assertLess(safe.index("if ([self coversNotch])"), safe.index("insets.top + insets.bottom"))
 
-    def test_full_screen_beside_a_housing_keeps_appkits_layout(self) -> None:
+    def test_full_screen_keeps_appkits_layout_on_every_display(self) -> None:
         # The window server keeps a window that QEMU sized or moved off the
         # strip, while AppKit reports the whole display: the pointer would be
-        # a strip away from the picture (#428).
+        # a strip away from the picture (#428). A window sized on an external
+        # display and moved to the panel carries that over, so the rule holds
+        # on every display.
         text = patched()
-        keeps = block(text, "static bool cocoa_notch_keeps_layout(NSWindowStyleMask style, CGFloat strip)")
-        self.assertIn("return (style & NSWindowStyleMaskFullScreen) && strip > 0;", keeps)
         # resizeWindow, from its first line on (the hunk shows its start).
         resize = text[text.index("- (void) resizeWindow\n{\n"):]
-        guard = resize.index("if (cocoa_notch_keeps_layout(")
-        self.assertIn("cocoa_notch_strip([[self window] screen])", resize[guard:resize.index("return;", guard)])
+        guard = resize.index("    if ([[self window] styleMask] & NSWindowStyleMaskFullScreen) {\n")
+        self.assertNotIn("cocoa_notch_strip", resize[guard:resize.index("return;", guard)])
         self.assertLess(guard, resize.index("[[self window] setContentAspectRatio:"))
+        body = resize[:resize.index("\n}\n")]
+        self.assertNotIn("screenSafeAreaSize", body)
         self.assertNotIn("setFrame:", added())
 
     def test_geometry_is_followed_after_a_move_or_a_space_switch(self) -> None:
@@ -152,7 +154,6 @@ class CocoaNotchTests(unittest.TestCase):
             "static CGFloat cocoa_edge_distance(NSPoint point, NSRect frame, NSRectEdge edge)",
             "static BOOL cocoa_notch_reserves_menu_bar(id self, SEL cmd)",
             "static void cocoa_notch_hook_install(void)",
-            "static bool cocoa_notch_keeps_layout(NSWindowStyleMask style, CGFloat strip)",
         ))
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
@@ -182,11 +183,6 @@ int main(void)
            cocoa_edge_distance(NSMakePoint(1500, 500), frame, NSRectEdgeMaxX));
     CGFloat reach = cocoa_dock_reach();
     printf("%d\\n", reach >= 48 && reach <= 288);
-    printf("%d %d %d %d\\n",
-           cocoa_notch_keeps_layout(NSWindowStyleMaskTitled | NSWindowStyleMaskFullScreen, 32),
-           cocoa_notch_keeps_layout(NSWindowStyleMaskTitled | NSWindowStyleMaskFullScreen, 0),
-           cocoa_notch_keeps_layout(NSWindowStyleMaskTitled | NSWindowStyleMaskResizable, 32),
-           cocoa_notch_keeps_layout(NSWindowStyleMaskFullScreen, 0.5));
     (void)cocoaView;
     cocoa_notch_hook_install();
     /* This macOS still has the method, with the signature the hook expects. */
@@ -207,7 +203,7 @@ int main(void)
                 check=True,
             )
             result = subprocess.run([str(binary)], capture_output=True, text=True, check=True)
-            self.assertEqual(result.stdout.splitlines(), ["1 3 4 12", "1", "1 0 0 1", "hooked", "0"])
+            self.assertEqual(result.stdout.splitlines(), ["1 3 4 12", "1", "hooked", "0"])
 
 
 if __name__ == "__main__":

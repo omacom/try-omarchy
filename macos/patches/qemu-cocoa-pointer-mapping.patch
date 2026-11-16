@@ -10,7 +10,7 @@ Applies after the other Try Omarchy Cocoa patches.
 diff --git a/ui/cocoa.m b/ui/cocoa.m
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1050,8 +1050,10 @@
+@@ -1036,8 +1036,10 @@
  
          [self addTrackingArea:trackingArea];
          [trackingArea release];
@@ -23,7 +23,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
          colorspace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
  #if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_VERSION_14_0
          [self setClipsToBounds:YES];
-@@ -1139,11 +1141,12 @@
+@@ -1125,11 +1127,12 @@
  
      if (cursor) {
          CGFloat scale = [self bounds].size.width / screen.width;
@@ -37,7 +37,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
  
          bounds.size.width = cursor->width * scale;
          bounds.size.height = cursor->height * scale;
-@@ -1411,13 +1414,30 @@
+@@ -1397,9 +1400,27 @@
      return size;
  }
  
@@ -45,8 +45,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +
  - (void) resizeWindow
  {
--    if (cocoa_notch_keeps_layout([[self window] styleMask],
--                                 cocoa_notch_strip([[self window] screen]))) {
+-    if ([[self window] styleMask] & NSWindowStyleMaskFullScreen) {
 +    NSWindowStyleMask styleMask = [[self window] styleMask];
 +
 +    if ((styleMask & NSWindowStyleMaskResizable) &&
@@ -60,17 +59,14 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 +        [[self window] setContentMinSize:cocoa_guest_frame_size(
 +            NSZeroSize, [[self window] backingScaleFactor])];
 +        [self updateUIInfo];
-         return;
-     }
- 
-+    if (cocoa_notch_keeps_layout(styleMask, cocoa_notch_strip([[self window] screen]))) {
 +        return;
 +    }
 +
-     [[self window] setContentAspectRatio:NSMakeSize(screen.width, screen.height)];
- 
-     if (!([[self window] styleMask] & NSWindowStyleMaskResizable)) {
-@@ -2202,12 +2222,19 @@
++    if (styleMask & NSWindowStyleMaskFullScreen) {
+         /*
+          * Full screen is AppKit's to lay out, on every display. When the app
+          * sizes or moves a full-screen window on a screen with a camera
+@@ -2195,12 +2216,19 @@
  
      with_bql(^{
          if (isAbsoluteEnabled) {

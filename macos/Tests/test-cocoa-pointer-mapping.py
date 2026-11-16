@@ -64,16 +64,17 @@ class CocoaPointerMappingTests(unittest.TestCase):
         self.assertIn("[self updateUIInfo];", branch)
         self.assertNotIn("setContentSize", branch)
 
-    def test_full_screen_beside_a_housing_keeps_appkits_layout(self) -> None:
+    def test_full_screen_keeps_appkits_layout(self) -> None:
         # This patch rewrites resizeWindow last, so the final method must keep
         # the notch patch's guard ahead of anything that sizes the window (#428).
         source = patched()
         start = source.index("- (void) resizeWindow")
         method = source[start:]
-        guard = method.index("if (cocoa_notch_keeps_layout(styleMask, cocoa_notch_strip([[self window] screen]))) {")
+        guard = method.index("    if (styleMask & NSWindowStyleMaskFullScreen) {\n")
         self.assertLess(method.index("!(styleMask & NSWindowStyleMaskFullScreen)"), guard)
-        self.assertLess(guard, method.index("[[self window] setContentAspectRatio:"))
-        self.assertEqual(method[guard:method.index("}", guard)].count("return;"), 1)
+        # The hunk ends inside the guard's comment; the notch test checks the
+        # guard comes before setContentAspectRatio.
+        self.assertIn("Full screen is AppKit's to lay out, on every display.", method[guard:])
 
     def test_initial_guest_size_is_in_pixels(self) -> None:
         added = lines("+")
