@@ -30,6 +30,10 @@ Host omarchy
 
 A new VM has a new host key. If SSH warns that the key changed, run `ssh-keygen -R '[127.0.0.1]:2222'`.
 
+## Network stalls
+
+The runtime closes outgoing NAT TCP connections on background workers. This keeps a slow socket close from blocking the VM's keyboard, display and other work. The [socket-close fix](../docs/nat-socket-close.md) is part of the Mac app; updating packages inside Omarchy does not update it.
+
 ## Bridged networking
 
 By default, Omarchy shares the Mac's connection (NAT). **Bridged** gives Omarchy its own address on your network instead.

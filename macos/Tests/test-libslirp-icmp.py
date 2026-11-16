@@ -16,7 +16,7 @@ def added_file(name):
     start = lines.index(f"+++ b/{name}\n") + 1
     result = []
     for line in lines[start:]:
-        if line.startswith("--- "):
+        if line.startswith("--- ") or line.startswith("diff --git "):
             break
         if line.startswith("@@"):
             continue

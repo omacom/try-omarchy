@@ -1,3 +1,4 @@
+diff --git a/src/udp.c b/src/udp.c
 --- a/src/udp.c
 +++ b/src/udp.c
 @@ -44,6 +44,37 @@
@@ -52,25 +53,10 @@
  
      if (so == NULL) {
          /*
---- a/meson.build
-+++ b/meson.build
-@@ -288,3 +288,13 @@
-     dependencies: libslirp_deps)
-   test('icmp-darwin', icmpdarwintest)
- endif
-+
-+if host_system != 'windows'
-+  udp_translation_test = executable('udptranslationtest', 'test/udp-translation-test.c',
-+    link_with: [lib],
-+    c_args: cargs,
-+    link_args: vflag,
-+    include_directories: ['src'],
-+    dependencies: libslirp_deps)
-+  test('udp-translation', udp_translation_test)
-+endif
+diff --git a/test/udp-translation-test.c b/test/udp-translation-test.c
 --- /dev/null
 +++ b/test/udp-translation-test.c
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,539 @@
 +/* SPDX-License-Identifier: BSD-3-Clause */
 +/*
 + * Copyright (c) 2021-2022, 2024 Samuel Thibault
@@ -83,6 +69,8 @@
 +#include <arpa/inet.h>
 +#include <assert.h>
 +#include <errno.h>
++#include <ifaddrs.h>
++#include <net/if.h>
 +#include <netinet/in.h>
 +#include <poll.h>
 +#include <stdint.h>
@@ -377,7 +365,7 @@
 +    if (fd < 0)
 +        return -1;
 +    addr.sin_family = AF_INET;
-+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    addr.sin_addr.s_addr = htonl(INADDR_ANY);
 +    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
 +        getsockname(fd, (struct sockaddr *)&addr, &addr_len) < 0) {
 +        close(fd);
@@ -453,7 +441,8 @@
 +}
 +
 +static int run_case(const char *name, const char *tag_a, const char *tag_b,
-+                    const char *dst_a, const char *dst_b)
++                    const char *dst_a, const char *dst_b,
++                    int expect_shared_source_port)
 +{
 +    SlirpConfig config = {
 +        .version = 6,
@@ -514,7 +503,7 @@
 +        if (!sent_b)
 +            sent_b = receive_request(1) > 0;
 +        if (sent_a && sent_b && !replied) {
-+            if (!strcmp(dst_a, "127.0.0.1") && !strcmp(dst_b, "127.0.0.1") &&
++            if (expect_shared_source_port &&
 +                state.host_peer[0].sin_port != state.host_peer[1].sin_port)
 +                fail_case("ordinary destinations did not share a host source port");
 +            send_reply(1);
@@ -537,17 +526,73 @@
 +    return state.bad;
 +}
 +
++static int address_reaches_local_udp(struct in_addr address)
++{
++    int port;
++    int receive_fd = make_socket(&port);
++    int send_fd = socket(AF_INET, SOCK_DGRAM, 0);
++    struct sockaddr_in destination = {0};
++    struct pollfd ready = {.fd = receive_fd, .events = POLLIN};
++    char reply = 0;
++    int reached = 0;
++
++    if (receive_fd >= 0 && send_fd >= 0) {
++        destination.sin_family = AF_INET;
++        destination.sin_addr = address;
++        destination.sin_port = htons(port);
++        if (sendto(send_fd, "x", 1, 0, (struct sockaddr *)&destination,
++                   sizeof(destination)) == 1 &&
++            poll(&ready, 1, 200) > 0 &&
++            recv(receive_fd, &reply, 1, 0) == 1 && reply == 'x')
++            reached = 1;
++    }
++    if (receive_fd >= 0) close(receive_fd);
++    if (send_fd >= 0) close(send_fd);
++    return reached;
++}
++
++static int host_address(char result[INET_ADDRSTRLEN])
++{
++    struct ifaddrs *interfaces = NULL;
++    struct ifaddrs *item;
++    int found = 0;
++
++    if (getifaddrs(&interfaces) < 0)
++        return 0;
++    for (item = interfaces; item; item = item->ifa_next) {
++        const struct sockaddr_in *addr;
++        if (!item->ifa_addr || item->ifa_addr->sa_family != AF_INET ||
++            !(item->ifa_flags & IFF_UP) ||
++            (item->ifa_flags & (IFF_LOOPBACK | IFF_POINTOPOINT)))
++            continue;
++        addr = (const struct sockaddr_in *)item->ifa_addr;
++        if (address_reaches_local_udp(addr->sin_addr) &&
++            inet_ntop(AF_INET, &addr->sin_addr, result, INET_ADDRSTRLEN)) {
++            found = 1;
++            break;
++        }
++    }
++    freeifaddrs(interfaces);
++    return found;
++}
++
 +int main(void)
 +{
 +    int failed = 0;
++    char ordinary_host[INET_ADDRSTRLEN];
 +
-+    /* Ordinary destinations preserve the shared host source port. */
-+    failed |= run_case("ordinary-loopback", "ordinary-A", "ordinary-B",
-+                       "127.0.0.1", "127.0.0.1");
-+    /* Cross-destination case: the second reply is deliberately emitted first. */
-+    failed |= run_case("virtual-destinations", "tag-A", "tag-B",
-+                       "10.0.2.2", "127.0.0.1");
-+    failed |= run_case("reverse-order", "tag-A", "tag-B", "127.0.0.1", "10.0.2.2");
-+    failed |= run_case("virtual-two-ports", "tag-A", "tag-B", "10.0.2.2", "10.0.2.2");
++    if (host_address(ordinary_host)) {
++        /* Ordinary destinations preserve the shared host source port. */
++        failed |= run_case("ordinary-host-address", "ordinary-A", "ordinary-B",
++                           ordinary_host, ordinary_host, 1);
++        /* The second reply is deliberately emitted first. */
++        failed |= run_case("virtual-destinations", "tag-A", "tag-B",
++                           "10.0.2.2", ordinary_host, 0);
++        failed |= run_case("reverse-order", "tag-A", "tag-B",
++                           ordinary_host, "10.0.2.2", 0);
++    } else {
++        puts("ordinary destination cases skipped: no non-loopback IPv4 address");
++    }
++    failed |= run_case("virtual-two-ports", "tag-A", "tag-B", "10.0.2.2", "10.0.2.2", 0);
 +    return failed ? EXIT_FAILURE : EXIT_SUCCESS;
 +}

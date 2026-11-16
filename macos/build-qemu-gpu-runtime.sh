@@ -87,6 +87,8 @@ audio_playback_thread_patch="$native_dir/patches/qemu-sdl-audio-playback-thread.
 main_loop_qos_patch="$native_dir/patches/qemu-darwin-main-loop-qos.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
+close_patch="$native_dir/patches/libslirp-darwin-async-close.patch"
+qemu_slirp_init_patch="$native_dir/patches/qemu-slirp-init-error.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
@@ -135,14 +137,16 @@ audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
 multi_display_patch_sha256=fe315784ed42221a879ab805e47d5d02d6b498797c4f32941112d6203b43937f
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
-udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
-slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
-# Pin the commit behind v4.9.4 so a moved tag cannot change the source archive.
-slirp_commit=d09dc9a70360ee7838acccbd234ab83f3b9b37a5
+udp_patch_sha256=cc1eed584203a870da0be3cb7891afb86492d580033c9d073d3bd58d4beaf0cc
+slirp_patch_sha256=c1c03f5ec53a2ee908212fa664ff65712bb4e6be2e8b5fc2b24a927de786c7c2
+close_patch_sha256=d6e1735c0efeb7901d396b0bfb739688163d9ff1ff6d0cd7b131a727f81dad05
+qemu_slirp_init_patch_sha256=dcaed9587f7aa2ea61f16e1b09bbea789a821303f2139cd1821900485f5df11b
+# Pin the commit behind v4.9.7 so a moved tag cannot change the source archive.
+slirp_commit=ce12dcddf710a71dc0de6450ec95edbadf8e9f66
 slirp_source_root="libslirp-$slirp_commit"
 slirp_archive_name="$slirp_source_root.tar.gz"
-slirp_url="https://gitlab.freedesktop.org/slirp/libslirp/-/archive/$slirp_commit/$slirp_archive_name"
-slirp_sha256=3ede9d4a09028d14fd7089ba0dc2438e3515300b43f23dba1db5ba94574bf512
+slirp_url="https://gitlab.com/qemu-project/libslirp/-/archive/$slirp_commit/$slirp_archive_name"
+slirp_sha256=8980b037e16d9964b87945298568d4266bf6b8b7ea5a6eb28ce1b09112a38056
 meson_root=meson-1.9.0
 meson_archive_name="$meson_root.tar.gz"
 meson_url="https://github.com/mesonbuild/meson/releases/download/1.9.0/$meson_archive_name"
@@ -294,6 +298,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing SDL audio playback-thread patch: $audio_playback_thread_patch"
 [[ -f $main_loop_qos_patch && ! -L $main_loop_qos_patch ]] || \
   die "missing Darwin main-loop QoS patch: $main_loop_qos_patch"
+[[ -f $qemu_slirp_init_patch && ! -L $qemu_slirp_init_patch ]] || \
+  die "missing SLIRP initialization error patch: $qemu_slirp_init_patch"
 [[ -f $multi_display_patch && ! -L $multi_display_patch ]] || \
   die "missing Cocoa multi-display patch: $multi_display_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
@@ -467,6 +473,8 @@ verify_file_sha "Darwin ICMP reply matching patch" "$slirp_patch" "$slirp_patch_
 patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$slirp_patch"
 verify_file_sha "IPv4 UDP reply translation patch" "$udp_patch" "$udp_patch_sha256"
 patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$udp_patch"
+verify_file_sha "Darwin asynchronous TCP close patch" "$close_patch" "$close_patch_sha256"
+patch -d "$source_parent/$slirp_source_root" -p1 -f -i "$close_patch"
 tar -xzf "$qemu_archive" -C "$source_parent"
 tar -xzf "$virgl_archive" -C "$source_parent"
 tar -xzf "$virgl_tap_archive" -C "$source_parent"
@@ -552,6 +560,8 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
   "$audio_playback_thread_patch" "$audio_playback_thread_patch_sha256"
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
+verify_file_sha "Try Omarchy SLIRP initialization error patch" \
+  "$qemu_slirp_init_patch" "$qemu_slirp_init_patch_sha256"
 
 log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, and multi-display patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
@@ -582,6 +592,7 @@ patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 patch -d "$source_dir" -p1 -f -i "$minimum_guest_size_patch"
 patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
 patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
+patch -d "$source_dir" -p1 -f -i "$qemu_slirp_init_patch"
 patch -d "$source_dir" -p1 -f -i "$notch_patch"
 patch -d "$source_dir" -p1 -f -i "$command_chord_patch"
 patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"
@@ -670,7 +681,7 @@ require_private_pkg_version() {
 
 require_private_pkg_version glib-2.0 2.88.3
 require_private_pkg_version pixman-1 0.46.4
-require_private_pkg_version slirp 4.9.4
+require_private_pkg_version slirp 4.9.7
 require_private_pkg_version sdl2 2.32.70
 require_private_pkg_version epoxy 1.5.11
 require_private_pkg_version libusb-1.0 1.0.30
@@ -743,7 +754,7 @@ require_private_pkg_version virglrenderer 1.3.0
 # Build against the same pinned private GLib used by QEMU; never use host libraries.
 slirp_build="$source_parent/$slirp_source_root/build"
 meson="$tool_root/$meson_root/meson.py"
-log "Building patched libslirp 4.9.4 for macOS $macos_deployment_target"
+log "Building patched libslirp 4.9.7 for macOS $macos_deployment_target"
 env MACOSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
   PKG_CONFIG_PATH= PKG_CONFIG_LIBDIR="$pkg_config_libdir" \
   DYLD_LIBRARY_PATH="$private_libraries" \

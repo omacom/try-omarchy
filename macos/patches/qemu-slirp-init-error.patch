@@ -1,0 +1,25 @@
+diff --git a/net/slirp.c b/net/slirp.c
+index 9e9941f..0df7b64 100644
+--- a/net/slirp.c
++++ b/net/slirp.c
+@@ -158,6 +158,9 @@ static void net_slirp_cleanup(NetClientState *nc)
+ {
+     SlirpState *s = DO_UPCAST(SlirpState, nc, nc);
+ 
++    if (!s->slirp) {
++        return;
++    }
+     g_slist_free_full(s->fwd, slirp_free_fwd);
+     main_loop_poll_remove_notifier(&s->poll_notifier);
+     unregister_savevm(NULL, "slirp", s->slirp);
+@@ -664,6 +667,10 @@ static int net_slirp_init(NetClientState *peer, const char *model,
+     cfg.vdnssearch = dnssearch;
+     cfg.vdomainname = vdomainname;
+     s->slirp = slirp_new(&cfg, &slirp_cb, s);
++    if (!s->slirp) {
++        error_setg_errno(errp, errno, "Could not initialize SLIRP");
++        goto error;
++    }
+     QTAILQ_INSERT_TAIL(&slirp_stacks, s, entry);
+ 
+     /*

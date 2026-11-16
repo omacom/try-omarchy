@@ -49,6 +49,8 @@ for VirGL, libslirp, and QEMU; otherwise Ninja selects its usual parallelism.
 See [performance profiling](../docs/performance.md) for CPU/memory accounting,
 reproducible measurements, and the current native-comparison limitations.
 
+The [NAT socket-close fix](../docs/nat-socket-close.md) closes outgoing TCP sockets on background workers on Darwin so a slow host close does not block the VM's main loop. Each connection carries its own cleanup record. There is no fixed total-connection limit; host memory and descriptor limits still apply. See the linked document for ownership, checks, and validation status.
+
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. It offers patch, minor, or major selection
 and direct version entry (or accepts `VERSION=vX.Y.Z`), ensures the guest and
