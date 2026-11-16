@@ -46,9 +46,19 @@ changes that:
   where that menu bar lives.
 - The guest is offered the whole display's backing size, so the Hyprland
   output follows the window (see [guest display synchronization](architecture.md#guest-display-synchronization)).
+- QEMU never sizes or moves a full-screen window, on any display; AppKit
+  lays it out. When the app moves such a window off the strip, the window
+  server keeps it off, even after AppKit gives it the whole display again.
+  AppKit's frame, which the pointer is mapped through, then sits a strip
+  away from the picture. A window sized on an external display and moved to
+  the panel carries that over, so the rule covers every display. A guest
+  mode that lags the window is scaled onto it instead. After the window
+  moves, for example when its Space comes back, the guest's size, the scale
+  and the window's level follow it again. With several displays, each
+  full-screen window follows its own.
 
-Screens without a housing report no safe-area inset and keep QEMU's
-behaviour: external displays, Macs without a notch, and the built-in panel's
+Screens without a housing report no safe-area inset, so there is no strip
+to cover: external displays, Macs without a notch, and the built-in panel's
 modes below the camera (the 16:10 ones, such as 1512 x 945 on a 14-inch
 MacBook Pro). QEMU's log says when full screen covers the strip.
 

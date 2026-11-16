@@ -44,6 +44,12 @@ else
   note "no dictation port (setting off, macOS 15, or a build without the macOS 26 SDK)"
 fi
 
+# --- boot -------------------------------------------------------------------------------
+# Limine boots the installed kernel, not one the factory image was built with.
+owner=$(pacman -Qqo "/usr/lib/modules/$(uname -r)/vmlinuz" 2>/dev/null)
+[[ $owner == linux-omarchy ]] && ok "the running kernel $(uname -r) is the installed linux-omarchy $(pacman -Q linux-omarchy | cut -d' ' -f2)" ||
+  bad "the running kernel $(uname -r) is not the installed linux-omarchy $(pacman -Q linux-omarchy 2>/dev/null | cut -d' ' -f2)"
+
 # --- integrations ----------------------------------------------------------------------
 zone=$(timedatectl show -p Timezone --value)
 [[ $zone == "$mac_zone" ]] && ok "the time zone follows the Mac ($zone)" || bad "time zone $zone, the Mac's is $mac_zone"
