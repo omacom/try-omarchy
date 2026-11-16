@@ -100,30 +100,25 @@ def configured_scale() -> float | None:
     return None
 
 
-# The Mac's arrangement is in logical pixels at the EDID's density. A chosen
-# scale changes every output's logical size, so placement goes back to
-# Hyprland then (the third field).
 requested_scale = configured_scale()
-placement = "auto" if requested_scale is None else "fixed"
 
 
-def scale_for_mode(
+def density_scale(
     width: int,
     height: int,
     physical_width_mm: int,
     physical_height_mm: int,
-) -> str:
-    requested = requested_scale
+) -> float | None:
+    if physical_width_mm <= 0 or physical_height_mm <= 0:
+        return None
+    diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
+    if diagonal_inches <= 0:
+        return None
+    ppi = hypot(width, height) / diagonal_inches
+    return 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
 
-    if requested is None:
-        if physical_width_mm <= 0 or physical_height_mm <= 0:
-            return "auto"
-        diagonal_inches = hypot(physical_width_mm, physical_height_mm) / 25.4
-        if diagonal_inches <= 0:
-            return "auto"
-        ppi = hypot(width, height) / diagonal_inches
-        requested = 2.0 if ppi > 200 else 1.5 if ppi > 140 else 1.0
 
+def clean_scale(requested: float, width: int, height: int) -> str:
     # Hyprland requires the scaled logical dimensions to land on whole pixels.
     # It searches scale values in 1/120 increments around the requested value;
     # choose the closest clean value here so an explicit dynamic scale does not
@@ -143,6 +138,26 @@ def scale_for_mode(
         key=lambda candidate: (abs(candidate - requested_120), -candidate),
     )
     return f"{clean_120 / 120:.6f}".rstrip("0").rstrip(".")
+
+
+# The Mac's arrangement is in logical pixels at the EDID's density. A chosen
+# scale other than that changes the output's logical size, so its placement
+# goes back to Hyprland then (the third field).
+def scale_for_mode(
+    width: int,
+    height: int,
+    physical_width_mm: int,
+    physical_height_mm: int,
+) -> tuple[str, str]:
+    density = density_scale(width, height, physical_width_mm, physical_height_mm)
+    if requested_scale is None:
+        if density is None:
+            return "auto", "auto"
+        return clean_scale(density, width, height), "auto"
+    scale = clean_scale(requested_scale, width, height)
+    if density is not None and scale == clean_scale(density, width, height):
+        return scale, "auto"
+    return scale, "fixed"
 
 
 base_physical_width_mm = data[21] * 10
@@ -220,7 +235,7 @@ if displayid_timings:
         (entry for entry in displayid_timings if entry[0]),
         displayid_timings[0],
     )
-    scale = scale_for_mode(
+    scale, placement = scale_for_mode(
         preferred_width,
         preferred_height,
         base_physical_width_mm,
@@ -269,7 +284,7 @@ for offset in range(54, 126, 18):
         bool(timing[17] & 0x04),
     )
     if decoded:
-        scale = scale_for_mode(
+        scale, placement = scale_for_mode(
             width,
             height,
             physical_width_mm,
@@ -371,8 +386,8 @@ apply_connected_modes() {
     IFS=$'\t' read -r mode scale placement <<<"$preferred"
     [[ -n $mode && -n $scale ]] || continue
     # The panel's arrangement is the person's, in logical pixels at their
-    # scale. Without one, a chosen scale leaves placement to Hyprland, and
-    # the Mac's arrangement applies otherwise.
+    # scale. Without one, a scale other than the display's own leaves
+    # placement to Hyprland, and the Mac's arrangement applies otherwise.
     position=auto
     if [[ $panel_position =~ ^-?[0-9]{1,5}x-?[0-9]{1,5}$ ]]; then
       position=$panel_position

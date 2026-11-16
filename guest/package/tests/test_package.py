@@ -451,12 +451,23 @@ class DisplaySync(unittest.TestCase):
         self.connect("Virtual-1", self.PANEL)
         self.connect("Virtual-2", self.EXTERNAL)
         self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
-        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "2"))
+        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "1.5"))
         rules = [line for line in self.sync() if line.startswith("hyprctl")]
         self.assertEqual(len(rules), 2)
-        for rule in rules:
-            self.assertIn('position = "auto"', rule)
-            self.assertIn('scale = "2"', rule)
+        self.assertIn('position = "auto", scale = "1.333333"', rules[0])
+        self.assertIn('position = "auto", scale = "1.6"', rules[1])
+
+    def test_a_chosen_scale_equal_to_the_displays_own_keeps_the_macs_arrangement(self):
+        # Omarchy can save a scale without a position. At the display's own
+        # scale the logical sizes still match the Mac's points, and the
+        # pointer maps through the Mac's arrangement.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
 
     def save_panel_settings(self, *lines):
         (self.tmp / "settings").write_text("".join(line + "\n" for line in lines))
