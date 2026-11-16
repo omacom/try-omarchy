@@ -20,11 +20,15 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 PORT = Path(os.environ.get("TRY_OMARCHY_DISPLAY_PORT", "/dev/virtio-ports/dev.tryomarchy.display"))
 STATE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "try-omarchy-display-report"
 # The Mac reads up to this many outputs.
 MAX_OUTPUTS = 8
+# A full port takes the report once the Mac has read what came before.
+SEND_TRIES = 20
+SEND_RETRY_SECONDS = 0.1
 
 
 def layout(monitors):
@@ -41,6 +45,27 @@ def layout(monitors):
     return outputs
 
 
+def send(line):
+    data = line.encode()
+    for _ in range(SEND_TRIES):
+        try:
+            port = os.open(PORT, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        except OSError:
+            return False
+        try:
+            while data:
+                data = data[os.write(port, data):]
+            return True
+        except BlockingIOError:
+            pass
+        except OSError:
+            return False
+        finally:
+            os.close(port)
+        time.sleep(SEND_RETRY_SECONDS)
+    return False
+
+
 def report():
     try:
         result = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=5)
@@ -55,17 +80,7 @@ def report():
             return
     except OSError:
         pass
-    try:
-        port = os.open(PORT, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-    except OSError:
-        return
-    try:
-        written = os.write(port, line.encode())
-    except OSError:
-        return
-    finally:
-        os.close(port)
-    if written == len(line):
+    if send(line):
         STATE.write_text(line)
 
 

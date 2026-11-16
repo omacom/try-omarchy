@@ -563,6 +563,28 @@ class DisplayReport(unittest.TestCase):
         layout[0]["scale"] = 4 / 3
         self.assertEqual(self.report(layout)["outputs"][0]["width"], 2268.0)
 
+    def test_a_full_port_takes_the_report_once_it_drains(self):
+        reporter = load(LIB / "display-report", "display_report")
+        writes = []
+
+        def write(port, data):
+            if not writes:
+                writes.append(b"")
+                raise BlockingIOError
+            writes.append(bytes(data[:10]))
+            return len(writes[-1])
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", write):
+            self.assertTrue(reporter.send('{"outputs":[]}\n'))
+        self.assertEqual(b"".join(writes[1:]), b'{"outputs":[]}\n')
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", side_effect=BlockingIOError):
+            self.assertFalse(reporter.send("{}\n"))
+
     def test_without_the_port_it_does_nothing(self):
         self.port.unlink()
         self.monitors.write_text(json.dumps([self.monitor("Virtual-1", 0, 0, 1920, 1080, 1)]))
