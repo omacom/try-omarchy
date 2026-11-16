@@ -354,6 +354,10 @@ class DisplaySync(unittest.TestCase):
         shims.mkdir()
         (shims / "hyprctl").write_text('#!/bin/bash\necho "hyprctl $*" >>"$SYNC_LOG"\necho ok\n')
         (shims / "notch-refresh").write_text('#!/bin/bash\necho "notch-refresh $*" >>"$SYNC_LOG"\n')
+        # Omarchy tells identical monitors apart by connector order.
+        (shims / "omarchy-hyprland-monitor-identity").write_text(
+            '#!/bin/bash\n[[ $1 == Virtual-1 ]] && echo "Red Hat Inc. QEMU Monitor" '
+            '|| echo "Red Hat Inc. QEMU Monitor #${1#Virtual-}"\n')
         for shim in shims.iterdir():
             shim.chmod(0o755)
         self.env = {"PATH": f"{shims}:{os.environ['PATH']}", "SYNC_LOG": str(self.log),
@@ -361,6 +365,7 @@ class DisplaySync(unittest.TestCase):
                     "OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG": str(self.monitors),
                     "OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH": str(shims / "notch-refresh"),
                     "OMARCHY_DISPLAY_SYNC_LAYOUT": str(self.layout),
+                    "OMARCHY_DISPLAY_SYNC_PANEL_SETTINGS": str(self.tmp / "settings"),
                     "OMARCHY_DISPLAY_SYNC_LOCK": str(self.tmp / "lock")}
         self.monitors.write_text(
             'local omarchy_monitor_scale = "auto"\n'
@@ -452,6 +457,48 @@ class DisplaySync(unittest.TestCase):
         for rule in rules:
             self.assertIn('position = "auto"', rule)
             self.assertIn('scale = "2"', rule)
+
+    def save_panel_settings(self, *lines):
+        (self.tmp / "settings").write_text("".join(line + "\n" for line in lines))
+
+    def test_the_monitor_panel_keeps_its_scale_and_place(self):
+        # A resync after a reload or a window resize must not undo a choice
+        # made in Omarchy's monitor panel. Lines without the transform are
+        # from older Omarchy.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t0x720\t1.333333\t\tRed Hat Inc. QEMU Monitor",
+                                 "\t0x0\t1.25\tRed Hat Inc. QEMU Monitor #2")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+        self.assertIn('position = "0x720", scale = "1.333333"', rules[0])
+        self.assertIn('position = "0x0", scale = "1.25"', rules[1])
+
+    def test_a_panel_scale_snaps_to_one_the_window_can_take(self):
+        # The window can change size after the panel saved its scale, or the
+        # Mac's displays can come in another order. 1.6 doesn't divide
+        # 3024x1964 into whole logical pixels; 4/3 is the nearest scale that does.
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1.6\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "1.333333"', rules[0])
+
+    def test_a_monitor_without_a_panel_setting_keeps_the_macs_arrangement(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tDell Inc. DELL U2723QE")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
+
+    def test_panel_settings_turned_off_in_monitors_lua_are_ignored(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1\t\tRed Hat Inc. QEMU Monitor")
+        self.monitors.write_text(self.monitors.read_text() + "omarchy_monitor_panel_settings = false\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "2"', rules[0])
 
 
 class SshAccess(unittest.TestCase):

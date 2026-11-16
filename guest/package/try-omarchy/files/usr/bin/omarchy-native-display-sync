@@ -8,9 +8,12 @@ notch_refresh=${OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH:-/usr/lib/try-omarchy/notch-r
 # host-config writes the Mac's arrangement here, one "OUTPUT XxY" per line.
 display_layout=${OMARCHY_DISPLAY_SYNC_LAYOUT:-/run/try-omarchy/display-layout}
 lock=${OMARCHY_DISPLAY_SYNC_LOCK:-${XDG_RUNTIME_DIR:-/tmp}/try-omarchy-display-sync.lock}
+# Omarchy's monitor panel saves each monitor's position and scale here, keyed
+# by the identity omarchy-hyprland-monitor-identity prints.
+panel_settings=${OMARCHY_DISPLAY_SYNC_PANEL_SETTINGS:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/monitors/settings}
 
-preferred_mode_from_edid() {
-  python3 - "$1" "$monitor_config" <<'PY'
+preferred_mode_from_edid() { # edid [panel-scale]
+  python3 - "$1" "$monitor_config" "${2:-}" <<'PY'
 import pathlib
 import re
 import sys
@@ -71,9 +74,16 @@ def modeline(
 
 
 def configured_scale() -> float | None:
-    # Omarchy's scaling controls write a numeric local in monitors.lua. Read it
-    # on each resync so a running hotplug watcher also sees later zoom changes.
-    # Auto/missing settings retain the live EDID's density-based scale.
+    # Omarchy's monitor panel saves a scale for each monitor; older Omarchy
+    # wrote one numeric local in monitors.lua. Read them on each resync so a
+    # running hotplug watcher also sees later zoom changes. Without either,
+    # the live EDID's density-based scale applies.
+    try:
+        panel_scale = float(sys.argv[3])
+        if isfinite(panel_scale) and panel_scale >= 0.25:
+            return panel_scale
+    except ValueError:
+        pass
     try:
         config = pathlib.Path(sys.argv[2]).read_text()
         match = re.search(
@@ -302,12 +312,40 @@ raise SystemExit(0 if re.search(rule, lua) else 1)
 PY
 }
 
+# The position and scale Omarchy's monitor panel saved for an output, as
+# "POSITION|SCALE", or nothing. Older Omarchy has no panel, and
+# omarchy_monitor_panel_settings = false in monitors.lua turns it off.
+panel_setting() { # output
+  local identity
+  [[ -r $panel_settings ]] && command -v omarchy-hyprland-monitor-identity >/dev/null || return 0
+  if [[ -r $monitor_config ]] && python3 - "$monitor_config" <<'PY'
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8", errors="replace") as config:
+    lua = config.read()
+lua = re.sub(r"--\[(=*)\[.*?\]\1\]", "", lua, flags=re.DOTALL)
+lua = re.sub(r"--[^\n]*", "", lua)
+raise SystemExit(0 if re.search(r"\bomarchy_monitor_panel_settings\s*=\s*false\b", lua) else 1)
+PY
+  then
+    return 0
+  fi
+  identity=$(omarchy-hyprland-monitor-identity "$1" 2>/dev/null) || return 0
+  awk -F'\t' -v identity="$identity" '
+    NF >= 4 && $NF == identity { setting = $2 "|" $3 }
+    END { if (setting != "") print setting }
+  ' "$panel_settings"
+}
+
 apply_connected_modes() {
   local connector
   local connector_name
   local height
   local mode
   local output
+  local panel_position
+  local panel_scale
   local placement
   local position
   local preferred
@@ -326,13 +364,21 @@ apply_connected_modes() {
     if user_configures_output "$output"; then
       continue
     fi
-    if ! preferred=$(preferred_mode_from_edid "$connector/edid"); then
+    IFS='|' read -r panel_position panel_scale <<<"$(panel_setting "$output")"
+    if ! preferred=$(preferred_mode_from_edid "$connector/edid" "$panel_scale"); then
       continue
     fi
     IFS=$'\t' read -r mode scale placement <<<"$preferred"
     [[ -n $mode && -n $scale ]] || continue
+    # The panel's arrangement is the person's, in logical pixels at their
+    # scale. Without one, a chosen scale leaves placement to Hyprland, and
+    # the Mac's arrangement applies otherwise.
     position=auto
-    [[ $placement == auto ]] && position=$(host_position "$output")
+    if [[ $panel_position =~ ^-?[0-9]{1,5}x-?[0-9]{1,5}$ ]]; then
+      position=$panel_position
+    elif [[ $placement == auto ]]; then
+      position=$(host_position "$output")
+    fi
 
     # Aquamarine 0.14 does not refresh its mode cache when an existing DRM
     # connector's EDID or physical size changes. A complete modeline bypasses
