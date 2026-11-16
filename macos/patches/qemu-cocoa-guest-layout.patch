@@ -9,7 +9,7 @@
  
  #include "qemu/help-texts.h"
  #include "qemu-main.h"
-@@ -891,6 +893,237 @@
+@@ -891,6 +893,248 @@
      return desktop;
  }
  
@@ -150,29 +150,18 @@
 +    guest_output_count = count;
 +}
 +
-+static void cocoa_guest_layout_connect(void);
-+
-+/* Runs on the main queue, like every reader of guest_outputs. */
-+static void cocoa_guest_layout_read(int fd)
++/*
++ * Bytes as the port delivers them: a report can arrive in pieces, or with
++ * others. Each complete line is applied; an over-long one is skipped up to
++ * its end.
++ */
++static void cocoa_guest_layout_receive(const uint8_t *chunk, size_t length)
 +{
-+    uint8_t chunk[1024];
-+    ssize_t length = read(fd, chunk, sizeof(chunk));
 +    const uint8_t *bytes;
 +    NSUInteger start = 0;
 +
-+    if (length < 0 && (errno == EAGAIN || errno == EINTR)) {
-+        return;
-+    }
-+    if (length <= 0) {
-+        dispatch_source_cancel(guest_layout_source);
-+        dispatch_release(guest_layout_source);
-+        guest_layout_source = NULL;
-+        guest_output_count = 0;
-+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
-+                       dispatch_get_main_queue(), ^{
-+            cocoa_guest_layout_connect();
-+        });
-+        return;
++    if (!guest_layout_buffer) {
++        guest_layout_buffer = [[NSMutableData alloc] init];
 +    }
 +    [guest_layout_buffer appendBytes:chunk length:length];
 +    bytes = [guest_layout_buffer bytes];
@@ -191,6 +180,31 @@
 +        [guest_layout_buffer setLength:0];
 +        guest_layout_overflow = true;
 +    }
++}
++
++static void cocoa_guest_layout_connect(void);
++
++/* Runs on the main queue, like every reader of guest_outputs. */
++static void cocoa_guest_layout_read(int fd)
++{
++    uint8_t chunk[1024];
++    ssize_t length = read(fd, chunk, sizeof(chunk));
++
++    if (length < 0 && (errno == EAGAIN || errno == EINTR)) {
++        return;
++    }
++    if (length <= 0) {
++        dispatch_source_cancel(guest_layout_source);
++        dispatch_release(guest_layout_source);
++        guest_layout_source = NULL;
++        guest_output_count = 0;
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
++                       dispatch_get_main_queue(), ^{
++            cocoa_guest_layout_connect();
++        });
++        return;
++    }
++    cocoa_guest_layout_receive(chunk, length);
 +}
 +
 +/*
@@ -220,9 +234,6 @@
 +        });
 +        return;
 +    }
-+    if (!guest_layout_buffer) {
-+        guest_layout_buffer = [[NSMutableData alloc] init];
-+    }
 +    [guest_layout_buffer setLength:0];
 +    guest_layout_overflow = false;
 +    guest_layout_source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, fd, 0,
@@ -247,7 +258,7 @@
  static bool cocoa_head_window_is_key(void)
  {
      for (unsigned i = 0; i < head_count; i++) {
-@@ -2393,7 +2626,7 @@
+@@ -2393,7 +2637,7 @@
              NSPoint point = [[self window] convertPointToScreen:[event locationInWindow]];
              NSSize logical = head->logicalSize;
              NSRect desktop;
@@ -256,7 +267,7 @@
  
              if (logical.width <= 0 || logical.height <= 0) {
                  logical = area.size;
-@@ -2401,24 +2634,26 @@
+@@ -2401,24 +2645,26 @@
              if (NSWidth(area) <= 0 || NSHeight(area) <= 0) {
                  return;
              }
@@ -295,7 +306,7 @@
                                   0, INPUT_EVENT_ABS_MAX);
          } else {
              qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_X, [event deltaX]);
-@@ -4499,6 +4734,10 @@
+@@ -4499,6 +4745,10 @@
          qemu_register_reset(cocoa_guest_reset, NULL);
      }
      qemu_register_reset(cocoa_caps_lock_reset, NULL);

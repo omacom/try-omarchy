@@ -54,10 +54,10 @@ class CocoaGuestLayoutTests(unittest.TestCase):
         self.assertIn("qemu_register_reset(cocoa_guest_layout_reset, NULL);", code)
         self.assertIn("        guest_output_count = 0;\n", code)
 
-    def test_reports_are_checked_and_mapped_per_output(self) -> None:
+    def test_reports_are_checked_mapped_and_read_from_a_stream(self) -> None:
         code = added()
         start = code.index("#define COCOA_GUEST_OUTPUTS")
-        functions = code[start:code.index("static NSMutableData *guest_layout_buffer;")]
+        functions = code[start:code.index("static void cocoa_guest_layout_connect(void);")]
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             source = work / "layout.m"
@@ -69,6 +69,8 @@ class CocoaGuestLayoutTests(unittest.TestCase):
 
 #define COCOA_MAX_HEADS 4
 #define COCOA_MAX_DESKTOP 99999
+static unsigned warnings;
+#define warn_report(...) (warnings++)
 
 {functions}
 
@@ -79,6 +81,21 @@ static unsigned parse(const char *text)
 
     guest_output_count = count;
     return count;
+}}
+
+static void receive(const char *bytes)
+{{
+    cocoa_guest_layout_receive((const uint8_t *)bytes, strlen(bytes));
+}}
+
+static CGFloat width_of(unsigned output)
+{{
+    for (unsigned i = 0; i < guest_output_count; i++) {{
+        if (guest_outputs[i].head_output == output) {{
+            return NSWidth(guest_outputs[i].rect);
+        }}
+    }}
+    return 0;
 }}
 
 static bool near(CGFloat a, CGFloat b)
@@ -142,6 +159,32 @@ int main(void)
         assert(parse([many UTF8String]) == 0);
         /* Without a layout, the Mac's arrangement applies. */
         assert(!cocoa_guest_layout_point(0, 0.5, 0.5, &x, &y));
+
+        /* The port delivers bytes: a report in pieces applies once whole. */
+        receive("{{\\"outputs\\":[{{\\"name\\":\\"Virtual-1\\",\\"x\\":0,");
+        assert(guest_output_count == 0);
+        receive("\\"y\\":0,\\"width\\":100,\\"height\\":50}}]}}\\n");
+        assert(guest_output_count == 1 && width_of(1) == 100);
+        /* Several in one read: the last one stands. */
+        receive("{{\\"outputs\\":[{{\\"name\\":\\"Virtual-1\\",\\"x\\":0,\\"y\\":0,\\"width\\":200,\\"height\\":50}}]}}\\n"
+                "{{\\"outputs\\":[{{\\"name\\":\\"Virtual-1\\",\\"x\\":0,\\"y\\":0,\\"width\\":300,\\"height\\":50}}]}}\\n");
+        assert(width_of(1) == 300);
+        /* A bad report keeps the last good layout, and warns once. */
+        warnings = 0;
+        receive("nonsense\\nmore nonsense\\n");
+        assert(width_of(1) == 300 && warnings == 1);
+        /* An over-long line is skipped to its end, then reading goes on. */
+        NSMutableString *flood = [NSMutableString stringWithString:@"{{\\"outputs\\":["];
+        while ([flood length] < 3 * COCOA_GUEST_LAYOUT_LINE) {{
+            [flood appendString:@"{{\\"name\\":\\"Virtual-1\\",\\"x\\":0,\\"y\\":0,\\"width\\":999,\\"height\\":50}},"];
+        }}
+        for (NSUInteger i = 0; i < [flood length]; i += 700) {{
+            NSString *piece = [flood substringWithRange:NSMakeRange(i, MIN(700, [flood length] - i))];
+            receive([piece UTF8String]);
+        }}
+        receive("]}}\\n{{\\"outputs\\":[{{\\"name\\":\\"Virtual-2\\",\\"x\\":0,\\"y\\":0,\\"width\\":400,\\"height\\":50}}]}}\\n");
+        assert(guest_output_count == 1 && width_of(2) == 400 && width_of(1) == 0);
+        (void)guest_layout_source;
     }}
     return 0;
 }}
