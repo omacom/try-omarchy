@@ -221,9 +221,10 @@ int main(void)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         apply = 'patch -d "$source_dir" -p1 -f -i "$multi_display_patch"'
         self.assertIn(apply, builder)
-        # Last: its context is every other Cocoa patch's ui/cocoa.m.
+        # Its context is every other Cocoa patch's ui/cocoa.m but the
+        # guest-layout patch, made against this one.
         cocoa = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$([a-z_]+)"$', builder, re.M)
-        self.assertEqual(cocoa[-1], "multi_display_patch")
+        self.assertEqual(cocoa[-2:], ["multi_display_patch", "guest_layout_patch"])
         self.assertGreater(cocoa.index("multi_display_patch"), cocoa.index("command_chord_patch"))
 
 

@@ -1,0 +1,308 @@
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -33,6 +33,8 @@
+ #include <IOKit/hidsystem/IOHIDParameter.h>
+ #include <objc/runtime.h>
+ #include <stdarg.h>
++#include <sys/socket.h>
++#include <sys/un.h>
+ 
+ #include "qemu/help-texts.h"
+ #include "qemu-main.h"
+@@ -891,6 +893,237 @@
+     return desktop;
+ }
+ 
++/*
++ * The guest's own layout, as dev.tryomarchy.display reports it: each output's
++ * place and logical size on the desktop the absolute pointer covers. Once a
++ * display's scale differs from its Mac display's, that desktop no longer
++ * matches the Mac's arrangement, so the pointer follows the guest's layout
++ * whenever it has one for the head. Without one (an older guest package, or
++ * a guest reset until the next desktop), it follows the Mac's arrangement.
++ * The guest is untrusted: a report that fails any check is dropped whole.
++ */
++#define COCOA_GUEST_OUTPUTS 8
++#define COCOA_GUEST_LAYOUT_LINE 4096
++#define COCOA_GUEST_OUTPUT_NAME 32
++typedef struct CocoaGuestOutput {
++    /* N for the output Virtual-N, which head N-1 shows; 0 for another output. */
++    unsigned head_output;
++    NSRect rect;
++} CocoaGuestOutput;
++static CocoaGuestOutput guest_outputs[COCOA_GUEST_OUTPUTS];
++static unsigned guest_output_count;
++
++static bool cocoa_guest_layout_number(NSDictionary *entry, NSString *key,
++                                      CGFloat min, CGFloat max, CGFloat *value)
++{
++    id number = [entry objectForKey:key];
++
++    if (![number isKindOfClass:[NSNumber class]] ||
++        CFGetTypeID((CFTypeRef)number) == CFBooleanGetTypeID()) {
++        return false;
++    }
++    *value = [number doubleValue];
++    return isfinite(*value) && *value >= min && *value <= max;
++}
++
++/*
++ * One report: {"outputs":[{"name":"Virtual-1","x":0,"y":0,"width":1512,
++ * "height":982},...]}, in Hyprland's logical pixels. Returns how many outputs
++ * it names, or 0 when it is not a valid report.
++ */
++static unsigned cocoa_guest_layout_parse(NSData *line, CocoaGuestOutput *outputs)
++{
++    @autoreleasepool {
++        id report, list;
++        unsigned count = 0;
++
++        if ([line length] == 0 || [line length] > COCOA_GUEST_LAYOUT_LINE) {
++            return 0;
++        }
++        report = [NSJSONSerialization JSONObjectWithData:line options:0 error:NULL];
++        if (![report isKindOfClass:[NSDictionary class]]) {
++            return 0;
++        }
++        list = [report objectForKey:@"outputs"];
++        if (![list isKindOfClass:[NSArray class]] || [list count] == 0 ||
++            [list count] > COCOA_GUEST_OUTPUTS) {
++            return 0;
++        }
++        for (id entry in list) {
++            CocoaGuestOutput output = { 0 };
++            id name;
++            CGFloat x, y, width, height;
++            unsigned number;
++            int end = -1;
++
++            if (![entry isKindOfClass:[NSDictionary class]]) {
++                return 0;
++            }
++            name = [entry objectForKey:@"name"];
++            if (![name isKindOfClass:[NSString class]] || [name length] == 0 ||
++                [name length] > COCOA_GUEST_OUTPUT_NAME ||
++                !cocoa_guest_layout_number(entry, @"x", -COCOA_MAX_DESKTOP, COCOA_MAX_DESKTOP, &x) ||
++                !cocoa_guest_layout_number(entry, @"y", -COCOA_MAX_DESKTOP, COCOA_MAX_DESKTOP, &y) ||
++                !cocoa_guest_layout_number(entry, @"width", 1, COCOA_MAX_DESKTOP, &width) ||
++                !cocoa_guest_layout_number(entry, @"height", 1, COCOA_MAX_DESKTOP, &height)) {
++                return 0;
++            }
++            if (sscanf([name UTF8String], "Virtual-%u%n", &number, &end) == 1 &&
++                end == (int)[name length] && number >= 1 && number <= COCOA_MAX_HEADS) {
++                for (unsigned i = 0; i < count; i++) {
++                    if (outputs[i].head_output == number) {
++                        return 0;
++                    }
++                }
++                output.head_output = number;
++            }
++            output.rect = NSMakeRect(x, y, width, height);
++            outputs[count++] = output;
++        }
++        return count;
++    }
++}
++
++/*
++ * Where a point at fraction (fx, fy) of head index's output lands on the
++ * guest's desktop, as fractions of that desktop; false without a guest
++ * layout naming the head's output.
++ */
++static bool cocoa_guest_layout_point(unsigned index, CGFloat fx, CGFloat fy,
++                                     CGFloat *dx, CGFloat *dy)
++{
++    NSRect desktop = NSZeroRect, output = NSZeroRect;
++
++    for (unsigned i = 0; i < guest_output_count; i++) {
++        desktop = NSIsEmptyRect(desktop) ? guest_outputs[i].rect :
++                  NSUnionRect(desktop, guest_outputs[i].rect);
++        if (guest_outputs[i].head_output == index + 1) {
++            output = guest_outputs[i].rect;
++        }
++    }
++    if (NSIsEmptyRect(output) || NSIsEmptyRect(desktop)) {
++        return false;
++    }
++    *dx = (NSMinX(output) + fx * NSWidth(output) - NSMinX(desktop)) / NSWidth(desktop);
++    *dy = (NSMinY(output) + fy * NSHeight(output) - NSMinY(desktop)) / NSHeight(desktop);
++    return true;
++}
++
++static NSMutableData *guest_layout_buffer;
++static bool guest_layout_overflow;
++static bool guest_layout_warned;
++static dispatch_source_t guest_layout_source;
++
++static void cocoa_guest_layout_line(NSData *line)
++{
++    CocoaGuestOutput outputs[COCOA_GUEST_OUTPUTS];
++    unsigned count = cocoa_guest_layout_parse(line, outputs);
++
++    if (!count) {
++        if (!guest_layout_warned) {
++            warn_report("Try Omarchy: ignoring a display layout report from the guest");
++            guest_layout_warned = true;
++        }
++        return;
++    }
++    memcpy(guest_outputs, outputs, count * sizeof(outputs[0]));
++    guest_output_count = count;
++}
++
++static void cocoa_guest_layout_connect(void);
++
++/* Runs on the main queue, like every reader of guest_outputs. */
++static void cocoa_guest_layout_read(int fd)
++{
++    uint8_t chunk[1024];
++    ssize_t length = read(fd, chunk, sizeof(chunk));
++    const uint8_t *bytes;
++    NSUInteger start = 0;
++
++    if (length < 0 && (errno == EAGAIN || errno == EINTR)) {
++        return;
++    }
++    if (length <= 0) {
++        dispatch_source_cancel(guest_layout_source);
++        dispatch_release(guest_layout_source);
++        guest_layout_source = NULL;
++        guest_output_count = 0;
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
++                       dispatch_get_main_queue(), ^{
++            cocoa_guest_layout_connect();
++        });
++        return;
++    }
++    [guest_layout_buffer appendBytes:chunk length:length];
++    bytes = [guest_layout_buffer bytes];
++    for (NSUInteger i = 0; i < [guest_layout_buffer length]; i++) {
++        if (bytes[i] != '\n') {
++            continue;
++        }
++        if (!guest_layout_overflow) {
++            cocoa_guest_layout_line([NSData dataWithBytes:bytes + start length:i - start]);
++        }
++        guest_layout_overflow = false;
++        start = i + 1;
++    }
++    [guest_layout_buffer replaceBytesInRange:NSMakeRange(0, start) withBytes:NULL length:0];
++    if ([guest_layout_buffer length] > COCOA_GUEST_LAYOUT_LINE) {
++        [guest_layout_buffer setLength:0];
++        guest_layout_overflow = true;
++    }
++}
++
++/*
++ * The launcher's socket for dev.tryomarchy.display (TRYOMARCHY_DISPLAY_SOCKET),
++ * served by this QEMU's own chardev. Reconnects a second after it closes.
++ */
++static void cocoa_guest_layout_connect(void)
++{
++    const char *path = getenv("TRYOMARCHY_DISPLAY_SOCKET");
++    struct sockaddr_un address = { .sun_family = AF_UNIX };
++    int fd;
++
++    if (!path || !*path || strlen(path) >= sizeof(address.sun_path) || guest_layout_source) {
++        return;
++    }
++    memcpy(address.sun_path, path, strlen(path));
++    fd = socket(AF_UNIX, SOCK_STREAM, 0);
++    if (fd < 0) {
++        return;
++    }
++    if (connect(fd, (struct sockaddr *)&address, sizeof(address)) < 0 ||
++        fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) < 0) {
++        close(fd);
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
++                       dispatch_get_main_queue(), ^{
++            cocoa_guest_layout_connect();
++        });
++        return;
++    }
++    if (!guest_layout_buffer) {
++        guest_layout_buffer = [[NSMutableData alloc] init];
++    }
++    [guest_layout_buffer setLength:0];
++    guest_layout_overflow = false;
++    guest_layout_source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, fd, 0,
++                                                 dispatch_get_main_queue());
++    dispatch_source_set_event_handler(guest_layout_source, ^{
++        cocoa_guest_layout_read(fd);
++    });
++    dispatch_source_set_cancel_handler(guest_layout_source, ^{
++        close(fd);
++    });
++    dispatch_resume(guest_layout_source);
++}
++
++/* Runs with the BQL; the next desktop reports its layout again. */
++static void cocoa_guest_layout_reset(void *opaque)
++{
++    dispatch_async(dispatch_get_main_queue(), ^{
++        guest_output_count = 0;
++    });
++}
++
+ static bool cocoa_head_window_is_key(void)
+ {
+     for (unsigned i = 0; i < head_count; i++) {
+@@ -2393,7 +2626,7 @@
+             NSPoint point = [[self window] convertPointToScreen:[event locationInWindow]];
+             NSSize logical = head->logicalSize;
+             NSRect desktop;
+-            CGFloat x, y;
++            CGFloat fx, fy, dx, dy;
+ 
+             if (logical.width <= 0 || logical.height <= 0) {
+                 logical = area.size;
+@@ -2401,24 +2634,26 @@
+             if (NSWidth(area) <= 0 || NSHeight(area) <= 0) {
+                 return;
+             }
+-            x = head->desktop_x + (point.x - NSMinX(area)) / NSWidth(area) * logical.width;
+-            y = head->desktop_y + (NSMaxY(area) - point.y) / NSHeight(area) * logical.height;
+-            desktop = cocoa_desktop_rect();
+-            if (NSIsEmptyRect(desktop)) {
+-                desktop = NSMakeRect(head->desktop_x, head->desktop_y,
+-                                     logical.width, logical.height);
++            fx = (point.x - NSMinX(area)) / NSWidth(area);
++            fy = (NSMaxY(area) - point.y) / NSHeight(area);
++            if (!cocoa_guest_layout_point(head->index, fx, fy, &dx, &dy)) {
++                desktop = cocoa_desktop_rect();
++                if (NSIsEmptyRect(desktop)) {
++                    desktop = NSMakeRect(head->desktop_x, head->desktop_y,
++                                         logical.width, logical.height);
++                }
++                dx = (head->desktop_x + fx * logical.width - NSMinX(desktop)) / NSWidth(desktop);
++                dy = (head->desktop_y + fy * logical.height - NSMinY(desktop)) / NSHeight(desktop);
+             }
+             /*
+-             * The desktop is in points; scale to the whole absolute range
+-             * so a Retina display keeps pixel precision.
++             * Scale to the whole absolute range so a Retina display keeps
++             * pixel precision.
+              */
+             qemu_input_queue_abs(head->dcl.con, INPUT_AXIS_X,
+-                                 lround((x - NSMinX(desktop)) / NSWidth(desktop) *
+-                                        INPUT_EVENT_ABS_MAX),
++                                 lround(dx * INPUT_EVENT_ABS_MAX),
+                                  0, INPUT_EVENT_ABS_MAX);
+             qemu_input_queue_abs(head->dcl.con, INPUT_AXIS_Y,
+-                                 lround((y - NSMinY(desktop)) / NSHeight(desktop) *
+-                                        INPUT_EVENT_ABS_MAX),
++                                 lround(dy * INPUT_EVENT_ABS_MAX),
+                                  0, INPUT_EVENT_ABS_MAX);
+         } else {
+             qemu_input_queue_rel(head->dcl.con, INPUT_AXIS_X, [event deltaX]);
+@@ -4499,6 +4734,10 @@
+         qemu_register_reset(cocoa_guest_reset, NULL);
+     }
+     qemu_register_reset(cocoa_caps_lock_reset, NULL);
++    qemu_register_reset(cocoa_guest_layout_reset, NULL);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        cocoa_guest_layout_connect();
++    });
+     if (cocoa_caps_lock_follows_input_source()) {
+         qemu_input_led_notifier_add(&cocoa_guest_leds_notifier);
+         [[NSDistributedNotificationCenter defaultCenter]

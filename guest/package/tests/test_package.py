@@ -512,6 +512,73 @@ class DisplaySync(unittest.TestCase):
         self.assertIn('scale = "2"', rules[0])
 
 
+class DisplayReport(unittest.TestCase):
+    """display-report tells the Mac where each output really is, so its
+    pointer lands right whatever scale each display takes."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.port = self.tmp / "port"
+        self.port.write_text("")
+        self.monitors = self.tmp / "monitors.json"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        hyprctl = shims / "hyprctl"
+        hyprctl.write_text(f'#!/bin/bash\n[[ "$*" == "monitors -j" ]] && cat "{self.monitors}"\n')
+        hyprctl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{shims}:{os.environ['PATH']}",
+                    "TRY_OMARCHY_DISPLAY_PORT": str(self.port), "XDG_RUNTIME_DIR": str(self.tmp)}
+
+    def report(self, monitors):
+        self.monitors.write_text(json.dumps(monitors))
+        self.port.write_text("")
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        sent = self.port.read_text()
+        return json.loads(sent) if sent else None
+
+    @staticmethod
+    def monitor(name, x, y, width, height, scale, **extra):
+        return {"name": name, "x": x, "y": y, "width": width, "height": height, "scale": scale,
+                "transform": 0, "disabled": False, "mirrorOf": "none", **extra}
+
+    def test_reports_each_outputs_place_and_logical_size(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 512, 1440, 3024, 1964, 1.6),
+            self.monitor("Virtual-2", 0, 0, 5120, 2880, 2),
+        ]), {"outputs": [
+            {"name": "Virtual-1", "x": 512, "y": 1440, "width": 1890.0, "height": 1227.5},
+            {"name": "Virtual-2", "x": 0, "y": 0, "width": 2560.0, "height": 1440.0},
+        ]})
+
+    def test_a_quarter_turn_swaps_the_size_and_mirrors_take_no_place(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 0, 0, 1920, 1080, 1, transform=1),
+            self.monitor("Virtual-2", 0, 0, 1920, 1080, 1, mirrorOf="Virtual-1"),
+        ]), {"outputs": [{"name": "Virtual-1", "x": 0, "y": 0, "width": 1080.0, "height": 1920.0}]})
+
+    def test_sends_only_a_layout_that_changed(self):
+        layout = [self.monitor("Virtual-1", 0, 0, 3024, 1964, 2)]
+        self.assertIsNotNone(self.report(layout))
+        self.assertIsNone(self.report(layout))
+        layout[0]["scale"] = 4 / 3
+        self.assertEqual(self.report(layout)["outputs"][0]["width"], 2268.0)
+
+    def test_without_the_port_it_does_nothing(self):
+        self.port.unlink()
+        self.monitors.write_text(json.dumps([self.monitor("Virtual-1", 0, 0, 1920, 1080, 1)]))
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        self.assertFalse(self.port.exists())
+
+    def test_hyprland_reports_on_every_layout_change(self):
+        profile = (FILES / "usr/share/try-omarchy/hyprland.lua").read_text()
+        for event in ("monitor.added", "monitor.removed", "monitor.layout_changed", "config.props_refreshed"):
+            self.assertIn(f'"{event}"', profile)
+        self.assertIn('hl.exec_cmd("/usr/lib/try-omarchy/display-report")', profile)
+        rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-display.rules").read_text()
+        self.assertIn('ATTR{name}=="dev.tryomarchy.display"', rule)
+        self.assertIn('TAG+="uaccess"', rule)
+
+
 class SshAccess(unittest.TestCase):
     def check(self, options):
         tmp = Path(tempfile.mkdtemp())

@@ -177,6 +177,8 @@ On a Mac with no internal battery the guest sees only mains power and the bar
 shows nothing. See [host battery](host-battery.md) for the protocol and the
 sysfs contract.
 
+A display port (`dev.tryomarchy.display`) carries the guest's display layout to QEMU itself: each Hyprland output's position and logical size, one JSON line per change. QEMU's Cocoa display places the pointer from it and validates every report. See [multiple displays](multi-display.md).
+
 A root-only authentication port
 (`dev.tryomarchy.authentication`) lets the guest's `sudo` PAM policy request a
 fixed-purpose macOS Touch ID prompt. Enrollment creates a non-exportable P-256

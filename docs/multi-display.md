@@ -21,7 +21,9 @@ A window, the launcher's **All Displays** setting off, one display, or macOS wit
 
 ## One keyboard, one pointer
 
-The input devices stay as they were: one keyboard, one absolute tablet, one pinch touchpad. Keys go to the first head's view, which keeps the keyboard state for all of them. The pointer is placed on the guest desktop from where it falls on its window's output, in screen coordinates, so a drag that leaves a window or crosses to the next display keeps its button. Gestures and wheels go to the window under them. In full screen the pointer, a pinch and a two-finger scroll belong to the window they are over, key or not, so hovering, the first click and a gesture on another display reach the guest without a click to choose the window first; the keyboard moving between the VM's windows does not let go of the pointer's buttons, and a change of the Mac's input source reaches Omarchy whichever of its windows has the keyboard.
+The input devices stay as they were: one keyboard, one absolute tablet, one pinch touchpad. Keys go to the first head's view, which keeps the keyboard state for all of them. The pointer is placed on the guest desktop from where it falls on its window's output, in screen coordinates, so a drag that leaves a window or crosses to the next display keeps its button.
+
+The guest tells QEMU where its outputs are. `display-report` runs from the package's Hyprland profile whenever an output comes, goes, moves or takes a new scale, and writes Hyprland's layout (each output's position and logical size) to the `dev.tryomarchy.display` port when it changed. QEMU's Cocoa display (`qemu-cocoa-guest-layout.patch`) reads that port from the launcher's socket and places the pointer on the head's output as the guest lays it out, so a display at another scale, or arranged differently in Omarchy's monitor panel, still gets the pointer under the Mac's cursor. It checks every report and drops any that fails, and it forgets the layout on a guest reset. Without a report (an older package, or before the desktop starts) the pointer follows the Mac's arrangement, which the guest uses until something changes it. Gestures and wheels go to the window under them. In full screen the pointer, a pinch and a two-finger scroll belong to the window they are over, key or not, so hovering, the first click and a gesture on another display reach the guest without a click to choose the window first; the keyboard moving between the VM's windows does not let go of the pointer's buttons, and a change of the Mac's input source reaches Omarchy whichever of its windows has the keyboard.
 
 ## The desktop joins the other displays
 
@@ -31,6 +33,6 @@ Linux sizes its console to the smallest connected display when it probes the GPU
 
 - The heads are fixed at launch. A display connected later needs the VM restarted; a display disconnected while the VM runs leaves its output in Omarchy until then.
 - Full screen on every display needs macOS's **Displays have separate Spaces** (on by default). With it off, Omarchy uses one display.
-- The pointer follows the Mac's arrangement. A scale other than the display's own leaves placement to Hyprland, and an arrangement made in Omarchy's monitor panel or a monitor rule written in `monitors.lua` can move an output; on a display Omarchy places differently from the Mac, the pointer lands elsewhere than the Mac's cursor.
+- With a guest package older than the display report, the pointer follows the Mac's arrangement, and lands elsewhere than the Mac's cursor once Omarchy places a display differently.
 - The camera housing is described for the built-in panel's output only.
 - Up to four displays.

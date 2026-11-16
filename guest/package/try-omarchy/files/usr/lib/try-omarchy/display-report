@@ -1,0 +1,84 @@
+#!/usr/bin/python3 -I
+"""Report Hyprland's display layout to the Mac on dev.tryomarchy.display.
+
+The package's Hyprland profile runs it whenever the layout may have changed:
+an output comes or goes, moves, or takes a new scale. The Mac places its
+pointer on each output from this report, so a display at a scale other than
+its Mac display's still gets the pointer where the Mac's cursor is
+(docs/multi-display.md).
+
+One JSON object per line, in Hyprland's logical pixels:
+{"outputs":[{"name":"Virtual-1","x":0,"y":0,"width":1512,"height":982}]}
+
+Only a layout that differs from the last one sent is written. Without the
+port (an app from before it), it does nothing.
+"""
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+PORT = Path(os.environ.get("TRY_OMARCHY_DISPLAY_PORT", "/dev/virtio-ports/dev.tryomarchy.display"))
+STATE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "try-omarchy-display-report"
+# The Mac reads up to this many outputs.
+MAX_OUTPUTS = 8
+
+
+def layout(monitors):
+    outputs = []
+    for monitor in monitors:
+        if monitor.get("disabled") or monitor.get("mirrorOf", "none") != "none":
+            continue
+        scale = float(monitor["scale"])
+        width, height = monitor["width"] / scale, monitor["height"] / scale
+        if int(monitor.get("transform", 0)) % 2:
+            width, height = height, width
+        outputs.append({"name": monitor["name"], "x": monitor["x"], "y": monitor["y"],
+                        "width": round(width, 3), "height": round(height, 3)})
+    return outputs
+
+
+def report():
+    try:
+        result = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True, timeout=5)
+        outputs = layout(json.loads(result.stdout))
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, ZeroDivisionError):
+        return
+    if not outputs or len(outputs) > MAX_OUTPUTS:
+        return
+    line = json.dumps({"outputs": outputs}, separators=(",", ":")) + "\n"
+    try:
+        if STATE.read_text() == line:
+            return
+    except OSError:
+        pass
+    try:
+        port = os.open(PORT, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return
+    try:
+        written = os.write(port, line.encode())
+    except OSError:
+        return
+    finally:
+        os.close(port)
+    if written == len(line):
+        STATE.write_text(line)
+
+
+def main():
+    if not PORT.exists():
+        return 0
+    # Events come in bursts; one report at a time, each from Hyprland's
+    # current layout, so the last one sent is the latest.
+    with open(f"{STATE}.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        report()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
