@@ -98,19 +98,21 @@ class PublishTests(unittest.TestCase):
     def calls(self) -> list[list[str]]:
         return json.loads(self.state.read_text())["calls"]
 
-    def publish(self) -> subprocess.CompletedProcess:
+    def publish(self, *arguments: str) -> subprocess.CompletedProcess:
         env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}", FAKE_GH_STATE=str(self.state),
                    PYTHONDONTWRITEBYTECODE="1")
-        return subprocess.run([sys.executable, str(self.root / "scripts/publish.py"), "--root", str(self.root)],
-                              env=env, capture_output=True, text=True, timeout=30)
+        return subprocess.run([sys.executable, str(self.root / "scripts/publish.py"), "--root", str(self.root),
+                               *arguments], env=env, capture_output=True, text=True, timeout=30)
 
     def remote_tag(self) -> str:
         return self.git("rev-parse", "v1.2.3^{commit}", cwd=self.origin)
 
-    def assets(self) -> list[str]:
-        return [str(self.root / "dist/TryOmarchy.dmg"), str(self.root / "dist/kit.noindex/TryOmarchyKit.zip"),
-                str(self.root / "dist/kit.noindex/TryOmarchyKit.zip.sha256"),
-                str(self.root / "dist/kit.noindex/TryOmarchyKit.json"),
+    def assets(self, kit: bool = False) -> list[str]:
+        kit_assets = [str(self.root / "dist/kit.noindex/TryOmarchyKit.zip"),
+                      str(self.root / "dist/kit.noindex/TryOmarchyKit.zip.sha256"),
+                      str(self.root / "dist/kit.noindex/TryOmarchyKit.json")]
+        return [str(self.root / "dist/TryOmarchy.dmg"), str(self.root / "dist/TryOmarchy.dmg.sha256"),
+                *(kit_assets if kit else []),
                 str(self.root / "dist/factory/omarchy-aarch64-edge.img.zst.001")]
 
     def test_pushes_the_tag_then_creates_a_draft_with_the_assets(self) -> None:
@@ -121,6 +123,22 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(["release", "create", "v1.2.3", "--repo", "omacom/try-omarchy", "--draft",
                           "--verify-tag", "--title", "v1.2.3", *self.assets()], create)
         self.assertIn("Draft ready: https://github.com/omacom/try-omarchy/releases/tag/v1.2.3", result.stdout)
+
+    def test_the_dmg_digest_checks_with_shasum(self) -> None:
+        result = self.publish()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(f"{hashlib.sha256(b'dmg').hexdigest()}  TryOmarchy.dmg\n",
+                         (self.root / "dist/TryOmarchy.dmg.sha256").read_text())
+        check = subprocess.run(["shasum", "-a", "256", "-c", "TryOmarchy.dmg.sha256"], cwd=self.root / "dist",
+                               capture_output=True, text=True)
+        self.assertEqual(0, check.returncode, check.stdout + check.stderr)
+
+    def test_the_kit_is_attached_only_when_asked(self) -> None:
+        self.set_releases([{"id": 7, "name": "v1.2.3", "tag_name": "v1.2.3", "draft": True}])
+        result = self.publish("--kit")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(["release", "upload", "v1.2.3", "--repo", "omacom/try-omarchy", "--clobber",
+                       *self.assets(kit=True)], self.calls())
 
     def test_uploads_to_the_existing_draft_for_the_tag(self) -> None:
         self.set_releases([{"id": 7, "name": "1.2.3 notes", "tag_name": "v1.2.3", "draft": True}])

@@ -82,7 +82,7 @@ The kit has no permissions of its own, so the flattening above is for tidiness: 
 
 The installer embeds the kit it was built with, so Try works offline and on first launch. It also fetches newer kits from this repository's releases, so a fix to the VM reaches people without an installer release.
 
-- A release here publishes `TryOmarchyKit.zip`, its digest, and the image parts. The kit's version is the release's.
+- A release here publishes `TryOmarchyKit.zip`, its digest, and the image parts (`make publish KIT=1`). The kit's version is the release's.
 - The installer checks for a newer kit when Try starts, no more than once a day, and downloads it to its own Application Support folder, following its rules for cellular and Low Data Mode connections. The next start of Try uses it. A download that fails leaves the current kit in use.
 - Before using a fetched kit the installer verifies its digest and its signature, and that its version is newer than the kit it has. It never runs a kit older than the embedded one, so a downgrade never reaches the guest.
 - A kit is signed by one team as a whole. The hardened runtime refuses libraries signed by another team, so the installer re-signs all of the embedded kit, as it does today, and a fetched kit is used as signed.
