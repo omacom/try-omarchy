@@ -38,6 +38,15 @@ if host_option("omarchy.qemu_virgl=1") then
     end, { timeout = 16000, type = "oneshot" })
     hl.exec_cmd("/usr/bin/omarchy-native-display-sync --once")
   end)
+  -- The Mac places its pointer on each output from the guest's own layout.
+  -- A move fires monitor.layout_changed and a new scale config.props_refreshed;
+  -- the reporter sends only a layout that changed.
+  for _, event in ipairs({ "hyprland.start", "monitor.added", "monitor.removed",
+                           "monitor.layout_changed", "config.props_refreshed" }) do
+    hl.on(event, function()
+      hl.exec_cmd("/usr/lib/try-omarchy/display-report")
+    end)
+  end
   -- Omarchy's screensaver shows the cursor again as it exits, right before
   -- its window closes. Hide it whenever a window goes away; it is already
   -- hidden, so for any other window this changes nothing. When the window is
