@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -591,14 +592,73 @@ class DisplayReport(unittest.TestCase):
         subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
         self.assertFalse(self.port.exists())
 
-    def test_hyprland_reports_on_every_layout_change(self):
-        profile = (FILES / "usr/share/try-omarchy/hyprland.lua").read_text()
-        for event in ("monitor.added", "monitor.removed", "monitor.layout_changed", "config.props_refreshed"):
-            self.assertIn(f'"{event}"', profile)
-        self.assertIn('hl.exec_cmd("/usr/lib/try-omarchy/display-report")', profile)
+    def test_the_port_is_the_session_users(self):
         rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-display.rules").read_text()
         self.assertIn('ATTR{name}=="dev.tryomarchy.display"', rule)
         self.assertIn('TAG+="uaccess"', rule)
+
+
+LUA = next((shutil.which(name) for name in ("lua", "lua5.4", "lua5.5") if shutil.which(name)), None)
+
+
+@unittest.skipUnless(LUA or os.environ.get("TRY_OMARCHY_REQUIRE_LUA"), "needs a Lua interpreter")
+class HyprlandLayoutEvents(unittest.TestCase):
+    """The Hyprland profile reports the layout on each layout event, and once
+    more a second after the last of a burst, since a scale can take effect
+    after the event that announced it."""
+
+    HARNESS = r"""
+local reports, timers, handlers = 0, {}, {}
+local real_open = io.open
+io.open = function(path, ...)
+  if path == "/run/try-omarchy/cmdline" then
+    return { read = function() return "omarchy.qemu_virgl=1" end, close = function() end }
+  end
+  return real_open(path, ...)
+end
+hl = {
+  config = function() end,
+  on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
+  exec_cmd = function(command)
+    if command == "/usr/lib/try-omarchy/display-report" then reports = reports + 1 end
+  end,
+  timer = function(fn, options) table.insert(timers, { fn = fn, timeout = options.timeout }) end,
+}
+o = { exec_on_start = function() end }
+dofile(arg[1])
+local function fire(name) for _, fn in ipairs(handlers[name] or {}) do fn() end end
+local function run_timers()
+  local due = timers
+  timers = {}
+  for _, timer in ipairs(due) do
+    assert(timer.timeout == 1000, "unexpected timer")
+    timer.fn()
+  end
+end
+for _, name in ipairs(arg) do
+  if name == "timers" then run_timers()
+  elseif name ~= arg[1] then fire(name) end
+  if name ~= arg[1] then io.write(name, "=", reports, "\n") end
+end
+"""
+
+    def run_events(self, *events):
+        self.assertIsNotNone(LUA, "TRY_OMARCHY_REQUIRE_LUA is set but no Lua interpreter is installed")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Path(directory) / "harness.lua"
+            harness.write_text(self.HARNESS)
+            result = subprocess.run([LUA, str(harness), str(FILES / "usr/share/try-omarchy/hyprland.lua"), *events],
+                                    capture_output=True, text=True, check=True)
+        return [int(line.split("=")[1]) for line in result.stdout.splitlines()]
+
+    def test_each_layout_event_reports_and_only_the_last_timer_looks_again(self):
+        self.assertEqual(self.run_events(
+            "hyprland.start", "monitor.added", "monitor.layout_changed", "config.props_refreshed", "timers",
+            "monitor.removed", "timers",
+        ), [1, 2, 3, 4, 5, 6, 7])
+
+    def test_other_events_do_not_report(self):
+        self.assertEqual(self.run_events("window.destroy", "timers"), [0, 0])
 
 
 class SshAccess(unittest.TestCase):
