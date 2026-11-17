@@ -1,0 +1,37 @@
+#!/usr/bin/python3 -I
+"""Tell the Mac whether Omarchy's Stay Awake is on, on dev.tryomarchy.awake.
+
+Writes `on` or `off` when the port opens and whenever omarchy-toggle-idle
+changes its state file. The Mac keeps its display awake while it reads `on`.
+"""
+
+import os
+from pathlib import Path
+import time
+
+PORT = Path(os.environ.get("TRY_OMARCHY_AWAKE_PORT", "/dev/virtio-ports/dev.tryomarchy.awake"))
+STATE = Path.home() / ".local/state/omarchy/indicators/stay-awake"
+
+
+def state_line():
+    return "on\n" if STATE.exists() else "off\n"
+
+
+def main(interval=1.0):
+    while True:
+        try:
+            with PORT.open("w") as port:
+                sent = None
+                while True:
+                    line = state_line()
+                    if line != sent:
+                        port.write(line)
+                        port.flush()
+                        sent = line
+                    time.sleep(interval)
+        except OSError:
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

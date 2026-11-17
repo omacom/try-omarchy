@@ -953,6 +953,30 @@ class GuestStatus(unittest.TestCase):
         self.assertLess(len(module.report()), 4096)
 
 
+class StayAwakeReport(unittest.TestCase):
+    """stay-awake-report sends the Mac `on` or `off` as Omarchy's state file comes and goes."""
+
+    def test_reports_each_change_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            port = tmp / "port"
+            os.mkfifo(port)
+            state = tmp / ".local/state/omarchy/indicators/stay-awake"
+            env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
+            reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
+            try:
+                with port.open() as reader:
+                    self.assertEqual(reader.readline(), "off\n")
+                    state.parent.mkdir(parents=True)
+                    state.touch()
+                    self.assertEqual(reader.readline(), "on\n")
+                    state.unlink()
+                    self.assertEqual(reader.readline(), "off\n")
+            finally:
+                reporter.kill()
+                reporter.wait()
+
+
 class PackageInstall(unittest.TestCase):
     def test_waits_for_omarchys_first_boot_hardware_setup(self):
         # Both run pacman at first boot; a second transaction fails on the lock.
