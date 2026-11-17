@@ -27,6 +27,14 @@ enum { NSControlStateValueOff = 0, NSControlStateValueOn = 1 };
 @implementation HotkeyMenuItem
 @end
 
+@interface HotkeyView : NSObject
+@property int trackingUpdates;
+- (void)updatePointerTracking;
+@end
+@implementation HotkeyView
+- (void)updatePointerTracking { self.trackingUpdates++; }
+@end
+
 @interface HotkeyController : NSObject
 - (void)doToggleFullScreen:(id)sender;
 @end
@@ -66,10 +74,12 @@ static void drain(void)
 }
 
 static HotkeyApplication *NSApp;
-/* One display: the menu's full-screen toggle reaches every head's window. */
+/* The menu's full-screen toggle reaches every head's window. */
 static struct {
     __unsafe_unretained HotkeyWindow *window;
-} heads[1];
+    __unsafe_unretained HotkeyView *view;
+} heads[2];
+static unsigned head_count = 1;
 static bool immersive_mode_enabled = true;
 /* STATE */
 
@@ -84,7 +94,9 @@ static bool handle_control_option(HotkeyEvent *event)
 @implementation HotkeyController
 - (void)doToggleFullScreen:(id)sender
 {
-    [heads[0].window toggleFullScreen:sender];
+    for (unsigned i = 0; i < head_count; i++) {
+        [heads[i].window toggleFullScreen:sender];
+    }
 }
 /* DELEGATE */
 @end
@@ -117,7 +129,9 @@ int main(void)
         mainQueue = [NSMutableArray new];
         NSApp = [HotkeyApplication new];
         HotkeyWindow *window = [HotkeyWindow new];
+        HotkeyView *view = [HotkeyView new];
         heads[0].window = window;
+        heads[0].view = view;
         HotkeyController *controller = [HotkeyController new];
         NSApp.delegate = controller;
         immersiveMenuItem = [HotkeyMenuItem new];
@@ -205,6 +219,38 @@ int main(void)
         press(kVK_Escape, false);
         assert(window.toggles == 7);
         assert_immersive(false);
+        [controller windowWillExitFullScreen:nil];
+        window.styleMask = 0;
+        [controller windowDidExitFullScreen:nil];
+        int updates = view.trackingUpdates;
+
+        /*
+         * Two displays: one window enters full screen and the other fails.
+         * Immersive stays on for the window that reached full screen.
+         */
+        HotkeyWindow *second = [HotkeyWindow new];
+        HotkeyView *secondView = [HotkeyView new];
+        heads[1].window = second;
+        heads[1].view = secondView;
+        head_count = 2;
+        press(kVK_Escape, false);
+        assert(window.toggles == 8 && second.toggles == 1);
+        assert_immersive(true);
+        [controller windowWillEnterFullScreen:nil];
+        [controller windowWillEnterFullScreen:nil];
+        window.styleMask = NSWindowStyleMaskFullScreen;
+        [controller windowDidEnterFullScreen:nil];
+        [controller windowDidFailToEnterFullScreen:nil];
+        assert_immersive(true);
+        assert(view.trackingUpdates == updates + 1 && secondView.trackingUpdates == 1);
+
+        /* Leaving: the window that stays full screen keeps Immersive on. */
+        press(kVK_Escape, false);
+        assert(window.toggles == 9);
+        assert_immersive(false);
+        [controller windowWillExitFullScreen:nil];
+        [controller windowDidFailToExitFullScreen:nil];
+        assert_immersive(true);
     }
     return 0;
 }

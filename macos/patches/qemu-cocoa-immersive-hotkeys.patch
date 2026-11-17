@@ -27,13 +27,14 @@ Full grab is unchanged, so Command stays with the guest in both presentations.
 
 Both run from the main queue after the key event returns, outside the BQL,
 because AppKit window transitions call back into code that takes it. Key
-auto-repeat is consumed without acting again. If a switch's transition fails,
-the immersive state goes back to what it was. A View menu item, labeled with
-the shortcut, shows and changes the current state while the menu bar is
-visible.
+auto-repeat is consumed without acting again. If a switch's transition fails
+on any display, immersive mode ends on exactly while a window is full screen,
+so each window's input follows the presentation it reached. A View menu
+item, labeled with the shortcut, shows and changes the current state while
+the menu bar is visible.
 
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index e498de5..4851cf5 100644
+index e498de5..79d12ea 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
 @@ -181,6 +181,15 @@ static bool cocoa_command_down(NSUInteger modifiers, NSUInteger device_bit)
@@ -42,7 +43,7 @@ index e498de5..4851cf5 100644
  static bool immersive_mode_enabled = true;
 +static unsigned fullscreen_transitions;
 +static bool immersive_switch_pending;
-+static bool immersive_before_switch;
++static bool immersive_switch_failed;
 +static NSMenuItem *immersiveMenuItem;
 +static void cocoa_fullscreen_transition_began(void);
 +static void cocoa_fullscreen_transition_finished(void);
@@ -137,7 +138,7 @@ index e498de5..4851cf5 100644
  - (void) setFullGrab:(id)sender
  {
      COCOA_DEBUG("QemuCocoaAppController: setFullGrab\n");
-@@ -3615,6 +3660,69 @@ - (void)adjustSpeed:(id)sender
+@@ -3615,6 +3660,86 @@ - (void)adjustSpeed:(id)sender
  
  @end
  
@@ -154,18 +155,36 @@ index e498de5..4851cf5 100644
 +    fullscreen_transitions++;
 +}
 +
++/*
++ * A switch that failed on any display ends with Immersive on exactly while a
++ * window is full screen, so each window's pointer and gestures follow the
++ * presentation it reached.
++ */
 +static void cocoa_fullscreen_transition_finished(void)
 +{
-+    if (fullscreen_transitions > 0 && --fullscreen_transitions == 0) {
-+        immersive_switch_pending = false;
++    if (fullscreen_transitions == 0 || --fullscreen_transitions > 0) {
++        return;
 +    }
++    if (immersive_switch_pending && immersive_switch_failed) {
++        bool full_screen = false;
++
++        for (unsigned i = 0; i < head_count; i++) {
++            full_screen |= heads[i].window &&
++                ([heads[i].window styleMask] & NSWindowStyleMaskFullScreen) != 0;
++        }
++        cocoa_set_immersive(full_screen);
++        for (unsigned i = 0; i < head_count; i++) {
++            [heads[i].view updatePointerTracking];
++        }
++    }
++    immersive_switch_pending = false;
++    immersive_switch_failed = false;
 +}
 +
 +static void cocoa_fullscreen_transition_failed(void)
 +{
 +    if (immersive_switch_pending) {
-+        immersive_switch_pending = false;
-+        cocoa_set_immersive(immersive_before_switch);
++        immersive_switch_failed = true;
 +    }
 +    cocoa_fullscreen_transition_finished();
 +}
@@ -182,7 +201,6 @@ index e498de5..4851cf5 100644
 +    if (fullscreen_transitions || !window) {
 +        return;
 +    }
-+    immersive_before_switch = immersive_mode_enabled;
 +    immersive_switch_pending = true;
 +    cocoa_set_immersive(!([window styleMask] & NSWindowStyleMaskFullScreen));
 +    info_report("Try Omarchy: immersive mode %s for this session",
@@ -207,7 +225,7 @@ index e498de5..4851cf5 100644
  @interface QemuApplication : NSApplication
  @end
  
-@@ -3693,6 +3801,14 @@ static void create_initial_menus(void)
+@@ -3693,6 +3818,14 @@ static void create_initial_menus(void)
      menu = [[NSMenu alloc] initWithTitle:@"View"];
      fullScreenMenuItem = [[[NSMenuItem alloc] initWithTitle:@"Enter Full Screen" action:@selector(doToggleFullScreen:) keyEquivalent:@"f"] autorelease];
      [menu addItem:fullScreenMenuItem];
@@ -222,7 +240,7 @@ index e498de5..4851cf5 100644
      menuItem = [[[NSMenuItem alloc] initWithTitle:@"Zoom To Fit" action:@selector(zoomToFit:) keyEquivalent:@""] autorelease];
      [menuItem setState: [[cocoaView window] styleMask] & NSWindowStyleMaskResizable ? NSControlStateValueOn : NSControlStateValueOff];
      [menu addItem: menuItem];
-@@ -4618,6 +4734,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+@@ -4618,6 +4751,8 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
      cocoa_place_heads();
      immersive_mode_enabled = !opts->u.cocoa.has_immersive ||
                               opts->u.cocoa.immersive;
