@@ -35,6 +35,7 @@ The first launch downloads the Omarchy image (about 3 GB). You need an Apple Sil
 - Mac audio output and microphone, with live device switching
 - The Mac camera, available to Omarchy as a webcam
 - The Mac's battery in the Omarchy bar, including detailed information
+- On macOS 26, dictation recognised on the Mac with Apple's on-device speech recognition ([details](docs/host-dictation.md))
 - One shared Mac folder, under the same name (`~/Work` stays `~/Work`)
 - Touch ID for `sudo` and 1Password
 - Port forwarding, SSH, bridged networking and USB passthrough (experimental)

@@ -1,0 +1,149 @@
+#!/usr/bin/python3 -I
+"""Keep Apple Speech as Omarchy's dictation backend only while it can work.
+
+    dictation-backend select   choose apple-speech, keeping the backend it replaces
+    dictation-backend login    at every login (user-setup): swap for the port
+    dictation-backend remove   stop using apple-speech, putting that backend back
+
+Omarchy keeps the selected backend in ~/.config/omarchy/defaults/dictation and
+binds its dictation keys only while that backend's program is installed. This
+package always ships apple-speech, so while Dictation is off in the launcher
+(no dictation port) the keys would do nothing. At login the backend chosen
+before Apple Speech is put back instead; with none, the selection is cleared
+and Omarchy binds no dictation keys. When the port returns, so does Apple
+Speech.
+
+~/.local/state/try-omarchy/dictation-backend exists while the user has chosen
+Apple Speech: {"previous": backend or "", "swapped": what login put in its
+place, or null, "stamp": the selection file's inode and mtime after that swap}.
+A selection this didn't write is the user's, even the same backend chosen
+again (Omarchy saves every choice as a new file): the record goes and nothing
+is changed back. `login` prints "changed" when it switched.
+"""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+BACKEND = "apple-speech"
+PORT = os.environ.get("OMARCHY_DICTATION_PORT", "/dev/virtio-ports/dev.tryomarchy.dictation")
+HOME = Path(os.environ["HOME"])
+SELECTION = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "omarchy/defaults/dictation"
+STATE = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "try-omarchy/dictation-backend"
+
+
+def selected():
+    try:
+        return SELECTION.read_text().split("\n", 1)[0].strip()
+    except OSError:
+        return ""
+
+
+def stamp():
+    try:
+        status = SELECTION.stat()
+    except OSError:
+        return None
+    return [status.st_ino, status.st_mtime_ns]
+
+
+def use(backend):
+    if backend:
+        # Omarchy's own switch: stops the old backend, saves the new atomically.
+        subprocess.run(["omarchy-dictation-use", backend], check=True, stdout=subprocess.DEVNULL)
+    else:
+        # As Omarchy's backend removers do: no selection, no dictation keys.
+        SELECTION.unlink(missing_ok=True)
+
+
+def load():
+    try:
+        record = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("previous", ""), str):
+        return None
+    return record
+
+
+def save(record):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=STATE.name + ".", dir=STATE.parent)
+    with os.fdopen(descriptor, "w") as output:
+        json.dump(record, output)
+        output.write("\n")
+    os.replace(temporary, STATE)
+
+
+def forget():
+    STATE.unlink(missing_ok=True)
+
+
+def select():
+    record = load()
+    current = selected()
+    ours = record is not None and current in (BACKEND, record.get("swapped"))
+    if ours:
+        previous = record.get("previous", "")  # chosen again: keep the first backend
+    else:
+        previous = "" if current == BACKEND else current
+    if current != BACKEND:
+        use(BACKEND)
+    save({"previous": previous, "swapped": None})
+
+
+def login():
+    record = load()
+    if record is None:
+        return False
+    current = selected()
+    swapped = record.get("swapped")
+    port = os.path.exists(PORT)
+    if swapped is None:
+        if current != BACKEND:
+            forget()  # the user chose another backend
+            return False
+        if port:
+            return False
+        previous = record.get("previous", "")
+        use(previous)
+        save({"previous": previous, "swapped": previous, "stamp": stamp()})
+        return True
+    if current != swapped or ("stamp" in record and record["stamp"] != stamp()):
+        forget()  # the user changed the selection while Dictation was off
+        return False
+    if not port:
+        return False
+    use(BACKEND)
+    save({"previous": record.get("previous", ""), "swapped": None})
+    return True
+
+
+def remove():
+    record = load()
+    if record is not None and selected() == BACKEND:
+        use(record.get("previous", ""))
+    forget()
+
+
+def main():
+    command = sys.argv[1] if len(sys.argv) == 2 else ""
+    if command == "select":
+        if os.path.exists(PORT):
+            select()
+    elif command == "login":
+        if login():
+            print("changed")
+    elif command == "remove":
+        remove()
+    else:
+        print("Usage: dictation-backend select|login|remove", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

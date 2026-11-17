@@ -87,6 +87,21 @@ class UpstreamContracts(unittest.TestCase):
             parent = key.rsplit(".", 1)[0]
             self.assertTrue(parent in self.upstream_menu, f"{key}: no {parent} menu upstream")
 
+    def test_dictation_backends_still_plug_in_by_name(self):
+        # apple-speech is an Omarchy dictation backend from outside: the
+        # selection file, omarchy-dictation-<backend> and its installer, and
+        # keys bound only while the backend's own program is installed (which
+        # is why dictation-backend swaps it out while Dictation is off).
+        dispatcher = (ROOT / "usr/bin/omarchy-dictation").read_text()
+        self.assertIn('adapter="omarchy-dictation-$backend"', dispatcher)
+        selector = (ROOT / "usr/bin/omarchy-default-dictation").read_text()
+        self.assertIn("/omarchy/defaults/dictation", selector)
+        self.assertIn('installer="omarchy-install-dictation-$backend"', selector)
+        self.assertIn("/omarchy/defaults/dictation", (ROOT / "usr/bin/omarchy-dictation-use").read_text())
+        bindings = (OMARCHY / "default/hypr/bindings/dictation.lua").read_text()
+        self.assertIn("not o.cmd_missing(backend)", bindings)
+        self.assertIn('"omarchy-dictation start"', bindings)
+
     def test_timezone_row_falls_back_to_upstreams_action(self):
         upstream = self.upstream_menu.get("update.timezone", {}).get("action", "")
         self.assertIn(f"exec {upstream}", self.entries["TIMEZONE_ACTION"])
