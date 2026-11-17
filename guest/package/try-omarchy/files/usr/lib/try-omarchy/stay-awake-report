@@ -1,8 +1,9 @@
 #!/usr/bin/python3 -I
 """Tell the Mac whether Omarchy's Stay Awake is on, on dev.tryomarchy.awake.
 
-Writes `on` or `off` when the port opens and whenever omarchy-toggle-idle
-changes its state file. The Mac keeps its display awake while it reads `on`.
+Writes `on` or `off` when the port opens, whenever omarchy-toggle-idle
+changes its state file, and again each interval so a helper that restarts
+gets the current state. The Mac keeps its display awake while it reads `on`.
 """
 
 import os
@@ -21,13 +22,9 @@ def main(interval=1.0):
     while True:
         try:
             with PORT.open("w") as port:
-                sent = None
                 while True:
-                    line = state_line()
-                    if line != sent:
-                        port.write(line)
-                        port.flush()
-                        sent = line
+                    port.write(state_line())
+                    port.flush()
                     time.sleep(interval)
         except OSError:
             time.sleep(5)

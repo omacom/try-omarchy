@@ -976,6 +976,26 @@ class StayAwakeReport(unittest.TestCase):
                 reporter.kill()
                 reporter.wait()
 
+    def test_resends_the_current_state_while_unchanged(self):
+        # A helper that restarts starts with no assertion. The reporter has to
+        # write the current state again, not only when the toggle changes.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            port = tmp / "port"
+            os.mkfifo(port)
+            state = tmp / ".local/state/omarchy/indicators/stay-awake"
+            state.parent.mkdir(parents=True)
+            state.touch()
+            env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
+            reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
+            try:
+                with port.open() as reader:
+                    self.assertEqual(reader.readline(), "on\n")
+                    self.assertEqual(reader.readline(), "on\n")
+            finally:
+                reporter.kill()
+                reporter.wait()
+
 
 class PackageInstall(unittest.TestCase):
     def test_waits_for_omarchys_first_boot_hardware_setup(self):
