@@ -22,11 +22,13 @@ The launcher opens every time you open the app. It holds the VM's settings: reso
 
 Restarting from inside Omarchy reboots it in the app. Shutting down Omarchy closes the app.
 
+After an update, the launcher shows once what changed, with switches for the new settings.
+
 ## Full screen or a window
 
 **Immersive** is on by default: Omarchy opens full screen and hides the Mac's menu bar and Dock. Turn it off to use a resizable window. Either way, Omarchy follows the window's size and the display's scaling.
 
-**All Displays**, off by default, puts Omarchy on every display connected to the Mac in Immersive mode, arranged as in System Settings. See [Omarchy on a Mac](omarchy-on-a-mac.md#display-power-and-time).
+**All Displays**, off by default, puts Omarchy on every display connected to the Mac in Immersive mode, arranged as in System Settings. It's in **Startup** and in **Quick Settings**, under Immersive. See [Omarchy on a Mac](omarchy-on-a-mac.md#display-power-and-time).
 
 ## Permissions
 

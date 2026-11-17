@@ -98,6 +98,7 @@ final class LauncherState {
     var guestReported = false
 
     var permissionPromptPresented = false
+    var whatsNewPresented = false
     var firstBootCompleted = false
 
     var immersive = true
