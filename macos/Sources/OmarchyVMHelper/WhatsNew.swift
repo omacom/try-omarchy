@@ -57,6 +57,15 @@ enum WhatsNew {
     static func skipsForNewInstall(hasExistingVM: Bool, storageIsReachable: Bool) -> Bool {
         !hasExistingVM && storageIsReachable
     }
+
+    static func driveIsConnected(
+        for path: String,
+        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard components.count > 2, components[1] == "Volumes" else { return true }
+        return exists("/Volumes/\(components[2])")
+    }
 }
 
 /// The last version whose What's New the launcher showed or skipped.

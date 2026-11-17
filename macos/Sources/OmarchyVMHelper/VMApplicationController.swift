@@ -390,12 +390,11 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     /// this version as seen, so What's New never greets someone on day one.
     private func whatsNewDue() -> Bool {
         guard !isDisposable else { return false }
-        let hasExistingVM = startupPreferenceRoot().map {
+        let root = startupPreferenceRoot()
+        let hasExistingVM = root.map {
             QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: $0.path)
         } ?? false
-        let storageIsReachable = storageLocationStore.load().containerPath.map {
-            FileManager.default.fileExists(atPath: $0)
-        } ?? true
+        let storageIsReachable = root.map { WhatsNew.driveIsConnected(for: $0.path) } ?? false
         if WhatsNew.skipsForNewInstall(hasExistingVM: hasExistingVM, storageIsReachable: storageIsReachable) {
             Self.recordWhatsNewSeen()
         }

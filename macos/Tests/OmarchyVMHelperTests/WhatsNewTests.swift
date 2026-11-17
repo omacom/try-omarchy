@@ -23,6 +23,12 @@ struct WhatsNewTests {
         #expect(WhatsNew.skipsForNewInstall(hasExistingVM: false, storageIsReachable: true))
         #expect(!WhatsNew.skipsForNewInstall(hasExistingVM: false, storageIsReachable: false))
         #expect(!WhatsNew.skipsForNewInstall(hasExistingVM: true, storageIsReachable: true))
+
+        let mounted: Set = ["/Volumes/Work"]
+        let exists = { mounted.contains($0) }
+        #expect(WhatsNew.driveIsConnected(for: "/Users/someone/Library/Application Support/Try Omarchy/VM/v1", exists: exists))
+        #expect(WhatsNew.driveIsConnected(for: "/Volumes/Work/Omarchy/VM/v1", exists: exists))
+        #expect(!WhatsNew.driveIsConnected(for: "/Volumes/Unplugged/Omarchy/VM/v1", exists: exists))
     }
 
     @Test("remembers the version it showed")
