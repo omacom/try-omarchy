@@ -65,6 +65,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let launch: () -> Void
     private let permissionPromptShown: () -> Bool
     private let setPermissionPromptShown: () -> Void
+    private let whatsNewDue: () -> Bool
+    private let setWhatsNewSeen: () -> Void
     private let firstBootCompleted: () -> Bool
     private let setFirstBootCompleted: () -> Void
     private let appReleaseActionTitle: () -> String
@@ -86,7 +88,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
         window.isKeyWindow && !controlsBusy
-            && !state.permissionRequestInFlight && !state.permissionPromptPresented
+            && !state.permissionRequestInFlight && !state.permissionPromptPresented && !state.whatsNewPresented
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
     }
@@ -170,6 +172,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setPermissionPromptShown: @escaping () -> Void = {},
         firstBootCompleted: @escaping () -> Bool = { false },
         setFirstBootCompleted: @escaping () -> Void = {},
+        whatsNewDue: @escaping () -> Bool = { false },
+        setWhatsNewSeen: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -220,6 +224,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.launch = launch
         self.permissionPromptShown = permissionPromptShown
         self.setPermissionPromptShown = setPermissionPromptShown
+        self.whatsNewDue = whatsNewDue
+        self.setWhatsNewSeen = setWhatsNewSeen
         self.firstBootCompleted = firstBootCompleted
         self.setFirstBootCompleted = setFirstBootCompleted
         self.appReleaseActionTitle = appReleaseActionTitle
@@ -262,6 +268,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 launchOmarchy()
             },
             dismissPermissionPrompt: { [weak self] in self?.state.permissionPromptPresented = false },
+            dismissWhatsNew: { [weak self] in self?.state.whatsNewPresented = false },
+            openWhatsNewNotes: { NSWorkspace.shared.open(WhatsNew.releaseNotesURL) },
             accessibilityAction: { [weak self] in self?.beginAccessibilityRequest() },
             microphoneAction: { [weak self] in
                 guard let self else { return }
@@ -359,6 +367,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if !state.isRunning, whatsNewDue() {
+            setWhatsNewSeen()
+            state.whatsNewPresented = true
+        }
     }
 
     /// Reuse the current view hierarchy so open editors keep their drafts.

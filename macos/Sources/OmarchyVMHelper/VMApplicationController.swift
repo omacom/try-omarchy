@@ -367,6 +367,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             setPermissionPromptShown: { UserDefaults.standard.set(true, forKey: Self.permissionPromptShownKey) },
             firstBootCompleted: { UserDefaults.standard.bool(forKey: Self.firstBootCompletedKey) },
             setFirstBootCompleted: { UserDefaults.standard.set(true, forKey: Self.firstBootCompletedKey) },
+            whatsNewDue: { [weak self] in self?.whatsNewDue() ?? false },
+            setWhatsNewSeen: { Self.recordWhatsNewSeen() },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }
@@ -381,6 +383,24 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             if honorInitialReset && initialResetRequested {
                 startMenu.promptForDeletion()
             }
+        }
+    }
+
+    /// A throwaway VM says nothing about an update. A new install records
+    /// this version as seen, so What's New never greets someone on day one.
+    private func whatsNewDue() -> Bool {
+        guard !isDisposable else { return false }
+        let hasExistingVM = startupPreferenceRoot().map {
+            QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: $0.path)
+        } ?? false
+        if !hasExistingVM { Self.recordWhatsNewSeen() }
+        return WhatsNew.isDue(seen: WhatsNewPreferences().seenVersion, hasExistingVM: hasExistingVM)
+    }
+
+    private static func recordWhatsNewSeen() {
+        let preferences = WhatsNewPreferences()
+        if preferences.seenVersion.map({ WhatsNew.version > $0 }) ?? true {
+            preferences.seenVersion = WhatsNew.version
         }
     }
 
