@@ -58,13 +58,19 @@ enum WhatsNew {
         !hasExistingVM && storageIsReachable
     }
 
+    /// A drive that was not unmounted cleanly can leave its folder behind in
+    /// /Volumes, so this asks whether that folder is a volume.
     static func driveIsConnected(
         for path: String,
-        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        isVolume: (URL) -> Bool = isMountedVolume
     ) -> Bool {
         let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
         guard components.count > 2, components[1] == "Volumes" else { return true }
-        return exists("/Volumes/\(components[2])")
+        return isVolume(URL(fileURLWithPath: "/Volumes/\(components[2])"))
+    }
+
+    static func isMountedVolume(_ url: URL) -> Bool {
+        (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isVolumeKey]).isVolume) == true
     }
 }
 

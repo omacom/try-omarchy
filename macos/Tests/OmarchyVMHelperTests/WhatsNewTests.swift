@@ -25,10 +25,22 @@ struct WhatsNewTests {
         #expect(!WhatsNew.skipsForNewInstall(hasExistingVM: true, storageIsReachable: true))
 
         let mounted: Set = ["/Volumes/Work"]
-        let exists = { mounted.contains($0) }
-        #expect(WhatsNew.driveIsConnected(for: "/Users/someone/Library/Application Support/Try Omarchy/VM/v1", exists: exists))
-        #expect(WhatsNew.driveIsConnected(for: "/Volumes/Work/Omarchy/VM/v1", exists: exists))
-        #expect(!WhatsNew.driveIsConnected(for: "/Volumes/Unplugged/Omarchy/VM/v1", exists: exists))
+        let isVolume = { (url: URL) in mounted.contains(url.path) }
+        #expect(WhatsNew.driveIsConnected(for: "/Users/someone/Library/Application Support/Try Omarchy/VM/v1", isVolume: isVolume))
+        #expect(WhatsNew.driveIsConnected(for: "/Volumes/Work/Omarchy/VM/v1", isVolume: isVolume))
+        #expect(!WhatsNew.driveIsConnected(for: "/Volumes/Unplugged/Omarchy/VM/v1", isVolume: isVolume))
+    }
+
+    @Test("tells a mounted drive from a folder a drive left behind")
+    func checksTheVolumeItself() throws {
+        let leftover = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhatsNewTests.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: leftover) }
+
+        #expect(WhatsNew.isMountedVolume(URL(fileURLWithPath: "/")))
+        #expect(!WhatsNew.isMountedVolume(leftover))
+        #expect(!WhatsNew.isMountedVolume(leftover.appendingPathComponent("missing")))
     }
 
     @Test("remembers the version it showed")
