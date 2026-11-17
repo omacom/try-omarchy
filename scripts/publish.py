@@ -10,7 +10,7 @@ import plistlib
 import subprocess
 import sys
 
-from release import VERSION, git, release_assets, verify_release_artifacts
+from release import VERSION, git, release_assets, verify_release_artifacts, write_dmg_digest
 
 
 REPOSITORY = "omacom/try-omarchy"
@@ -72,10 +72,11 @@ def find_release(tag: str) -> dict | None:
     return None
 
 
-def publish(root: Path) -> None:
+def publish(root: Path, kit: bool = False) -> None:
     tag = built_tag(root)
     verify_release_artifacts(root, tag)
-    assets = [str(path) for path in release_assets(root)]
+    write_dmg_digest(root)
+    assets = [str(path) for path in release_assets(root, kit)]
     push_tag(root, tag)
     release = find_release(tag)
     if release is None:
@@ -96,8 +97,9 @@ def publish(root: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--kit", action="store_true", help="also attach the kit (TryOmarchyKit.zip and its files)")
     args = parser.parse_args()
-    publish(args.root.resolve())
+    publish(args.root.resolve(), args.kit)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ The full app and the run mode run the VM through the same session (`VMRunSession
 
 ## The kit
 
-`make kit` builds a production app, ad-hoc signed, and derives the kit from it (`macos/build-kit.sh`) in `dist/kit.noindex/`. `make package` and `make release` build the kit from the release app, sign and notarize it ([releasing](releasing.md#the-kit)). `make publish` uploads `TryOmarchyKit.zip` and `TryOmarchyKit.zip.sha256` with the DMG and the image parts.
+`make kit` builds a production app, ad-hoc signed, and derives the kit from it (`macos/build-kit.sh`) in `dist/kit.noindex/`. `make package` and `make release` build the kit from the release app, sign and notarize it ([releasing](releasing.md#the-kit)). `make publish KIT=1` uploads `TryOmarchyKit.zip`, `TryOmarchyKit.zip.sha256` and `TryOmarchyKit.json` with the DMG and the image parts; `make publish` leaves them out until installers fetch kits from releases.
 
 The kit carries the helper, the QEMU runtime, the firmware, the launch scripts, the `try-omarchy` package and the image's download manifest. It does not carry the image: its first start downloads the parts from the release the kit came from. Releases are never deleted, because installers pinned to an old kit need its parts.
 
