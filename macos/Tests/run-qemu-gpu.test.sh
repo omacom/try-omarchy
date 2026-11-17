@@ -183,7 +183,8 @@ for port in 'nr=0,chardev=omarchy-hvc0' 'nr=1,chardev=omarchy-audio-bridge,name=
   'nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera' 'nr=5,chardev=omarchy-guest-status,name=dev.tryomarchy.guest' \
   'nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings' 'nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery' \
   'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone' \
-  'nr=9,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'; do
+  'nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display' \
+  'nr=10,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'; do
   assert_contains "$output" "$port"
 done
 [[ -f $state/shell/disk.img && -f $state/shell/efi-vars.fd && -f $state/shell/vm.json && -f $state/shell-factory/$sha.img ]] ||

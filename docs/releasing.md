@@ -2,6 +2,28 @@
 
 Releases are Apple Silicon-only and require macOS 15 or newer.
 
+## A Mac that signs releases
+
+`make release` signs with the Developer ID Application identity in `RELEASE_SIGN_IDENTITY` and notarizes with the `notarytool` keychain profile in `RELEASE_NOTARY_PROFILE` (`try-omarchy` by default). A Mac needs both once. Signing in to Xcode provides neither.
+
+1. **The certificate and its private key.** A certificate's private key exists only on the Mac that created it, and Xcode creates Developer ID certificates only for the team's Account Holder. To add a Mac, export the existing one from a Mac that signs: in Keychain Access, under **login > My Certificates**, export it as `.p12` (`.p12` is greyed out when the private key is missing). On the new Mac:
+
+   ```sh
+   security unlock-keychain ~/Library/Keychains/login.keychain-db
+   security import DeveloperID.p12 -k ~/Library/Keychains/login.keychain-db -P 'P12_PASSWORD' -T /usr/bin/codesign -T /usr/bin/productsign
+   security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k 'LOGIN_PASSWORD' ~/Library/Keychains/login.keychain-db
+   rm DeveloperID.p12
+   ```
+
+   The partition list lets `codesign` use the key without a dialog, which a Mac nobody sits at needs.
+2. **The notary profile.** It stores an Apple ID, an app-specific password (account.apple.com, **Sign-In and Security**) and the team, for any app:
+
+   ```sh
+   xcrun notarytool store-credentials try-omarchy --apple-id APPLE_ID --team-id TEAM_ID
+   ```
+
+Check both with `security find-identity -v -p codesigning`, which lists the Developer ID identity, and `xcrun notarytool history --keychain-profile try-omarchy`.
+
 ## Build and verify
 
 ```sh
@@ -55,7 +77,7 @@ After verifying the DMG, run:
 make publish
 ```
 
-It reads the version from the built app, checks that the DMG and the kit exist, that the kit matches its recorded digest, that the kit's manifest names the tag, and that the app's download manifest points at that tag's parts in `dist/factory/`, and pushes the tag first, so the release points at the commit that was built rather than one GitHub would create from the draft's target branch. It refuses if origin already has the tag on another commit. It then uploads the DMG, the kit (`TryOmarchyKit.zip`, its `.sha256` and its manifest `TryOmarchyKit.json`, see [the VM kit](vm-kit.md)) and the factory parts to the draft release with that tag, replacing earlier uploads; a draft named `vX.Y.Z` with no tag yet gets the tag selected. Without a draft it creates one. A published release is never changed. Review the draft on GitHub and publish it yourself: until then its assets are private and the app cannot download the image.
+It reads the version from the built app, checks that the DMG and the kit exist, that the kit matches its recorded digest, that the kit's manifest names the tag, and that the app's download manifest points at that tag's parts in `dist/factory/`, and pushes the tag first, so the release points at the commit that was built rather than one GitHub would create from the draft's target branch. It refuses if origin already has the tag on another commit. It then writes the DMG's digest to `TryOmarchy.dmg.sha256` and uploads the DMG, that digest and the factory parts to the draft release with that tag, replacing earlier uploads. The kit is built and checked by every release but uploaded only with `make publish KIT=1` (`TryOmarchyKit.zip`, its `.sha256` and its manifest `TryOmarchyKit.json`, see [the VM kit](vm-kit.md)), since no installer fetches kits from releases yet; a draft named `vX.Y.Z` with no tag yet gets the tag selected. Without a draft it creates one. A published release is never changed. Review the draft on GitHub and publish it yourself: until then its assets are private and the app cannot download the image.
 
 The filename stays the same for every release; the app inside is stamped with
 the version from the release tag.
@@ -90,7 +112,7 @@ Existing VMs update themselves with `omarchy update` either way.
 Outputs are written to:
 
 - `dist/release.noindex/Try Omarchy.app` (production)
-- `dist/TryOmarchy.dmg`
+- `dist/TryOmarchy.dmg`, and its digest `dist/TryOmarchy.dmg.sha256` once `make publish` runs
 - `dist/guest/`
 
 `make package` and `make release` both create distributable builds: they sign the app, the DMG and the kit with Developer ID, submit the DMG and the kit to Apple's notarization service, and staple the resulting tickets. Neither command falls back to an unnotarized build. Both commands first ensure the content-hashed guest, runtime and firmware artifacts are current; packaging and signing themselves always run freshly. Development stays at `dist/app.noindex/Try Omarchy.app` with a separate bundle ID and privacy grants, so production permission flows can be tested independently. Another maintainer can override the release defaults:
@@ -165,8 +187,7 @@ KIT_TEAM_ID=RZC79MPD34 KIT_NOTARIZED=1 tests/kit/check.sh "$kit"
    VMs created by earlier direct-boot releases are not launched by
    this version; their disks stay in the storage folder, and **Setup > Import
    Previous VM** copies their files into the new VM.
-8. Record SHA-256 digests for the final app archive/DMG and publish them with the
-   release notes.
+8. Check that the draft has `TryOmarchy.dmg.sha256`, which `make publish` writes from the final DMG. People verify a download with `shasum -a 256 -c TryOmarchy.dmg.sha256`.
 
 Never publish generated artifacts from an unreviewed or locally modified build
 input.

@@ -26,7 +26,7 @@ With Dictation off in the launcher, Apple Speech does nothing and says nothing. 
 
 ## Protocol
 
-A dedicated virtio-serial port, `dev.tryomarchy.dictation` (`nr=9`), carries newline-delimited JSON with a `type` field. Lines over 64 KiB, malformed lines and unknown types are dropped. The guest numbers its sessions; at most one is live, and the host handles commands in the order they arrive.
+A dedicated virtio-serial port, `dev.tryomarchy.dictation` (`nr=10`), carries newline-delimited JSON with a `type` field. Lines over 64 KiB, malformed lines and unknown types are dropped. The guest numbers its sessions; at most one is live, and the host handles commands in the order they arrive.
 
 Guest to host:
 

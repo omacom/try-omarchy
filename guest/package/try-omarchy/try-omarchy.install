@@ -74,7 +74,7 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-39)" -lt 0 ]; then
     systemctl try-restart try-omarchy-host-config.service >/dev/null 2>&1 || true
   fi
-  if [ "$(vercmp "$2" 0.1.0-43)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-48)" -lt 0 ]; then
     systemctl --global preset omarchy-native-dictation-bridge.service >/dev/null 2>&1 || true
   fi
   _reload_logind

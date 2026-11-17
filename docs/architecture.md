@@ -177,6 +177,7 @@ On a Mac with no internal battery the guest sees only mains power and the bar
 shows nothing. See [host battery](host-battery.md) for the protocol and the
 sysfs contract.
 
+A display port (`dev.tryomarchy.display`) carries the guest's display layout to QEMU itself: each Hyprland output's position and logical size, one JSON line per change. QEMU's Cocoa display places the pointer from it and validates every report. See [multiple displays](multi-display.md).
 On macOS 26 a further port (`dev.tryomarchy.dictation`) carries push-to-talk
 dictation. The app records the Mac microphone only while a session is live and
 recognises it with Apple's on-device speech recognition. In the guest, a
@@ -413,11 +414,7 @@ profile also invokes the helper with `--once` after `config.reloaded`: a configu
 reload can restore a cached preferred mode without emitting a hotplug event,
 leaving the rendered desktop and absolute pointer coordinates out of sync.
 
-Both paths reread Omarchy's numeric `omarchy_monitor_scale` setting from
-`~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set). An automatic or
-absent setting uses the live EDID's pixel density. If a resized display cannot
-represent the requested zoom exactly, the helper selects the nearest supported
-scale with integral logical dimensions. The helper writes one rule per output, placed from the arrangement the launcher sends as `tryomarchy.display_layout`; an output the person configured in `monitors.lua` is left to them. See [multiple displays](multi-display.md).
+Both paths reread the scale and position Omarchy's monitor panel saved for each output, so a reload or a resize keeps the person's choice. Older Omarchy's numeric `omarchy_monitor_scale` in `~/.config/hypr/monitors.lua` (under `$XDG_CONFIG_HOME` when set) counts the same way. Without either, the live EDID's pixel density sets the scale. If a resized display cannot represent the requested zoom exactly, the helper selects the nearest supported scale with integral logical dimensions. The helper writes one rule per output, placed from the arrangement the launcher sends as `tryomarchy.display_layout`; an output the person configured in `monitors.lua` is left to them. See [multiple displays](multi-display.md).
 
 A resizable window keeps its size, and the guest follows it. The window never goes below the guest's smallest mode, 800x600 pixels. The guest image fills the window on both axes, so the pointer and the guest's cursor map each axis on its own, and stay aligned while the guest's mode catches up with the window.
 

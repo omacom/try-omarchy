@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -114,9 +115,9 @@ class GraphicalBridges(unittest.TestCase):
         install = (PACKAGE / "try-omarchy.install").read_text()
         self.assertIn("omarchy-native-dictation-bridge.service", install[:install.index("post_install()")])
         post_upgrade = install[install.index("post_upgrade()"):]
-        self.assertIn('if [ "$(vercmp "$2" 0.1.0-43)" -lt 0 ]; then\n'
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-48)" -lt 0 ]; then\n'
                       '    systemctl --global preset omarchy-native-dictation-bridge.service', post_upgrade)
-        self.assertIn("pkgrel=43\n", (PACKAGE / "PKGBUILD").read_text())
+        self.assertIn("pkgrel=48\n", (PACKAGE / "PKGBUILD").read_text())
 
     def test_dictation_bridge_waits_for_its_port(self):
         unit = configparser.ConfigParser(interpolation=None, strict=False)
@@ -372,6 +373,10 @@ class DisplaySync(unittest.TestCase):
         shims.mkdir()
         (shims / "hyprctl").write_text('#!/bin/bash\necho "hyprctl $*" >>"$SYNC_LOG"\necho ok\n')
         (shims / "notch-refresh").write_text('#!/bin/bash\necho "notch-refresh $*" >>"$SYNC_LOG"\n')
+        # Omarchy tells identical monitors apart by connector order.
+        (shims / "omarchy-hyprland-monitor-identity").write_text(
+            '#!/bin/bash\n[[ $1 == Virtual-1 ]] && echo "Red Hat Inc. QEMU Monitor" '
+            '|| echo "Red Hat Inc. QEMU Monitor #${1#Virtual-}"\n')
         for shim in shims.iterdir():
             shim.chmod(0o755)
         self.env = {"PATH": f"{shims}:{os.environ['PATH']}", "SYNC_LOG": str(self.log),
@@ -379,6 +384,7 @@ class DisplaySync(unittest.TestCase):
                     "OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG": str(self.monitors),
                     "OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH": str(shims / "notch-refresh"),
                     "OMARCHY_DISPLAY_SYNC_LAYOUT": str(self.layout),
+                    "OMARCHY_DISPLAY_SYNC_PANEL_SETTINGS": str(self.tmp / "settings"),
                     "OMARCHY_DISPLAY_SYNC_LOCK": str(self.tmp / "lock")}
         self.monitors.write_text(
             'local omarchy_monitor_scale = "auto"\n'
@@ -464,12 +470,213 @@ class DisplaySync(unittest.TestCase):
         self.connect("Virtual-1", self.PANEL)
         self.connect("Virtual-2", self.EXTERNAL)
         self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
-        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "2"))
+        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "1.5"))
         rules = [line for line in self.sync() if line.startswith("hyprctl")]
         self.assertEqual(len(rules), 2)
-        for rule in rules:
-            self.assertIn('position = "auto"', rule)
-            self.assertIn('scale = "2"', rule)
+        self.assertIn('position = "auto", scale = "1.333333"', rules[0])
+        self.assertIn('position = "auto", scale = "1.6"', rules[1])
+
+    def test_a_chosen_scale_equal_to_the_displays_own_keeps_the_macs_arrangement(self):
+        # Omarchy can save a scale without a position. At the display's own
+        # scale the logical sizes still match the Mac's points, and the
+        # pointer maps through the Mac's arrangement.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
+
+    def save_panel_settings(self, *lines):
+        (self.tmp / "settings").write_text("".join(line + "\n" for line in lines))
+
+    def test_the_monitor_panel_keeps_its_scale_and_place(self):
+        # A resync after a reload or a window resize must not undo a choice
+        # made in Omarchy's monitor panel. Lines without the transform are
+        # from older Omarchy.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t0x720\t1.333333\t\tRed Hat Inc. QEMU Monitor",
+                                 "\t0x0\t1.25\tRed Hat Inc. QEMU Monitor #2")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+        self.assertIn('position = "0x720", scale = "1.333333"', rules[0])
+        self.assertIn('position = "0x0", scale = "1.25"', rules[1])
+
+    def test_a_panel_scale_snaps_to_one_the_window_can_take(self):
+        # The window can change size after the panel saved its scale, or the
+        # Mac's displays can come in another order. 1.6 doesn't divide
+        # 3024x1964 into whole logical pixels; 4/3 is the nearest scale that does.
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1.6\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "1.333333"', rules[0])
+
+    def test_a_monitor_without_a_panel_setting_keeps_the_macs_arrangement(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tDell Inc. DELL U2723QE")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
+
+    def test_panel_settings_turned_off_in_monitors_lua_are_ignored(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1\t\tRed Hat Inc. QEMU Monitor")
+        self.monitors.write_text(self.monitors.read_text() + "omarchy_monitor_panel_settings = false\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "2"', rules[0])
+
+
+class DisplayReport(unittest.TestCase):
+    """display-report tells the Mac where each output really is, so its
+    pointer lands right whatever scale each display takes."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.port = self.tmp / "port"
+        self.port.write_text("")
+        self.monitors = self.tmp / "monitors.json"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        hyprctl = shims / "hyprctl"
+        hyprctl.write_text(f'#!/bin/bash\n[[ "$*" == "monitors -j" ]] && cat "{self.monitors}"\n')
+        hyprctl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{shims}:{os.environ['PATH']}",
+                    "TRY_OMARCHY_DISPLAY_PORT": str(self.port), "XDG_RUNTIME_DIR": str(self.tmp)}
+
+    def report(self, monitors):
+        self.monitors.write_text(json.dumps(monitors))
+        self.port.write_text("")
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        sent = self.port.read_text()
+        return json.loads(sent) if sent else None
+
+    @staticmethod
+    def monitor(name, x, y, width, height, scale, **extra):
+        return {"name": name, "x": x, "y": y, "width": width, "height": height, "scale": scale,
+                "transform": 0, "disabled": False, "mirrorOf": "none", **extra}
+
+    def test_reports_each_outputs_place_and_logical_size(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 512, 1440, 3024, 1964, 1.6),
+            self.monitor("Virtual-2", 0, 0, 5120, 2880, 2),
+        ]), {"outputs": [
+            {"name": "Virtual-1", "x": 512, "y": 1440, "width": 1890.0, "height": 1227.5},
+            {"name": "Virtual-2", "x": 0, "y": 0, "width": 2560.0, "height": 1440.0},
+        ]})
+
+    def test_a_quarter_turn_swaps_the_size_and_mirrors_take_no_place(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 0, 0, 1920, 1080, 1, transform=1),
+            self.monitor("Virtual-2", 0, 0, 1920, 1080, 1, mirrorOf="Virtual-1"),
+        ]), {"outputs": [{"name": "Virtual-1", "x": 0, "y": 0, "width": 1080.0, "height": 1920.0}]})
+
+    def test_sends_only_a_layout_that_changed(self):
+        layout = [self.monitor("Virtual-1", 0, 0, 3024, 1964, 2)]
+        self.assertIsNotNone(self.report(layout))
+        self.assertIsNone(self.report(layout))
+        layout[0]["scale"] = 4 / 3
+        self.assertEqual(self.report(layout)["outputs"][0]["width"], 2268.0)
+
+    def test_a_full_port_takes_the_report_once_it_drains(self):
+        reporter = load(LIB / "display-report", "display_report")
+        writes = []
+
+        def write(port, data):
+            if not writes:
+                writes.append(b"")
+                raise BlockingIOError
+            writes.append(bytes(data[:10]))
+            return len(writes[-1])
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", write):
+            self.assertTrue(reporter.send('{"outputs":[]}\n'))
+        self.assertEqual(b"".join(writes[1:]), b'{"outputs":[]}\n')
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", side_effect=BlockingIOError):
+            self.assertFalse(reporter.send("{}\n"))
+
+    def test_without_the_port_it_does_nothing(self):
+        self.port.unlink()
+        self.monitors.write_text(json.dumps([self.monitor("Virtual-1", 0, 0, 1920, 1080, 1)]))
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        self.assertFalse(self.port.exists())
+
+    def test_the_port_is_the_session_users(self):
+        rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-display.rules").read_text()
+        self.assertIn('ATTR{name}=="dev.tryomarchy.display"', rule)
+        self.assertIn('TAG+="uaccess"', rule)
+
+
+LUA = next((shutil.which(name) for name in ("lua", "lua5.4", "lua5.5") if shutil.which(name)), None)
+
+
+@unittest.skipUnless(LUA or os.environ.get("TRY_OMARCHY_REQUIRE_LUA"), "needs a Lua interpreter")
+class HyprlandLayoutEvents(unittest.TestCase):
+    """The Hyprland profile reports the layout on each layout event, and once
+    more a second after the last of a burst, since a scale can take effect
+    after the event that announced it."""
+
+    HARNESS = r"""
+local reports, timers, handlers = 0, {}, {}
+local real_open = io.open
+io.open = function(path, ...)
+  if path == "/run/try-omarchy/cmdline" then
+    return { read = function() return "omarchy.qemu_virgl=1" end, close = function() end }
+  end
+  return real_open(path, ...)
+end
+hl = {
+  config = function() end,
+  on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
+  exec_cmd = function(command)
+    if command == "/usr/lib/try-omarchy/display-report" then reports = reports + 1 end
+  end,
+  timer = function(fn, options) table.insert(timers, { fn = fn, timeout = options.timeout }) end,
+}
+o = { exec_on_start = function() end }
+dofile(arg[1])
+local function fire(name) for _, fn in ipairs(handlers[name] or {}) do fn() end end
+local function run_timers()
+  local due = timers
+  timers = {}
+  for _, timer in ipairs(due) do
+    assert(timer.timeout == 1000, "unexpected timer")
+    timer.fn()
+  end
+end
+for _, name in ipairs(arg) do
+  if name == "timers" then run_timers()
+  elseif name ~= arg[1] then fire(name) end
+  if name ~= arg[1] then io.write(name, "=", reports, "\n") end
+end
+"""
+
+    def run_events(self, *events):
+        self.assertIsNotNone(LUA, "TRY_OMARCHY_REQUIRE_LUA is set but no Lua interpreter is installed")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Path(directory) / "harness.lua"
+            harness.write_text(self.HARNESS)
+            result = subprocess.run([LUA, str(harness), str(FILES / "usr/share/try-omarchy/hyprland.lua"), *events],
+                                    capture_output=True, text=True, check=True)
+        return [int(line.split("=")[1]) for line in result.stdout.splitlines()]
+
+    def test_each_layout_event_reports_and_only_the_last_timer_looks_again(self):
+        self.assertEqual(self.run_events(
+            "hyprland.start", "monitor.added", "monitor.layout_changed", "config.props_refreshed", "timers",
+            "monitor.removed", "timers",
+        ), [1, 2, 3, 4, 5, 6, 7])
+
+    def test_other_events_do_not_report(self):
+        self.assertEqual(self.run_events("window.destroy", "timers"), [0, 0])
 
 
 class SshAccess(unittest.TestCase):

@@ -728,6 +728,7 @@ authentication_socket="$socket_dir/authentication.sock"
 camera_socket="$socket_dir/camera.sock"
 battery_socket="$socket_dir/battery.sock"
 timezone_socket="$socket_dir/timezone.sock"
+display_socket="$socket_dir/display.sock"
 dictation_socket="$socket_dir/dictation.sock"
 settings_socket="$socket_dir/settings.sock"
 guest_socket="$socket_dir/guest.sock"
@@ -806,7 +807,12 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery'
   -chardev "socket,id=omarchy-timezone-bridge,path=$timezone_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
+  -chardev "socket,id=omarchy-display-layout,path=$display_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'
 )
+# The guest reports its display layout on dev.tryomarchy.display, and QEMU's
+# Cocoa display reads it to place the pointer (docs/multi-display.md).
+export TRYOMARCHY_DISPLAY_SOCKET=$display_socket
 if bridge_enabled settings; then
   qemu_args+=(
     -chardev "socket,id=omarchy-settings-bridge,path=$settings_socket,server=on,wait=off"
@@ -841,7 +847,7 @@ fi
 if ((dictation)); then
   qemu_args+=(
     -chardev "socket,id=omarchy-dictation-bridge,path=$dictation_socket,server=on,wait=off"
-    -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'
+    -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-dictation-bridge,name=dev.tryomarchy.dictation'
   )
 fi
 if [[ -n $hvf_trace_log ]]; then
