@@ -51,6 +51,12 @@ enum WhatsNew {
         guard hasExistingVM else { return false }
         return seen.map { version > $0 } ?? true
     }
+
+    /// A new install has nothing to catch up on. A VM on a drive that is not
+    /// connected is not a new install, so it still sees this once it is back.
+    static func skipsForNewInstall(hasExistingVM: Bool, storageIsReachable: Bool) -> Bool {
+        !hasExistingVM && storageIsReachable
+    }
 }
 
 /// The last version whose What's New the launcher showed or skipped.

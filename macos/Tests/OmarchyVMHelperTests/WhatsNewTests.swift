@@ -18,6 +18,13 @@ struct WhatsNewTests {
         #expect(!WhatsNew.isDue(seen: older, hasExistingVM: false))
     }
 
+    @Test("waits for a VM whose drive is not connected")
+    func waitsForADisconnectedDrive() {
+        #expect(WhatsNew.skipsForNewInstall(hasExistingVM: false, storageIsReachable: true))
+        #expect(!WhatsNew.skipsForNewInstall(hasExistingVM: false, storageIsReachable: false))
+        #expect(!WhatsNew.skipsForNewInstall(hasExistingVM: true, storageIsReachable: true))
+    }
+
     @Test("remembers the version it showed")
     func remembersTheSeenVersion() throws {
         let suite = "WhatsNewTests.\(UUID().uuidString)"

@@ -393,7 +393,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         let hasExistingVM = startupPreferenceRoot().map {
             QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: $0.path)
         } ?? false
-        if !hasExistingVM { Self.recordWhatsNewSeen() }
+        let storageIsReachable = storageLocationStore.load().containerPath.map {
+            FileManager.default.fileExists(atPath: $0)
+        } ?? true
+        if WhatsNew.skipsForNewInstall(hasExistingVM: hasExistingVM, storageIsReachable: storageIsReachable) {
+            Self.recordWhatsNewSeen()
+        }
         return WhatsNew.isDue(seen: WhatsNewPreferences().seenVersion, hasExistingVM: hasExistingVM)
     }
 
