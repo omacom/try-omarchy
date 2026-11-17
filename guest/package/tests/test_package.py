@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -43,6 +44,11 @@ class PackageLayout(unittest.TestCase):
             relative = path.relative_to(FILES).as_posix()
             for forbidden in ("usr/share/omarchy/", "etc/skel/", "usr/share/omarchy-platform/"):
                 self.assertFalse(relative.startswith(forbidden), relative)
+
+    def test_session_draws_through_aquamarines_legacy_drm_interface(self):
+        # Atomic page flips stall on virtio-gpu and leave the desktop black (#429).
+        environment = (FILES / "usr/lib/environment.d/90-try-omarchy.conf").read_text()
+        self.assertIn("\nAQ_NO_ATOMIC=1\n", environment)
 
     def test_pinch_touchpad_alone_skips_libinput_jump_detection(self):
         quirks = (FILES / "usr/share/libinput/90-try-omarchy.quirks").read_text()
@@ -197,6 +203,41 @@ class HostConfig(unittest.TestCase):
         self.assertNotEqual(run(LIB / "host-config", env=self.env, check=False).returncode, 0)
         self.assertFalse(self.output.exists())
 
+    def test_publishes_the_macs_display_arrangement(self):
+        layout = self.tmp / "run/try-omarchy/display-layout"
+        (self.credentials / "tryomarchy.host").write_text(
+            "omarchy.qemu_virgl=1 tryomarchy.display_layout=Virtual-1:0x458,Virtual-2:1512x0\n")
+        run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(layout)})
+        self.assertEqual(layout.read_text(), "Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.assertEqual(stat.S_IMODE(layout.stat().st_mode), 0o644)
+
+    def test_one_display_or_a_malformed_arrangement_publishes_none(self):
+        layout = self.tmp / "run/try-omarchy/display-layout"
+        layout.parent.mkdir(parents=True)
+        for value in ("tryomarchy.keyboard=ansi",
+                      "tryomarchy.display_layout=Virtual-1:0x0,",
+                      "tryomarchy.display_layout=Virtual-1:0x0,HDMI-A-1:1512x0",
+                      "tryomarchy.display_layout=Virtual-1:-10x0",
+                      'tryomarchy.display_layout=Virtual-1:0x0"}'):
+            layout.write_text("stale\n")
+            (self.credentials / "tryomarchy.host").write_text(value + "\n")
+            run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(layout)})
+            self.assertFalse(layout.exists(), value)
+
+    def test_the_camera_housing_names_the_built_in_panels_output(self):
+        # The Mac's main display is the first output; the panel is whichever
+        # the app names, and without a name it is the only output.
+        for tokens, connector in (("tryomarchy.display_layout=Virtual-1:0x0,Virtual-2:248x1440 "
+                                   "tryomarchy.display_panel=Virtual-2", "Virtual-2"),
+                                  ("tryomarchy.display_panel=Virtual-1", "Virtual-1"),
+                                  ("", "Virtual-1"),
+                                  ("tryomarchy.display_panel=HDMI-A-1", "Virtual-1"),
+                                  ('tryomarchy.display_panel=Virtual-2"}', "Virtual-1")):
+            (self.credentials / "tryomarchy.host").write_text(
+                f"{tokens} tryomarchy.display_cutouts=3024x1964:64\n")
+            run(LIB / "host-config", env={**self.env, "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(self.tmp / "layout")})
+            self.assertEqual(json.loads(self.cutouts.read_text())["panels"][0]["connector"], connector, tokens)
+
 
 class NotchRefresh(unittest.TestCase):
     """notch-refresh nudges Quickshell only when the cutout's answer can change."""
@@ -213,9 +254,9 @@ class NotchRefresh(unittest.TestCase):
                     "TRY_OMARCHY_DISPLAY_CUTOUTS": str(self.cutouts),
                     "TRY_OMARCHY_NOTCH_STATE": str(self.tmp / "state/notch-mode")}
 
-    def nudges(self, mode):
+    def nudges(self, mode, *output):
         before = self.log.read_text().count("create") if self.log.exists() else 0
-        run(LIB / "notch-refresh", mode, env=self.env)
+        run(LIB / "notch-refresh", mode, *output, env=self.env)
         return self.log.read_text().count("create") - before if self.log.exists() else 0
 
     def test_only_entering_leaving_or_changing_a_notch_mode_nudges(self):
@@ -235,13 +276,30 @@ class NotchRefresh(unittest.TestCase):
 
     def test_a_mac_without_a_notch_or_a_bad_mode_does_nothing(self):
         self.assertEqual(self.nudges("3024x1964"), 0)
-        result = run(LIB / "notch-refresh", "3024x1964;reboot", env=self.env, check=False)
-        self.assertEqual(result.returncode, 2)
+        for args in (("3024x1964;reboot",), ("3024x1964", "Virtual-1;reboot")):
+            result = run(LIB / "notch-refresh", *args, env=self.env, check=False)
+            self.assertEqual(result.returncode, 2)
         self.assertFalse(self.log.exists())
+
+    def test_only_the_panel_with_the_housing_nudges(self):
+        # An external display can show one of the panel's modes too, and its
+        # own modes must not read as the panel leaving the housing.
+        (self.credentials_dir() / "tryomarchy.host").write_text(
+            "tryomarchy.display_layout=Virtual-1:0x0,Virtual-2:248x1440 tryomarchy.display_panel=Virtual-2 "
+            "tryomarchy.display_cutouts=3024x1964:64\n")
+        run(LIB / "host-config", env={"CREDENTIALS_DIRECTORY": str(self.credentials_dir()),
+                                     "TRY_OMARCHY_HOST_CONFIG_OUTPUT": str(self.tmp / "cmdline"),
+                                     "TRY_OMARCHY_DISPLAY_LAYOUT_OUTPUT": str(self.tmp / "layout"),
+                                     "TRY_OMARCHY_DISPLAY_CUTOUTS_OUTPUT": str(self.cutouts)})
+        self.assertEqual(self.nudges("3024x1964", "Virtual-2"), 1)   # the panel covers the notch
+        self.assertEqual(self.nudges("3024x1964", "Virtual-1"), 0)   # the external at the same mode
+        self.assertEqual(self.nudges("2560x1440", "Virtual-1"), 0)
+        self.assertEqual(self.nudges("3024x1964", "Virtual-2"), 0)   # still there
+        self.assertEqual(self.nudges("1940x1260", "Virtual-2"), 1)   # back to a window
 
     def test_display_sync_passes_each_applied_mode(self):
         sync = (FILES / "usr/bin/omarchy-native-display-sync").read_text()
-        self.assertIn('"$notch_refresh" "${width}x$height" || true', sync)
+        self.assertIn('"$notch_refresh" "${width}x$height" "$output" || true', sync)
         # Only after Hyprland accepted the mode.
         self.assertLess(sync.index('elif [[ $response != ok ]]'), sync.index('"$notch_refresh"'))
 
@@ -249,6 +307,358 @@ class NotchRefresh(unittest.TestCase):
         path = self.tmp / "credentials"
         path.mkdir(exist_ok=True)
         return path
+
+
+def edid(width, height, physical_mm):
+    """A base EDID block whose one detailed timing is WIDTHxHEIGHT@60 on a
+    panel of PHYSICAL_MM (width, height), the legacy form the helper reads."""
+    hblank, hfront, hsync, vblank, vfront, vsync = 280, 88, 44, 45, 4, 5
+    clock = (width + hblank) * (height + vblank) * 60 // 10_000
+    timing = bytes([
+        clock & 0xFF, clock >> 8,
+        width & 0xFF, hblank & 0xFF, (width >> 8) << 4 | hblank >> 8,
+        height & 0xFF, vblank & 0xFF, (height >> 8) << 4 | vblank >> 8,
+        hfront & 0xFF, hsync & 0xFF, (vfront & 0xF) << 4 | vsync & 0xF,
+        (hfront >> 8) << 6 | (hsync >> 8) << 4 | (vfront >> 4) << 2 | vsync >> 4,
+        physical_mm[0] & 0xFF, physical_mm[1] & 0xFF, (physical_mm[0] >> 8) << 4 | physical_mm[1] >> 8,
+        0, 0, 0x1E,  # digital separate sync, +hsync +vsync, progressive
+    ])
+    block = bytearray(128)
+    block[:8] = b"\x00\xff\xff\xff\xff\xff\xff\x00"
+    block[18] = 1   # EDID 1.4
+    block[54:72] = timing
+    block[127] = (-sum(block)) % 256
+    return bytes(block)
+
+
+def modeline(width, height):
+    hblank, hfront, hsync, vblank, vfront, vsync = 280, 88, 44, 45, 4, 5
+    clock_mhz = ((width + hblank) * (height + vblank) * 60 + 500_000) // 1_000_000
+    return (f"modeline {clock_mhz} {width} {width + hfront} {width + hfront + hsync} {width + hblank} "
+            f"{height} {height + vfront} {height + vfront + vsync} {height + vblank} +hsync +vsync")
+
+
+class DisplaySync(unittest.TestCase):
+    """omarchy-native-display-sync gives each connected output its own rule,
+    placed as the Mac arranges its displays."""
+
+    PANEL = (3024, 1964, (300, 195))      # Retina density, scale 2
+    EXTERNAL = (2560, 1440, (597, 336))   # 27", scale 1
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.drm = self.tmp / "drm"
+        self.monitors = self.tmp / "monitors.lua"
+        self.layout = self.tmp / "display-layout"
+        self.log = self.tmp / "log"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        (shims / "hyprctl").write_text('#!/bin/bash\necho "hyprctl $*" >>"$SYNC_LOG"\necho ok\n')
+        (shims / "notch-refresh").write_text('#!/bin/bash\necho "notch-refresh $*" >>"$SYNC_LOG"\n')
+        # Omarchy tells identical monitors apart by connector order.
+        (shims / "omarchy-hyprland-monitor-identity").write_text(
+            '#!/bin/bash\n[[ $1 == Virtual-1 ]] && echo "Red Hat Inc. QEMU Monitor" '
+            '|| echo "Red Hat Inc. QEMU Monitor #${1#Virtual-}"\n')
+        for shim in shims.iterdir():
+            shim.chmod(0o755)
+        self.env = {"PATH": f"{shims}:{os.environ['PATH']}", "SYNC_LOG": str(self.log),
+                    "OMARCHY_DISPLAY_SYNC_DRM_ROOT": str(self.drm),
+                    "OMARCHY_DISPLAY_SYNC_MONITOR_CONFIG": str(self.monitors),
+                    "OMARCHY_DISPLAY_SYNC_NOTCH_REFRESH": str(shims / "notch-refresh"),
+                    "OMARCHY_DISPLAY_SYNC_LAYOUT": str(self.layout),
+                    "OMARCHY_DISPLAY_SYNC_PANEL_SETTINGS": str(self.tmp / "settings"),
+                    "OMARCHY_DISPLAY_SYNC_LOCK": str(self.tmp / "lock")}
+        self.monitors.write_text(
+            'local omarchy_monitor_scale = "auto"\n'
+            'hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })\n'
+            '-- hl.monitor({ output = "Virtual-2", mode = "2560x1440@144", position = "0x0", scale = 1 })\n')
+
+    def connect(self, output, display, status="connected"):
+        connector = self.drm / f"card0-{output}"
+        connector.mkdir(parents=True)
+        (connector / "status").write_text(status + "\n")
+        (connector / "edid").write_bytes(edid(*display))
+
+    def sync(self):
+        run(FILES / "usr/bin/omarchy-native-display-sync", "--once", env=self.env)
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_places_each_output_as_the_mac_arranges_them(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.assertEqual(self.sync(), [
+            f'hyprctl eval hl.monitor({{ output = "Virtual-1", mode = "{modeline(3024, 1964)}", '
+            'position = "0x458", scale = "2" })',
+            "notch-refresh 3024x1964 Virtual-1",
+            f'hyprctl eval hl.monitor({{ output = "Virtual-2", mode = "{modeline(2560, 1440)}", '
+            'position = "1512x0", scale = "1" })',
+            "notch-refresh 2560x1440 Virtual-2",
+        ])
+
+    def test_one_display_or_no_arrangement_leaves_placement_to_hyprland(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL, status="disconnected")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+        self.assertIn('position = "auto"', rules[0])
+
+    def test_an_output_the_user_configured_is_theirs(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        # The commented example in setUp names Virtual-2 and does not count.
+        self.monitors.write_text(self.monitors.read_text()
+                                 + 'hl.monitor({ output = "Virtual-2", mode = "preferred", position = "auto", scale = 1 })\n')
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_rule_in_a_block_comment_does_not_count(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "--[[\nhl.monitor({ output = \"Virtual-2\", mode = \"preferred\" })\n]]\n"
+                                   "--[==[ hl.monitor({ output = \"Virtual-1\" }) ]==]\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+
+    def test_a_rule_after_a_block_comment_counts(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "--[[ an example ]] hl.monitor({ output = \"Virtual-2\", mode = \"preferred\" })\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_user_rule_counts_however_it_is_laid_out(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text()
+                                 + "hl.monitor (\n  {\n    output = 'Virtual-2', -- the big one\n"
+                                   "    mode = 'preferred',\n  }\n)\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 1)
+        self.assertIn('output = "Virtual-1"', rules[0])
+
+    def test_a_chosen_scale_leaves_placement_to_hyprland(self):
+        # Logical sizes no longer match the Mac's points, so its arrangement
+        # would leave gaps or overlaps.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.monitors.write_text(self.monitors.read_text().replace('"auto"', "1.5"))
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+        self.assertIn('position = "auto", scale = "1.333333"', rules[0])
+        self.assertIn('position = "auto", scale = "1.6"', rules[1])
+
+    def test_a_chosen_scale_equal_to_the_displays_own_keeps_the_macs_arrangement(self):
+        # Omarchy can save a scale without a position. At the display's own
+        # scale the logical sizes still match the Mac's points, and the
+        # pointer maps through the Mac's arrangement.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
+
+    def save_panel_settings(self, *lines):
+        (self.tmp / "settings").write_text("".join(line + "\n" for line in lines))
+
+    def test_the_monitor_panel_keeps_its_scale_and_place(self):
+        # A resync after a reload or a window resize must not undo a choice
+        # made in Omarchy's monitor panel. Lines without the transform are
+        # from older Omarchy.
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t0x720\t1.333333\t\tRed Hat Inc. QEMU Monitor",
+                                 "\t0x0\t1.25\tRed Hat Inc. QEMU Monitor #2")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertEqual(len(rules), 2)
+        self.assertIn('position = "0x720", scale = "1.333333"', rules[0])
+        self.assertIn('position = "0x0", scale = "1.25"', rules[1])
+
+    def test_a_panel_scale_snaps_to_one_the_window_can_take(self):
+        # The window can change size after the panel saved its scale, or the
+        # Mac's displays can come in another order. 1.6 doesn't divide
+        # 3024x1964 into whole logical pixels; 4/3 is the nearest scale that does.
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1.6\t\tRed Hat Inc. QEMU Monitor")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "1.333333"', rules[0])
+
+    def test_a_monitor_without_a_panel_setting_keeps_the_macs_arrangement(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.connect("Virtual-2", self.EXTERNAL)
+        self.layout.write_text("Virtual-1 0x458\nVirtual-2 1512x0\n")
+        self.save_panel_settings("\t\t2\t\tDell Inc. DELL U2723QE")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('position = "0x458", scale = "2"', rules[0])
+        self.assertIn('position = "1512x0", scale = "1"', rules[1])
+
+    def test_panel_settings_turned_off_in_monitors_lua_are_ignored(self):
+        self.connect("Virtual-1", self.PANEL)
+        self.save_panel_settings("\t0x0\t1\t\tRed Hat Inc. QEMU Monitor")
+        self.monitors.write_text(self.monitors.read_text() + "omarchy_monitor_panel_settings = false\n")
+        rules = [line for line in self.sync() if line.startswith("hyprctl")]
+        self.assertIn('scale = "2"', rules[0])
+
+
+class DisplayReport(unittest.TestCase):
+    """display-report tells the Mac where each output really is, so its
+    pointer lands right whatever scale each display takes."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.port = self.tmp / "port"
+        self.port.write_text("")
+        self.monitors = self.tmp / "monitors.json"
+        shims = self.tmp / "bin"
+        shims.mkdir()
+        hyprctl = shims / "hyprctl"
+        hyprctl.write_text(f'#!/bin/bash\n[[ "$*" == "monitors -j" ]] && cat "{self.monitors}"\n')
+        hyprctl.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{shims}:{os.environ['PATH']}",
+                    "TRY_OMARCHY_DISPLAY_PORT": str(self.port), "XDG_RUNTIME_DIR": str(self.tmp)}
+
+    def report(self, monitors):
+        self.monitors.write_text(json.dumps(monitors))
+        self.port.write_text("")
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        sent = self.port.read_text()
+        return json.loads(sent) if sent else None
+
+    @staticmethod
+    def monitor(name, x, y, width, height, scale, **extra):
+        return {"name": name, "x": x, "y": y, "width": width, "height": height, "scale": scale,
+                "transform": 0, "disabled": False, "mirrorOf": "none", **extra}
+
+    def test_reports_each_outputs_place_and_logical_size(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 512, 1440, 3024, 1964, 1.6),
+            self.monitor("Virtual-2", 0, 0, 5120, 2880, 2),
+        ]), {"outputs": [
+            {"name": "Virtual-1", "x": 512, "y": 1440, "width": 1890.0, "height": 1227.5},
+            {"name": "Virtual-2", "x": 0, "y": 0, "width": 2560.0, "height": 1440.0},
+        ]})
+
+    def test_a_quarter_turn_swaps_the_size_and_mirrors_take_no_place(self):
+        self.assertEqual(self.report([
+            self.monitor("Virtual-1", 0, 0, 1920, 1080, 1, transform=1),
+            self.monitor("Virtual-2", 0, 0, 1920, 1080, 1, mirrorOf="Virtual-1"),
+        ]), {"outputs": [{"name": "Virtual-1", "x": 0, "y": 0, "width": 1080.0, "height": 1920.0}]})
+
+    def test_sends_only_a_layout_that_changed(self):
+        layout = [self.monitor("Virtual-1", 0, 0, 3024, 1964, 2)]
+        self.assertIsNotNone(self.report(layout))
+        self.assertIsNone(self.report(layout))
+        layout[0]["scale"] = 4 / 3
+        self.assertEqual(self.report(layout)["outputs"][0]["width"], 2268.0)
+
+    def test_a_full_port_takes_the_report_once_it_drains(self):
+        reporter = load(LIB / "display-report", "display_report")
+        writes = []
+
+        def write(port, data):
+            if not writes:
+                writes.append(b"")
+                raise BlockingIOError
+            writes.append(bytes(data[:10]))
+            return len(writes[-1])
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", write):
+            self.assertTrue(reporter.send('{"outputs":[]}\n'))
+        self.assertEqual(b"".join(writes[1:]), b'{"outputs":[]}\n')
+
+        with mock.patch.object(reporter, "PORT", self.port), \
+                mock.patch.object(reporter, "SEND_RETRY_SECONDS", 0), \
+                mock.patch.object(reporter.os, "write", side_effect=BlockingIOError):
+            self.assertFalse(reporter.send("{}\n"))
+
+    def test_without_the_port_it_does_nothing(self):
+        self.port.unlink()
+        self.monitors.write_text(json.dumps([self.monitor("Virtual-1", 0, 0, 1920, 1080, 1)]))
+        subprocess.run(["python3", str(LIB / "display-report")], env=self.env, check=True)
+        self.assertFalse(self.port.exists())
+
+    def test_the_port_is_the_session_users(self):
+        rule = (FILES / "usr/lib/udev/rules.d/70-try-omarchy-display.rules").read_text()
+        self.assertIn('ATTR{name}=="dev.tryomarchy.display"', rule)
+        self.assertIn('TAG+="uaccess"', rule)
+
+
+LUA = next((shutil.which(name) for name in ("lua", "lua5.4", "lua5.5") if shutil.which(name)), None)
+
+
+@unittest.skipUnless(LUA or os.environ.get("TRY_OMARCHY_REQUIRE_LUA"), "needs a Lua interpreter")
+class HyprlandLayoutEvents(unittest.TestCase):
+    """The Hyprland profile reports the layout on each layout event, and once
+    more a second after the last of a burst, since a scale can take effect
+    after the event that announced it."""
+
+    HARNESS = r"""
+local reports, timers, handlers = 0, {}, {}
+local real_open = io.open
+io.open = function(path, ...)
+  if path == "/run/try-omarchy/cmdline" then
+    return { read = function() return "omarchy.qemu_virgl=1" end, close = function() end }
+  end
+  return real_open(path, ...)
+end
+hl = {
+  config = function() end,
+  on = function(name, fn) handlers[name] = handlers[name] or {}; table.insert(handlers[name], fn) end,
+  exec_cmd = function(command)
+    if command == "/usr/lib/try-omarchy/display-report" then reports = reports + 1 end
+  end,
+  timer = function(fn, options) table.insert(timers, { fn = fn, timeout = options.timeout }) end,
+}
+o = { exec_on_start = function() end }
+dofile(arg[1])
+local function fire(name) for _, fn in ipairs(handlers[name] or {}) do fn() end end
+local function run_timers()
+  local due = timers
+  timers = {}
+  for _, timer in ipairs(due) do
+    assert(timer.timeout == 1000, "unexpected timer")
+    timer.fn()
+  end
+end
+for _, name in ipairs(arg) do
+  if name == "timers" then run_timers()
+  elseif name ~= arg[1] then fire(name) end
+  if name ~= arg[1] then io.write(name, "=", reports, "\n") end
+end
+"""
+
+    def run_events(self, *events):
+        self.assertIsNotNone(LUA, "TRY_OMARCHY_REQUIRE_LUA is set but no Lua interpreter is installed")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Path(directory) / "harness.lua"
+            harness.write_text(self.HARNESS)
+            result = subprocess.run([LUA, str(harness), str(FILES / "usr/share/try-omarchy/hyprland.lua"), *events],
+                                    capture_output=True, text=True, check=True)
+        return [int(line.split("=")[1]) for line in result.stdout.splitlines()]
+
+    def test_each_layout_event_reports_and_only_the_last_timer_looks_again(self):
+        self.assertEqual(self.run_events(
+            "hyprland.start", "monitor.added", "monitor.layout_changed", "config.props_refreshed", "timers",
+            "monitor.removed", "timers",
+        ), [1, 2, 3, 4, 5, 6, 7])
+
+    def test_other_events_do_not_report(self):
+        self.assertEqual(self.run_events("window.destroy", "timers"), [0, 0])
 
 
 class SshAccess(unittest.TestCase):
@@ -571,6 +981,102 @@ def load(path, name):
     return module
 
 
+class AudioBridge(unittest.TestCase):
+    # Each pactl run is a client PipeWire, WirePlumber and the shell react to;
+    # polling them every 0.25 s kept ~70% of a core busy on an idle desktop.
+    def test_queries_pipewire_only_on_relevant_events(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        sent, calls = [], []
+        mirror = bridge.PipeWireMirror(sent.append)
+        mirror.module_ids = ["7"]
+        mirror.output_uids = {"omarchy_host_output_a": "A"}
+        defaults = {"get-default-sink": "omarchy_host_output_a\n", "get-default-source": "x\n"}
+        modules = ["7\tmodule-remap-sink\tsink_name=omarchy_host_output_a"]
+
+        failing = []
+
+        def pactl(*arguments, check=True):
+            # Like run_pactl: a non-zero exit with empty stdout raises only
+            # when the caller checks it.
+            calls.append(arguments)
+            if arguments[0] in failing:
+                if check:
+                    raise RuntimeError(f"pactl {arguments[0]}: status 1")
+                return ""
+            if arguments == ("list", "short", "modules"):
+                return "\n".join(modules)
+            return defaults[arguments[0]].strip()
+
+        def handle(line):
+            mirror.handle_event(line)
+            mirror.run_pending()
+
+        with mock.patch.object(bridge, "run_pactl", pactl):
+            for line in ("Event 'new' on client #41", "Event 'remove' on client #41",
+                         "Event 'change' on sink-input #3", "Event 'remove' on module #8"):
+                handle(line)
+            self.assertEqual((calls, sent), ([], []))
+
+            handle("Event 'change' on server #4294967295")
+            self.assertEqual(calls, [("get-default-sink",), ("get-default-source",)])
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
+
+            # A rebuild's late removal of a reused id: still loaded, no new rebuild.
+            mirror.inventory = ()
+            handle("Event 'remove' on module #7")
+            self.assertEqual(len(sent), 1)
+
+            modules.clear()
+            handle("Event 'remove' on module #7")
+            self.assertEqual(sent[-1], {"type": "get-catalog"})
+            self.assertIsNone(mirror.inventory)
+
+            # A failed read (non-zero exit) is kept for the next retry, not dropped.
+            sent.clear()
+            mirror.last_sent["output"] = None
+            failing.append("get-default-sink")
+            mirror.handle_event("Event 'change' on server #4294967295")
+            with self.assertRaises(RuntimeError):
+                mirror.run_pending()
+            self.assertEqual((mirror.pending, sent), ({"defaults"}, []))
+            failing.clear()
+            mirror.run_pending()
+            self.assertEqual(mirror.pending, set())
+            self.assertEqual(sent, [{"type": "select", "direction": "output", "deviceUID": "A"}])
+
+    # A failed read backs off up to 30 s. After PipeWire restarts, the next
+    # default change must run at once, not wait for the old graph's backoff.
+    def test_resubscribe_drops_the_retry_backoff(self):
+        bridge = load(FILES / "usr/bin/omarchy-native-audio-bridge", "audio_bridge")
+        mirror = bridge.PipeWireMirror(lambda message: None)
+        calls, now = [], [100.0]
+
+        def pactl(*arguments, check=True):
+            calls.append(arguments)
+            raise RuntimeError(f"pactl {arguments[0]}: status 1")
+
+        with mock.patch.object(bridge, "run_pactl", pactl), \
+                mock.patch.object(bridge.time, "monotonic", lambda: now[0]), \
+                mock.patch.object(bridge, "log", lambda message: None):
+            mirror.handle_event("Event 'change' on server #4294967295")
+            for _ in range(4):
+                mirror.run_due()
+                now[0] = mirror.retry_at
+            self.assertEqual((len(calls), mirror.retry_delay), (4, 8))
+
+            # The failed check is not due yet; a restart drops it and its backoff.
+            now[0] -= 1
+            mirror.run_due()
+            self.assertEqual(len(calls), 4)
+            mirror.forget_graph()
+            self.assertIsNone(mirror.retry_timeout())
+
+            mirror.handle_event("Event 'change' on server #4294967295")
+            self.assertEqual(mirror.retry_timeout(), 0.0)
+            mirror.run_due()
+            self.assertEqual((len(calls), mirror.retry_delay), (5, 1))
+
+
 class ClockRecovery(unittest.TestCase):
     def recover(self, rtc_name):
         module = load(LIB / "guest-clock-recover", "guest_clock_recover")
@@ -668,9 +1174,9 @@ class Power(unittest.TestCase):
                                         'print((a > b) - (a < b))\n')
             for tool in ("systemctl", "vercmp"):
                 (tmp / tool).chmod(0o755)
-            for old, restarted in (("0.1.0-27", True), ("0.1.0-28", False)):
+            for old, restarted in (("0.1.0-27", True), ("0.1.0-38", True), ("0.1.0-39", False)):
                 log.write_text("")
-                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-28 "$2"', "bash",
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-39 "$2"', "bash",
                                 str(PACKAGE / "try-omarchy.install"), old], check=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log)})
                 self.assertEqual("try-restart try-omarchy-host-config.service" in log.read_text().splitlines(),
@@ -732,6 +1238,12 @@ class Recipe(unittest.TestCase):
         line = next(line for line in text.splitlines() if line.startswith("KERNEL_CMDLINE[default]+="))
         consoles = re.findall(r"console=(\w+)", line)
         self.assertEqual(consoles, ["hvc0", "tty0"])
+        self.assertIn("plymouth.ignore-serial-consoles", line)
+
+    def test_initramfs_loads_virtio_gpu_for_plymouth(self):
+        text = (FILES / "etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf").read_text()
+        self.assertIn("MODULES+=(virtio_gpu)", text.splitlines())
+        self.assertIn("'etc/mkinitcpio.conf.d/90-try-omarchy-vm.conf'", (PACKAGE / "PKGBUILD").read_text())
 
     def test_cpu_drop_in_hides_sme_without_sve(self):
         # The M4 has SME but no SVE; QEMU under HVF cannot hide SME.
@@ -740,7 +1252,7 @@ class Recipe(unittest.TestCase):
         self.assertEqual(lines, ['KERNEL_CMDLINE[default]+=" arm64.nosme"'])
         self.assertIn("'etc/limine-entry-tool.d/50-try-omarchy-cpu.conf'", (PACKAGE / "PKGBUILD").read_text())
 
-    def test_upgrade_rebuilds_limine_once_where_the_kernel_shows_sme(self):
+    def test_upgrade_rebuilds_limine_once_for_boot_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             log = tmp / "calls"
@@ -749,27 +1261,259 @@ class Recipe(unittest.TestCase):
             for name in ("limine-update", "systemctl"):
                 (tmp / name).write_text(f'#!/bin/bash\nprintf "%s\\n" "{name} $*" >>"$TEST_LOG"\n')
                 (tmp / name).chmod(0o755)
-            cpuinfo, cmdline = tmp / "cpuinfo", tmp / "cmdline"
-            for features, running, boot, expected in (
-                ("fp asimd sme sme2", "quiet", limine, ["limine-update "]),
-                ("fp asimd sme sme2", "quiet arm64.nosme", limine, []),
-                ("fp asimd sme2", "quiet", limine, []),
-                ("fp asimd", "quiet", limine, []),
-                ("fp asimd sme", "quiet", tmp / "missing.conf", []),
-            ):
+            for boot, expected in ((limine, ["limine-update "]), (tmp / "missing.conf", [])):
                 log.write_text("")
-                cpuinfo.write_text(f"Features\t: {features}\n")
-                cmdline.write_text(running + "\n")
-                subprocess.run(["/bin/bash", "-c", 'source "$1"; _hide_sme "$2" "$3" "$4"', "bash",
-                                str(PACKAGE / "try-omarchy.install"), cpuinfo, cmdline, boot], check=True,
+                subprocess.run(["/bin/bash", "-c", 'source "$1"; _rebuild_limine "$2"', "bash",
+                                str(PACKAGE / "try-omarchy.install"), boot], check=True,
                                env={**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log)})
                 calls = [line for line in log.read_text().splitlines() if line.startswith("limine-update")]
-                self.assertEqual(calls, expected, (features, running, boot.name))
+                self.assertEqual(calls, expected, boot.name)
         install = (PACKAGE / "try-omarchy.install").read_text()
-        self.assertIn('if [ "$(vercmp "$2" 0.1.0-27)" -lt 0 ]; then\n    _hide_sme\n', install)
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-40)" -lt 0 ]; then\n    _rebuild_limine\n', install)
 
     def test_chromium_takes_input_methods(self):
         self.assertIn("--enable-wayland-ime", (FILES / "etc/chromium-flags.conf").read_text().split())
+
+BUILD_ID = "b6fa37cb3a8447379bea01a831cad782"
+VM_ID = "92c693e8e7bc4e8c8089a97152e19dd9"
+LIMINE_HEADER = "timeout: 1\nquiet: yes\ndefault_entry: 2\n"
+
+
+def limine_os_entry(machine_id, kernels):
+    return (f"/+Omarchy\n### This OS entry is auto-generated by limine-entry-tool\ncomment: Omarchy\n"
+            f"comment: machine-id={machine_id} order-priority=50 \n" + "".join(kernels))
+
+
+def limine_kernel(paths, name="linux-omarchy", protocol="linux"):
+    return (f"  //{name}\n  ### This kernel entry is auto-generated by limine-entry-tool\n"
+            f"  comment: Kernel version: 7.2.8-23-omarchy\n  comment: kernel-id={name} \n  protocol: {protocol}\n"
+            + "".join(f"  {key}: {value}\n" for key, value in paths) + "  cmdline: root=PARTUUID=x rw\n")
+
+
+FACTORY_KERNEL = limine_kernel([("module_path", f"boot():/{BUILD_ID}/linux-omarchy/initramfs#39330a"),
+                                ("path", f"boot():/{BUILD_ID}/linux-omarchy/vmlinuz#cab69b")])
+VM_KERNEL = limine_kernel([("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")], protocol="efi")
+
+# Removes a top-level entry by machine ID, as limine-entry-tool --remove-entry does.
+REMOVE_ENTRY_STUB = r"""#!/usr/bin/env python3
+import os, re, sys
+log = open(os.environ["TEST_LOG"], "a")
+log.write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("TEST_REMOVE_FAILS"):
+    sys.exit(1)
+assert sys.argv[1] == "--remove-entry", sys.argv
+path = os.environ["TEST_CONF"]
+text = open(path).read()
+blocks = re.split(r"(?m)^(?=/[^/])", text)
+kept = [b for b in blocks if not re.search(r"(?m)^comment: machine-id=" + sys.argv[2] + r"\b", b)]
+open(path, "w").write("".join(kept))
+"""
+
+
+class FactoryBootEntry(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=True))
+        self.root = self.tmp / "root"
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        stub = self.bin / "limine-entry-tool"
+        stub.write_text(REMOVE_ENTRY_STUB)
+        stub.chmod(0o755)
+        self.log = self.tmp / "calls"
+        self.log.write_text("")
+        for relative, text in (("etc/machine-id", VM_ID + "\n"),
+                               ("etc/default/limine", 'ESP_PATH="/boot"\nENABLE_UKI=yes\n'),
+                               ("var/lib/omarchy/image/target.booted",
+                                "format=1\nplatform=aarch64\nbuilder=try-omarchy-upstream\nchannel=edge\n"),
+                               (f"boot/{BUILD_ID}/linux-omarchy/vmlinuz", "old kernel"),
+                               (f"boot/{BUILD_ID}/linux-omarchy/initramfs", "old initramfs"),
+                               ("boot/EFI/Linux/omarchy_linux-omarchy.efi", "new kernel"),
+                               (f"boot/{VM_ID}/linux-omarchy/vmlinuz", "new kernel")):
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.boot = self.root / "boot"
+        self.conf = self.boot / "limine.conf"
+        self.write_conf(limine_os_entry(BUILD_ID, [FACTORY_KERNEL]), limine_os_entry(VM_ID, [VM_KERNEL]))
+
+    def write_conf(self, *entries):
+        self.conf.write_text(LIMINE_HEADER + "\n" + "\n".join(entries))
+
+    def run_script(self, **extra):
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "TRY_OMARCHY_ROOT": str(self.root),
+               "TEST_LOG": str(self.log), "TEST_CONF": str(self.conf), **extra}
+        return run(LIB / "factory-boot-entry", env=env)
+
+    def calls(self):
+        return self.log.read_text().splitlines()
+
+    def machine_ids(self):
+        return re.findall(r"(?m)^comment: machine-id=([0-9a-f]+)", self.conf.read_text())
+
+    def test_removes_the_factory_builds_entry_and_kernel(self):
+        result = self.run_script()
+        self.assertEqual(self.calls(), [f"--remove-entry {BUILD_ID}"])
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertFalse((self.boot / BUILD_ID).exists())
+        self.assertTrue((self.boot / VM_ID / "linux-omarchy/vmlinuz").is_file())
+        self.assertTrue((self.boot / "EFI/Linux/omarchy_linux-omarchy.efi").is_file())
+        self.assertIn(BUILD_ID, result.stdout)
+        self.log.write_text("")
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+
+    def test_waits_for_this_machines_own_entry(self):
+        # First boot before Omarchy's setup: the factory's entry is the only one.
+        self.write_conf(limine_os_entry(BUILD_ID, [FACTORY_KERNEL]))
+        self.run_script()
+        self.write_conf(limine_os_entry(BUILD_ID, [FACTORY_KERNEL]), limine_os_entry(VM_ID, []))
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.machine_ids(), [BUILD_ID, VM_ID])
+        self.assertTrue((self.boot / BUILD_ID / "linux-omarchy/vmlinuz").is_file())
+
+    def test_only_in_a_vm_from_the_factory_image(self):
+        (self.root / "var/lib/omarchy/image/target.booted").write_text("format=1\nplatform=aarch64\n")
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+        (self.root / "var/lib/omarchy/image/target.booted").rename(self.root / "var/lib/omarchy/image/target")
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+        (self.root / "var/lib/omarchy/image/target").write_text("format=1\nbuilder=try-omarchy-upstream\n")
+        self.run_script()
+        self.assertEqual(self.calls(), [f"--remove-entry {BUILD_ID}"])
+
+    def test_follows_the_configured_esp(self):
+        (self.root / "etc/default/limine").write_text("ESP_PATH=/efi\n")
+        self.boot.rename(self.root / "efi")
+        self.boot = self.root / "efi"
+        self.conf = self.boot / "limine.conf"
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertFalse((self.boot / BUILD_ID).exists())
+
+    def test_leaves_entries_that_are_not_the_factorys_alone(self):
+        other = "0123456789abcdef0123456789abcdef"
+        cases = {
+            "snapshots": limine_os_entry(BUILD_ID, [FACTORY_KERNEL, "  //Snapshots\n    comment: 1\n"]),
+            "two kernels": limine_os_entry(BUILD_ID, [FACTORY_KERNEL, limine_kernel(
+                [("path", f"boot():/{BUILD_ID}/linux-omarchy/vmlinuz#cab69b")], name="linux-omarchy-fallback")]),
+            "another kernel": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("path", f"boot():/{BUILD_ID}/linux-lts/vmlinuz#cab69b")], name="linux-lts")]),
+            "another UKI": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/arch-linux.efi#abcd")], protocol="efi")]),
+            "a UKI as a module": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("module_path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")], protocol="efi")]),
+            "a path in capitals": limine_os_entry(BUILD_ID, [FACTORY_KERNEL + "  MODULE_PATH: boot():/unrelated/initramfs\n"]),
+            "unindented snapshots": limine_os_entry(BUILD_ID, [FACTORY_KERNEL, (
+                f"//+Snapshots\n///Snapshot 1\nprotocol: linux\npath: boot():/{BUILD_ID}/linux-omarchy/vmlinuz\n")]),
+            "another directory": limine_os_entry(BUILD_ID, [limine_kernel(
+                [("path", f"boot():/{other}/linux-omarchy/vmlinuz#cab69b")])]),
+            "no kernel": limine_os_entry(BUILD_ID, []),
+        }
+        for name, entry in cases.items():
+            with self.subTest(name):
+                self.log.write_text("")
+                self.write_conf(entry, limine_os_entry(VM_ID, [VM_KERNEL]))
+                self.run_script()
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.machine_ids(), [BUILD_ID, VM_ID])
+                self.assertTrue((self.boot / BUILD_ID / "linux-omarchy/vmlinuz").is_file())
+
+    def test_leaves_a_directory_holding_more_than_the_factorys_kernel(self):
+        for extra in ("limine_history/vmlinuz", "linux-omarchy/notes", "linux-omarchy/vmlinuz.bak/x"):
+            with self.subTest(extra):
+                self.log.write_text("")
+                path = self.boot / BUILD_ID / extra
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("x")
+                self.run_script()
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.machine_ids(), [BUILD_ID, VM_ID])
+                self.assertTrue(path.is_file())
+                subprocess.run(["rm", "-rf", str(self.boot / BUILD_ID / extra.split("/")[0])], check=True)
+                (self.boot / BUILD_ID / "linux-omarchy").mkdir(exist_ok=True)
+                (self.boot / BUILD_ID / "linux-omarchy/vmlinuz").write_text("old kernel")
+
+    def test_removes_a_factory_entry_that_boots_the_shared_uki(self):
+        # Newer factories build the UKI that the VM's own entry later rebuilds.
+        self.write_conf(limine_os_entry(BUILD_ID, [VM_KERNEL]), limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.calls(), [f"--remove-entry {BUILD_ID}"])
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertTrue((self.boot / "EFI/Linux/omarchy_linux-omarchy.efi").is_file())
+
+    def test_keeps_entries_without_a_machine_id(self):
+        # FIND_BOOTLOADERS adds the firmware's fallback loader as its own entry.
+        fallback = "/EFI fallback\n  protocol: efi\n  path: boot():/EFI/BOOT/BOOTAA64.EFI\n"
+        self.write_conf(fallback, limine_os_entry(BUILD_ID, [VM_KERNEL]), limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+        self.assertIn("/EFI fallback\n", self.conf.read_text())
+
+    def test_ignores_indentation_as_limine_does(self):
+        flat = "\n".join(line.lstrip() for line in limine_os_entry(BUILD_ID, [FACTORY_KERNEL]).splitlines()) + "\n"
+        self.write_conf(flat, limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+
+    def test_keeps_the_factory_entry_until_this_machines_kernel_is_there(self):
+        uki = self.boot / "EFI/Linux/omarchy_linux-omarchy.efi"
+        for name, own, prepare in (
+            ("missing UKI", limine_os_entry(VM_ID, [VM_KERNEL]), lambda: uki.unlink()),
+            ("empty UKI", limine_os_entry(VM_ID, [VM_KERNEL]), lambda: uki.write_text("")),
+            ("modules only", limine_os_entry(VM_ID, [limine_kernel(
+                [("module_path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi#abcd")])]), lambda: None),
+            ("outside the ESP", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/../root/vmlinuz")])]), lambda: None),
+            ("two entries", limine_os_entry(VM_ID, [VM_KERNEL]) + "\n" + limine_os_entry(VM_ID, [VM_KERNEL]),
+             lambda: None),
+            ("a space in the path", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi missing.efi")], protocol="efi")]), lambda: None),
+            ("a missing module in capitals", limine_os_entry(VM_ID, [limine_kernel(
+                [("path", "boot():/EFI/Linux/omarchy_linux-omarchy.efi"),
+                 ("MODULE_PATH", f"boot():/{VM_ID}/linux-omarchy/missing-initramfs")])]), lambda: None),
+        ):
+            with self.subTest(name):
+                self.log.write_text("")
+                uki.write_text("new kernel")
+                self.write_conf(limine_os_entry(BUILD_ID, [FACTORY_KERNEL]), own)
+                prepare()
+                self.run_script()
+                self.assertEqual(self.calls(), [])
+                self.assertIn(BUILD_ID, self.machine_ids())
+                self.assertTrue((self.boot / BUILD_ID / "linux-omarchy/vmlinuz").is_file())
+
+    def test_never_touches_this_machines_entry_or_directory(self):
+        self.write_conf(limine_os_entry(VM_ID, [limine_kernel(
+            [("path", f"boot():/{VM_ID}/linux-omarchy/vmlinuz#cab69b")])]))
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+        self.assertTrue((self.boot / VM_ID / "linux-omarchy/vmlinuz").is_file())
+
+    def test_removes_the_entry_when_its_kernel_is_already_gone(self):
+        subprocess.run(["rm", "-rf", str(self.boot / BUILD_ID)], check=True)
+        self.run_script()
+        self.assertEqual(self.machine_ids(), [VM_ID])
+
+    def test_removes_a_factory_directory_no_entry_uses(self):
+        self.write_conf(limine_os_entry(VM_ID, [VM_KERNEL]))
+        self.run_script()
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.boot / BUILD_ID).exists())
+
+    def test_keeps_the_kernel_when_the_entry_stays(self):
+        self.run_script(TEST_REMOVE_FAILS="1")
+        self.assertEqual(self.machine_ids(), [BUILD_ID, VM_ID])
+        self.assertTrue((self.boot / BUILD_ID / "linux-omarchy/vmlinuz").is_file())
+
+    def test_runs_after_first_boot_setup_and_once_on_upgrade(self):
+        drop_in = (FILES / "usr/lib/systemd/system/omarchy-provision-owner.service.d/10-try-omarchy-native.conf")
+        self.assertIn("\nExecStartPost=-/usr/lib/try-omarchy/factory-boot-entry\n", drop_in.read_text())
+        install = (PACKAGE / "try-omarchy.install").read_text()
+        self.assertIn('if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then\n    _remove_factory_boot_entry\n', install)
+        self.assertTrue(os.access(LIB / "factory-boot-entry", os.X_OK))
 
 
 class InputInit(unittest.TestCase):

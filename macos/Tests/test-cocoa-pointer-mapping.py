@@ -30,13 +30,16 @@ def patched() -> str:
 
 
 class CocoaPointerMappingTests(unittest.TestCase):
-    def test_builder_pins_and_applies_the_patch_before_the_hotkeys(self) -> None:
+    def test_builder_pins_and_applies_the_patch_after_the_cocoa_patches(self) -> None:
         builder = BUILDER.read_text(encoding="utf-8")
         digest = hashlib.sha256(PATCH.read_bytes()).hexdigest()
         self.assertIn(f"pointer_mapping_patch_sha256={digest}", builder)
         self.assertIn('verify_file_sha "Try Omarchy Cocoa pointer-mapping patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        self.assertEqual(applied[-2:], ["pointer_mapping_patch", "immersive_hotkeys_patch"])
+        # Only the pointer modifier, multi-display, guest-layout and immersive-hotkeys patches, made against this one, come later.
+        self.assertEqual(applied[applied.index("pointer_mapping_patch") + 1:],
+                         ["pointer_modifiers_patch", "multi_display_patch", "guest_layout_patch",
+                          "immersive_hotkeys_patch"])
 
     def test_absolute_pointer_maps_each_axis_in_view_coordinates(self) -> None:
         added, removed = lines("+"), lines("-")
@@ -61,6 +64,18 @@ class CocoaPointerMappingTests(unittest.TestCase):
         self.assertIn("setContentMinSize:cocoa_guest_frame_size(", branch)
         self.assertIn("[self updateUIInfo];", branch)
         self.assertNotIn("setContentSize", branch)
+
+    def test_full_screen_keeps_appkits_layout(self) -> None:
+        # This patch rewrites resizeWindow last, so the final method must keep
+        # the notch patch's guard ahead of anything that sizes the window (#428).
+        source = patched()
+        start = source.index("- (void) resizeWindow")
+        method = source[start:]
+        guard = method.index("    if (styleMask & NSWindowStyleMaskFullScreen) {\n")
+        self.assertLess(method.index("!(styleMask & NSWindowStyleMaskFullScreen)"), guard)
+        # The hunk ends inside the guard's comment; the notch test checks the
+        # guard comes before setContentAspectRatio.
+        self.assertIn("Full screen is AppKit's to lay out, on every display.", method[guard:])
 
     def test_initial_guest_size_is_in_pixels(self) -> None:
         added = lines("+")

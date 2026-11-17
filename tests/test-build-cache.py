@@ -241,11 +241,13 @@ class BuildCacheTests(unittest.TestCase):
             recipe = root / "guest/package/try-omarchy/PKGBUILD"
             script = root / "guest/package/try-omarchy/files/usr/lib/try-omarchy/menu-entries"
             console = root / "guest/package/try-omarchy/files/etc/limine-entry-tool.d/50-console.conf"
-            for path in (recipe, script, console, root / "guest/factory/build-image.sh"):
+            initramfs = root / "guest/package/try-omarchy/files/etc/mkinitcpio.conf.d/90-vm.conf"
+            for path in (recipe, script, console, initramfs, root / "guest/factory/build-image.sh"):
                 path.parent.mkdir(parents=True, exist_ok=True)
             recipe.write_text("pkgrel=1\ndepends=(\n  'bash'\n)\noptdepends=(\n  'wf-recorder: x'\n)\n")
             script.write_text("one\n")
             console.write_text("console=hvc0\n")
+            initramfs.write_text("MODULES+=(virtio_gpu)\n")
             (root / "guest/factory/build-image.sh").write_text("factory\n")
             (root / "LICENSE").write_text("license\n")
             factory = [str(root / "guest/build.sh"), "--factory-only"]
@@ -260,12 +262,15 @@ class BuildCacheTests(unittest.TestCase):
             self.assertNotEqual(package_before, build_cache.fingerprint(root, "guest-package", package))
 
             # What the factory bakes in: the boot image's command line and
-            # the dependencies it installs.
+            # initramfs, and the dependencies it installs.
             console.write_text("console=hvc0 quiet\n")
             after_console = build_cache.fingerprint(root, "guest", factory)
             self.assertNotEqual(factory_before, after_console)
+            initramfs.write_text("MODULES+=(virtio_gpu virtio_input)\n")
+            after_initramfs = build_cache.fingerprint(root, "guest", factory)
+            self.assertNotEqual(after_console, after_initramfs)
             recipe.write_text(recipe.read_text().replace("'wf-recorder: x'", "'wf-recorder: x'\n  'mpv: y'"))
-            self.assertNotEqual(after_console, build_cache.fingerprint(root, "guest", factory))
+            self.assertNotEqual(after_initramfs, build_cache.fingerprint(root, "guest", factory))
 
     def test_pinned_downloads_are_kept_and_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

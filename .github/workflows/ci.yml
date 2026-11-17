@@ -77,7 +77,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Guest package tests
-        run: make test-guest
+        # The Hyprland profile's layout events run in a real Lua interpreter here.
+        env:
+          TRY_OMARCHY_REQUIRE_LUA: "1"
+        run: |
+          command -v lua5.4 >/dev/null || sudo apt-get install -yq lua5.4
+          make test-guest
 
       - name: Guest shell scripts (bash -n, ShellCheck errors)
         run: |

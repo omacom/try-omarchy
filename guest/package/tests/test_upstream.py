@@ -161,13 +161,15 @@ class UpstreamContracts(unittest.TestCase):
     def test_setup_form_preselects_the_time_zone_default(self):
         # setup-form-defaults sets the default in the environment, which the
         # form-defaults file doesn't override, to Same as macOS, a row the
-        # timedatectl stand-in lists.
+        # timedatectl stand-in lists. The prompt lists that row first.
         form = (OMARCHY / "install/provisioning/setup-form.sh").read_text()
         self.assertIn(': "${OMARCHY_FORM_TIMEZONE_DEFAULT:=', form)
         prompt = form[form.index("omarchy_prompt_timezone() {"):]
         prompt = prompt[:prompt.index("\n}\n")]
         self.assertIn("guess=${OMARCHY_FORM_TIMEZONE_DEFAULT:-}", prompt)
-        self.assertRegex(prompt, r'timedatectl list-timezones \| gum choose\b[^\n]*--selected "\$guess"')
+        self.assertIn("zones=$(timedatectl list-timezones)", prompt)
+        self.assertIn("""zones=$(printf '%s\\n' "$guess"; grep -vxF -- "$guess" <<<"$zones")""", prompt)
+        self.assertRegex(prompt, r'timezone=\$\(gum filter\b[^\n]*<<<"\$zones"\)')
         self.assertIn("OMARCHY_FORM_TIMEZONE_DEFAULT=", (FILES / "usr/lib/try-omarchy/setup-form-defaults").read_text())
 
     def test_provisioning_service_and_its_autologin_cleanup_keep_their_names(self):

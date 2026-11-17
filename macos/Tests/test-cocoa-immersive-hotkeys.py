@@ -94,6 +94,8 @@ def harness() -> str:
     state = "\n".join(line for line in text.splitlines() if re.fullmatch(r"static .*;", line))
     functions = "\n\n".join(braced(text, signature) for signature in (
         "static void cocoa_set_immersive(bool enabled)\n",
+        "static void cocoa_fullscreen_transition_began(void)\n",
+        "static void cocoa_fullscreen_transition_finished(void)\n",
         "static void cocoa_fullscreen_transition_failed(void)\n",
         "static void cocoa_toggle_immersive(void)\n",
         "static void cocoa_return_to_host(void)\n",

@@ -366,8 +366,13 @@ struct VMRunClientTests {
             read -r config
             signals=0
             trap 'signals=$((signals + 1))' TERM
+            # One sleeper and no fork per turn: two signals that land while bash
+            # forks are merged into one on a busy machine.
+            sleep 30 &
+            sleeper=$!
             echo '{"version":1,"event":"ready"}'
-            while ((signals < 2)); do sleep 0.05; done
+            while ((signals < 2)); do wait "$sleeper"; done
+            kill "$sleeper"
             echo '{"version":1,"event":"exited","status":0}'
             """)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -508,7 +513,7 @@ struct VMRunLaunchSettingsTests {
         let settings = fixture.vmSettings(legacy: false)
         VMResourcePreferenceStore(storage: settings).save(VMResources(cpuCount: 6, memoryGiB: 8, diskGiB: 96))
         try PortForwardingPreferenceStore(storage: settings).save([PortForwardPreset.ssh])
-        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false))
+        FullscreenPreferenceStore(storage: settings).save(FullscreenPreferences(isImmersive: false, usesNotch: false, usesAllDisplays: false))
         try VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
 
         let configuration = VMRunConfiguration(productName: "Omarchy Installer", storageRoot: fixture.root.path,
@@ -523,6 +528,7 @@ struct VMRunLaunchSettingsTests {
         #expect(environment[VMResourceLaunchConfiguration.diskEnvironmentKey] == "96")
         #expect(environment[PortForwardPolicy.environmentKey] != nil)
         #expect(environment[FullscreenLaunchConfiguration.immersiveEnvironmentKey] == "0")
+        #expect(environment[FullscreenLaunchConfiguration.displaysEnvironmentKey] == "0")
         #expect(environment[VMNetworkPolicy.modeKey] == VMNetworkMode.nat.rawValue)
     }
 

@@ -34,6 +34,12 @@ for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.ser
   if [[ $active == active && ${restarts:-0} == 0 ]]; then ok "$unit is active"; else bad "$unit: $active, $restarts restarts"; fi
 done
 
+# --- boot -------------------------------------------------------------------------------
+# Limine boots the installed kernel, not one the factory image was built with.
+owner=$(pacman -Qqo "/usr/lib/modules/$(uname -r)/vmlinuz" 2>/dev/null)
+[[ $owner == linux-omarchy ]] && ok "the running kernel $(uname -r) is the installed linux-omarchy $(pacman -Q linux-omarchy | cut -d' ' -f2)" ||
+  bad "the running kernel $(uname -r) is not the installed linux-omarchy $(pacman -Q linux-omarchy 2>/dev/null | cut -d' ' -f2)"
+
 # --- integrations ----------------------------------------------------------------------
 zone=$(timedatectl show -p Timezone --value)
 [[ $zone == "$mac_zone" ]] && ok "the time zone follows the Mac ($zone)" || bad "time zone $zone, the Mac's is $mac_zone"

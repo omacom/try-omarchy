@@ -7,7 +7,7 @@ usage() {
 Usage: macos/build-qemu-gpu-runtime.sh [--archive-dir DIR]
 
 Build the pinned QEMU/VirGL source stack for macOS 15.0 with Try Omarchy's Cocoa identity,
-dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, touch-scroll, and ISO
+dynamic-display, immersive-mode, notch, pause-ownership, pinch-zoom, touch-scroll, multi-display, and ISO
 keyboard patches, then relocate, sign, validate, and
 atomically stage it at:
   macos/.build/qemu-gpu-runtime
@@ -70,6 +70,7 @@ injected_text_patch="$native_dir/patches/qemu-cocoa-injected-text.patch"
 command_chord_patch="$native_dir/patches/qemu-cocoa-command-chord-hold.patch"
 korean_caps_lock_patch="$native_dir/patches/qemu-cocoa-korean-caps-lock.patch"
 pointer_mapping_patch="$native_dir/patches/qemu-cocoa-pointer-mapping.patch"
+pointer_modifiers_patch="$native_dir/patches/qemu-cocoa-pointer-keeps-modifiers.patch"
 immersive_hotkeys_patch="$native_dir/patches/qemu-cocoa-immersive-hotkeys.patch"
 audio_device_patch="$native_dir/patches/qemu-sdl-audio-device-selection.patch"
 audio_recovery_patch="$native_dir/patches/qemu-hda-full-ring-recovery.patch"
@@ -88,6 +89,8 @@ main_loop_qos_patch="$native_dir/patches/qemu-darwin-main-loop-qos.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
+multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
+guest_layout_patch="$native_dir/patches/qemu-cocoa-guest-layout.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 virgl_upload_flush_patch="$native_dir/patches/virgl-ctx0-upload-flush.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
@@ -114,8 +117,9 @@ iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284
 injected_text_patch_sha256=18d64d52f715d0cf1b2b6d1761059371e1859ee61faf3cc4800e2effc1ed4dd1
 command_chord_patch_sha256=d2a6cc3827ddac15f5baa063b36ab857b9571221ca1ce4ef25896cae914ff9f6
 korean_caps_lock_patch_sha256=2de69757123f964dcd9a2ebda8de29ac9218f9638e2e30b73a740a6de0b6a355
-pointer_mapping_patch_sha256=3094b2f00063af1da6e25f84ccf837ff628aae8cbdaba13f82ccfb520eb07d5d
-immersive_hotkeys_patch_sha256=0b6fd40f2098e94453a5735160504c2407cab954aedd04aaadf17be65bf4331f
+pointer_mapping_patch_sha256=1c6980ae5f57b23214cfce48780ffef12d18404790ab293307b3ca888ed04547
+pointer_modifiers_patch_sha256=26da2f6937cd36f79cb2b94ef273009cce95140a1fd825917ac57b98ea13edec
+immersive_hotkeys_patch_sha256=d1e9f528ae19e593128209fb1e8eaf50a261c9a11cea0f14f1d20e236c693c47
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
 shared_folder_patch_sha256=41247692501655393ae3a40f56915472ab29b6e89c5173e33db1f62cca56632f
@@ -128,10 +132,12 @@ strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
 no_app_nap_patch_sha256=af5f7c5c04da1293dcfcd752c60bfd258357bd72427492ea81c834ededa39967
-notch_patch_sha256=6b1a6bc134023ee9136d8b077f9663ed67259cb765653a2aaa63a5e31fb6d1c9
+notch_patch_sha256=6b66cd1110dd497db93163ac888d8fbf0cf34d517ea0f1022c99d0629bc3c52f
 hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
 audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
+multi_display_patch_sha256=1971fdab615eee5e0d3de86dd0131a38a5bc355ae5dfbb65b0d149126b8c2e17
+guest_layout_patch_sha256=db7a452e8c473ddd9885c892acd995dac790bea7af5f826cfa613d88cc5ab295
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=95e8ee890be78cdce70b3ee54a8adac27be02421be08b986ae987c74ef8cec8c
 slirp_patch_sha256=20f3d424c79929fb82d240d0ee06b99e9f93ecfb9460579dc414303820d59f90
@@ -262,6 +268,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa Korean Caps Lock patch: $korean_caps_lock_patch"
 [[ -f $pointer_mapping_patch && ! -L $pointer_mapping_patch ]] || \
   die "missing Cocoa pointer-mapping patch: $pointer_mapping_patch"
+[[ -f $pointer_modifiers_patch && ! -L $pointer_modifiers_patch ]] || \
+  die "missing Cocoa pointer modifier patch: $pointer_modifiers_patch"
 [[ -f $immersive_hotkeys_patch && ! -L $immersive_hotkeys_patch ]] || \
   die "missing Cocoa immersive-hotkeys patch: $immersive_hotkeys_patch"
 [[ -f $audio_device_patch && ! -L $audio_device_patch ]] || \
@@ -292,6 +300,10 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing SDL audio playback-thread patch: $audio_playback_thread_patch"
 [[ -f $main_loop_qos_patch && ! -L $main_loop_qos_patch ]] || \
   die "missing Darwin main-loop QoS patch: $main_loop_qos_patch"
+[[ -f $multi_display_patch && ! -L $multi_display_patch ]] || \
+  die "missing Cocoa multi-display patch: $multi_display_patch"
+[[ -f $guest_layout_patch && ! -L $guest_layout_patch ]] || \
+  die "missing Cocoa guest-layout patch: $guest_layout_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -516,6 +528,8 @@ verify_file_sha "Try Omarchy Cocoa Korean Caps Lock patch" \
   "$korean_caps_lock_patch" "$korean_caps_lock_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pointer-mapping patch" \
   "$pointer_mapping_patch" "$pointer_mapping_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa pointer modifier patch" \
+  "$pointer_modifiers_patch" "$pointer_modifiers_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa immersive-hotkeys patch" \
   "$immersive_hotkeys_patch" "$immersive_hotkeys_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio-device patch" \
@@ -538,6 +552,10 @@ verify_file_sha "Try Omarchy Cocoa App Nap patch" \
   "$no_app_nap_patch" "$no_app_nap_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa notch patch" \
   "$notch_patch" "$notch_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa multi-display patch" \
+  "$multi_display_patch" "$multi_display_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa guest-layout patch" \
+  "$guest_layout_patch" "$guest_layout_patch_sha256"
 verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
   "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
@@ -547,7 +565,7 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, and Korean Caps Lock patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, multi-display, guest-layout, and immersive-hotkeys patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -581,6 +599,9 @@ patch -d "$source_dir" -p1 -f -i "$command_chord_patch"
 patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"
 patch -d "$source_dir" -p1 -f -i "$korean_caps_lock_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_mapping_patch"
+patch -d "$source_dir" -p1 -f -i "$pointer_modifiers_patch"
+patch -d "$source_dir" -p1 -f -i "$multi_display_patch"
+patch -d "$source_dir" -p1 -f -i "$guest_layout_patch"
 patch -d "$source_dir" -p1 -f -i "$immersive_hotkeys_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"

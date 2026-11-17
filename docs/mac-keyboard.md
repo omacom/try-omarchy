@@ -83,7 +83,9 @@ mouse grab cannot authorize global keyboard capture after switching to a Mac
 app. App deactivation and window focus loss both release the guest's held keys
 and mouse buttons; returning to the VM does not require typing to reset capture.
 
-Two host shortcuts sit in QEMU's Control–Option table, next to Control–Option–G. Control–Option–Escape switches between Immersive full screen and a resizable window for the session. Adding Shift hides the app and leaves the VM running. Full grab is unchanged, so Command stays with the guest either way, and Control–Option–Shift–Escape is the keyboard way back to macOS. The guest never receives Control–Option–Escape, with or without Shift.
+Held modifiers follow the keyboard. Cocoa releases a guest Shift, Control, Option or Command that an event's flags lack only on a key down, key up or modifier change. Pointer and scroll events never release one. With an external keyboard and mouse, wired or Bluetooth, a pointer event that arrives within a few milliseconds of a modifier press can lack that modifier, which ended Shift+click and Control+click at that motion. Losing focus still releases everything the guest holds.
+
+Two host shortcuts sit in QEMU's Control–Option table, next to Control–Option–G. Control–Option–Escape switches between Immersive full screen and a resizable window for the session, on every display's window at once. Adding Shift hides the app and leaves the VM running. Full grab is unchanged, so Command stays with the guest either way, and Control–Option–Shift–Escape is the keyboard way back to macOS. The guest never receives Control–Option–Escape, with or without Shift.
 
 If input appears stuck while using an older runtime, focus the VM and press
 Control–Option–G to release its mouse grab, then select the Mac application.

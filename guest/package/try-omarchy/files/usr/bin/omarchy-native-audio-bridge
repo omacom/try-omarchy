@@ -114,7 +114,23 @@ class PipeWireMirror:
             "output": object(),
             "input": object(),
         }
-        self.last_health_check = 0.0
+        # Checks the event stream asked for that have not succeeded yet. With
+        # no timed poll, a failed one is retried from here, not dropped.
+        self.pending: set[str] = set()
+        # Backoff of a failed check: it waits until `retry_at` (monotonic).
+        self.retry_delay: float | None = None
+        self.retry_at = 0.0
+
+    def forget_graph(self) -> None:
+        # PipeWire restarted. The old modules died with it (or, if only pactl
+        # died, the rebuild's stale-module sweep removes them); their ids may
+        # now belong to someone else's modules. The checks and their backoff
+        # describe the old graph too, so a fresh change must not wait for them.
+        self.module_ids.clear()
+        self.inventory = None
+        self.pending.clear()
+        self.retry_delay = None
+        self.retry_at = 0.0
 
     def close(self) -> None:
         for module_id in reversed(self.module_ids):
@@ -134,8 +150,8 @@ class PipeWireMirror:
             tuple((record["deviceUID"], record["name"]) for record in inputs),
         )
 
-        # Catalog retries bypass poll_selection(), so check the cached graph
-        # here too: PipeWire may have restarted during a selection timeout.
+        # PipeWire may have restarted while the host was answering, so check
+        # the cached graph is still loaded before trusting it.
         if inventory != self.inventory or not set(self.module_ids).issubset(loaded_module_ids()):
             self._rebuild(outputs, inputs)
             self.inventory = inventory
@@ -144,21 +160,54 @@ class PipeWireMirror:
         self.last_sent["output"] = selected_output
         self.last_sent["input"] = selected_input
 
-    def poll_selection(self) -> None:
-        now = time.monotonic()
-        if now - self.last_health_check >= 2:
-            self.last_health_check = now
-            loaded = loaded_module_ids()
-            if self.module_ids and not set(self.module_ids).issubset(loaded):
+    def handle_event(self, line: str) -> None:
+        # One `pactl subscribe` line, e.g. "Event 'change' on server #4294967295".
+        # Every pactl run is a new client that PipeWire, WirePlumber and the
+        # shell all react to, so query only when the graph says something changed.
+        if " on server " in line:
+            self.pending.add("defaults")
+        elif line.startswith("Event 'remove' on module #"):
+            if line.rpartition("#")[2].strip() in self.module_ids:
+                self.pending.add("modules")
+
+    def retry_timeout(self) -> float | None:
+        # Seconds until the pending checks are due; None waits for an event.
+        return max(0.0, self.retry_at - time.monotonic()) if self.pending else None
+
+    def run_due(self) -> None:
+        if not self.pending or time.monotonic() < self.retry_at:
+            return
+        try:
+            self.run_pending()
+            self.retry_delay = None
+        except RuntimeError as error:
+            log(str(error))
+            self.retry_delay = 1 if self.retry_delay is None else min(self.retry_delay * 2, RETRY_DELAY_MAX)
+            self.retry_at = time.monotonic() + self.retry_delay
+
+    def run_pending(self) -> None:
+        # A check leaves `pending` only once it succeeds; a RuntimeError keeps
+        # it there for the caller's next retry.
+        if "modules" in self.pending:
+            # PipeWire reuses module ids, so the removals a rebuild causes can
+            # arrive after the new modules took the same ids: confirm the loss.
+            if not set(self.module_ids).issubset(loaded_module_ids()):
                 self.inventory = None
                 self.send({"type": "get-catalog"})
-                return
+            self.pending.discard("modules")
+        if "defaults" in self.pending:
+            self.poll_selection()
+            self.pending.discard("defaults")
 
+    def poll_selection(self) -> None:
         for direction, command, mapping in (
             ("output", "get-default-sink", self.output_uids),
             ("input", "get-default-source", self.input_uids),
         ):
-            current = run_pactl(command, check=False).strip()
+            # A failed read must raise so the check stays pending: pipewire-pulse
+            # sends no new event until the default moves again. No default is
+            # not a failure (it reads "@DEFAULT_SINK@" and maps to nothing).
+            current = run_pactl(command)
             if current not in mapping:
                 continue
             uid = mapping[current]
@@ -286,11 +335,55 @@ def main() -> int:
 
     mirror = PipeWireMirror(send)
     buffer = bytearray()
+    events = bytearray()
+    def subscribe() -> subprocess.Popen[bytes]:
+        # Its event lines are translated, so parse them in the C locale.
+        return subprocess.Popen(
+            ["pactl", "subscribe"],
+            env={**os.environ, "LC_ALL": "C"},
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
+    # Subscribe before asking for the catalog so no change falls in between.
+    subscriber = subscribe()
+    assert subscriber.stdout is not None
+    event_descriptor = subscriber.stdout.fileno()
     send({"type": "get-catalog"})
+    resubscribe_delay = 1
     try:
         while True:
-            ready, _, _ = select.select([descriptor], [], [], 0.25)
-            if ready:
+            # Sleep until an event, or until the next retry of a failed check.
+            # Other events arriving meanwhile only add to the pending checks.
+            ready, _, _ = select.select([descriptor, event_descriptor], [], [], mirror.retry_timeout())
+            if event_descriptor in ready:
+                chunk = os.read(event_descriptor, 65536)
+                if not chunk:
+                    # pactl exits when PipeWire restarts, and the endpoints go
+                    # with it. Recover here rather than exiting: the unit's
+                    # restart delay grows with every automatic restart and never
+                    # resets, so later PipeWire restarts would take up to 30 s.
+                    subscriber.wait()
+                    log(f"pactl subscribe ended; subscribing again in {resubscribe_delay} s")
+                    time.sleep(resubscribe_delay)
+                    # Back off while PipeWire stays down; any event resets it.
+                    resubscribe_delay = min(resubscribe_delay * 2, RETRY_DELAY_MAX)
+                    subscriber = subscribe()
+                    assert subscriber.stdout is not None
+                    event_descriptor = subscriber.stdout.fileno()
+                    events.clear()
+                    mirror.forget_graph()
+                    send({"type": "get-catalog"})
+                    continue
+                resubscribe_delay = 1
+                events.extend(chunk)
+                while b"\n" in events:
+                    line, _, remainder = events.partition(b"\n")
+                    events = bytearray(remainder)
+                    mirror.handle_event(line.decode(errors="replace"))
+            mirror.run_due()
+            if descriptor in ready:
                 chunk = os.read(descriptor, 65536)
                 if not chunk:
                     return 0
@@ -312,11 +405,9 @@ def main() -> int:
                             log(str(error))
                             time.sleep(delay)
                             delay = min(delay * 2, RETRY_DELAY_MAX)
-            try:
-                mirror.poll_selection()
-            except RuntimeError as error:
-                log(str(error))
     finally:
+        subscriber.kill()
+        subscriber.wait()
         mirror.close()
         os.close(descriptor)
 

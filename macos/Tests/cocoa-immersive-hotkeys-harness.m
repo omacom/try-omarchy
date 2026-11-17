@@ -27,18 +27,17 @@ enum { NSControlStateValueOff = 0, NSControlStateValueOn = 1 };
 @implementation HotkeyMenuItem
 @end
 
+@interface HotkeyController : NSObject
+- (void)doToggleFullScreen:(id)sender;
+@end
+
 @interface HotkeyApplication : NSObject
 @property int hides;
+@property(strong) HotkeyController *delegate;
 - (void)hide:(id)sender;
 @end
 @implementation HotkeyApplication
 - (void)hide:(id)sender { self.hides++; }
-@end
-
-@interface HotkeyView : NSObject
-@property(strong) HotkeyWindow *window;
-@end
-@implementation HotkeyView
 @end
 
 @interface HotkeyEvent : NSObject
@@ -51,6 +50,7 @@ enum { NSControlStateValueOff = 0, NSControlStateValueOn = 1 };
 
 #define NSWindow HotkeyWindow
 #define NSMenuItem HotkeyMenuItem
+#define QemuCocoaAppController HotkeyController
 
 static NSMutableArray *mainQueue;
 #define dispatch_get_main_queue() nil
@@ -66,7 +66,10 @@ static void drain(void)
 }
 
 static HotkeyApplication *NSApp;
-static HotkeyView *cocoaView;
+/* One display: the menu's full-screen toggle reaches every head's window. */
+static struct {
+    __unsafe_unretained HotkeyWindow *window;
+} heads[1];
 static bool immersive_mode_enabled = true;
 /* STATE */
 
@@ -78,9 +81,11 @@ static bool handle_control_option(HotkeyEvent *event)
 
 /* FUNCTIONS */
 
-@interface HotkeyController : NSObject
-@end
 @implementation HotkeyController
+- (void)doToggleFullScreen:(id)sender
+{
+    [heads[0].window toggleFullScreen:sender];
+}
 /* DELEGATE */
 @end
 
@@ -111,10 +116,10 @@ int main(void)
     @autoreleasepool {
         mainQueue = [NSMutableArray new];
         NSApp = [HotkeyApplication new];
-        cocoaView = [HotkeyView new];
         HotkeyWindow *window = [HotkeyWindow new];
-        cocoaView.window = window;
+        heads[0].window = window;
         HotkeyController *controller = [HotkeyController new];
+        NSApp.delegate = controller;
         immersiveMenuItem = [HotkeyMenuItem new];
         immersiveMenuItem.state = NSControlStateValueOn;
         window.styleMask = NSWindowStyleMaskFullScreen;
@@ -188,6 +193,18 @@ int main(void)
         [controller toggleImmersive:nil];
         assert(window.toggles == 6);
         assert_immersive(true);
+
+        /* With All Displays, every window's transition must end first. */
+        [controller windowWillEnterFullScreen:nil];
+        [controller windowWillEnterFullScreen:nil];
+        window.styleMask = NSWindowStyleMaskFullScreen;
+        [controller windowDidEnterFullScreen:nil];
+        press(kVK_Escape, false);
+        assert(window.toggles == 6);
+        [controller windowDidEnterFullScreen:nil];
+        press(kVK_Escape, false);
+        assert(window.toggles == 7);
+        assert_immersive(false);
     }
     return 0;
 }

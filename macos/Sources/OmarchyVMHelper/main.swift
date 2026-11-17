@@ -6,8 +6,13 @@ import TryOmarchyKitClient
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-display-layout | --host-display-panel | --host-display-pixels | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET\n", stderr)
     exit(64)
+}
+
+/// The launcher's Camera notch setting, as run-qemu-gpu.sh hands it to QEMU.
+private func hostNotchEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["TRYOMARCHY_NOTCH"] != "0"
 }
 
 private func effectiveArguments() -> [String] {
@@ -16,6 +21,12 @@ private func effectiveArguments() -> [String] {
         return Array(supplied)
     }
     return Bundle.main.bundleURL.pathExtension == "app" ? ["--run-qemu"] : []
+}
+
+private func failLaunch(_ error: Error, advice: String? = nil) -> Never {
+    fputs("omarchy-vm-helper: \(error.localizedDescription)\n", stderr)
+    MainActor.assumeIsolated { LaunchFailureAlert.present(error, advice: advice) }
+    exit(1)
 }
 
 let arguments = effectiveArguments()
@@ -269,6 +280,24 @@ do {
         exit(0)
     }
 
+    if arguments.first == "--host-display-layout" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detect(notch: hostNotchEnabled()) })
+        exit(0)
+    }
+
+    if arguments.first == "--host-display-panel" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detectPanel() })
+        exit(0)
+    }
+
+    if arguments.first == "--host-display-pixels" {
+        guard arguments.count == 1 else { usage() }
+        print(MainActor.assumeIsolated { HostDisplayLayout.detectPixels(notch: hostNotchEnabled()) })
+        exit(0)
+    }
+
     if arguments.first == "--host-keyboard-geometry" {
         guard arguments.count == 1 else { usage() }
         do {
@@ -292,7 +321,7 @@ do {
                              status: 64)
         }
         do {
-            launcher = try QEMUGPULauncherPath.resolve(bundleURL: Bundle.main.bundleURL)
+            launcher = try QEMUGPULauncherPath.resolve()
         } catch {
             VMRunOutput.fail(VMRunError(code: .launchFailed, message: error.localizedDescription), status: 1)
         }
@@ -327,8 +356,18 @@ do {
         guard let request = QEMUGPULaunchRequest(arguments: Array(arguments.dropFirst())) else {
             usage()
         }
-        let launcher = try QEMUGPULauncherPath.resolve(bundleURL: Bundle.main.bundleURL)
-        let launcherArguments = try request.validatedScriptArguments()
+        let launcher: URL
+        let launcherArguments: [String]
+        do {
+            launcher = try QEMUGPULauncherPath.resolve()
+        } catch {
+            failLaunch(error, advice: LaunchFailureAlert.damagedAppAdvice)
+        }
+        do {
+            launcherArguments = try request.validatedScriptArguments()
+        } catch {
+            failLaunch(error)
+        }
 
         // The executable's top level starts on the process main thread. Make
         // that invariant explicit so the AppKit lifecycle stays MainActor
