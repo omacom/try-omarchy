@@ -6,6 +6,63 @@ enum KeyRoute: String, Codable, CaseIterable {
     case omarchy
 }
 
+/// Modifier keys held for a shortcut, in macOS's display order.
+struct ShortcutModifiers: OptionSet, Hashable {
+    let rawValue: Int
+
+    static let control = Self(rawValue: 1 << 0)
+    static let option = Self(rawValue: 1 << 1)
+    static let shift = Self(rawValue: 1 << 2)
+    static let command = Self(rawValue: 1 << 3)
+
+    private static let names: [(Self, name: String, hostKey: String, symbol: String)] = [
+        (.control, "control", "ctrl", "⌃"),
+        (.option, "option", "opt", "⌥"),
+        (.shift, "shift", "shift", "⇧"),
+        (.command, "command", "cmd", "⌘"),
+    ]
+
+    var symbols: String { Self.names.filter { contains($0.0) }.map(\.symbol).joined() }
+    var hostKeyNames: [String] { Self.names.filter { contains($0.0) }.map(\.hostKey) }
+    var names: [String] { Self.names.filter { contains($0.0) }.map(\.name) }
+
+    init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    /// Nil when a name is unknown.
+    init?(names: [String]) {
+        var modifiers: Self = []
+        for name in names {
+            guard let match = Self.names.first(where: { $0.name == name }) else { return nil }
+            modifiers.insert(match.0)
+        }
+        self = modifiers
+    }
+}
+
+/// A shortcut that stays with macOS while Omarchy is focused, such as
+/// Control-Right Arrow to move to the next Space.
+struct KeptShortcut: Hashable {
+    static let keyCodes = 0...255
+
+    let keyCode: Int
+    let modifiers: ShortcutModifiers
+    /// The key as the keyboard labels it, such as → or A.
+    let key: String
+    /// What the shortcut does in macOS, when it's one of macOS's own.
+    var name: String?
+
+    var symbols: String { modifiers.symbols + key }
+
+    /// QEMU's host-keys form, such as 124+ctrl.
+    var hostKey: String { ([String(keyCode)] + modifiers.hostKeyNames).joined(separator: "+") }
+
+    func isSameKeys(as other: KeptShortcut) -> Bool {
+        keyCode == other.keyCode && modifiers == other.modifiers
+    }
+}
+
 struct KeyboardRoutingPreferences: Equatable {
     var brightness: KeyRoute
     var missionControl: KeyRoute
@@ -13,6 +70,7 @@ struct KeyboardRoutingPreferences: Equatable {
     var dictation: KeyRoute = .macOS
     var doNotDisturb: KeyRoute = .macOS
     var media: KeyRoute = .macOS
+    var shortcuts: [KeptShortcut] = []
 
     static let defaults = Self(brightness: .macOS, missionControl: .macOS, spotlight: .macOS)
 
@@ -35,6 +93,13 @@ struct KeyboardRoutingPreferences: Equatable {
         if dictation == .macOS { keycodes += Self.dictationKeycodes }
         if doNotDisturb == .macOS { keycodes += Self.doNotDisturbKeycodes }
         return keycodes.sorted()
+    }
+
+    /// Everything that stays with macOS, in QEMU's host-keys form.
+    var hostKeys: [String] {
+        var seen = Set<String>()
+        let shortcutKeys = shortcuts.map(\.hostKey).filter { seen.insert($0).inserted }
+        return hostKeycodes.map(String.init) + shortcutKeys
     }
 }
 
@@ -64,7 +129,8 @@ struct KeyboardRoutingPreferenceStore {
             spotlight: payload.spotlight,
             dictation: payload.dictation ?? .macOS,
             doNotDisturb: payload.doNotDisturb ?? .macOS,
-            media: payload.media ?? .macOS
+            media: payload.media ?? .macOS,
+            shortcuts: (payload.shortcuts ?? []).compactMap(\.shortcut)
         )
     }
 
@@ -76,7 +142,8 @@ struct KeyboardRoutingPreferenceStore {
             spotlight: preferences.spotlight,
             dictation: preferences.dictation,
             doNotDisturb: preferences.doNotDisturb,
-            media: preferences.media
+            media: preferences.media,
+            shortcuts: preferences.shortcuts.map(ShortcutPayload.init)
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? storage.setSettingData(data, forKey: Self.key)
@@ -90,6 +157,29 @@ struct KeyboardRoutingPreferenceStore {
         let dictation: KeyRoute?
         let doNotDisturb: KeyRoute?
         let media: KeyRoute?
+        let shortcuts: [ShortcutPayload]?
+    }
+
+    private struct ShortcutPayload: Codable {
+        let keyCode: Int
+        let modifiers: [String]
+        let key: String
+        let name: String?
+
+        init(_ shortcut: KeptShortcut) {
+            keyCode = shortcut.keyCode
+            modifiers = shortcut.modifiers.names
+            key = shortcut.key
+            name = shortcut.name
+        }
+
+        /// Nil for an entry QEMU couldn't take, so one bad entry can't block the launch.
+        var shortcut: KeptShortcut? {
+            guard KeptShortcut.keyCodes.contains(keyCode),
+                  let modifiers = ShortcutModifiers(names: modifiers),
+                  !modifiers.isEmpty, !key.isEmpty else { return nil }
+            return KeptShortcut(keyCode: keyCode, modifiers: modifiers, key: key, name: name)
+        }
     }
 }
 
@@ -104,9 +194,7 @@ struct KeyboardRoutingLaunchConfiguration: Equatable {
         preferences: KeyboardRoutingPreferences
     ) -> Self {
         var environment = baseEnvironment
-        environment[hostKeysEnvironmentKey] = preferences.hostKeycodes
-            .map(String.init)
-            .joined(separator: ",")
+        environment[hostKeysEnvironmentKey] = preferences.hostKeys.joined(separator: ",")
         environment[mediaKeysEnvironmentKey] = preferences.media == .omarchy ? "1" : "0"
         return Self(environment: environment)
     }

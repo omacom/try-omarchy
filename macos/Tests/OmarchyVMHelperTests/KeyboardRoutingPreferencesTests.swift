@@ -105,6 +105,58 @@ struct KeyboardRoutingPreferenceStoreTests {
         #expect(choice.hostKeycodes == KeyboardRoutingPreferences.defaults.hostKeycodes)
     }
 
+    @Test("Kept shortcuts round-trip, and an older payload has none")
+    func shortcutsRoundTrip() throws {
+        let fixture = DefaultsFixture()
+        var choice = KeyboardRoutingPreferences.defaults
+        choice.shortcuts = [
+            KeptShortcut(keyCode: 124, modifiers: .control, key: "→", name: "Move right a space"),
+            KeptShortcut(keyCode: 0, modifiers: [.option, .command], key: "A"),
+        ]
+        fixture.store.save(choice)
+        #expect(KeyboardRoutingPreferenceStore(defaults: fixture.defaults).load() == choice)
+
+        let older = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
+            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+        ])
+        fixture.defaults.set(older, forKey: KeyboardRoutingPreferenceStore.key)
+        #expect(fixture.store.load().shortcuts.isEmpty)
+    }
+
+    @Test("A stored shortcut QEMU couldn't take is dropped and the rest still load")
+    func invalidShortcutsAreDropped() throws {
+        let fixture = DefaultsFixture()
+        let stored = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
+            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+            "shortcuts": [
+                ["keyCode": 123, "modifiers": ["control"], "key": "←"],
+                ["keyCode": 256, "modifiers": ["control"], "key": "?"],
+                ["keyCode": 1, "modifiers": [], "key": "S"],
+                ["keyCode": 2, "modifiers": ["hyper"], "key": "D"],
+                ["keyCode": 3, "modifiers": ["command"], "key": ""],
+            ],
+        ])
+        fixture.defaults.set(stored, forKey: KeyboardRoutingPreferenceStore.key)
+        #expect(fixture.store.load().shortcuts == [KeptShortcut(keyCode: 123, modifiers: .control, key: "←")])
+    }
+
+    @Test("Host keys add each kept shortcut once, with its modifiers, after the dedicated keys")
+    func hostKeysWithShortcuts() {
+        var preferences = KeyboardRoutingPreferences(
+            brightness: .macOS, missionControl: .omarchy, spotlight: .omarchy,
+            dictation: .omarchy, doNotDisturb: .omarchy
+        )
+        preferences.shortcuts = [
+            KeptShortcut(keyCode: 124, modifiers: .control, key: "→"),
+            KeptShortcut(keyCode: 18, modifiers: [.command, .shift, .option, .control], key: "1"),
+            KeptShortcut(keyCode: 124, modifiers: .control, key: "→", name: "Move right a space"),
+        ]
+        #expect(preferences.hostKeys == ["144", "145", "124+ctrl", "18+ctrl+opt+shift+cmd"])
+        #expect(preferences.shortcuts[1].symbols == "⌃⌥⇧⌘1")
+    }
+
     private final class DefaultsFixture {
         let suiteName = "KeyboardRoutingPreferenceStoreTests.\(UUID().uuidString)"
         let defaults: UserDefaults
@@ -156,5 +208,17 @@ struct KeyboardRoutingLaunchConfigurationTests {
         let sent = KeyboardRoutingLaunchConfiguration.make(baseEnvironment: inherited, preferences: omarchy)
         #expect(sent.environment[KeyboardRoutingLaunchConfiguration.mediaKeysEnvironmentKey] == "1")
         #expect(sent.environment[KeyboardRoutingLaunchConfiguration.hostKeysEnvironmentKey] == "131,144,145,160,176,177,178")
+    }
+
+    @Test("Publishes kept shortcuts in the runner's form")
+    func publishesShortcuts() {
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.shortcuts = [
+            KeptShortcut(keyCode: 123, modifiers: .control, key: "←"),
+            KeptShortcut(keyCode: 124, modifiers: .control, key: "→"),
+        ]
+        let configuration = KeyboardRoutingLaunchConfiguration.make(baseEnvironment: [:], preferences: preferences)
+        #expect(configuration.environment[KeyboardRoutingLaunchConfiguration.hostKeysEnvironmentKey]
+            == "131,144,145,160,176,177,178,123+ctrl,124+ctrl")
     }
 }
