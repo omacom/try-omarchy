@@ -56,6 +56,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let usesNotch: () -> Bool
     private let setUsesNotch: (Bool) -> Void
     private let usesAllDisplays: () -> Bool
+    private let displaysHaveSeparateSpaces: () -> Bool
     private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
@@ -155,6 +156,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
         usesAllDisplays: @escaping () -> Bool = { false },
+        displaysHaveSeparateSpaces: @escaping () -> Bool = { true },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
@@ -215,6 +217,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.usesNotch = usesNotch
         self.setUsesNotch = setUsesNotch
         self.usesAllDisplays = usesAllDisplays
+        self.displaysHaveSeparateSpaces = displaysHaveSeparateSpaces
         self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
@@ -580,6 +583,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
         state.usesAllDisplays = usesAllDisplays()
+        state.displaysHaveSeparateSpaces = displaysHaveSeparateSpaces()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
     }

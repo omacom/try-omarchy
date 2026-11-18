@@ -315,6 +315,7 @@ final class VMRunSettingsWindow {
                 fullscreenStore.save(preferences)
             },
             usesAllDisplays: { fullscreenStore.load().usesAllDisplays },
+            displaysHaveSeparateSpaces: { NSScreen.screensHaveSeparateSpaces },
             setUsesAllDisplays: { usesAllDisplays in
                 var preferences = fullscreenStore.load()
                 preferences.usesAllDisplays = usesAllDisplays

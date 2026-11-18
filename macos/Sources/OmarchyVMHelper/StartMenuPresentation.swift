@@ -294,8 +294,13 @@ enum StartMenuPresentation {
 
     static func displaysDetail(isEnabled: Bool) -> String {
         isEnabled
-            ? "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces."
+            ? "Full Screen covers every display, arranged as in System Settings."
             : "Full Screen uses one display."
+    }
+
+    static func displaysWarning(isEnabled: Bool, separateSpaces: Bool) -> String? {
+        guard isEnabled, !separateSpaces else { return nil }
+        return "Omarchy uses one display until “Displays have separate Spaces” is on in System Settings › Desktop & Dock. Log out after changing it."
     }
 
 }

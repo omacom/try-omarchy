@@ -337,6 +337,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             usesAllDisplays: { [weak self] in
                 self?.fullscreenPreferenceStore.load().usesAllDisplays ?? false
             },
+            displaysHaveSeparateSpaces: { NSScreen.screensHaveSeparateSpaces },
             setUsesAllDisplays: { [weak self] usesAllDisplays in
                 guard let store = self?.fullscreenPreferenceStore else { return }
                 var preferences = store.load()

@@ -217,6 +217,21 @@ struct StartMenuLauncherTests {
         #expect(menu.state.usesAllDisplays)
     }
 
+    @Test("the all displays setting warns when macOS keeps full screen to one display")
+    func allDisplaysSeparateSpaces() {
+        _ = NSApplication.shared
+        let menu = makeMenu(usesAllDisplays: { true }, displaysHaveSeparateSpaces: { false })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        #expect(!menu.state.displaysHaveSeparateSpaces)
+        #expect(menu.state.allDisplaysWarning != nil)
+
+        let separate = makeMenu(usesAllDisplays: { true })
+        defer { separate.dismiss() }
+        separate.prepareForPresentation(visibleFrame: nil)
+        #expect(separate.state.allDisplaysWarning == nil)
+    }
+
     @Test("returning to the launcher keeps its view and skips storage probes")
     func activationPreservesLauncher() throws {
         _ = NSApplication.shared
@@ -540,6 +555,7 @@ struct StartMenuLauncherTests {
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
         usesAllDisplays: @escaping () -> Bool = { false },
+        displaysHaveSeparateSpaces: @escaping () -> Bool = { true },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
@@ -583,6 +599,7 @@ struct StartMenuLauncherTests {
             usesNotch: usesNotch,
             setUsesNotch: setUsesNotch,
             usesAllDisplays: usesAllDisplays,
+            displaysHaveSeparateSpaces: displaysHaveSeparateSpaces,
             setUsesAllDisplays: setUsesAllDisplays,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
