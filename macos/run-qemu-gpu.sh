@@ -447,9 +447,13 @@ if [[ -n $host_keys ]]; then
   host_key_pattern='[0-9]{1,3}(\+(ctrl|opt|shift|cmd))*'
   [[ $host_keys =~ ^$host_key_pattern(,$host_key_pattern)*$ ]] || fail "$host_keys_error"
   IFS=, read -r -a host_key_list <<<"$host_keys"
+  host_shortcut_count=0
   for host_key in "${host_key_list[@]}"; do
     ((10#${host_key%%+*} <= 255)) || fail "$host_keys_error"
+    [[ $host_key != *+* ]] || ((++host_shortcut_count))
   done
+  ((host_shortcut_count <= 64)) ||
+    fail "OMARCHY_QEMU_GPU_HOST_KEYS can keep at most 64 shortcuts with macOS"
   LC_ALL=C grep -aFq 'host-keys must be keycodes' "$qemu_bin" ||
     fail "the bundled QEMU cannot leave the Mac's dedicated keys with macOS; run make runtime"
   if [[ $host_keys == *+* ]]; then

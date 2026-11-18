@@ -142,6 +142,17 @@ struct KeyboardRoutingPreferenceStoreTests {
         #expect(fixture.store.load().shortcuts == [KeptShortcut(keyCode: 123, modifiers: .control, key: "←")])
     }
 
+    @Test("Loading keeps at most the maximum number of shortcuts")
+    func shortcutsAreCapped() {
+        let fixture = DefaultsFixture()
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.shortcuts = (0..<(KeyboardRoutingPreferences.maximumShortcuts + 5)).map {
+            KeptShortcut(keyCode: $0, modifiers: .command, key: "\($0)")
+        }
+        fixture.store.save(preferences)
+        #expect(fixture.store.load().shortcuts == Array(preferences.shortcuts.prefix(KeyboardRoutingPreferences.maximumShortcuts)))
+    }
+
     @Test("Host keys add each kept shortcut once, with its modifiers, after the dedicated keys")
     func hostKeysWithShortcuts() {
         var preferences = KeyboardRoutingPreferences(

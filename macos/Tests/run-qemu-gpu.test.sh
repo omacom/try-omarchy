@@ -487,6 +487,15 @@ launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=144,145)
 output=$(launch)
 assert_contains "$output" "swap-opt-cmd=off,host-keys=144:145 "
 write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+host_keys=144
+for _ in $(seq 64); do host_keys+=,1+ctrl; done
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys")
+output=$(launch)
+assert_contains "$output" "host-keys=144:1+ctrl:"
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys,1+ctrl" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+output=$(launch) && fail "65 host shortcuts were accepted"
+assert_contains "$output" "at most 64 shortcuts"
+[[ ! -e $test_root/untouched ]] || fail "too many host shortcuts touched storage"
 # Media transport keys go to Omarchy only when enabled.
 launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=1)
 output=$(launch)

@@ -19,7 +19,8 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     private(set) var shortcuts: [KeptShortcut] = []
     private var didClose = false
 
-    static let maximumShortcuts = 32
+    private static let rowsBeforeScrolling = 6
+    private static let scrollingListHeight: CGFloat = 5.5 * 41
 
     init(
         preferences: KeyboardRoutingPreferences,
@@ -139,7 +140,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     private func refreshAddShortcutMenu() {
         addShortcutPopup.removeAllItems()
         addShortcutPopup.addItem(withTitle: recorder.isRecording ? "Recording…" : "Add")
-        let isFull = shortcuts.count >= Self.maximumShortcuts
+        let isFull = shortcuts.count >= KeyboardRoutingPreferences.maximumShortcuts
         for (index, pick) in picks.enumerated() {
             let symbols = pick.shortcuts.map(\.symbols).joined(separator: " ")
             addShortcutPopup.addItem(withTitle: "\(pick.title)  \(symbols)")
@@ -163,19 +164,24 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
 
     private func rebuildShortcuts() {
         shortcutsContainer.subviews.forEach { $0.removeFromSuperview() }
-        var rows = shortcuts.enumerated().map { index, shortcut in
+        let rows = shortcuts.enumerated().map { index, shortcut in
             shortcutRow(shortcut, index: index)
         }
         let addDetail = recorder.isRecording
             ? "Press the shortcut to keep with macOS. Esc cancels."
             : "Choose one of macOS's shortcuts, or record another."
-        rows.append(NativeSheetChrome.row(
+        let addRow = NativeSheetChrome.row(
             title: shortcuts.isEmpty ? "Omarchy gets every shortcut" : "Add a shortcut",
             detail: addDetail,
             control: addShortcutPopup
-        ))
+        )
         refreshAddShortcutMenu()
-        let group = NativeSheetChrome.group(rows)
+        let group = FormGroupView()
+        if rows.count < Self.rowsBeforeScrolling {
+            group.embed(NativeSheetChrome.rowStack(rows + [addRow]))
+        } else {
+            group.embed(NativeSheetChrome.rowStack([scrollingList(rows), addRow]))
+        }
         group.translatesAutoresizingMaskIntoConstraints = false
         shortcutsContainer.addSubview(group)
         NSLayoutConstraint.activate([
@@ -186,9 +192,29 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         ])
     }
 
+    private func scrollingList(_ rows: [NSView]) -> NSScrollView {
+        let stack = NativeSheetChrome.rowStack(rows)
+        let document = FlippedDocumentView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(stack)
+        let scrollView = NSScrollView()
+        scrollView.documentView = document
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: document.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            scrollView.heightAnchor.constraint(equalToConstant: Self.scrollingListHeight),
+        ])
+        return scrollView
+    }
+
     private func shortcutRow(_ shortcut: KeptShortcut, index: Int) -> NSView {
-        let symbols = NSTextField(labelWithString: shortcut.symbols)
-        symbols.textColor = .secondaryLabelColor
         let remove = NSButton(
             image: NSImage(systemSymbolName: "minus.circle.fill", accessibilityDescription: "Remove")!,
             target: self, action: #selector(removeShortcut(_:))
@@ -198,10 +224,16 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         remove.tag = index
         remove.identifier = NSUserInterfaceItemIdentifier("keyboard-routing-remove-shortcut-\(index)")
         remove.setAccessibilityLabel("Remove \(shortcut.name ?? shortcut.symbols)")
+        guard let name = shortcut.name else {
+            return NativeSheetChrome.row(title: shortcut.symbols, control: remove)
+        }
+        let symbols = NSTextField(labelWithString: shortcut.symbols)
+        symbols.textColor = .secondaryLabelColor
         let control = NSStackView(views: [symbols, remove])
         control.orientation = .horizontal
         control.spacing = 8
-        return NativeSheetChrome.row(title: shortcut.name ?? shortcut.symbols, control: control)
+        control.setHuggingPriority(.required, for: .horizontal)
+        return NativeSheetChrome.row(title: name, control: control)
     }
 
     /// Rebuilds the list and grows or shrinks the sheet from its top edge.
@@ -218,7 +250,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     }
 
     func add(_ added: [KeptShortcut]) {
-        for shortcut in added where !isKept(shortcut) && shortcuts.count < Self.maximumShortcuts {
+        for shortcut in added where !isKept(shortcut) && shortcuts.count < KeyboardRoutingPreferences.maximumShortcuts {
             shortcuts.append(shortcut)
         }
         shortcutsChanged()

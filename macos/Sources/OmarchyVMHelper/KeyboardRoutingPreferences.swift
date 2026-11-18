@@ -73,6 +73,8 @@ struct KeyboardRoutingPreferences: Equatable {
     var shortcuts: [KeptShortcut] = []
 
     static let defaults = Self(brightness: .macOS, missionControl: .macOS, spotlight: .macOS)
+    /// Well under the 64 QEMU takes.
+    static let maximumShortcuts = 32
 
     // An Apple keyboard in its default mode sends these caps as plain key
     // events with dedicated keycodes, not as F-keys. With "Use F1, F2, etc.
@@ -130,7 +132,8 @@ struct KeyboardRoutingPreferenceStore {
             dictation: payload.dictation ?? .macOS,
             doNotDisturb: payload.doNotDisturb ?? .macOS,
             media: payload.media ?? .macOS,
-            shortcuts: (payload.shortcuts ?? []).compactMap(\.shortcut)
+            shortcuts: Array((payload.shortcuts ?? []).compactMap(\.shortcut)
+                .prefix(KeyboardRoutingPreferences.maximumShortcuts))
         )
     }
 

@@ -21,6 +21,7 @@ final class ShortcutRecorder {
     private var tapSource: CFRunLoopSource?
     private var monitor: Any?
     private var resignObserver: NSObjectProtocol?
+    private var swallowedKeys = Set<Int64>()
 
     var isRecording: Bool { handler != nil }
 
@@ -55,6 +56,7 @@ final class ShortcutRecorder {
         monitor = nil
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
+        swallowedKeys.removeAll()
         handler = nil
     }
 
@@ -117,12 +119,14 @@ final class ShortcutRecorder {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        if type == .keyUp {
+            return swallowedKeys.remove(keyCode) == nil ? Unmanaged.passUnretained(event) : nil
+        }
         guard NSApp.isActive, isRecording else { return Unmanaged.passUnretained(event) }
-        if type == .keyDown, event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-            handle(
-                keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
-                flags: NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
-            )
+        swallowedKeys.insert(keyCode)
+        if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            handle(keyCode: Int(keyCode), flags: NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)))
         }
         return nil
     }
