@@ -43,6 +43,7 @@ class ICMPPatchTests(unittest.TestCase):
         for variable, filename in (
             ("slirp_patch_sha256", "libslirp-darwin-icmp-matching.patch"),
             ("udp_patch_sha256", "libslirp-ipv4-udp-translation.patch"),
+            ("close_patch_sha256", "libslirp-darwin-async-close.patch"),
         ):
             with self.subTest(patch=filename):
                 patch = NATIVE / "patches" / filename

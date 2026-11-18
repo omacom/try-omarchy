@@ -90,7 +90,6 @@ main_loop_qos_patch="$native_dir/patches/qemu-darwin-main-loop-qos.patch"
 slirp_patch="$native_dir/patches/libslirp-darwin-icmp-matching.patch"
 udp_patch="$native_dir/patches/libslirp-ipv4-udp-translation.patch"
 close_patch="$native_dir/patches/libslirp-darwin-async-close.patch"
-qemu_slirp_init_patch="$native_dir/patches/qemu-slirp-init-error.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
 guest_layout_patch="$native_dir/patches/qemu-cocoa-guest-layout.patch"
@@ -143,10 +142,9 @@ audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad1
 multi_display_patch_sha256=9cf821bbc00ee9ae94c67e68bd5b6bd50b8448c83e67ca3d1840987e09bb06e5
 guest_layout_patch_sha256=db7a452e8c473ddd9885c892acd995dac790bea7af5f826cfa613d88cc5ab295
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
-udp_patch_sha256=cc1eed584203a870da0be3cb7891afb86492d580033c9d073d3bd58d4beaf0cc
-slirp_patch_sha256=c1c03f5ec53a2ee908212fa664ff65712bb4e6be2e8b5fc2b24a927de786c7c2
-close_patch_sha256=d6e1735c0efeb7901d396b0bfb739688163d9ff1ff6d0cd7b131a727f81dad05
-qemu_slirp_init_patch_sha256=dcaed9587f7aa2ea61f16e1b09bbea789a821303f2139cd1821900485f5df11b
+udp_patch_sha256=0a9fc08ad2da35009ba2ff5447b00dadf02f18b17941509c6b2b96e73acda4bc
+slirp_patch_sha256=6f950af012259578bbabef29531cfded3e2426314519509e6902e24531289a0e
+close_patch_sha256=8e592d7d291b1e75fe7cb4de83b93ffc9190d4c172027cf916fe2057e208b7eb
 # Pin the commit behind v4.9.7 so a moved tag cannot change the source archive.
 slirp_commit=ce12dcddf710a71dc0de6450ec95edbadf8e9f66
 slirp_source_root="libslirp-$slirp_commit"
@@ -308,8 +306,6 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing SDL audio playback-thread patch: $audio_playback_thread_patch"
 [[ -f $main_loop_qos_patch && ! -L $main_loop_qos_patch ]] || \
   die "missing Darwin main-loop QoS patch: $main_loop_qos_patch"
-[[ -f $qemu_slirp_init_patch && ! -L $qemu_slirp_init_patch ]] || \
-  die "missing SLIRP initialization error patch: $qemu_slirp_init_patch"
 [[ -f $multi_display_patch && ! -L $multi_display_patch ]] || \
   die "missing Cocoa multi-display patch: $multi_display_patch"
 [[ -f $guest_layout_patch && ! -L $guest_layout_patch ]] || \
@@ -578,8 +574,6 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
   "$audio_playback_thread_patch" "$audio_playback_thread_patch_sha256"
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
-verify_file_sha "Try Omarchy SLIRP initialization error patch" \
-  "$qemu_slirp_init_patch" "$qemu_slirp_init_patch_sha256"
 
 log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, multi-display, and guest-layout patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
@@ -612,7 +606,6 @@ patch -d "$source_dir" -p1 -f -i "$usb_exact_bus_patch"
 patch -d "$source_dir" -p1 -f -i "$minimum_guest_size_patch"
 patch -d "$source_dir" -p1 -f -i "$no_app_nap_patch"
 patch -d "$source_dir" -p1 -f -i "$main_loop_qos_patch"
-patch -d "$source_dir" -p1 -f -i "$qemu_slirp_init_patch"
 patch -d "$source_dir" -p1 -f -i "$notch_patch"
 patch -d "$source_dir" -p1 -f -i "$command_chord_patch"
 patch -d "$source_dir" -p1 -f -i "$touch_scroll_patch"

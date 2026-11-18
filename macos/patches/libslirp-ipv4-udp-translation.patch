@@ -1,3 +1,20 @@
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -306,3 +306,13 @@ if host_machine.system() == 'darwin'
+     dependencies: libslirp_deps)
+   test('icmp-darwin', icmpdarwintest)
+ endif
++
++if host_system != 'windows'
++  udp_translation_test = executable('udptranslationtest', 'test/udp-translation-test.c',
++    link_with: [lib],
++    c_args: cargs,
++    link_args: vflag,
++    include_directories: ['src'],
++    dependencies: libslirp_deps)
++  test('udp-translation', udp_translation_test)
++endif
 diff --git a/src/udp.c b/src/udp.c
 --- a/src/udp.c
 +++ b/src/udp.c
@@ -39,7 +56,7 @@ diff --git a/src/udp.c b/src/udp.c
  void udp_init(Slirp *slirp)
  {
      slirp->udb.so_next = slirp->udb.so_prev = &slirp->udb;
-@@ -170,7 +201,12 @@
+@@ -170,7 +201,12 @@ void udp_input(register struct mbuf *m, int iphlen)
      /*
       * Locate pcb for datagram.
       */
@@ -54,9 +71,10 @@ diff --git a/src/udp.c b/src/udp.c
      if (so == NULL) {
          /*
 diff --git a/test/udp-translation-test.c b/test/udp-translation-test.c
+new file mode 100644
 --- /dev/null
 +++ b/test/udp-translation-test.c
-@@ -0,0 +1,539 @@
+@@ -0,0 +1,542 @@
 +/* SPDX-License-Identifier: BSD-3-Clause */
 +/*
 + * Copyright (c) 2021-2022, 2024 Samuel Thibault
@@ -566,6 +584,9 @@ diff --git a/test/udp-translation-test.c b/test/udp-translation-test.c
 +            (item->ifa_flags & (IFF_LOOPBACK | IFF_POINTOPOINT)))
 +            continue;
 +        addr = (const struct sockaddr_in *)item->ifa_addr;
++        /* An address inside the fixture's virtual network is not ordinary. */
++        if ((ntohl(addr->sin_addr.s_addr) & 0xffffff00) == 0x0a000200)
++            continue;
 +        if (address_reaches_local_udp(addr->sin_addr) &&
 +            inet_ntop(AF_INET, &addr->sin_addr, result, INET_ADDRSTRLEN)) {
 +            found = 1;

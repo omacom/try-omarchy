@@ -1,891 +1,126 @@
+Subject: [PATCH] tcp: close host sockets on a thread pool on Darwin
+
+A Darwin content filter can block close() even on a nonblocking socket. libslirp
+closes TCP sockets on the application's main loop, so one slow close stops the
+whole VM until it returns. Close them on a GLib thread pool instead.
+
 diff --git a/meson.build b/meson.build
 --- a/meson.build
 +++ b/meson.build
-@@ -132,7 +132,12 @@
-   cargs += [ '-DHAVE_VALGRIND=1' ]
+@@ -316,3 +316,14 @@ if host_system != 'windows'
+     dependencies: libslirp_deps)
+   test('udp-translation', udp_translation_test)
  endif
- 
-+if host_system != 'windows'
-+  libslirp_deps += dependency('threads')
-+endif
 +
- sources = [
-+  'src/close-worker.c',
-   'src/arp_table.c',
-   'src/bootp.c',
-   'src/cksum.c',
-@@ -295,3 +300,58 @@
-   dependencies: libslirp_deps,
- )
- test('gatewaydns', gatewaydnstest)
-+
-+# The matcher consumes Darwin socket bytes; it can be tested on any host.
-+icmpmatchtest = executable('icmpmatchtest', 'test/icmp-match-test.c',
-+  include_directories: ['src'])
-+test('icmp-match', icmpmatchtest)
 +if host_machine.system() == 'darwin'
-+  icmpdarwintest = executable('icmpdarwintest', 'test/icmp-darwin-test.c',
-+    link_with: [lib], c_args: cargs, include_directories: ['src'],
-+    dependencies: libslirp_deps)
-+  test('icmp-darwin', icmpdarwintest)
-+endif
-+
-+if host_system != 'windows'
-+  udp_translation_test = executable('udptranslationtest', 'test/udp-translation-test.c',
-+    link_with: [lib],
++  tcpclosetest = executable('tcpclosetest', 'test/tcp-close-test.c',
++    objects: lib.extract_all_objects(recursive: false),
 +    c_args: cargs,
 +    link_args: vflag,
 +    include_directories: ['src'],
-+    dependencies: libslirp_deps)
-+  test('udp-translation', udp_translation_test)
-+endif
-+
-+if host_system != 'windows'
-+  close_worker_test = executable('close-worker-test', 'test/close-worker-test.c',
-+    c_args : ['-DSLIRP_TEST_ASYNC_CLOSE'],
-+    dependencies : dependency('threads'),
++    dependencies: libslirp_deps,
 +  )
-+  test('close-worker', close_worker_test, timeout : 30)
-+  tcp_close_test = executable('tcp-close-test', 'test/tcp-close-test.c', sources,
-+    c_args : cargs + ['-DSLIRP_TEST_ASYNC_CLOSE'],
-+    include_directories : ['src', '.'],
-+    dependencies : libslirp_deps,
-+  )
-+  test('tcp-close', tcp_close_test, timeout : 30)
++  test('tcp-close', tcpclosetest, timeout: 30)
 +endif
-+
-+if host_system == 'darwin'
-+  foreach fixture : ['adaptive', 'ready']
-+    close_fixture = executable('close-worker-' + fixture + '-test',
-+      'test/close-worker-' + fixture + '-test.c',
-+      c_args : ['-DSLIRP_TEST_ASYNC_CLOSE'],
-+      override_options : ['c_std=c11'],
-+      dependencies : dependency('threads'),
-+    )
-+    test('close-worker-' + fixture, close_fixture, timeout : 90)
-+  endforeach
-+elif host_system == 'linux'
-+  close_monitor_test = executable('close-worker-linux-monitor-test',
-+    'test/close-worker-linux-monitor-test.c',
-+    c_args : ['-DSLIRP_TEST_ASYNC_CLOSE'],
-+    override_options : ['c_std=c11'],
-+    dependencies : dependency('threads'),
-+  )
-+  test('close-worker-linux-monitor', close_monitor_test, timeout : 30)
-+endif
-diff --git a/src/close-worker.c b/src/close-worker.c
---- /dev/null
-+++ b/src/close-worker.c
-@@ -0,0 +1,416 @@
-+/* SPDX-License-Identifier: BSD-3-Clause */
-+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
-+#define _DARWIN_C_SOURCE 1
-+#endif
-+#include "close-worker.h"
-+
-+#ifdef SLIRP_ASYNC_CLOSE
-+#include <assert.h>
-+#include <errno.h>
-+#include <pthread.h>
-+#include <stdbool.h>
-+#include <stdint.h>
-+#include <stdlib.h>
-+#include <time.h>
-+#ifdef __APPLE__
-+#include <os/os_sync_wait_on_address.h>
-+#endif
-+
-+struct SlirpCloseTicket {
-+    SlirpClosePool *pool;
-+    SlirpCloseTicket *next;
-+    int fd;
-+};
-+
-+struct SlirpClosePool {
-+    pthread_mutex_t lock;
-+    pthread_cond_t ready;
-+    pthread_cond_t monitor_changed;
-+#ifdef __APPLE__
-+    uint64_t ready_generation __attribute__((aligned(8)));
-+    bool ready_fallback;
-+#endif
-+    unsigned references;
-+    size_t reserved;
-+    bool stopped;
-+    unsigned sleeping;
-+    bool wake_pending;
-+    unsigned busy;
-+    unsigned service_limit;
-+    bool monitoring;
-+    bool timer_failed;
-+    uint64_t completed;
-+    int (*close_fd)(int);
-+    SlirpCloseTicket *head;
-+    SlirpCloseTicket *tail;
-+};
-+
-+#ifdef __APPLE__
-+static void native_ready_wake(SlirpClosePool *pool, bool all)
-+{
-+    int saved_errno = errno;
-+    int result = all ?
-+                     os_sync_wake_by_address_all(&pool->ready_generation, 8,
-+                                                 OS_SYNC_WAKE_BY_ADDRESS_NONE) :
-+                     os_sync_wake_by_address_any(&pool->ready_generation, 8,
-+                                                 OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+    int error = errno;
-+    errno = saved_errno;
-+    /* The generation may change before a waiter enters the kernel.
-+     * https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/sys_ulock.c
-+     */
-+    if (result < 0 && error != ENOENT) {
-+        assert(!"native ready wake failed");
-+    }
-+}
-+
-+static void ready_use_fallback(SlirpClosePool *pool)
-+{
-+    if (!pool->ready_fallback) {
-+        pool->ready_fallback = true;
-+        /* Delayed waiters must see a changed value after fallback. */
-+        __atomic_store_n(&pool->ready_generation, UINT64_MAX, __ATOMIC_RELEASE);
-+        native_ready_wake(pool, true);
-+        pthread_cond_broadcast(&pool->ready);
-+    }
-+}
-+#endif
-+
-+static void ready_wake(SlirpClosePool *pool, bool all)
-+{
-+#ifdef __APPLE__
-+    if (!pool->ready_fallback) {
-+        uint64_t generation =
-+            __atomic_load_n(&pool->ready_generation, __ATOMIC_RELAXED);
-+        if (generation >= UINT64_MAX - 1) {
-+            ready_use_fallback(pool);
-+            return;
-+        }
-+        __atomic_store_n(&pool->ready_generation, generation + 1,
-+                         __ATOMIC_RELEASE);
-+        native_ready_wake(pool, all);
-+        return;
-+    }
-+#endif
-+    if (all) {
-+        pthread_cond_broadcast(&pool->ready);
-+    } else {
-+        pthread_cond_signal(&pool->ready);
-+    }
-+}
-+
-+static void ready_wait(SlirpClosePool *pool)
-+{
-+#ifdef __APPLE__
-+    if (!pool->ready_fallback) {
-+        uint64_t generation =
-+            __atomic_load_n(&pool->ready_generation, __ATOMIC_RELAXED);
-+        pthread_mutex_unlock(&pool->lock);
-+        int result =
-+            os_sync_wait_on_address(&pool->ready_generation, generation, 8,
-+                                    OS_SYNC_WAIT_ON_ADDRESS_NONE);
-+        int error = errno;
-+        pthread_mutex_lock(&pool->lock);
-+        if (result < 0 && error != EINTR) {
-+            ready_use_fallback(pool);
-+        }
-+        return;
-+    }
-+#endif
-+    pthread_cond_wait(&pool->ready, &pool->lock);
-+}
-+
-+static void pool_destroy(SlirpClosePool *pool)
-+{
-+    pthread_cond_destroy(&pool->monitor_changed);
-+    pthread_cond_destroy(&pool->ready);
-+    pthread_mutex_destroy(&pool->lock);
-+    free(pool);
-+}
-+
-+static void wake_worker(SlirpClosePool *pool)
-+{
-+    if (pool->head && pool->sleeping && !pool->wake_pending &&
-+        (pool->busy < pool->service_limit ||
-+         (!pool->monitoring && pool->service_limit < SLIRP_CLOSE_WORKERS))) {
-+        pool->wake_pending = true;
-+        ready_wake(pool, false);
-+    }
-+}
-+
-+#define CLOSE_PROGRESS_NS 1000000
-+
-+static bool monotonic_now(uint64_t *now)
-+{
-+    struct timespec time;
-+    if (clock_gettime(CLOCK_MONOTONIC, &time) || time.tv_sec < 0 ||
-+        time.tv_nsec < 0 || time.tv_nsec >= 1000000000 ||
-+        (uint64_t)time.tv_sec > (UINT64_MAX - 999999999) / 1000000000) {
-+        return false;
-+    }
-+    *now = (uint64_t)time.tv_sec * 1000000000 + (uint64_t)time.tv_nsec;
-+    return *now <= UINT64_MAX - CLOSE_PROGRESS_NS;
-+}
-+
-+static void full_service(SlirpClosePool *pool)
-+{
-+    pool->timer_failed = true;
-+    pool->service_limit = SLIRP_CLOSE_WORKERS;
-+    ready_wake(pool, true);
-+}
-+
-+static void monitor_progress(SlirpClosePool *pool)
-+{
-+    uint64_t completed = pool->completed;
-+    uint64_t now;
-+    uint64_t deadline;
-+
-+    if (!monotonic_now(&now)) {
-+        full_service(pool);
-+        return;
-+    }
-+    deadline = now + CLOSE_PROGRESS_NS;
-+    while (pool->head && !pool->stopped &&
-+           pool->service_limit < SLIRP_CLOSE_WORKERS) {
-+        if (!monotonic_now(&now)) {
-+            full_service(pool);
-+            return;
-+        }
-+        if (now >= deadline) {
-+            if (pool->completed == completed) {
-+                pool->service_limit++;
-+                wake_worker(pool);
-+            }
-+            completed = pool->completed;
-+            deadline = now + CLOSE_PROGRESS_NS;
-+            if (pool->service_limit == SLIRP_CLOSE_WORKERS) {
-+                break;
-+            }
-+        }
-+#ifdef __APPLE__
-+        uint64_t remaining = deadline - now;
-+        struct timespec delay = {
-+            .tv_sec = (time_t)(remaining / 1000000000),
-+            .tv_nsec = (long)(remaining % 1000000000),
-+        };
-+        int err = pthread_cond_timedwait_relative_np(&pool->monitor_changed,
-+                                                     &pool->lock, &delay);
-+#else
-+        uint64_t seconds = deadline / 1000000000;
-+        struct timespec absolute = {
-+            .tv_sec = (time_t)seconds,
-+            .tv_nsec = (long)(deadline % 1000000000),
-+        };
-+        int err = absolute.tv_sec < 0 || (uint64_t)absolute.tv_sec != seconds ?
-+                      EOVERFLOW :
-+                      pthread_cond_timedwait(&pool->monitor_changed,
-+                                             &pool->lock, &absolute);
-+#endif
-+        if (err && err != ETIMEDOUT) {
-+            full_service(pool);
-+            return;
-+        }
-+    }
-+}
-+
-+static void *close_worker(void *opaque)
-+{
-+    SlirpClosePool *pool = opaque;
-+    bool destroy;
-+
-+    pthread_mutex_lock(&pool->lock);
-+    for (;;) {
-+        SlirpCloseTicket *ticket;
-+        if (pool->stopped && pool->sleeping) {
-+            ready_wake(pool, false);
-+        }
-+        if (!pool->head) {
-+            if (pool->stopped) {
-+                break;
-+            }
-+            if (!pool->busy && !pool->timer_failed) {
-+                pool->service_limit = 1;
-+            }
-+        } else if (pool->stopped || pool->busy < pool->service_limit) {
-+            ticket = pool->head;
-+            pool->head = ticket->next;
-+            if (!pool->head) {
-+                pool->tail = NULL;
-+                if (pool->monitoring) {
-+                    pthread_cond_signal(&pool->monitor_changed);
-+                }
-+            }
-+            pool->busy++;
-+            if (!pool->stopped) {
-+                wake_worker(pool);
-+            }
-+            pthread_mutex_unlock(&pool->lock);
-+
-+            /* Never retry close: an interrupted call may have released the fd.
-+             */
-+            pool->close_fd(ticket->fd);
-+            free(ticket);
-+
-+            pthread_mutex_lock(&pool->lock);
-+            pool->busy--;
-+            pool->completed++;
-+            continue;
-+        } else if (!pool->monitoring &&
-+                   pool->service_limit < SLIRP_CLOSE_WORKERS) {
-+            pool->monitoring = true;
-+            monitor_progress(pool);
-+            pool->monitoring = false;
-+            continue;
-+        }
-+        pool->sleeping++;
-+        ready_wait(pool);
-+        pool->sleeping--;
-+        pool->wake_pending = false;
-+    }
-+    destroy = --pool->references == 0;
-+    pthread_mutex_unlock(&pool->lock);
-+    if (destroy) {
-+        pool_destroy(pool);
-+    }
-+    return NULL;
-+}
-+
-+SlirpClosePool *slirp_close_pool_new(int (*close_fd)(int))
-+{
-+    SlirpClosePool *pool = calloc(1, sizeof(*pool));
-+    pthread_attr_t attr;
-+    int err;
-+    unsigned i;
-+
-+    if (!pool) {
-+        return NULL;
-+    }
-+    pool->references = 1;
-+    pool->close_fd = close_fd;
-+    pool->service_limit = 1;
-+#ifdef __APPLE__
-+    __atomic_store_n(&pool->ready_generation, 0, __ATOMIC_RELAXED);
-+#endif
-+    err = pthread_mutex_init(&pool->lock, NULL);
-+    if (err) {
-+        free(pool);
-+        errno = err;
-+        return NULL;
-+    }
-+    err = pthread_cond_init(&pool->ready, NULL);
-+    if (err) {
-+        pthread_mutex_destroy(&pool->lock);
-+        free(pool);
-+        errno = err;
-+        return NULL;
-+    }
-+#ifdef __APPLE__
-+    err = pthread_cond_init(&pool->monitor_changed, NULL);
-+#else
-+    pthread_condattr_t monitor_attr;
-+    err = pthread_condattr_init(&monitor_attr);
-+    if (!err) {
-+        err = pthread_condattr_setclock(&monitor_attr, CLOCK_MONOTONIC);
-+        if (!err) {
-+            err = pthread_cond_init(&pool->monitor_changed, &monitor_attr);
-+        }
-+        pthread_condattr_destroy(&monitor_attr);
-+    }
-+#endif
-+    if (err) {
-+        pthread_cond_destroy(&pool->ready);
-+        pthread_mutex_destroy(&pool->lock);
-+        free(pool);
-+        errno = err;
-+        return NULL;
-+    }
-+    err = pthread_attr_init(&attr);
-+    if (err) {
-+        pool_destroy(pool);
-+        errno = err;
-+        return NULL;
-+    }
-+    err = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-+    if (!err) {
-+        for (i = 0; i < SLIRP_CLOSE_WORKERS; i++) {
-+            pthread_t thread;
-+            pthread_mutex_lock(&pool->lock);
-+            pool->references++;
-+            err = pthread_create(&thread, &attr, close_worker, pool);
-+            if (err) {
-+                pool->references--;
-+            }
-+            pthread_mutex_unlock(&pool->lock);
-+            if (err) {
-+                break;
-+            }
-+        }
-+    }
-+    pthread_attr_destroy(&attr);
-+    if (err) {
-+        slirp_close_pool_free(pool);
-+        errno = err;
-+        return NULL;
-+    }
-+    return pool;
-+}
-+
-+SlirpCloseTicket *slirp_close_reserve(SlirpClosePool *pool)
-+{
-+    SlirpCloseTicket *ticket = malloc(sizeof(*ticket));
-+
-+    if (!ticket) {
-+        errno = ENOMEM;
-+        return NULL;
-+    }
-+    ticket->pool = pool;
-+    pthread_mutex_lock(&pool->lock);
-+    assert(!pool->stopped);
-+    pool->reserved++;
-+    pthread_mutex_unlock(&pool->lock);
-+    return ticket;
-+}
-+
-+void slirp_close_cancel(SlirpCloseTicket *ticket)
-+{
-+    SlirpClosePool *pool = ticket->pool;
-+    pthread_mutex_lock(&pool->lock);
-+    pool->reserved--;
-+    pthread_mutex_unlock(&pool->lock);
-+    free(ticket);
-+}
-+
-+void slirp_close_submit(SlirpCloseTicket *ticket, int fd)
-+{
-+    SlirpClosePool *pool = ticket->pool;
-+    pthread_mutex_lock(&pool->lock);
-+    assert(!pool->stopped);
-+    pool->reserved--;
-+    ticket->fd = fd;
-+    ticket->next = NULL;
-+    if (pool->tail) {
-+        pool->tail->next = ticket;
-+    } else {
-+        pool->head = ticket;
-+    }
-+    pool->tail = ticket;
-+    wake_worker(pool);
-+    pthread_mutex_unlock(&pool->lock);
-+}
-+
-+void slirp_close_pool_free(SlirpClosePool *pool)
-+{
-+    bool destroy;
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->reserved == 0);
-+    pool->stopped = true;
-+    pool->service_limit = SLIRP_CLOSE_WORKERS;
-+    ready_wake(pool, false);
-+    pthread_cond_broadcast(&pool->monitor_changed);
-+    destroy = --pool->references == 0;
-+    pthread_mutex_unlock(&pool->lock);
-+    if (destroy) {
-+        pool_destroy(pool);
-+    }
-+}
-+#endif
-diff --git a/src/close-worker.h b/src/close-worker.h
---- /dev/null
-+++ b/src/close-worker.h
-@@ -0,0 +1,20 @@
-+/* SPDX-License-Identifier: BSD-3-Clause */
-+#ifndef SLIRP_CLOSE_WORKER_H
-+#define SLIRP_CLOSE_WORKER_H
-+
-+#if defined(__APPLE__) || defined(SLIRP_TEST_ASYNC_CLOSE)
-+#define SLIRP_ASYNC_CLOSE 1
-+
-+#define SLIRP_CLOSE_WORKERS 16
-+
-+typedef struct SlirpClosePool SlirpClosePool;
-+typedef struct SlirpCloseTicket SlirpCloseTicket;
-+
-+SlirpClosePool *slirp_close_pool_new(int (*close_fd)(int));
-+void slirp_close_pool_free(SlirpClosePool *pool);
-+SlirpCloseTicket *slirp_close_reserve(SlirpClosePool *pool);
-+void slirp_close_cancel(SlirpCloseTicket *ticket);
-+void slirp_close_submit(SlirpCloseTicket *ticket, int fd);
-+
-+#endif
-+#endif
-diff --git a/src/slirp.c b/src/slirp.c
---- a/src/slirp.c
-+++ b/src/slirp.c
-@@ -643,6 +643,15 @@
-                           G_SIZEOF_MEMBER(struct bootp_t, bp_file)), NULL);
- 
-     slirp = g_malloc0(sizeof(Slirp));
-+#ifdef SLIRP_ASYNC_CLOSE
-+    slirp->close_pool = slirp_close_pool_new(close);
-+    if (!slirp->close_pool) {
-+        int saved_errno = errno;
-+        g_free(slirp);
-+        errno = saved_errno;
-+        return NULL;
-+    }
-+#endif
- 
-     slirp_init_once();
- 
-@@ -780,6 +789,9 @@
-     g_free(slirp->bootp_filename);
-     g_free(slirp->vdomainname);
-     g_free(slirp->tftp_server_name);
-+#ifdef SLIRP_ASYNC_CLOSE
-+    slirp_close_pool_free(slirp->close_pool);
-+#endif
-     g_free(slirp);
- }
- 
 diff --git a/src/slirp.h b/src/slirp.h
 --- a/src/slirp.h
 +++ b/src/slirp.h
-@@ -131,6 +131,9 @@
- /* Slirp configuration, specified by the application */
- struct Slirp {
-     int cfg_version;
-+#ifdef SLIRP_ASYNC_CLOSE
-+    SlirpClosePool *close_pool;
+@@ -189,6 +189,9 @@ struct Slirp {
+     struct socket tcb;
+     struct socket *tcp_last_so;
+     tcp_seq tcp_iss; /* tcp initial send seq # */
++#ifdef __APPLE__
++    GThreadPool *tcp_close_pool;
 +#endif
+     uint32_t tcp_now; /* for RFC 1323 timestamps */
  
-     unsigned time_fasttimo;
-     unsigned last_slowtimo;
-diff --git a/src/socket.h b/src/socket.h
---- a/src/socket.h
-+++ b/src/socket.h
-@@ -14,6 +14,7 @@
- 
- #include "misc.h"
- #include "sbuf.h"
-+#include "close-worker.h"
- 
- #define SO_EXPIRE 240000
- #define SO_EXPIREFAST 10000
-@@ -40,6 +41,9 @@
-     struct socket *so_next, *so_prev; /* For a linked list of sockets */
- 
-     slirp_os_socket s;     /* The actual socket */
-+#ifdef SLIRP_ASYNC_CLOSE
-+    SlirpCloseTicket *close_ticket;
-+#endif
-     slirp_os_socket s_aux; /* An auxiliary socket for miscellaneous use. Currently used to
-                             * reserve OS ports in UNIX-to-inet translation. */
-     struct gfwd_list *guestfwd;
+     /* udp states */
 diff --git a/src/tcp_subr.c b/src/tcp_subr.c
 --- a/src/tcp_subr.c
 +++ b/src/tcp_subr.c
-@@ -292,6 +292,23 @@
-     return (tcp_close(tp));
+@@ -45,11 +45,31 @@
+ /*
+  * Tcp initialization
+  */
++#ifdef __APPLE__
++/*
++ * A Darwin content filter can block close() even on a nonblocking socket,
++ * which would stall the application's main loop:
++ * https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/content_filter.c
++ * So TCP sockets close on a thread pool. It starts another thread only while
++ * every running one is busy, and idle threads exit.
++ */
++#define TCP_CLOSE_THREADS 16
++
++static void tcp_close_task(gpointer data, gpointer user_data)
++{
++    close(GPOINTER_TO_INT(data) - 1);
++}
++#endif
++
+ void tcp_init(Slirp *slirp)
+ {
+     slirp->tcp_iss = 1; /* wrong */
+     slirp->tcb.so_next = slirp->tcb.so_prev = &slirp->tcb;
+     slirp->tcp_last_so = &slirp->tcb;
++#ifdef __APPLE__
++    slirp->tcp_close_pool =
++        g_thread_pool_new(tcp_close_task, NULL, TCP_CLOSE_THREADS, FALSE, NULL);
++#endif
  }
  
-+static void tcp_close_fd(struct socket *so)
-+{
-+#ifdef SLIRP_ASYNC_CLOSE
-+    /* Darwin content filters may block close even for a nonblocking socket:
-+     * https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/content_filter.c
-+     */
-+    if (so->close_ticket) {
-+        slirp_close_submit(so->close_ticket, so->s);
-+        so->close_ticket = NULL;
-+    } else
+ void tcp_cleanup(Slirp *slirp)
+@@ -57,6 +77,26 @@ void tcp_cleanup(Slirp *slirp)
+     while (slirp->tcb.so_next != &slirp->tcb) {
+         tcp_close(sototcpcb(slirp->tcb.so_next));
+     }
++#ifdef __APPLE__
++    /* Queued closes still run, without making cleanup wait for them. */
++    g_thread_pool_free(slirp->tcp_close_pool, FALSE, FALSE);
 +#endif
-+    {
-+        closesocket(so->s);
-+    }
-+    so->s = SLIRP_INVALID_SOCKET;
 +}
 +
- struct tcpcb *tcp_close(struct tcpcb *tp)
- {
-     register struct tcpiphdr *t;
-@@ -316,7 +333,7 @@
++static void tcp_close_socket(struct socket *so)
++{
++#ifdef __APPLE__
++    if (have_valid_socket(so->s)) {
++        int saved_errno = errno;
++
++        g_thread_pool_push(so->slirp->tcp_close_pool,
++                           GINT_TO_POINTER(so->s + 1), NULL);
++        errno = saved_errno;
++    }
++#else
++    closesocket(so->s);
++#endif
++    so->s = SLIRP_INVALID_SOCKET;
+ }
+ 
+ void tcp_template(struct tcpcb *tp)
+@@ -316,7 +356,7 @@ struct tcpcb *tcp_close(struct tcpcb *tp)
      if (so == slirp->tcp_last_so)
          slirp->tcp_last_so = &slirp->tcb;
      slirp_unregister_poll_socket(so);
 -    closesocket(so->s);
-+    tcp_close_fd(so);
++    tcp_close_socket(so);
      sbfree(&so->so_rcv);
      sbfree(&so->so_snd);
      sofree(so);
-@@ -395,14 +412,28 @@
-     DEBUG_CALL("tcp_fconnect");
-     DEBUG_ARG("so = %p", so);
- 
-+#ifdef SLIRP_ASYNC_CLOSE
-+    so->close_ticket = slirp_close_reserve(so->slirp->close_pool);
-+    if (!so->close_ticket) {
-+        return -1;
-+    }
-+#endif
-     so->s = slirp_socket(af, SOCK_STREAM, 0);
-     ret = have_valid_socket(so->s) ? 0 : -1;
-+#ifdef SLIRP_ASYNC_CLOSE
-+    if (ret < 0) {
-+        int saved_errno = errno;
-+        slirp_close_cancel(so->close_ticket);
-+        so->close_ticket = NULL;
-+        errno = saved_errno;
-+    }
-+#endif
-     if (ret == 0) {
+@@ -401,8 +441,7 @@ int tcp_fconnect(struct socket *so, unsigned short af)
          ret = slirp_bind_outbound(so, af);
          if (ret < 0) {
--            // bind failed - close socket
+             // bind failed - close socket
 -            closesocket(so->s);
 -            so->s = SLIRP_INVALID_SOCKET;
-+            int saved_errno = errno;
-+            tcp_close_fd(so);
-+            errno = saved_errno;
++            tcp_close_socket(so);
              return (ret);
          }
      }
-diff --git a/test/close-worker-test.c b/test/close-worker-test.c
---- /dev/null
-+++ b/test/close-worker-test.c
-@@ -0,0 +1,230 @@
-+/* SPDX-License-Identifier: BSD-3-Clause */
-+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
-+#define _DARWIN_C_SOURCE 1
-+#endif
-+#define _POSIX_C_SOURCE 200809L
-+#undef NDEBUG
-+#include <assert.h>
-+#include <errno.h>
-+#include <pthread.h>
-+#include <stdbool.h>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <string.h>
-+#include <sys/socket.h>
-+#include <time.h>
-+#include <unistd.h>
-+
-+#define TEST_CONNECTIONS 32768
-+
-+static bool fail_allocation;
-+static int create_count;
-+static int fail_create = -1;
-+
-+static int test_pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-+                               void *(*entry)(void *), void *opaque)
-+{
-+    if (create_count++ == fail_create) {
-+        return EAGAIN;
-+    }
-+    return pthread_create(thread, attr, entry, opaque);
-+}
-+
-+static void *test_malloc(size_t size)
-+{
-+    if (fail_allocation) {
-+        errno = ENOMEM;
-+        return NULL;
-+    }
-+    return malloc(size);
-+}
-+
-+#define malloc test_malloc
-+#define pthread_create test_pthread_create
-+#include "../src/close-worker.c"
-+#undef pthread_create
-+#undef malloc
-+
-+static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
-+static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
-+static bool release_closes;
-+static int entered;
-+static int finished;
-+static int seen[TEST_CONNECTIONS];
-+
-+static int stalled_close(int fd)
-+{
-+    pthread_mutex_lock(&gate);
-+    assert(fd >= 0 && fd < TEST_CONNECTIONS);
-+    assert(++seen[fd] == 1);
-+    entered++;
-+    pthread_cond_broadcast(&changed);
-+    while (!release_closes) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    finished++;
-+    pthread_cond_broadcast(&changed);
-+    pthread_mutex_unlock(&gate);
-+    errno = EINTR;
-+    return -1;
-+}
-+
-+static void test_stalled_closes(void)
-+{
-+    SlirpClosePool *pool = slirp_close_pool_new(stalled_close);
-+    SlirpCloseTicket *tickets[TEST_CONNECTIONS];
-+    unsigned i;
-+
-+    assert(pool);
-+    for (i = 0; i < TEST_CONNECTIONS; i++) {
-+        tickets[i] = slirp_close_reserve(pool);
-+        assert(tickets[i]);
-+    }
-+    slirp_close_cancel(tickets[0]);
-+    tickets[0] = slirp_close_reserve(pool);
-+    assert(tickets[0]);
-+
-+    for (i = 0; i < TEST_CONNECTIONS; i++) {
-+        slirp_close_submit(tickets[i], (int)i);
-+    }
-+    pthread_mutex_lock(&gate);
-+    while (entered < SLIRP_CLOSE_WORKERS) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    assert(entered == SLIRP_CLOSE_WORKERS);
-+    assert(finished == 0);
-+    pthread_mutex_unlock(&gate);
-+
-+    for (i = 0; i < TEST_CONNECTIONS; i++) {
-+        tickets[i] = slirp_close_reserve(pool);
-+        assert(tickets[i]);
-+    }
-+    for (i = 0; i < TEST_CONNECTIONS; i++) {
-+        slirp_close_cancel(tickets[i]);
-+    }
-+    slirp_close_pool_free(pool);
-+
-+    pthread_mutex_lock(&gate);
-+    assert(finished == 0);
-+    release_closes = true;
-+    pthread_cond_broadcast(&changed);
-+    while (finished < TEST_CONNECTIONS) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    for (i = 0; i < TEST_CONNECTIONS; i++) {
-+        assert(seen[i] == 1);
-+    }
-+    pthread_mutex_unlock(&gate);
-+    puts("PASS: 32768 stalled closes, new reservations, cancellation, "
-+         "asynchronous teardown, EINTR without retry");
-+}
-+
-+static void test_data_and_eof(void)
-+{
-+    SlirpClosePool *pool = slirp_close_pool_new(close);
-+    SlirpCloseTicket *ticket;
-+    int pair[2];
-+    char sent[1024], received[sizeof(sent)];
-+    size_t written = 0, read_bytes = 0;
-+    ssize_t count;
-+
-+    assert(pool);
-+    memset(sent, 'T', sizeof(sent));
-+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
-+    while (written < sizeof(sent)) {
-+        count = write(pair[0], sent + written, sizeof(sent) - written);
-+        assert(count > 0);
-+        written += count;
-+    }
-+    ticket = slirp_close_reserve(pool);
-+    assert(ticket);
-+    slirp_close_submit(ticket, pair[0]);
-+    slirp_close_pool_free(pool);
-+    while (read_bytes < sizeof(received)) {
-+        count =
-+            read(pair[1], received + read_bytes, sizeof(received) - read_bytes);
-+        assert(count > 0);
-+        read_bytes += count;
-+    }
-+    assert(memcmp(sent, received, sizeof(sent)) == 0);
-+    assert(read(pair[1], received, 1) == 0);
-+    close(pair[1]);
-+    puts("PASS: queued payload and EOF survive pool teardown");
-+}
-+
-+static void test_thread_creation_failure(void)
-+{
-+    int i;
-+    for (i = 0; i < SLIRP_CLOSE_WORKERS; i++) {
-+        create_count = 0;
-+        fail_create = i;
-+        assert(!slirp_close_pool_new(close));
-+        assert(errno == EAGAIN);
-+    }
-+    fail_create = -1;
-+    puts("PASS: failure at each worker creation returns without a synchronous "
-+         "fallback");
-+}
-+
-+static int count_close(int fd)
-+{
-+    (void)fd;
-+    pthread_mutex_lock(&gate);
-+    finished++;
-+    pthread_cond_broadcast(&changed);
-+    pthread_mutex_unlock(&gate);
-+    return 0;
-+}
-+
-+static void test_repeated_closes(void)
-+{
-+    SlirpClosePool *pool = slirp_close_pool_new(count_close);
-+    int i;
-+    assert(pool);
-+    pthread_mutex_lock(&gate);
-+    finished = 0;
-+    pthread_mutex_unlock(&gate);
-+    for (i = 0; i < 2 * TEST_CONNECTIONS; i++) {
-+        SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+        assert(ticket);
-+        slirp_close_submit(ticket, 0);
-+    }
-+    slirp_close_pool_free(pool);
-+    pthread_mutex_lock(&gate);
-+    while (finished < 2 * TEST_CONNECTIONS) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    pthread_mutex_unlock(&gate);
-+    puts("PASS: 65536 repeated closes complete");
-+}
-+
-+static void test_allocation_failure(void)
-+{
-+    SlirpClosePool *pool = slirp_close_pool_new(close);
-+    SlirpCloseTicket *ticket;
-+
-+    assert(pool);
-+    ticket = slirp_close_reserve(pool);
-+    assert(ticket);
-+    fail_allocation = true;
-+    assert(!slirp_close_reserve(pool) && errno == ENOMEM);
-+    slirp_close_cancel(ticket);
-+    fail_allocation = false;
-+    ticket = slirp_close_reserve(pool);
-+    assert(ticket);
-+    slirp_close_cancel(ticket);
-+    slirp_close_pool_free(pool);
-+    puts("PASS: allocation failure preserves existing reservations and "
-+         "recovers");
-+}
-+
-+int main(void)
-+{
-+    alarm(25);
-+    test_thread_creation_failure();
-+    test_stalled_closes();
-+    test_data_and_eof();
-+    test_repeated_closes();
-+    test_allocation_failure();
-+    return 0;
-+}
 diff --git a/test/tcp-close-test.c b/test/tcp-close-test.c
+new file mode 100644
 --- /dev/null
 +++ b/test/tcp-close-test.c
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,249 @@
 +/* SPDX-License-Identifier: BSD-3-Clause */
 +#undef NDEBUG
 +#include "slirp.h"
@@ -896,50 +131,43 @@ diff --git a/test/tcp-close-test.c b/test/tcp-close-test.c
 +static pthread_t owner;
 +static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
 +static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
-+static bool release_closes;
++static int stalled_fd = -1;
 +static unsigned closed_count;
-+static unsigned unregister_count;
 +static bool registered[4096];
 +
 +static void register_fd(slirp_os_socket fd, void *opaque)
 +{
-+    (void)opaque;
 +    assert(pthread_equal(pthread_self(), owner));
 +    assert(fd >= 0 && fd < (int)G_N_ELEMENTS(registered));
-+    assert(!registered[fd]);
 +    registered[fd] = true;
 +}
 +
 +static void unregister_fd(slirp_os_socket fd, void *opaque)
 +{
-+    (void)opaque;
 +    assert(pthread_equal(pthread_self(), owner));
 +    if (fd >= 0) {
-+        assert(fd < (int)G_N_ELEMENTS(registered));
 +        registered[fd] = false;
-+        unregister_count++;
 +    }
 +}
 +
-+static int stalled_close(int fd)
++/* Stands in for a close that a content filter holds until it is released. */
++static void gated_close(gpointer data, gpointer user_data)
 +{
-+    int result;
++    int fd = GPOINTER_TO_INT(data) - 1;
++
 +    assert(!pthread_equal(pthread_self(), owner));
-+    assert(fd >= 0 && fd < (int)G_N_ELEMENTS(registered));
 +    assert(!registered[fd]);
 +    pthread_mutex_lock(&gate);
-+    while (!release_closes) {
++    while (fd == stalled_fd) {
 +        pthread_cond_wait(&changed, &gate);
 +    }
-+    result = close(fd);
-+    assert(result == 0);
++    assert(close(fd) == 0);
 +    closed_count++;
 +    pthread_cond_broadcast(&changed);
 +    pthread_mutex_unlock(&gate);
-+    return result;
 +}
 +
-+static Slirp *new_slirp(void)
++static Slirp *new_slirp(bool gated)
 +{
 +    static const SlirpCb callbacks = {
 +        .register_poll_socket = register_fd,
@@ -947,6 +175,7 @@ diff --git a/test/tcp-close-test.c b/test/tcp-close-test.c
 +    };
 +    SlirpConfig cfg = { 0 };
 +    Slirp *slirp;
++
 +    cfg.version = 6;
 +    cfg.in_enabled = true;
 +    inet_pton(AF_INET, "10.0.2.0", &cfg.vnetwork);
@@ -954,1786 +183,190 @@ diff --git a/test/tcp-close-test.c b/test/tcp-close-test.c
 +    inet_pton(AF_INET, "10.0.2.2", &cfg.vhost);
 +    slirp = slirp_new(&cfg, &callbacks, NULL);
 +    assert(slirp);
-+    slirp_close_pool_free(slirp->close_pool);
-+    slirp->close_pool = slirp_close_pool_new(stalled_close);
-+    assert(slirp->close_pool);
++    if (gated) {
++        g_thread_pool_free(slirp->tcp_close_pool, FALSE, TRUE);
++        slirp->tcp_close_pool =
++            g_thread_pool_new(gated_close, NULL, 16, FALSE, NULL);
++    }
 +    return slirp;
 +}
 +
-+static void test_socket_failure(void)
++static void wait_for_closes(unsigned count)
 +{
-+    Slirp *slirp = new_slirp();
-+    struct socket *so;
++    gint64 deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
 +
-+    so = socreate(slirp, IPPROTO_TCP);
-+    tcp_attach(so);
-+    assert(tcp_fconnect(so, AF_UNSPEC) == -1);
-+    assert(!so->close_ticket && so->s == SLIRP_INVALID_SOCKET);
-+    tcp_close(so->so_tcpcb);
-+    slirp_cleanup(slirp);
-+    puts("PASS: socket creation failure releases its cleanup record");
++    pthread_mutex_lock(&gate);
++    while (closed_count < count) {
++        struct timespec delay = { .tv_nsec = 10 * 1000 * 1000 };
++
++        assert(g_get_monotonic_time() < deadline);
++        pthread_cond_timedwait_relative_np(&changed, &gate, &delay);
++    }
++    assert(closed_count == count);
++    closed_count = 0;
++    pthread_mutex_unlock(&gate);
 +}
 +
-+static void test_bind_failure(void)
++static void release_stalled_close(void)
 +{
-+    Slirp *slirp = new_slirp();
++    pthread_mutex_lock(&gate);
++    stalled_fd = -1;
++    pthread_cond_broadcast(&changed);
++    pthread_mutex_unlock(&gate);
++}
++
++static int listen_on_loopback(int family, struct sockaddr_storage *addr)
++{
++    socklen_t len = family == AF_INET ? sizeof(struct sockaddr_in)
++                                      : sizeof(struct sockaddr_in6);
++    int listener = socket(family, SOCK_STREAM, 0);
++
++    assert(listener >= 0);
++    memset(addr, 0, sizeof(*addr));
++    addr->ss_family = family;
++    if (family == AF_INET) {
++        ((struct sockaddr_in *)addr)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    } else {
++        ((struct sockaddr_in6 *)addr)->sin6_addr = in6addr_loopback;
++    }
++    assert(bind(listener, (struct sockaddr *)addr, len) == 0);
++    assert(listen(listener, 4) == 0);
++    assert(getsockname(listener, (struct sockaddr *)addr, &len) == 0);
++    return listener;
++}
++
++static const char payload[] = "queued TCP data survives the deferred close";
++
++/* An outgoing NAT connection with payload queued for the peer. */
++static struct socket *connect_out(Slirp *slirp, int family, int listener,
++                                  const struct sockaddr_storage *addr,
++                                  int *peer)
++{
 +    struct socket *so = socreate(slirp, IPPROTO_TCP);
-+    struct sockaddr_in bad_source = { 0 };
-+    bad_source.sin_family = AF_INET6;
-+    slirp->outbound_addr = &bad_source;
++    struct pollfd pfd = { .fd = listener, .events = POLLIN };
++    int result;
++
++    so->fhost.ss = *addr;
++    tcp_attach(so);
++    result = tcp_fconnect(so, family);
++    assert(result == 0 || errno == EINPROGRESS);
++    assert(registered[so->s]);
++    assert(poll(&pfd, 1, 5000) == 1);
++    *peer = accept(listener, NULL, NULL);
++    assert(*peer >= 0);
++    pfd.fd = so->s;
++    pfd.events = POLLOUT;
++    assert(poll(&pfd, 1, 5000) == 1);
++    assert(write(so->s, payload, sizeof(payload)) == sizeof(payload));
++    return so;
++}
++
++static void expect_payload_then_eof(int peer)
++{
++    char received[sizeof(payload)];
++    size_t total = 0;
++
++    while (total < sizeof(received)) {
++        ssize_t n = read(peer, received + total, sizeof(received) - total);
++        assert(n > 0);
++        total += n;
++    }
++    assert(!memcmp(received, payload, sizeof(payload)));
++    assert(read(peer, received, 1) == 0);
++    close(peer);
++}
++
++static void test_close_on_pool(int family)
++{
++    Slirp *slirp = new_slirp(false);
++    struct sockaddr_storage addr;
++    int listener = listen_on_loopback(family, &addr);
++    int peer;
++    struct socket *so = connect_out(slirp, family, listener, &addr, &peer);
++
++    tcp_close(so->so_tcpcb);
++    expect_payload_then_eof(peer);
++    slirp_cleanup(slirp);
++    close(listener);
++    printf("PASS: IPv%d tcp_close closes the host socket on the pool\n",
++           family == AF_INET ? 4 : 6);
++}
++
++static void test_stalled_close(int family)
++{
++    Slirp *slirp = new_slirp(true);
++    struct sockaddr_storage addr;
++    int listener = listen_on_loopback(family, &addr);
++    int peers[3];
++    struct socket *so[3];
++    unsigned i;
++
++    for (i = 0; i < 3; i++) {
++        so[i] = connect_out(slirp, family, listener, &addr, &peers[i]);
++    }
++    pthread_mutex_lock(&gate);
++    stalled_fd = so[0]->s;
++    pthread_mutex_unlock(&gate);
++
++    tcp_close(so[0]->so_tcpcb);
++    tcp_close(so[1]->so_tcpcb);
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[1]);
++
++    slirp_cleanup(slirp);
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[2]);
++
++    release_stalled_close();
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[0]);
++    close(listener);
++    printf("PASS: IPv%d tcp_close, later closes and slirp_cleanup return while "
++           "a close is stalled\n", family == AF_INET ? 4 : 6);
++}
++
++static void test_failed_bind(void)
++{
++    Slirp *slirp = new_slirp(true);
++    struct socket *so = socreate(slirp, IPPROTO_TCP);
++    struct sockaddr_in6 bad_source = { .sin6_family = AF_INET6 };
++
++    slirp->outbound_addr = (struct sockaddr_in *)&bad_source;
 +    tcp_attach(so);
 +    assert(tcp_fconnect(so, AF_INET) == -1);
 +    assert(errno == EAFNOSUPPORT || errno == EINVAL);
-+    assert(!so->close_ticket && so->s == SLIRP_INVALID_SOCKET);
++    assert(so->s == SLIRP_INVALID_SOCKET);
++    wait_for_closes(1);
 +    tcp_close(so->so_tcpcb);
 +    slirp_cleanup(slirp);
-+    pthread_mutex_lock(&gate);
-+    assert(closed_count == 0);
-+    release_closes = true;
-+    pthread_cond_broadcast(&changed);
-+    while (closed_count != 1) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    release_closes = false;
-+    closed_count = 0;
-+    pthread_mutex_unlock(&gate);
-+    puts("PASS: failed outbound bind hands off its descriptor exactly once and "
-+         "preserves errno");
++    puts("PASS: a failed outbound bind closes its socket on the pool and "
++         "keeps errno");
 +}
 +
-+static void test_tcp_lifecycle(int family)
++static void test_failed_socket(void)
 +{
-+    Slirp *slirp = new_slirp();
-+    struct sockaddr_storage addr = { 0 };
-+    socklen_t len;
-+    struct socket *so[2];
-+    int listener, peers[2];
-+    unsigned i;
-+    static const char payload[] = "queued TCP data survives deferred close";
-+    char received[sizeof(payload)];
++    Slirp *slirp = new_slirp(true);
++    struct socket *so = socreate(slirp, IPPROTO_TCP);
 +
-+    listener = socket(family, SOCK_STREAM, 0);
-+    assert(listener >= 0);
-+    addr.ss_family = family;
-+    if (family == AF_INET) {
-+        struct sockaddr_in *a = (struct sockaddr_in *)&addr;
-+        a->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-+        len = sizeof(*a);
-+    } else {
-+        struct sockaddr_in6 *a = (struct sockaddr_in6 *)&addr;
-+        a->sin6_addr = in6addr_loopback;
-+        len = sizeof(*a);
-+    }
-+    assert(bind(listener, (struct sockaddr *)&addr, len) == 0);
-+    assert(listen(listener, 2) == 0);
-+    assert(getsockname(listener, (struct sockaddr *)&addr, &len) == 0);
-+
-+    for (i = 0; i < 2; i++) {
-+        struct pollfd pfd;
-+        int result;
-+        so[i] = socreate(slirp, IPPROTO_TCP);
-+        so[i]->fhost.ss = addr;
-+        tcp_attach(so[i]);
-+        result = tcp_fconnect(so[i], family);
-+        assert(result == 0 || errno == EINPROGRESS);
-+        assert(so[i]->close_ticket);
-+        pfd.fd = listener;
-+        pfd.events = POLLIN;
-+        assert(poll(&pfd, 1, 5000) == 1);
-+        peers[i] = accept(listener, NULL, NULL);
-+        assert(peers[i] >= 0);
-+        pfd.fd = so[i]->s;
-+        pfd.events = POLLOUT;
-+        assert(poll(&pfd, 1, 5000) == 1);
-+        assert(write(so[i]->s, payload, sizeof(payload)) == sizeof(payload));
-+    }
-+    tcp_close(so[0]->so_tcpcb);
++    tcp_attach(so);
++    assert(tcp_fconnect(so, AF_UNSPEC) == -1);
++    assert(so->s == SLIRP_INVALID_SOCKET);
++    tcp_close(so->so_tcpcb);
++    assert(g_thread_pool_unprocessed(slirp->tcp_close_pool) == 0);
 +    slirp_cleanup(slirp);
-+    assert(unregister_count == 2);
-+
-+    pthread_mutex_lock(&gate);
 +    assert(closed_count == 0);
-+    release_closes = true;
-+    pthread_cond_broadcast(&changed);
-+    while (closed_count != 2) {
-+        pthread_cond_wait(&changed, &gate);
-+    }
-+    pthread_mutex_unlock(&gate);
-+
-+    for (i = 0; i < 2; i++) {
-+        size_t total = 0;
-+        while (total < sizeof(received)) {
-+            ssize_t n =
-+                read(peers[i], received + total, sizeof(received) - total);
-+            assert(n > 0);
-+            total += n;
-+        }
-+        assert(!memcmp(received, payload, sizeof(payload)));
-+        assert(read(peers[i], received, 1) == 0);
-+        close(peers[i]);
-+    }
-+    close(listener);
-+    pthread_mutex_lock(&gate);
-+    release_closes = false;
-+    closed_count = 0;
-+    pthread_mutex_unlock(&gate);
-+    unregister_count = 0;
-+    printf("PASS: IPv%d connect, poll removal, tcp_close and slirp_cleanup "
-+           "return while close is stalled; payload and EOF intact\n",
-+           family == AF_INET ? 4 : 6);
++    puts("PASS: a socket that was never created queues no close");
 +}
 +
 +int main(void)
 +{
 +    alarm(25);
 +    owner = pthread_self();
-+    test_socket_failure();
-+    test_bind_failure();
-+    test_tcp_lifecycle(AF_INET);
-+    test_tcp_lifecycle(AF_INET6);
-+    return 0;
-+}
-diff --git a/test/close-worker-adaptive-test.c b/test/close-worker-adaptive-test.c
---- /dev/null
-+++ b/test/close-worker-adaptive-test.c
-@@ -0,0 +1,462 @@
-+#define _DARWIN_C_SOURCE 1
-+#define _POSIX_C_SOURCE 200809L
-+#undef NDEBUG
-+#include <assert.h>
-+#include <errno.h>
-+#include <pthread.h>
-+#include <stdatomic.h>
-+#include <stdbool.h>
-+#include <stdint.h>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <time.h>
-+#include <unistd.h>
-+
-+static atomic_int allocations;
-+static atomic_int frees;
-+static atomic_int clock_calls;
-+static atomic_int timer_calls;
-+static atomic_int timer_active;
-+static atomic_int clock_failure;
-+static atomic_bool fail_timer;
-+static atomic_bool virtual_time;
-+static atomic_uint_fast64_t virtual_now;
-+static atomic_int allowed_wait;
-+static atomic_bool stop_wait;
-+static atomic_int waits_entered;
-+static atomic_uint_fast64_t requested_delay[64];
-+static _Atomic(pthread_cond_t *) monitor_condition;
-+static _Atomic(pthread_t) monitor_thread;
-+
-+static void *checked_malloc(size_t size)
-+{
-+    void *p = malloc(size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void *checked_calloc(size_t n, size_t size)
-+{
-+    void *p = calloc(n, size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void checked_free(void *p)
-+{
-+    if (p) {
-+        free(p);
-+        atomic_fetch_add(&frees, 1);
-+    }
-+}
-+
-+static int checked_clock(clockid_t kind, struct timespec *now)
-+{
-+    assert(kind == CLOCK_MONOTONIC);
-+    atomic_fetch_add(&clock_calls, 1);
-+    int failure = atomic_exchange(&clock_failure, 0);
-+    if (failure == 1) {
-+        errno = EIO;
-+        return -1;
-+    }
-+    if (failure == 2) {
-+        now->tv_sec = -1;
-+        now->tv_nsec = 0;
-+        return 0;
-+    }
-+    if (failure == 3) {
-+        now->tv_sec = 1;
-+        now->tv_nsec = 1000000000;
-+        return 0;
-+    }
-+    if (failure == 4) {
-+        now->tv_sec = INT64_MAX;
-+        now->tv_nsec = 0;
-+        return 0;
-+    }
-+    if (atomic_load(&virtual_time)) {
-+        uint64_t ns = atomic_load(&virtual_now);
-+        now->tv_sec = (time_t)(ns / 1000000000);
-+        now->tv_nsec = (long)(ns % 1000000000);
-+        return 0;
-+    }
-+    return clock_gettime(kind, now);
-+}
-+
-+static int checked_timer(pthread_cond_t *condition, pthread_mutex_t *mutex,
-+                         const struct timespec *relative)
-+{
-+    atomic_fetch_add(&timer_calls, 1);
-+    assert(atomic_fetch_add(&timer_active, 1) == 0);
-+    atomic_store(&monitor_condition, condition);
-+    atomic_store(&monitor_thread, pthread_self());
-+    int result;
-+    if (atomic_exchange(&fail_timer, false)) {
-+        result = EINVAL;
-+    } else if (atomic_load(&virtual_time)) {
-+        int entry = atomic_fetch_add(&waits_entered, 1) + 1;
-+        assert(entry < 64);
-+        uint64_t ns = (uint64_t)relative->tv_sec * 1000000000 +
-+                      (uint64_t)relative->tv_nsec;
-+        atomic_store(&requested_delay[entry], ns);
-+        while (atomic_load(&allowed_wait) < entry && !atomic_load(&stop_wait)) {
-+            assert(pthread_cond_wait(condition, mutex) == 0);
-+        }
-+        result = 0;
-+    } else {
-+        result = pthread_cond_timedwait_relative_np(condition, mutex, relative);
-+    }
-+    assert(atomic_fetch_sub(&timer_active, 1) == 1);
-+    return result;
-+}
-+
-+static int checked_broadcast(pthread_cond_t *condition)
-+{
-+    if (condition == atomic_load(&monitor_condition)) {
-+        atomic_store(&stop_wait, true);
-+    }
-+    return pthread_cond_broadcast(condition);
-+}
-+
-+#define malloc checked_malloc
-+#define calloc checked_calloc
-+#define free checked_free
-+#define clock_gettime checked_clock
-+#define pthread_cond_timedwait_relative_np checked_timer
-+#define pthread_cond_broadcast checked_broadcast
-+#include "../src/close-worker.c"
-+#undef malloc
-+#undef calloc
-+#undef free
-+#undef clock_gettime
-+#undef pthread_cond_timedwait_relative_np
-+#undef pthread_cond_broadcast
-+
-+#define MAX_ITEMS 5000
-+static atomic_int seen[MAX_ITEMS];
-+static atomic_int entered;
-+static atomic_int finished;
-+static atomic_int release_prefix;
-+static atomic_int stalled_prefix;
-+static atomic_bool release_all;
-+static _Atomic(pthread_t) final_worker;
-+static pthread_mutex_t release_lock = PTHREAD_MUTEX_INITIALIZER;
-+static pthread_cond_t release_changed = PTHREAD_COND_INITIALIZER;
-+
-+static void release_nodes(int prefix, bool all)
-+{
-+    pthread_mutex_lock(&release_lock);
-+    atomic_store(&release_prefix, prefix);
-+    atomic_store(&release_all, all);
-+    pthread_cond_broadcast(&release_changed);
-+    pthread_mutex_unlock(&release_lock);
-+}
-+
-+static void pause_short(void)
-+{
-+    const struct timespec pause = { 0, 1000000 };
-+    nanosleep(&pause, NULL);
-+}
-+
-+static uint64_t real_ns(void)
-+{
-+    struct timespec now;
-+    assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
-+    return (uint64_t)now.tv_sec * 1000000000 + (uint64_t)now.tv_nsec;
-+}
-+
-+static void await_count(atomic_int *count, int target)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        if (atomic_load(count) >= target) {
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"adaptive test progress timed out");
-+}
-+
-+static void await_freed(void)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        if (atomic_load(&allocations) == atomic_load(&frees)) {
-+            assert(atomic_load(&timer_active) == 0);
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"adaptive pool or record leak");
-+}
-+
-+static int controlled_close(int fd)
-+{
-+    assert(fd >= 0 && fd < MAX_ITEMS);
-+    assert(atomic_fetch_add(&seen[fd], 1) == 0);
-+    if (fd == 15) {
-+        atomic_store(&final_worker, pthread_self());
-+    }
-+    atomic_fetch_add(&entered, 1);
-+    pthread_mutex_lock(&release_lock);
-+    while (fd < atomic_load(&stalled_prefix) &&
-+           fd >= atomic_load(&release_prefix) && !atomic_load(&release_all)) {
-+        pthread_cond_wait(&release_changed, &release_lock);
-+    }
-+    pthread_mutex_unlock(&release_lock);
-+    atomic_fetch_add(&finished, 1);
-+    return 0;
-+}
-+
-+static void reset(bool synthetic_time, int stalled)
-+{
-+    await_freed();
-+    atomic_store(&clock_calls, 0);
-+    atomic_store(&timer_calls, 0);
-+    atomic_store(&clock_failure, 0);
-+    atomic_store(&fail_timer, false);
-+    atomic_store(&virtual_time, synthetic_time);
-+    atomic_store(&virtual_now, 1000000000);
-+    atomic_store(&allowed_wait, 0);
-+    atomic_store(&stop_wait, false);
-+    atomic_store(&waits_entered, 0);
-+    atomic_store(&monitor_condition, NULL);
-+    atomic_store(&entered, 0);
-+    atomic_store(&finished, 0);
-+    atomic_store(&release_prefix, 0);
-+    atomic_store(&stalled_prefix, stalled);
-+    atomic_store(&release_all, false);
-+    for (unsigned i = 0; i < MAX_ITEMS; i++) {
-+        atomic_store(&seen[i], 0);
-+    }
-+    for (unsigned i = 0; i < 64; i++) {
-+        atomic_store(&requested_delay[i], 0);
-+    }
-+}
-+
-+static void submit_items(SlirpClosePool *pool, unsigned first, unsigned count)
-+{
-+    for (unsigned i = first; i < first + count; i++) {
-+        SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+        assert(ticket);
-+        slirp_close_submit(ticket, (int)i);
-+    }
-+}
-+
-+static void await_idle(SlirpClosePool *pool)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        pthread_mutex_lock(&pool->lock);
-+        bool idle = !pool->head && !pool->busy && !pool->monitoring &&
-+                    pool->sleeping == SLIRP_CLOSE_WORKERS;
-+        pthread_mutex_unlock(&pool->lock);
-+        if (idle) {
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"adaptive pool did not become fully idle");
-+}
-+
-+static void timer_step(SlirpClosePool *pool, int entry, uint64_t now)
-+{
-+    await_count(&waits_entered, entry);
-+    pthread_mutex_lock(&pool->lock);
-+    assert(atomic_load(&requested_delay[entry]) > 0);
-+    atomic_store(&virtual_now, now);
-+    atomic_store(&allowed_wait, entry);
-+    pthread_cond_signal(&pool->monitor_changed);
-+    pthread_mutex_unlock(&pool->lock);
-+}
-+
-+static void test_deadline_promotion_and_idle(void)
-+{
-+    reset(true, 16);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit_items(pool, 0, 16);
-+    await_count(&waits_entered, 1);
-+    assert(atomic_load(&entered) == 1);
-+    timer_step(pool, 1, 1000250000);
-+    await_count(&waits_entered, 2);
-+    assert(atomic_load(&requested_delay[2]) == 750000);
-+    timer_step(pool, 2, 1000500000);
-+    await_count(&waits_entered, 3);
-+    assert(atomic_load(&requested_delay[3]) == 500000);
-+    timer_step(pool, 3, 1000999999);
-+    await_count(&waits_entered, 4);
-+    assert(atomic_load(&requested_delay[4]) == 1);
-+    assert(atomic_load(&entered) == 1);
-+    timer_step(pool, 4, 1001000000);
-+    await_count(&entered, 2);
-+    for (int active = 2; active < 16; active++) {
-+        timer_step(pool, active + 3, 1000000000 + (uint64_t)active * 1000000);
-+        await_count(&entered, active + 1);
-+    }
-+    assert(pthread_equal(atomic_load(&monitor_thread),
-+                         atomic_load(&final_worker)));
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->busy == 16 && pool->service_limit == 16 && !pool->monitoring);
-+    pthread_mutex_unlock(&pool->lock);
-+    release_nodes(15, false);
-+    await_count(&finished, 15);
-+    for (unsigned i = 0; i < 10000; i++) {
-+        pthread_mutex_lock(&pool->lock);
-+        bool one = pool->busy == 1;
-+        assert(pool->service_limit == 16);
-+        pthread_mutex_unlock(&pool->lock);
-+        if (one) {
-+            break;
-+        }
-+        pause_short();
-+        assert(i != 9999);
-+    }
-+    release_nodes(0, true);
-+    await_count(&finished, 16);
-+    await_idle(pool);
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->service_limit == 1);
-+    pthread_mutex_unlock(&pool->lock);
-+    int clocks = atomic_load(&clock_calls);
-+    int timers = atomic_load(&timer_calls);
-+    for (unsigned i = 0; i < 20; i++) {
-+        pause_short();
-+    }
-+    assert(clocks == atomic_load(&clock_calls));
-+    assert(timers == atomic_load(&timer_calls));
-+    slirp_close_pool_free(pool);
-+    await_freed();
-+    puts("PASS: fixed 1ms deadline survives three early wakes; each quiet "
-+         "interval promotes one; monitor becomes worker16; true idle resets "
-+         "and has no timer polling");
-+}
-+
-+static void test_completion_defers_promotion(void)
-+{
-+    reset(true, MAX_ITEMS);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit_items(pool, 0, 32);
-+    await_count(&waits_entered, 1);
-+    release_nodes(1, false);
-+    await_count(&entered, 2);
-+    timer_step(pool, 1, 1001000000);
-+    await_count(&waits_entered, 2);
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->completed == 1 && pool->busy == 1 && pool->service_limit == 1);
-+    pthread_mutex_unlock(&pool->lock);
-+    timer_step(pool, 2, 1002000000);
-+    await_count(&entered, 3);
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->service_limit == 2);
-+    pthread_mutex_unlock(&pool->lock);
-+    slirp_close_pool_free(pool);
-+    await_count(&entered, 17);
-+    release_nodes(0, true);
-+    await_freed();
-+    assert(atomic_load(&finished) == 32);
-+    puts("PASS: a real completion defers promotion for one observation "
-+         "interval; the next quiet interval promotes; shutdown bypasses "
-+         "remaining timers");
-+}
-+
-+static void test_cleanup_wakes_frozen_monitor(void)
-+{
-+    reset(true, MAX_ITEMS);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit_items(pool, 0, 64);
-+    await_count(&waits_entered, 1);
-+    assert(atomic_load(&entered) == 1);
-+    slirp_close_pool_free(pool);
-+    await_count(&entered, 16);
-+    assert(atomic_load(&virtual_now) == 1000000000);
-+    assert(atomic_load(&waits_entered) == 1);
-+    release_nodes(0, true);
-+    await_freed();
-+    assert(atomic_load(&finished) == 64);
-+    int timers = atomic_load(&timer_calls);
-+    pause_short();
-+    assert(timers == atomic_load(&timer_calls));
-+    puts("PASS: cleanup interrupts a frozen monitor and starts all16 closes "
-+         "without advancing time; full drain leaves no timer work");
-+}
-+
-+static void test_timing_failures(void)
-+{
-+    for (int mode = 1; mode <= 5; mode++) {
-+        reset(false, MAX_ITEMS);
-+        if (mode <= 4) {
-+            atomic_store(&clock_failure, mode);
-+        } else {
-+            atomic_store(&fail_timer, true);
-+        }
-+        SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+        assert(pool);
-+        submit_items(pool, 0, 32);
-+        await_count(&entered, 16);
-+        pthread_mutex_lock(&pool->lock);
-+        assert(pool->timer_failed && pool->service_limit == 16);
-+        pthread_mutex_unlock(&pool->lock);
-+        release_nodes(0, true);
-+        await_count(&finished, 32);
-+        await_idle(pool);
-+        pthread_mutex_lock(&pool->lock);
-+        assert(pool->timer_failed && pool->service_limit == 16);
-+        pthread_mutex_unlock(&pool->lock);
-+        int clocks = atomic_load(&clock_calls);
-+        submit_items(pool, 32, 1);
-+        await_count(&finished, 33);
-+        await_idle(pool);
-+        assert(clocks == atomic_load(&clock_calls));
-+        slirp_close_pool_free(pool);
-+        await_freed();
-+    }
-+    puts("PASS: clock error, negative time, invalid nanoseconds, time overflow "
-+         "and timer error preserve async full-pool service without retry "
-+         "polling");
-+}
-+
-+static void test_native_mixed_loads(void)
-+{
-+    const unsigned stalled[] = { 1, 8, 15 };
-+    for (unsigned run = 0; run < sizeof(stalled) / sizeof(stalled[0]); run++) {
-+        unsigned n = stalled[run];
-+        reset(false, (int)n);
-+        SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+        assert(pool);
-+        uint64_t start = real_ns();
-+        submit_items(pool, 0, n + 4000);
-+        await_count(&finished, 4000);
-+        pthread_mutex_lock(&pool->lock);
-+        assert(pool->busy == n && !pool->head && !pool->timer_failed);
-+        unsigned limit = pool->service_limit;
-+        pthread_mutex_unlock(&pool->lock);
-+        uint64_t elapsed = real_ns() - start;
-+        assert(atomic_load(&entered) == (int)n + 4000);
-+        submit_items(pool, n + 4000, 32);
-+        await_count(&finished, 4032);
-+        slirp_close_pool_free(pool);
-+        release_nodes(0, true);
-+        await_freed();
-+        assert(atomic_load(&finished) == (int)n + 4032);
-+        printf(
-+            "PASS: native mixed load holds %u closes while 4032 fast records "
-+            "drain; first 4000 took %.3fms, service limit %u, timer waits %d\n",
-+            n, (double)elapsed / 1000000, limit, atomic_load(&timer_calls));
-+    }
-+}
-+
-+int main(void)
-+{
-+    alarm(90);
-+    test_deadline_promotion_and_idle();
-+    test_completion_defers_promotion();
-+    test_cleanup_wakes_frozen_monitor();
-+    test_timing_failures();
-+    test_native_mixed_loads();
-+    await_freed();
-+    return 0;
-+}
-diff --git a/test/close-worker-ready-test.c b/test/close-worker-ready-test.c
---- /dev/null
-+++ b/test/close-worker-ready-test.c
-@@ -0,0 +1,861 @@
-+#define _DARWIN_C_SOURCE 1
-+#define _POSIX_C_SOURCE 200809L
-+#undef NDEBUG
-+#include <assert.h>
-+#include <errno.h>
-+#include <os/os_sync_wait_on_address.h>
-+#include <pthread.h>
-+#include <stdatomic.h>
-+#include <stdbool.h>
-+#include <stdint.h>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <string.h>
-+#include <time.h>
-+
-+static atomic_int allocations, frees, successful_threads, returned_threads;
-+static atomic_int create_attempts, fail_create, condition_inits;
-+static atomic_int condition_destroys, mutex_inits, mutex_destroys;
-+static atomic_bool fail_monitor_init;
-+static atomic_int ready_signals, ready_broadcasts;
-+static atomic_int ready_held, monitor_held, clock_held, completion_held;
-+static atomic_bool hold_ready, hold_monitor, hold_clock, hold_completion;
-+static _Atomic(pthread_cond_t *) ready_condition;
-+static pthread_mutex_t test_lock = PTHREAD_MUTEX_INITIALIZER;
-+static pthread_cond_t test_changed = PTHREAD_COND_INITIALIZER;
-+static _Thread_local bool completed_close;
-+static atomic_int native_wait_calls, native_all_calls, native_enoent;
-+static atomic_int entry_hold_budget, entry_held, native_entries;
-+static atomic_int fail_wait_before, fail_wait_after, positive_returns;
-+static atomic_int wake_held, hold_wake_at, native_any_calls, fail_wake;
-+static atomic_bool hold_entry, hold_wake, force_positive;
-+static int expected_fallbacks;
-+static atomic_int native_positive, interrupt_budget, interrupted_returns;
-+static atomic_bool hold_start;
-+static atomic_int start_held;
-+
-+struct Start {
-+    void *(*fn)(void *);
-+    void *arg;
-+};
-+static struct Start starts[16];
-+
-+static void gate_wait(atomic_bool *hold, atomic_int *entered)
-+{
-+    pthread_mutex_lock(&test_lock);
-+    atomic_fetch_add(entered, 1);
-+    pthread_cond_broadcast(&test_changed);
-+    while (atomic_load(hold)) {
-+        pthread_cond_wait(&test_changed, &test_lock);
-+    }
-+    pthread_mutex_unlock(&test_lock);
-+}
-+
-+static void gate_release(atomic_bool *hold)
-+{
-+    pthread_mutex_lock(&test_lock);
-+    atomic_store(hold, false);
-+    pthread_cond_broadcast(&test_changed);
-+    pthread_mutex_unlock(&test_lock);
-+}
-+
-+static void *tracked_malloc(size_t size)
-+{
-+    void *p = malloc(size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void *tracked_calloc(size_t count, size_t size)
-+{
-+    void *p = calloc(count, size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void tracked_free(void *p)
-+{
-+    if (p) {
-+        free(p);
-+        atomic_fetch_add(&frees, 1);
-+    }
-+}
-+
-+static void *tracked_start(void *opaque)
-+{
-+    struct Start *start = opaque;
-+    if (atomic_load(&hold_start)) {
-+        gate_wait(&hold_start, &start_held);
-+    }
-+    void *result = start->fn(start->arg);
-+    atomic_fetch_add(&returned_threads, 1);
-+    return result;
-+}
-+
-+static int tracked_create(pthread_t *thread, const pthread_attr_t *attr,
-+                          void *(*fn)(void *), void *arg)
-+{
-+    int attempt = atomic_fetch_add(&create_attempts, 1) + 1;
-+    assert(attempt <= 16);
-+    if (attempt == atomic_load(&fail_create)) {
-+        return EAGAIN;
-+    }
-+    starts[attempt - 1] = (struct Start){ fn, arg };
-+    int result =
-+        pthread_create(thread, attr, tracked_start, &starts[attempt - 1]);
-+    if (!result) {
-+        atomic_fetch_add(&successful_threads, 1);
-+    }
-+    return result;
-+}
-+
-+static int tracked_mutex_init(pthread_mutex_t *mutex,
-+                              const pthread_mutexattr_t *attr)
-+{
-+    int result = pthread_mutex_init(mutex, attr);
-+    assert(result == 0);
-+    atomic_fetch_add(&mutex_inits, 1);
-+    return result;
-+}
-+
-+static int tracked_mutex_destroy(pthread_mutex_t *mutex)
-+{
-+    int result = pthread_mutex_destroy(mutex);
-+    assert(result == 0);
-+    atomic_fetch_add(&mutex_destroys, 1);
-+    return result;
-+}
-+
-+static int tracked_cond_destroy(pthread_cond_t *condition)
-+{
-+    int result = pthread_cond_destroy(condition);
-+    assert(result == 0);
-+    atomic_fetch_add(&condition_destroys, 1);
-+    return result;
-+}
-+
-+static int tracked_cond_init(pthread_cond_t *condition,
-+                             const pthread_condattr_t *attr)
-+{
-+    if (atomic_load(&fail_monitor_init) && atomic_load(&condition_inits) == 1) {
-+        return EINVAL;
-+    }
-+    int result = pthread_cond_init(condition, attr);
-+    if (!result && atomic_fetch_add(&condition_inits, 1) == 0) {
-+        atomic_store(&ready_condition, condition);
-+    }
-+    return result;
-+}
-+
-+static int tracked_signal(pthread_cond_t *condition)
-+{
-+    if (condition == atomic_load(&ready_condition)) {
-+        atomic_fetch_add(&ready_signals, 1);
-+    }
-+    return pthread_cond_signal(condition);
-+}
-+
-+static int tracked_broadcast(pthread_cond_t *condition)
-+{
-+    if (condition == atomic_load(&ready_condition)) {
-+        atomic_fetch_add(&ready_broadcasts, 1);
-+    }
-+    return pthread_cond_broadcast(condition);
-+}
-+
-+static int tracked_wait(pthread_cond_t *condition, pthread_mutex_t *mutex)
-+{
-+    int result = pthread_cond_wait(condition, mutex);
-+    if (!result && condition == atomic_load(&ready_condition) &&
-+        atomic_load(&hold_ready)) {
-+        pthread_mutex_unlock(mutex);
-+        gate_wait(&hold_ready, &ready_held);
-+        pthread_mutex_lock(mutex);
-+    }
-+    return result;
-+}
-+
-+static int tracked_timer(pthread_cond_t *condition, pthread_mutex_t *mutex,
-+                         const struct timespec *relative)
-+{
-+    int result = pthread_cond_timedwait_relative_np(condition, mutex, relative);
-+    if (atomic_load(&hold_monitor)) {
-+        pthread_mutex_unlock(mutex);
-+        gate_wait(&hold_monitor, &monitor_held);
-+        pthread_mutex_lock(mutex);
-+    }
-+    return result;
-+}
-+
-+static int tracked_clock(clockid_t kind, struct timespec *now)
-+{
-+    if (atomic_load(&hold_clock)) {
-+        gate_wait(&hold_clock, &clock_held);
-+    }
-+    return clock_gettime(kind, now);
-+}
-+
-+static int tracked_lock(pthread_mutex_t *mutex)
-+{
-+    if (completed_close) {
-+        completed_close = false;
-+        if (atomic_load(&hold_completion)) {
-+            gate_wait(&hold_completion, &completion_held);
-+        }
-+    }
-+    return pthread_mutex_lock(mutex);
-+}
-+
-+static int tracked_address_wait(void *address, uint64_t expected, size_t size,
-+                                os_sync_wait_on_address_flags_t flags)
-+{
-+    assert(size == 8 && (uintptr_t)address % 8 == 0);
-+    assert(flags == OS_SYNC_WAIT_ON_ADDRESS_NONE && expected != UINT64_MAX);
-+    atomic_fetch_add(&native_wait_calls, 1);
-+    int budget = atomic_load(&entry_hold_budget);
-+    while (budget > 0) {
-+        if (atomic_compare_exchange_weak(&entry_hold_budget, &budget,
-+                                         budget - 1)) {
-+            gate_wait(&hold_entry, &entry_held);
-+            break;
-+        }
-+    }
-+    int injected = atomic_exchange(&fail_wait_before, 0);
-+    budget = atomic_load(&interrupt_budget);
-+    while (!injected && budget > 0) {
-+        if (atomic_compare_exchange_weak(&interrupt_budget, &budget,
-+                                         budget - 1)) {
-+            injected = EINTR;
-+            atomic_fetch_add(&interrupted_returns, 1);
-+        }
-+    }
-+    int result;
-+    if (injected) {
-+        errno = injected;
-+        result = -1;
-+    } else {
-+        atomic_fetch_add(&native_entries, 1);
-+        result = os_sync_wait_on_address(address, expected, size, flags);
-+        if (result > 0) {
-+            atomic_fetch_add(&native_positive, 1);
-+        }
-+        injected = atomic_exchange(&fail_wait_after, 0);
-+        if (injected) {
-+            errno = injected;
-+            result = -1;
-+        }
-+    }
-+    if (result >= 0 && atomic_load(&force_positive)) {
-+        atomic_fetch_add(&positive_returns, 1);
-+        result = 7;
-+    }
-+    if (result >= 0 && atomic_load(&hold_ready)) {
-+        gate_wait(&hold_ready, &ready_held);
-+    }
-+    return result;
-+}
-+
-+static int tracked_address_any(void *address, size_t size,
-+                               os_sync_wake_by_address_flags_t flags)
-+{
-+    assert(size == 8 && (uintptr_t)address % 8 == 0);
-+    assert(flags == OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+    int call = atomic_fetch_add(&native_any_calls, 1) + 1;
-+    atomic_fetch_add(&ready_signals, 1);
-+    int injected = atomic_exchange(&fail_wake, 0);
-+    if (injected) {
-+        errno = injected;
-+        return -1;
-+    }
-+    int result = os_sync_wake_by_address_any(address, size, flags);
-+    int error = errno;
-+    if (result < 0 && error == ENOENT) {
-+        atomic_fetch_add(&native_enoent, 1);
-+    }
-+    if (call == atomic_load(&hold_wake_at)) {
-+        gate_wait(&hold_wake, &wake_held);
-+    }
-+    errno = error;
-+    return result;
-+}
-+
-+static int tracked_address_all(void *address, size_t size,
-+                               os_sync_wake_by_address_flags_t flags)
-+{
-+    assert(size == 8 && (uintptr_t)address % 8 == 0);
-+    assert(flags == OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+    atomic_fetch_add(&native_all_calls, 1);
-+    return os_sync_wake_by_address_all(address, size, flags);
-+}
-+
-+#define malloc tracked_malloc
-+#define calloc tracked_calloc
-+#define free tracked_free
-+#define pthread_create tracked_create
-+#define pthread_cond_init tracked_cond_init
-+#define pthread_cond_destroy tracked_cond_destroy
-+#define pthread_mutex_init tracked_mutex_init
-+#define pthread_mutex_destroy tracked_mutex_destroy
-+#define pthread_cond_signal tracked_signal
-+#define pthread_cond_broadcast tracked_broadcast
-+#define pthread_cond_wait tracked_wait
-+#define pthread_cond_timedwait_relative_np tracked_timer
-+#define clock_gettime tracked_clock
-+#define pthread_mutex_lock tracked_lock
-+#define os_sync_wait_on_address tracked_address_wait
-+#define os_sync_wake_by_address_any tracked_address_any
-+#define os_sync_wake_by_address_all tracked_address_all
-+#include "../src/close-worker.c"
-+#undef malloc
-+#undef calloc
-+#undef free
-+#undef pthread_create
-+#undef pthread_cond_init
-+#undef pthread_cond_destroy
-+#undef pthread_mutex_init
-+#undef pthread_mutex_destroy
-+#undef pthread_cond_signal
-+#undef pthread_cond_broadcast
-+#undef pthread_cond_wait
-+#undef pthread_cond_timedwait_relative_np
-+#undef clock_gettime
-+#undef pthread_mutex_lock
-+#undef os_sync_wait_on_address
-+#undef os_sync_wake_by_address_any
-+#undef os_sync_wake_by_address_all
-+
-+#define ITEMS 64
-+static atomic_int seen[ITEMS], entered, finished, stalled_prefix;
-+static atomic_bool release_closes, cleanup_started, cleanup_returned;
-+
-+static void pause_short(void)
-+{
-+    const struct timespec pause = { 0, 1000000 };
-+    nanosleep(&pause, NULL);
-+}
-+
-+static void await_count(atomic_int *value, int count)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        if (atomic_load(value) >= count) {
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"shutdown schedule timed out");
-+}
-+
-+static void await_drain(int count)
-+{
-+    await_count(&finished, count);
-+    await_count(&returned_threads, atomic_load(&successful_threads));
-+    assert(atomic_load(&allocations) == atomic_load(&frees));
-+    assert(atomic_load(&ready_broadcasts) == expected_fallbacks);
-+    assert(atomic_load(&native_all_calls) == expected_fallbacks);
-+    for (int i = 0; i < count; i++) {
-+        assert(atomic_load(&seen[i]) == 1);
-+    }
-+}
-+
-+static void reset(int stalled)
-+{
-+    assert(atomic_load(&allocations) == atomic_load(&frees));
-+    assert(atomic_load(&returned_threads) == atomic_load(&successful_threads));
-+    atomic_store(&successful_threads, 0);
-+    atomic_store(&returned_threads, 0);
-+    atomic_store(&create_attempts, 0);
-+    atomic_store(&fail_create, 0);
-+    atomic_store(&condition_inits, 0);
-+    atomic_store(&condition_destroys, 0);
-+    atomic_store(&mutex_inits, 0);
-+    atomic_store(&mutex_destroys, 0);
-+    atomic_store(&fail_monitor_init, false);
-+    atomic_store(&ready_signals, 0);
-+    atomic_store(&ready_broadcasts, 0);
-+    atomic_store(&ready_held, 0);
-+    atomic_store(&monitor_held, 0);
-+    atomic_store(&clock_held, 0);
-+    atomic_store(&completion_held, 0);
-+    atomic_store(&hold_ready, false);
-+    atomic_store(&hold_monitor, false);
-+    atomic_store(&hold_clock, false);
-+    atomic_store(&hold_completion, false);
-+    atomic_store(&ready_condition, NULL);
-+    atomic_store(&entered, 0);
-+    atomic_store(&finished, 0);
-+    atomic_store(&stalled_prefix, stalled);
-+    atomic_store(&release_closes, false);
-+    atomic_store(&cleanup_started, false);
-+    atomic_store(&cleanup_returned, false);
-+    atomic_store(&native_wait_calls, 0);
-+    atomic_store(&native_all_calls, 0);
-+    atomic_store(&native_enoent, 0);
-+    atomic_store(&entry_hold_budget, 0);
-+    atomic_store(&entry_held, 0);
-+    atomic_store(&native_entries, 0);
-+    atomic_store(&fail_wait_before, 0);
-+    atomic_store(&fail_wait_after, 0);
-+    atomic_store(&positive_returns, 0);
-+    atomic_store(&wake_held, 0);
-+    atomic_store(&hold_wake_at, 0);
-+    atomic_store(&native_any_calls, 0);
-+    atomic_store(&fail_wake, 0);
-+    atomic_store(&hold_entry, false);
-+    atomic_store(&hold_wake, false);
-+    atomic_store(&force_positive, false);
-+    expected_fallbacks = 0;
-+    atomic_store(&native_positive, 0);
-+    atomic_store(&interrupt_budget, 0);
-+    atomic_store(&interrupted_returns, 0);
-+    atomic_store(&hold_start, false);
-+    atomic_store(&start_held, 0);
-+    for (int i = 0; i < ITEMS; i++) {
-+        atomic_store(&seen[i], 0);
-+    }
-+}
-+
-+static int controlled_close(int fd)
-+{
-+    assert(fd >= 0 && fd < ITEMS);
-+    assert(atomic_fetch_add(&seen[fd], 1) == 0);
-+    atomic_fetch_add(&entered, 1);
-+    pthread_mutex_lock(&test_lock);
-+    while (fd < atomic_load(&stalled_prefix) && !atomic_load(&release_closes)) {
-+        pthread_cond_wait(&test_changed, &test_lock);
-+    }
-+    pthread_mutex_unlock(&test_lock);
-+    atomic_fetch_add(&finished, 1);
-+    completed_close = true;
-+    return 0;
-+}
-+
-+static void release_callbacks(void)
-+{
-+    pthread_mutex_lock(&test_lock);
-+    atomic_store(&release_closes, true);
-+    pthread_cond_broadcast(&test_changed);
-+    pthread_mutex_unlock(&test_lock);
-+}
-+
-+static void submit(SlirpClosePool *pool, int count)
-+{
-+    for (int i = 0; i < count; i++) {
-+        SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+        assert(ticket);
-+        slirp_close_submit(ticket, i);
-+    }
-+}
-+
-+static void await_sleeping(SlirpClosePool *pool)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        pthread_mutex_lock(&pool->lock);
-+        bool all = pool->sleeping == SLIRP_CLOSE_WORKERS;
-+        pthread_mutex_unlock(&pool->lock);
-+        if (all) {
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"workers did not reach ready waits");
-+}
-+
-+static void *cleanup(void *opaque)
-+{
-+    atomic_store(&cleanup_started, true);
-+    slirp_close_pool_free(opaque);
-+    atomic_store(&cleanup_returned, true);
-+    return NULL;
-+}
-+
-+static void empty_and_multiple_returns(void)
-+{
-+    for (int multiple = 0; multiple < 2; multiple++) {
-+        reset(0);
-+        atomic_store(&hold_ready, true);
-+        SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+        assert(pool);
-+        await_sleeping(pool);
-+        if (multiple) {
-+            pthread_mutex_lock(&pool->lock);
-+            os_sync_wake_by_address_all(&pool->ready_generation, 8,
-+                                        OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+            pthread_mutex_unlock(&pool->lock);
-+            await_count(&ready_held, 2);
-+        }
-+        slirp_close_pool_free(pool);
-+        await_count(&ready_held, 1);
-+        assert(atomic_load(&returned_threads) == 0);
-+        assert(atomic_load(&allocations) > atomic_load(&frees));
-+        gate_release(&hold_ready);
-+        await_drain(0);
-+        assert(atomic_load(&ready_signals) > 0);
-+    }
-+    puts("PASS: empty stopped queue and multiple delayed exit paths drain");
-+}
-+
-+static void backlog_and_pending_wakes(void)
-+{
-+    reset(1);
-+    atomic_store(&hold_ready, true);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    submit(pool, ITEMS);
-+    await_count(&ready_held, 1);
-+    pthread_mutex_lock(&pool->lock);
-+    assert(pool->wake_pending && pool->busy == 0);
-+    os_sync_wake_by_address_all(&pool->ready_generation, 8,
-+                                OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+    pthread_mutex_unlock(&pool->lock);
-+    await_count(&ready_held, 2);
-+    slirp_close_pool_free(pool);
-+    gate_release(&hold_ready);
-+    await_count(&entered, ITEMS);
-+    await_count(&finished, ITEMS - 1);
-+    assert(atomic_load(&finished) == ITEMS - 1);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    release_callbacks();
-+    await_drain(ITEMS);
-+    puts("PASS: stale pending and spurious returns cannot strand backlog "
-+         "behind first blocked close");
-+}
-+
-+static void cascade_before_blocked_close(void)
-+{
-+    reset(SLIRP_CLOSE_WORKERS);
-+    atomic_store(&hold_ready, true);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    submit(pool, ITEMS);
-+    await_count(&ready_held, 1);
-+    slirp_close_pool_free(pool);
-+    assert(atomic_load(&ready_signals) == 2);
-+    assert(atomic_load(&entered) == 0);
-+    gate_release(&hold_ready);
-+    await_count(&entered, SLIRP_CLOSE_WORKERS);
-+    assert(atomic_load(&finished) == 0);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    release_callbacks();
-+    await_drain(ITEMS);
-+    puts("PASS: shutdown cascade reaches all 16 blocked closes without a ready "
-+         "broadcast");
-+}
-+
-+static void monitor_handoffs(void)
-+{
-+    reset(1);
-+    atomic_store(&hold_clock, true);
-+    atomic_store(&hold_ready, true);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    submit(pool, ITEMS);
-+    gate_release(&hold_ready);
-+    await_count(&clock_held, 1);
-+    pthread_t owner;
-+    assert(pthread_create(&owner, NULL, cleanup, pool) == 0);
-+    while (!atomic_load(&cleanup_started)) {
-+        pause_short();
-+    }
-+    assert(!atomic_load(&cleanup_returned));
-+    gate_release(&hold_clock);
-+    assert(pthread_join(owner, NULL) == 0);
-+    await_count(&finished, ITEMS - 1);
-+    release_callbacks();
-+    await_drain(ITEMS);
-+
-+    reset(1);
-+    atomic_store(&hold_monitor, true);
-+    pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit(pool, ITEMS);
-+    await_count(&monitor_held, 1);
-+    slirp_close_pool_free(pool);
-+    await_count(&finished, ITEMS - 1);
-+    release_callbacks();
-+    await_count(&finished, ITEMS);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    gate_release(&hold_monitor);
-+    await_drain(ITEMS);
-+    puts("PASS: monitor start handoff and delayed native timer return preserve "
-+         "cleanup lifetime");
-+}
-+
-+static void completion_and_all_blocked(void)
-+{
-+    reset(0);
-+    atomic_store(&hold_completion, true);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit(pool, 1);
-+    await_count(&completion_held, 1);
-+    slirp_close_pool_free(pool);
-+    await_count(&returned_threads, SLIRP_CLOSE_WORKERS - 1);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    gate_release(&hold_completion);
-+    await_drain(1);
-+
-+    reset(SLIRP_CLOSE_WORKERS);
-+    pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    submit(pool, ITEMS);
-+    await_count(&entered, SLIRP_CLOSE_WORKERS);
-+    assert(atomic_load(&finished) == 0);
-+    slirp_close_pool_free(pool);
-+    assert(atomic_load(&returned_threads) == 0);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    release_callbacks();
-+    await_drain(ITEMS);
-+    puts("PASS: completion handoff and all 16 held closes retain pool until "
-+         "complete drain");
-+}
-+
-+static void monitor_initialization_failure(void)
-+{
-+    reset(0);
-+    int allocated_before = atomic_load(&allocations);
-+    int freed_before = atomic_load(&frees);
-+    atomic_store(&fail_monitor_init, true);
-+    errno = 0;
-+    assert(slirp_close_pool_new(controlled_close) == NULL);
-+    assert(errno == EINVAL);
-+    assert(atomic_load(&allocations) == allocated_before + 1);
-+    assert(atomic_load(&frees) == freed_before + 1);
-+    assert(atomic_load(&condition_inits) == 1);
-+    assert(atomic_load(&condition_destroys) == 1);
-+    assert(atomic_load(&mutex_inits) == 1);
-+    assert(atomic_load(&mutex_destroys) == 1);
-+    assert(atomic_load(&create_attempts) == 0);
-+    assert(atomic_load(&successful_threads) == 0);
-+    assert(atomic_load(&native_wait_calls) == 0);
-+    await_drain(0);
-+    puts("PASS: native monitor condition initialization failure preserves "
-+         "errno and releases the ready condition, mutex and pool");
-+}
-+
-+static void partial_creation(void)
-+{
-+    for (int failure = 1; failure <= SLIRP_CLOSE_WORKERS; failure++) {
-+        reset(0);
-+        atomic_store(&fail_create, failure);
-+        assert(slirp_close_pool_new(controlled_close) == NULL);
-+        assert(errno == EAGAIN);
-+        assert(atomic_load(&successful_threads) == failure - 1);
-+        await_drain(0);
-+    }
-+    puts("PASS: every partial worker-creation failure drains the shutdown "
-+         "baton");
-+}
-+
-+static void assert_native(SlirpClosePool *pool)
-+{
-+    pthread_mutex_lock(&pool->lock);
-+    assert(!pool->ready_fallback);
-+    assert(__atomic_load_n(&pool->ready_generation, __ATOMIC_RELAXED) !=
-+           UINT64_MAX);
-+    pthread_mutex_unlock(&pool->lock);
-+    assert(atomic_load(&native_entries) > 0);
-+}
-+
-+static void missing_entry(void)
-+{
-+    reset(0);
-+    atomic_store(&hold_entry, true);
-+    atomic_store(&entry_hold_budget, SLIRP_CLOSE_WORKERS);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_count(&entry_held, SLIRP_CLOSE_WORKERS);
-+    assert(atomic_load(&native_entries) == 0);
-+    SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+    assert(ticket);
-+    errno = EBUSY;
-+    slirp_close_submit(ticket, 0);
-+    assert(errno == EBUSY && atomic_load(&native_enoent) == 1);
-+    gate_release(&hold_entry);
-+    await_count(&finished, 1);
-+    assert_native(pool);
-+    slirp_close_pool_free(pool);
-+    await_drain(1);
-+    printf("PASS: publication before kernel entry progresses after ENOENT; "
-+           "native calls=%d fallback=0\n",
-+           atomic_load(&native_entries));
-+}
-+
-+static void positive_and_interrupted_returns(void)
-+{
-+    reset(0);
-+    atomic_store(&force_positive, true);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    submit(pool, ITEMS);
-+    await_count(&finished, ITEMS);
-+    assert_native(pool);
-+    assert(atomic_load(&positive_returns) > 0);
-+    slirp_close_pool_free(pool);
-+    await_drain(ITEMS);
-+    puts("PASS: positive native waiter-count returns are successful and "
-+         "preserve native mode");
-+
-+    const int interruptions[] = { 1, 8 };
-+    for (unsigned i = 0; i < sizeof(interruptions) / sizeof(interruptions[0]);
-+         i++) {
-+        reset(0);
-+        atomic_store(&interrupt_budget, interruptions[i]);
-+        pool = slirp_close_pool_new(controlled_close);
-+        assert(pool);
-+        await_count(&interrupted_returns, interruptions[i]);
-+        await_sleeping(pool);
-+        submit(pool, ITEMS);
-+        await_count(&finished, ITEMS);
-+        assert_native(pool);
-+        slirp_close_pool_free(pool);
-+        await_drain(ITEMS);
-+    }
-+    puts("PASS: one and eight interrupted waits recheck predicates and return "
-+         "to native blocking without fallback");
-+}
-+
-+static void confirm_kernel_sleepers(SlirpClosePool *pool)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        if (atomic_load(&native_positive) > 0) {
-+            return;
-+        }
-+        int result = os_sync_wake_by_address_any(&pool->ready_generation, 8,
-+                                                 OS_SYNC_WAKE_BY_ADDRESS_NONE);
-+        assert(result == 0 || errno == ENOENT);
-+        pause_short();
-+    }
-+    assert(!"no positive native waiter count observed");
-+}
-+
-+static void await_fallback(SlirpClosePool *pool)
-+{
-+    for (unsigned i = 0; i < 10000; i++) {
-+        pthread_mutex_lock(&pool->lock);
-+        bool fallback = pool->ready_fallback;
-+        if (fallback) {
-+            assert(__atomic_load_n(&pool->ready_generation, __ATOMIC_RELAXED) ==
-+                   UINT64_MAX);
-+        }
-+        pthread_mutex_unlock(&pool->lock);
-+        if (fallback) {
-+            return;
-+        }
-+        pause_short();
-+    }
-+    assert(!"native wait did not switch to fallback");
-+}
-+
-+static void mixed_fallback_and_saturation(void)
-+{
-+    const int errors[] = { ENOMEM, EFAULT, EINVAL, 0 };
-+    for (unsigned i = 0; i < sizeof(errors) / sizeof(errors[0]); i++) {
-+        reset(0);
-+        expected_fallbacks = 1;
-+        atomic_store(&hold_entry, true);
-+        atomic_store(&entry_hold_budget, 1);
-+        atomic_store(&hold_ready, true);
-+        atomic_store(&hold_start, true);
-+        SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+        assert(pool);
-+        await_count(&start_held, SLIRP_CLOSE_WORKERS);
-+        if (!errors[i]) {
-+            pthread_mutex_lock(&pool->lock);
-+            __atomic_store_n(&pool->ready_generation, UINT64_MAX - 1,
-+                             __ATOMIC_RELEASE);
-+            pthread_mutex_unlock(&pool->lock);
-+        }
-+        gate_release(&hold_start);
-+        await_count(&entry_held, 1);
-+        await_count(&native_entries, SLIRP_CLOSE_WORKERS - 1);
-+        confirm_kernel_sleepers(pool);
-+        if (errors[i]) {
-+            atomic_store(&fail_wait_after, errors[i]);
-+        }
-+        submit(pool, 1);
-+        await_fallback(pool);
-+        gate_release(&hold_entry);
-+        gate_release(&hold_ready);
-+        await_count(&finished, 1);
-+        await_sleeping(pool);
-+        int calls = atomic_load(&native_wait_calls);
-+        for (int fd = 1; fd < ITEMS; fd++) {
-+            SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+            assert(ticket);
-+            slirp_close_submit(ticket, fd);
-+        }
-+        await_count(&finished, ITEMS);
-+        assert(atomic_load(&native_wait_calls) == calls);
-+        slirp_close_pool_free(pool);
-+        await_drain(ITEMS);
-+        printf(
-+            "PASS: error=%d transitions once with real sleepers and a delayed "
-+            "entrant; terminal generation, later admission and full drain\n",
-+            errors[i]);
-+    }
-+}
-+
-+static void notifier_lifetime(void)
-+{
-+    reset(0);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    atomic_store(&hold_wake_at, 2);
-+    atomic_store(&hold_wake, true);
-+    slirp_close_pool_free(pool);
-+    await_count(&wake_held, 1);
-+    assert(atomic_load(&allocations) > atomic_load(&frees));
-+    gate_release(&hold_wake);
-+    await_drain(0);
-+    puts("PASS: worker reference and queue lock protect native wake after "
-+         "owner cleanup returns");
-+}
-+
-+static void invalid_wake(void)
-+{
-+    reset(0);
-+    SlirpClosePool *pool = slirp_close_pool_new(controlled_close);
-+    assert(pool);
-+    await_sleeping(pool);
-+    atomic_store(&fail_wake, EINVAL);
-+    submit(pool, 1);
-+    assert(!"invalid native wake was silently accepted");
-+}
-+
-+int main(int argc, char **argv)
-+{
-+    setvbuf(stdout, NULL, _IONBF, 0);
-+    if (argc == 2 && strcmp(argv[1], "--missing-entry") == 0) {
-+        missing_entry();
-+        return 0;
-+    }
-+    if (argc == 2 && strcmp(argv[1], "--cascade") == 0) {
-+        cascade_before_blocked_close();
-+        return 0;
-+    }
-+    if (argc == 2 && strcmp(argv[1], "--wake-error") == 0) {
-+        invalid_wake();
-+        return 1;
-+    }
-+    missing_entry();
-+    positive_and_interrupted_returns();
-+    mixed_fallback_and_saturation();
-+    notifier_lifetime();
-+    empty_and_multiple_returns();
-+    backlog_and_pending_wakes();
-+    cascade_before_blocked_close();
-+    monitor_handoffs();
-+    completion_and_all_blocked();
-+    monitor_initialization_failure();
-+    partial_creation();
-+    return 0;
-+}
-diff --git a/test/close-worker-linux-monitor-test.c b/test/close-worker-linux-monitor-test.c
---- /dev/null
-+++ b/test/close-worker-linux-monitor-test.c
-@@ -0,0 +1,309 @@
-+/* SPDX-License-Identifier: BSD-3-Clause */
-+#define _POSIX_C_SOURCE 200809L
-+#if !defined(__linux__) || !defined(SLIRP_TEST_ASYNC_CLOSE)
-+#error "Build this fixture on Linux with SLIRP_TEST_ASYNC_CLOSE"
-+#endif
-+#undef NDEBUG
-+#include <assert.h>
-+#include <errno.h>
-+#include <pthread.h>
-+#include <stdatomic.h>
-+#include <stdbool.h>
-+#include <stdint.h>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <time.h>
-+
-+static int failure;
-+static atomic_int allocations, frees, mutex_inits, mutex_destroys;
-+static atomic_int cond_inits, cond_destroys, attr_inits, attr_destroys;
-+static atomic_int setclock_calls, create_calls, worker_returns;
-+static atomic_int timer_calls, timer_timeouts;
-+static pthread_cond_t *monitor_condition;
-+
-+static void *tracked_malloc(size_t size)
-+{
-+    void *p = malloc(size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void *tracked_calloc(size_t count, size_t size)
-+{
-+    void *p = calloc(count, size);
-+    if (p) {
-+        atomic_fetch_add(&allocations, 1);
-+    }
-+    return p;
-+}
-+
-+static void tracked_free(void *p)
-+{
-+    if (p) {
-+        free(p);
-+        atomic_fetch_add(&frees, 1);
-+    }
-+}
-+
-+static int tracked_mutex_init(pthread_mutex_t *p, const pthread_mutexattr_t *a)
-+{
-+    int result = pthread_mutex_init(p, a);
-+    assert(result == 0);
-+    atomic_fetch_add(&mutex_inits, 1);
-+    return result;
-+}
-+
-+static int tracked_mutex_destroy(pthread_mutex_t *p)
-+{
-+    int result = pthread_mutex_destroy(p);
-+    assert(result == 0);
-+    atomic_fetch_add(&mutex_destroys, 1);
-+    return result;
-+}
-+
-+static int tracked_condattr_init(pthread_condattr_t *attr)
-+{
-+    if (failure == 1) {
-+        return EAGAIN;
-+    }
-+    int result = pthread_condattr_init(attr);
-+    assert(result == 0);
-+    atomic_fetch_add(&attr_inits, 1);
-+    return result;
-+}
-+
-+static int tracked_condattr_setclock(pthread_condattr_t *attr, clockid_t clock)
-+{
-+    assert(clock == CLOCK_MONOTONIC);
-+    atomic_fetch_add(&setclock_calls, 1);
-+    return failure == 2 ? ENOTSUP : pthread_condattr_setclock(attr, clock);
-+}
-+
-+static int tracked_condattr_destroy(pthread_condattr_t *attr)
-+{
-+    int result = pthread_condattr_destroy(attr);
-+    assert(result == 0);
-+    atomic_fetch_add(&attr_destroys, 1);
-+    return result;
-+}
-+
-+static int tracked_cond_init(pthread_cond_t *p, const pthread_condattr_t *attr)
-+{
-+    if (attr) {
-+        clockid_t clock;
-+        assert(pthread_condattr_getclock(attr, &clock) == 0);
-+        assert(clock == CLOCK_MONOTONIC);
-+        if (failure == 3) {
-+            return EINVAL;
-+        }
-+    }
-+    int result = pthread_cond_init(p, attr);
-+    assert(result == 0);
-+    atomic_fetch_add(&cond_inits, 1);
-+    if (attr) {
-+        monitor_condition = p;
-+    }
-+    return result;
-+}
-+
-+static int tracked_cond_destroy(pthread_cond_t *p)
-+{
-+    int result = pthread_cond_destroy(p);
-+    assert(result == 0);
-+    atomic_fetch_add(&cond_destroys, 1);
-+    return result;
-+}
-+
-+struct Start {
-+    void *(*run)(void *);
-+    void *arg;
-+};
-+static struct Start starts[16];
-+
-+static void *tracked_start(void *opaque)
-+{
-+    struct Start *start = opaque;
-+    void *result = start->run(start->arg);
-+    atomic_fetch_add(&worker_returns, 1);
-+    return result;
-+}
-+
-+static int tracked_create(pthread_t *thread, const pthread_attr_t *attr,
-+                          void *(*run)(void *), void *arg)
-+{
-+    int i = atomic_fetch_add(&create_calls, 1);
-+    assert(i < 16);
-+    starts[i] = (struct Start){ run, arg };
-+    return pthread_create(thread, attr, tracked_start, &starts[i]);
-+}
-+
-+static int tracked_timedwait(pthread_cond_t *condition, pthread_mutex_t *mutex,
-+                             const struct timespec *deadline)
-+{
-+    assert(condition == monitor_condition);
-+    assert(deadline->tv_sec >= 0);
-+    assert(deadline->tv_nsec >= 0 && deadline->tv_nsec < 1000000000);
-+    struct timespec now;
-+    assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
-+    /* An accidental realtime absolute deadline is far beyond this bound. */
-+    assert(deadline->tv_sec <= now.tv_sec + 1);
-+    atomic_fetch_add(&timer_calls, 1);
-+    int result = pthread_cond_timedwait(condition, mutex, deadline);
-+    assert(result == 0 || result == ETIMEDOUT);
-+    if (result == ETIMEDOUT) {
-+        atomic_fetch_add(&timer_timeouts, 1);
-+    }
-+    return result;
-+}
-+
-+#define malloc tracked_malloc
-+#define calloc tracked_calloc
-+#define free tracked_free
-+#define pthread_mutex_init tracked_mutex_init
-+#define pthread_mutex_destroy tracked_mutex_destroy
-+#define pthread_condattr_init tracked_condattr_init
-+#define pthread_condattr_setclock tracked_condattr_setclock
-+#define pthread_condattr_destroy tracked_condattr_destroy
-+#define pthread_cond_init tracked_cond_init
-+#define pthread_cond_destroy tracked_cond_destroy
-+#define pthread_create tracked_create
-+#define pthread_cond_timedwait tracked_timedwait
-+#include "../src/close-worker.c"
-+#undef malloc
-+#undef calloc
-+#undef free
-+#undef pthread_mutex_init
-+#undef pthread_mutex_destroy
-+#undef pthread_condattr_init
-+#undef pthread_condattr_setclock
-+#undef pthread_condattr_destroy
-+#undef pthread_cond_init
-+#undef pthread_cond_destroy
-+#undef pthread_create
-+#undef pthread_cond_timedwait
-+
-+static void reset(void)
-+{
-+    atomic_store(&allocations, 0);
-+    atomic_store(&frees, 0);
-+    atomic_store(&mutex_inits, 0);
-+    atomic_store(&mutex_destroys, 0);
-+    atomic_store(&cond_inits, 0);
-+    atomic_store(&cond_destroys, 0);
-+    atomic_store(&attr_inits, 0);
-+    atomic_store(&attr_destroys, 0);
-+    atomic_store(&setclock_calls, 0);
-+    atomic_store(&create_calls, 0);
-+    atomic_store(&worker_returns, 0);
-+    atomic_store(&timer_calls, 0);
-+    atomic_store(&timer_timeouts, 0);
-+    monitor_condition = NULL;
-+}
-+
-+static int unused_close(int fd)
-+{
-+    (void)fd;
-+    assert(!"failed initialization must not close a descriptor");
-+    return 0;
-+}
-+
-+static void initialization_failures(void)
-+{
-+    const int expected_error[] = { 0, EAGAIN, ENOTSUP, EINVAL };
-+    for (failure = 1; failure <= 3; failure++) {
-+        reset();
-+        errno = 0;
-+        assert(slirp_close_pool_new(unused_close) == NULL);
-+        assert(errno == expected_error[failure]);
-+        assert(atomic_load(&allocations) == 1 && atomic_load(&frees) == 1);
-+        assert(atomic_load(&mutex_inits) == 1 &&
-+               atomic_load(&mutex_destroys) == 1);
-+        assert(atomic_load(&cond_inits) == 1 &&
-+               atomic_load(&cond_destroys) == 1);
-+        int attributes = failure == 1 ? 0 : 1;
-+        assert(atomic_load(&attr_inits) == attributes);
-+        assert(atomic_load(&attr_destroys) == attributes);
-+        assert(atomic_load(&setclock_calls) == attributes);
-+        assert(atomic_load(&create_calls) == 0);
-+        assert(monitor_condition == NULL);
-+        printf("PASS: Linux monitor initialization failure %d preserves errno "
-+               "and exactly releases prior resources\n",
-+               failure);
-+    }
-+    failure = 0;
-+}
-+
-+static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
-+static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
-+static atomic_int entered, finished;
-+static bool release_closes;
-+
-+static int held_close(int fd)
-+{
-+    assert(fd >= 0 && fd < SLIRP_CLOSE_WORKERS);
-+    assert(pthread_mutex_lock(&gate) == 0);
-+    atomic_fetch_add(&entered, 1);
-+    while (!release_closes) {
-+        assert(pthread_cond_wait(&changed, &gate) == 0);
-+    }
-+    atomic_fetch_add(&finished, 1);
-+    assert(pthread_mutex_unlock(&gate) == 0);
-+    return 0;
-+}
-+
-+static void await_count(atomic_int *count, int expected)
-+{
-+    const struct timespec delay = { 0, 1000000 };
-+    for (int i = 0; i < 10000; i++) {
-+        if (atomic_load(count) == expected) {
-+            return;
-+        }
-+        nanosleep(&delay, NULL);
-+    }
-+    assert(!"Linux monitor fixture did not complete within its bounded wait");
-+}
-+
-+static void monotonic_promotion(void)
-+{
-+    reset();
-+    SlirpClosePool *pool = slirp_close_pool_new(held_close);
-+    assert(pool);
-+    for (int i = 0; i < SLIRP_CLOSE_WORKERS; i++) {
-+        SlirpCloseTicket *ticket = slirp_close_reserve(pool);
-+        assert(ticket);
-+        slirp_close_submit(ticket, i);
-+    }
-+    await_count(&entered, SLIRP_CLOSE_WORKERS);
-+    assert(atomic_load(&finished) == 0);
-+    assert(atomic_load(&timer_calls) > 0 && atomic_load(&timer_timeouts) > 0);
-+    assert(pthread_mutex_lock(&pool->lock) == 0);
-+    assert(pool->service_limit == SLIRP_CLOSE_WORKERS && !pool->timer_failed);
-+    assert(pthread_mutex_unlock(&pool->lock) == 0);
-+    slirp_close_pool_free(pool);
-+    assert(atomic_load(&frees) == 0);
-+    assert(pthread_mutex_lock(&gate) == 0);
-+    release_closes = true;
-+    assert(pthread_cond_broadcast(&changed) == 0);
-+    assert(pthread_mutex_unlock(&gate) == 0);
-+    await_count(&finished, SLIRP_CLOSE_WORKERS);
-+    await_count(&worker_returns, SLIRP_CLOSE_WORKERS);
-+    assert(atomic_load(&allocations) == SLIRP_CLOSE_WORKERS + 1);
-+    assert(atomic_load(&frees) == atomic_load(&allocations));
-+    assert(atomic_load(&mutex_inits) == 1 && atomic_load(&mutex_destroys) == 1);
-+    assert(atomic_load(&cond_inits) == 2 && atomic_load(&cond_destroys) == 2);
-+    assert(atomic_load(&attr_inits) == 1 && atomic_load(&attr_destroys) == 1);
-+    assert(atomic_load(&setclock_calls) == 1);
-+    printf("PASS: Linux real monotonic waits promote all 16 held closes, "
-+           "preserve asynchronous cleanup and reclaim all resources; timed "
-+           "waits=%d timeouts=%d\n",
-+           atomic_load(&timer_calls), atomic_load(&timer_timeouts));
-+}
-+
-+int main(void)
-+{
-+    initialization_failures();
-+    monotonic_promotion();
++    test_close_on_pool(AF_INET);
++    test_close_on_pool(AF_INET6);
++    test_stalled_close(AF_INET);
++    test_stalled_close(AF_INET6);
++    test_failed_bind();
++    test_failed_socket();
 +    return 0;
 +}

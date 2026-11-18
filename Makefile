@@ -23,7 +23,7 @@ SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest guest-package refresh runtime firmware app kit build run run-ephemeral reset version-preflight package package-preflight release release-preflight publish clean clean-all clean-guest
-.PHONY: test-libslirp-close test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
+.PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
 .PHONY: test-upstream test-guest-install test-kit e2e
 
 help:
@@ -32,7 +32,6 @@ help:
 	  '' \
 	  '  make doctor         Check the local toolchain' \
 	  '  make test           Run native and guest contract tests' \
-	  '  make test-libslirp-close  Test the portable socket-close worker (Mac or Linux)' \
 	  '  make test TEST_JOBS=1  Run test suites serially for debugging' \
 	  '  make test-upstream  Check the guest package against the current Omarchy (network)' \
 	  '  make test-guest-install  Install, upgrade and remove the guest package (Docker, network)' \
@@ -83,10 +82,7 @@ test:
 # suite owns its temporary state, but SwiftPM has a single build directory.
 test-all: test-swift test-contracts test-guest test-shell
 
-test-libslirp-close:
-	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-libslirp-close.py"
-
-test-contracts: test-libslirp-close
+test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hda-recovery.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-network-identity.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-libslirp-icmp.py"
