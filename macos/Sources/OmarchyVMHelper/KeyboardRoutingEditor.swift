@@ -140,6 +140,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     private func refreshAddShortcutMenu() {
         addShortcutPopup.removeAllItems()
         addShortcutPopup.addItem(withTitle: recorder.isRecording ? "Recording…" : "Add")
+        addShortcutPopup.lastItem?.tag = Self.titleTag
         let isFull = shortcuts.count >= KeyboardRoutingPreferences.maximumShortcuts
         for (index, pick) in picks.enumerated() {
             let symbols = pick.shortcuts.map(\.symbols).joined(separator: " ")
@@ -157,6 +158,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     }
 
     private static let recordTag = -1
+    private static let titleTag = -2
 
     private func isKept(_ shortcut: KeptShortcut) -> Bool {
         shortcuts.contains { $0.isSameKeys(as: shortcut) }

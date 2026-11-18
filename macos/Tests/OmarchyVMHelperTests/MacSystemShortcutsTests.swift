@@ -59,6 +59,9 @@ struct MacSystemShortcutsTests {
         #expect(ShortcutRecorder.classify(keyCode: 0, flags: [.capsLock]) == .needsModifier)
         #expect(ShortcutRecorder.classify(keyCode: 103, flags: [.function]) == .needsModifier)
         #expect(ShortcutRecorder.classify(keyCode: 53, flags: []) == .cancel)
+        #expect(ShortcutRecorder.classify(keyCode: 0, flags: .shift) == .needsModifier)
+        #expect(ShortcutRecorder.classify(keyCode: 53, flags: .shift) == .needsModifier)
+        #expect(ShortcutRecorder.classify(keyCode: 0, flags: [.option, .shift]) == .shortcut(keyCode: 0, modifiers: [.option, .shift]))
         #expect(ShortcutRecorder.classify(keyCode: 53, flags: .command) == .shortcut(keyCode: 53, modifiers: .command))
     }
 }

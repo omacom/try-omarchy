@@ -132,7 +132,7 @@ struct KeyboardRoutingPreferenceStore {
             dictation: payload.dictation ?? .macOS,
             doNotDisturb: payload.doNotDisturb ?? .macOS,
             media: payload.media ?? .macOS,
-            shortcuts: Array((payload.shortcuts ?? []).compactMap(\.shortcut)
+            shortcuts: Array((payload.shortcuts ?? []).compactMap { $0.payload?.shortcut }
                 .prefix(KeyboardRoutingPreferences.maximumShortcuts))
         )
     }
@@ -146,7 +146,7 @@ struct KeyboardRoutingPreferenceStore {
             dictation: preferences.dictation,
             doNotDisturb: preferences.doNotDisturb,
             media: preferences.media,
-            shortcuts: preferences.shortcuts.map(ShortcutPayload.init)
+            shortcuts: preferences.shortcuts.map(SavedShortcut.init)
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? storage.setSettingData(data, forKey: Self.key)
@@ -160,7 +160,25 @@ struct KeyboardRoutingPreferenceStore {
         let dictation: KeyRoute?
         let doNotDisturb: KeyRoute?
         let media: KeyRoute?
-        let shortcuts: [ShortcutPayload]?
+        let shortcuts: [SavedShortcut]?
+    }
+
+    /// Nil for an entry that doesn't decode, so one bad entry can't reset
+    /// every other preference.
+    private struct SavedShortcut: Codable {
+        let payload: ShortcutPayload?
+
+        init(_ shortcut: KeptShortcut) {
+            payload = ShortcutPayload(shortcut)
+        }
+
+        init(from decoder: any Decoder) throws {
+            payload = try? ShortcutPayload(from: decoder)
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            try payload.encode(to: encoder)
+        }
     }
 
     private struct ShortcutPayload: Codable {

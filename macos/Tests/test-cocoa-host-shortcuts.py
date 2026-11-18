@@ -13,14 +13,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PATCH = ROOT / "macos/patches/qemu-cocoa-host-shortcuts.patch"
+COMMAND_PATCH = ROOT / "macos/patches/qemu-cocoa-command-chord-hold.patch"
 BUILDER = ROOT / "macos/build-qemu-gpu-runtime.sh"
 LAUNCHER = ROOT / "macos/run-qemu-gpu.sh"
 
 
-def plus_lines() -> str:
+def plus_lines(patch: Path = PATCH) -> str:
     return "\n".join(
         line[1:]
-        for line in PATCH.read_text(encoding="utf-8").splitlines()
+        for line in patch.read_text(encoding="utf-8").splitlines()
         if line.startswith("+") and not line.startswith("+++")
     )
 
@@ -166,11 +167,81 @@ int main(void) {{
                 encoding="utf-8",
             )
             subprocess.run(
-                ["cc", "-std=c11", "-Wall", "-Werror", "-o", str(work / "host-shortcuts"),
+                ["cc", "-std=c11", "-Wall", "-Werror", "-Wno-unused-variable", "-o", str(work / "host-shortcuts"),
                  str(work / "host-shortcuts.c")],
                 check=True,
             )
             subprocess.run([str(work / "host-shortcuts")], check=True)
+
+    def test_the_tap_remembers_command_from_its_own_events(self) -> None:
+        command_down = extract_c_block(
+            plus_lines(COMMAND_PATCH),
+            "#define COCOA_DEVICE_LEFT_COMMAND",
+            "    return modifiers & NSEventModifierFlagCommand;\n}",
+        )
+        tap_flags = extract_c_block(
+            patched_cocoa(),
+            "static NSEventModifierFlags cocoa_host_shortcut_tap_flags(",
+            "        flags |= NSEventModifierFlagCommand;\n    }\n    return flags;\n}",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "tap-flags.c").write_text(
+                f"""
+#include <assert.h>
+#include <stdbool.h>
+
+typedef unsigned long NSUInteger;
+typedef unsigned long NSEventModifierFlags;
+typedef unsigned long long CGEventFlags;
+typedef enum {{ kCGEventKeyDown = 10, kCGEventKeyUp = 11, kCGEventFlagsChanged = 12 }} CGEventType;
+typedef enum {{ kCGKeyboardEventKeycode = 9 }} CGEventField;
+typedef struct {{ long keycode; CGEventFlags flags; }} Event, *CGEventRef;
+enum {{ NSEventModifierFlagControl = 1 << 18, NSEventModifierFlagCommand = 1 << 20 }};
+enum {{ kVK_Command = 0x37, kVK_RightCommand = 0x36 }};
+static CGEventFlags CGEventGetFlags(CGEventRef event) {{ return event->flags; }}
+static long CGEventGetIntegerValueField(CGEventRef event, CGEventField field) {{ return event->keycode; }}
+static bool cocoa_host_shortcut_left_command;
+static bool cocoa_host_shortcut_right_command;
+
+{command_down}
+
+{tap_flags}
+
+int main(void) {{
+    const NSEventModifierFlags cmd = NSEventModifierFlagCommand;
+    Event left_down = {{ kVK_Command, cmd | COCOA_DEVICE_LEFT_COMMAND }};
+    Event right_down = {{ kVK_RightCommand, cmd | COCOA_DEVICE_LEFT_COMMAND | COCOA_DEVICE_RIGHT_COMMAND }};
+    Event left_up = {{ kVK_Command, cmd | COCOA_DEVICE_RIGHT_COMMAND }};
+    Event right_up = {{ kVK_RightCommand, 0 }};
+    Event space = {{ 49, 0 }};
+    Event control_space = {{ 49, NSEventModifierFlagControl }};
+
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyDown, &space) == 0);
+
+    /* A key pressed with Command reaches the tap without the flag. */
+    assert(cocoa_host_shortcut_tap_flags(kCGEventFlagsChanged, &left_down) & cmd);
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyDown, &space) == cmd);
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyUp, &control_space) == (cmd | NSEventModifierFlagControl));
+
+    /* Command stays until both Command keys are up. */
+    cocoa_host_shortcut_tap_flags(kCGEventFlagsChanged, &right_down);
+    cocoa_host_shortcut_tap_flags(kCGEventFlagsChanged, &left_up);
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyDown, &space) == cmd);
+    cocoa_host_shortcut_tap_flags(kCGEventFlagsChanged, &right_up);
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyDown, &space) == 0);
+    assert(cocoa_host_shortcut_tap_flags(kCGEventKeyDown, &control_space) == NSEventModifierFlagControl);
+    return 0;
+}}
+""",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["cc", "-std=c11", "-Wall", "-Werror", "-Wno-unused-parameter", "-o", str(work / "tap-flags"),
+                 str(work / "tap-flags.c")],
+                check=True,
+            )
+            subprocess.run([str(work / "tap-flags")], check=True)
 
     def test_tap_and_window_paths_both_leave_shortcuts_alone(self) -> None:
         added = plus_lines()
@@ -179,6 +250,9 @@ int main(void) {{
         tap_guard = patch.index("cocoa_host_shortcut_event(\n+            CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode),")
         conversion = patch.index("     NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];")
         self.assertLess(tap_guard, conversion)
+        flags = patch.index("+    NSEventModifierFlags shortcut_flags =\n+        cocoa_host_shortcut_tap_flags(type, cgEvent);")
+        self.assertLess(flags, tap_guard)
+        self.assertIn("            shortcut_flags,\n            type == kCGEventKeyDown,", added)
         self.assertIn("kCGKeyboardEventAutorepeat", added)
         self.assertIn("if (cocoa_host_shortcut_event([event keyCode], [event modifierFlags],\n"
                       "                                          true, [event isARepeat])) {", added)

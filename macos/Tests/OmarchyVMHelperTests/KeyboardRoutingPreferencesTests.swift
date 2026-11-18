@@ -124,14 +124,17 @@ struct KeyboardRoutingPreferenceStoreTests {
         #expect(fixture.store.load().shortcuts.isEmpty)
     }
 
-    @Test("A stored shortcut QEMU couldn't take is dropped and the rest still load")
+    @Test("A stored shortcut QEMU couldn't take or that doesn't decode is dropped and the rest still load")
     func invalidShortcutsAreDropped() throws {
         let fixture = DefaultsFixture()
         let stored = try JSONSerialization.data(withJSONObject: [
             "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
-            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+            "brightness": "macOS", "missionControl": "omarchy", "spotlight": "macOS",
             "shortcuts": [
                 ["keyCode": 123, "modifiers": ["control"], "key": "←"],
+                ["keyCode": "124", "modifiers": ["control"], "key": "→"],
+                ["keyCode": 125, "modifiers": ["control"]],
+                "126+ctrl",
                 ["keyCode": 256, "modifiers": ["control"], "key": "?"],
                 ["keyCode": 1, "modifiers": [], "key": "S"],
                 ["keyCode": 2, "modifiers": ["hyper"], "key": "D"],
@@ -139,7 +142,9 @@ struct KeyboardRoutingPreferenceStoreTests {
             ],
         ])
         fixture.defaults.set(stored, forKey: KeyboardRoutingPreferenceStore.key)
-        #expect(fixture.store.load().shortcuts == [KeptShortcut(keyCode: 123, modifiers: .control, key: "←")])
+        let loaded = fixture.store.load()
+        #expect(loaded.shortcuts == [KeptShortcut(keyCode: 123, modifiers: .control, key: "←")])
+        #expect(loaded.missionControl == .omarchy)
     }
 
     @Test("Loading keeps at most the maximum number of shortcuts")

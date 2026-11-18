@@ -13,6 +13,10 @@ with macOS only while exactly those modifiers are held. Its repeats and key
 up follow its key down, so releasing Control before the arrow can't leave
 the arrow held in the guest. Bare keycodes keep their meaning.
 
+The capture swallows Command's flagsChanged, so a key pressed with Command
+can reach the tap without the Command flag. Remember Command from its own
+events so Command shortcuts still match.
+
 diff --git a/qapi/ui.json b/qapi/ui.json
 index d5a01cb..04fecbb 100644
 --- a/qapi/ui.json
@@ -43,10 +47,10 @@ index 7c4ece1..9f856ef 100644
      "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
  #endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index ee199f0..8486f01 100644
+index ee199f0..23db6fc 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1207,58 +1207,157 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+@@ -1207,58 +1207,187 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
  
  
  /*
@@ -82,6 +86,8 @@ index ee199f0..8486f01 100644
 +static CocoaHostShortcut cocoa_host_shortcuts[COCOA_HOST_SHORTCUT_MAX];
 +static unsigned cocoa_host_shortcut_count;
 +static bool cocoa_host_shortcut_held[256];
++static bool cocoa_host_shortcut_left_command;
++static bool cocoa_host_shortcut_right_command;
 +
 +/*
 + * Parse "a:b+ctrl:c+opt+cmd" (keycodes 0-255): bare keycodes into
@@ -196,6 +202,34 @@ index ee199f0..8486f01 100644
 +    return false;
 +}
 +
++/*
++ * The capture swallows Command's flagsChanged, and the keys pressed with it
++ * can then arrive without the Command flag (#181). Command's own events
++ * still carry it, so remember Command from them.
++ */
++static NSEventModifierFlags cocoa_host_shortcut_tap_flags(CGEventType type,
++                                                          CGEventRef cgEvent)
++{
++    NSEventModifierFlags flags = (NSEventModifierFlags)CGEventGetFlags(cgEvent);
++
++    if (type == kCGEventFlagsChanged) {
++        switch (CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode)) {
++        case kVK_Command:
++            cocoa_host_shortcut_left_command =
++                cocoa_command_down(flags, COCOA_DEVICE_LEFT_COMMAND);
++            break;
++        case kVK_RightCommand:
++            cocoa_host_shortcut_right_command =
++                cocoa_command_down(flags, COCOA_DEVICE_RIGHT_COMMAND);
++            break;
++        }
++    }
++    if (cocoa_host_shortcut_left_command || cocoa_host_shortcut_right_command) {
++        flags |= NSEventModifierFlagCommand;
++    }
++    return flags;
++}
++
  static bool cocoa_is_host_key(CGKeyCode keycode)
  {
      return keycode < 256 && cocoa_host_keys[keycode];
@@ -208,7 +242,12 @@ index ee199f0..8486f01 100644
   */
  static bool cocoa_media_key(long data1, int *qcode, bool *down)
  {
-@@ -1321,24 +1420,33 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+@@ -1316,29 +1445,41 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+             cocoa_media_key([systemEvent data1], &qcode, &down)) {
+             [view sendMediaKey:qcode down:down];
+             return NULL;
+         }
+         return cgEvent;
      }
  
      /*
@@ -216,6 +255,9 @@ index ee199f0..8486f01 100644
       * capture below would swallow them for the whole session. Hand the
       * ones configured with host-keys straight back to macOS.
       */
++    NSEventModifierFlags shortcut_flags =
++        cocoa_host_shortcut_tap_flags(type, cgEvent);
++
      if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
          cocoa_is_host_key(CGEventGetIntegerValueField(cgEvent,
                                      kCGKeyboardEventKeycode))) {
@@ -224,7 +266,7 @@ index ee199f0..8486f01 100644
 +    if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
 +        cocoa_host_shortcut_event(
 +            CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode),
-+            (NSEventModifierFlags)CGEventGetFlags(cgEvent),
++            shortcut_flags,
 +            type == kCGEventKeyDown,
 +            CGEventGetIntegerValueField(cgEvent,
 +                                        kCGKeyboardEventAutorepeat))) {
@@ -242,7 +284,7 @@ index ee199f0..8486f01 100644
      if (cocoa_caps_lock_key_event(event)) {
          /*
           * macOS decides between switching the input source and locking
-@@ -2613,24 +2721,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2613,24 +2754,28 @@ - (bool) handleEventLocked:(NSEvent *)event
  
              // Keep Command chords with the host unless the focused guest
              // captured the keyboard.
@@ -271,7 +313,7 @@ index ee199f0..8486f01 100644
  
                          // enable graphic console
                          case '1' ... '9':
-@@ -2648,24 +2760,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2648,24 +2793,28 @@ - (bool) handleEventLocked:(NSEvent *)event
              if (qemu_console_is_graphic(head->dcl.con)) {
                  qkbd_state_key_event(kbd, keycode, true);
              } else {
@@ -300,7 +342,7 @@ index ee199f0..8486f01 100644
                  qkbd_state_key_event(kbd, keycode, false);
              }
              return true;
-@@ -4740,26 +4856,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
+@@ -4740,26 +4889,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
  }
  
  static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)

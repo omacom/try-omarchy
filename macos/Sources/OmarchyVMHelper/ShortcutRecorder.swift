@@ -43,29 +43,16 @@ final class ShortcutRecorder {
     }
 
     func stop() {
-        if let tap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            CFMachPortInvalidate(tap)
-        }
-        if let tapSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes)
-        }
-        tap = nil
-        tapSource = nil
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
-        resignObserver = nil
-        swallowedKeys.removeAll()
-        handler = nil
+        removeTap()
+        endRecording()
     }
 
-    /// A shortcut needs a modifier, so typing in Omarchy keeps working;
-    /// Escape alone cancels.
+    /// A shortcut needs Control, Option or Command, so typing in Omarchy
+    /// keeps working, capitals included; Escape alone cancels.
     nonisolated static func classify(keyCode: Int, flags: NSEvent.ModifierFlags) -> Press {
         let modifiers = ShortcutModifiers(flags)
-        if modifiers.isEmpty {
-            return keyCode == 53 ? .cancel : .needsModifier
+        if modifiers.isDisjoint(with: [.control, .option, .command]) {
+            return keyCode == 53 && modifiers.isEmpty ? .cancel : .needsModifier
         }
         return .shortcut(keyCode: keyCode, modifiers: modifiers)
     }
@@ -85,10 +72,36 @@ final class ShortcutRecorder {
         }
     }
 
+    /// The tap stays until the recorded key is released, so its repeats
+    /// and key up can't act on macOS or the launcher. The handler runs
+    /// after the tap callback returns, so resizing the sheet can't hold up
+    /// the Mac's keyboard.
     private func finish(_ shortcut: KeptShortcut?) {
         guard let handler else { return }
-        stop()
-        handler(shortcut)
+        endRecording()
+        if swallowedKeys.isEmpty { removeTap() }
+        DispatchQueue.main.async { handler(shortcut) }
+    }
+
+    private func endRecording() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+        handler = nil
+    }
+
+    private func removeTap() {
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        if let tapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes)
+        }
+        tap = nil
+        tapSource = nil
+        swallowedKeys.removeAll()
     }
 
     private func installTap() -> Bool {
@@ -121,8 +134,11 @@ final class ShortcutRecorder {
         }
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .keyUp {
-            return swallowedKeys.remove(keyCode) == nil ? Unmanaged.passUnretained(event) : nil
+            let swallowed = swallowedKeys.remove(keyCode) != nil
+            if !isRecording && swallowedKeys.isEmpty { removeTap() }
+            return swallowed ? nil : Unmanaged.passUnretained(event)
         }
+        if swallowedKeys.contains(keyCode) { return nil }
         guard NSApp.isActive, isRecording else { return Unmanaged.passUnretained(event) }
         swallowedKeys.insert(keyCode)
         if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
