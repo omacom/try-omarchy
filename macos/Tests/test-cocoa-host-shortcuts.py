@@ -253,6 +253,7 @@ int main(void) {{
         flags = patch.index("+    NSEventModifierFlags shortcut_flags =\n+        cocoa_host_shortcut_tap_flags(type, cgEvent);")
         self.assertLess(flags, tap_guard)
         self.assertIn("            shortcut_flags,\n            type == kCGEventKeyDown,", added)
+        self.assertIn("        CGEventSetFlags(cgEvent, shortcut_flags);\n        return cgEvent;", added)
         self.assertIn("kCGKeyboardEventAutorepeat", added)
         self.assertIn("if (cocoa_host_shortcut_event([event keyCode], [event modifierFlags],\n"
                       "                                          true, [event isARepeat])) {", added)

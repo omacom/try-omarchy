@@ -15,7 +15,8 @@ the arrow held in the guest. Bare keycodes keep their meaning.
 
 The capture swallows Command's flagsChanged, so a key pressed with Command
 can reach the tap without the Command flag. Remember Command from its own
-events so Command shortcuts still match.
+events so Command shortcuts still match, and put the flag back on the
+shortcut handed to macOS.
 
 diff --git a/qapi/ui.json b/qapi/ui.json
 index d5a01cb..04fecbb 100644
@@ -47,10 +48,10 @@ index 7c4ece1..9f856ef 100644
      "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
  #endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index ee199f0..23db6fc 100644
+index ee199f0..1df6b40 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1207,58 +1207,187 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+@@ -1207,58 +1207,188 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
  
  
  /*
@@ -205,7 +206,8 @@ index ee199f0..23db6fc 100644
 +/*
 + * The capture swallows Command's flagsChanged, and the keys pressed with it
 + * can then arrive without the Command flag (#181). Command's own events
-+ * still carry it, so remember Command from them.
++ * still carry it, so remember Command from them, and put it back on a
++ * shortcut handed to macOS.
 + */
 +static NSEventModifierFlags cocoa_host_shortcut_tap_flags(CGEventType type,
 +                                                          CGEventRef cgEvent)
@@ -242,7 +244,7 @@ index ee199f0..23db6fc 100644
   */
  static bool cocoa_media_key(long data1, int *qcode, bool *down)
  {
-@@ -1316,29 +1445,41 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+@@ -1316,29 +1446,42 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
              cocoa_media_key([systemEvent data1], &qcode, &down)) {
              [view sendMediaKey:qcode down:down];
              return NULL;
@@ -270,6 +272,7 @@ index ee199f0..23db6fc 100644
 +            type == kCGEventKeyDown,
 +            CGEventGetIntegerValueField(cgEvent,
 +                                        kCGKeyboardEventAutorepeat))) {
++        CGEventSetFlags(cgEvent, shortcut_flags);
 +        return cgEvent;
 +    }
  
@@ -284,7 +287,7 @@ index ee199f0..23db6fc 100644
      if (cocoa_caps_lock_key_event(event)) {
          /*
           * macOS decides between switching the input source and locking
-@@ -2613,24 +2754,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2613,24 +2756,28 @@ - (bool) handleEventLocked:(NSEvent *)event
  
              // Keep Command chords with the host unless the focused guest
              // captured the keyboard.
@@ -313,7 +316,7 @@ index ee199f0..23db6fc 100644
  
                          // enable graphic console
                          case '1' ... '9':
-@@ -2648,24 +2793,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2648,24 +2795,28 @@ - (bool) handleEventLocked:(NSEvent *)event
              if (qemu_console_is_graphic(head->dcl.con)) {
                  qkbd_state_key_event(kbd, keycode, true);
              } else {
@@ -342,7 +345,7 @@ index ee199f0..23db6fc 100644
                  qkbd_state_key_event(kbd, keycode, false);
              }
              return true;
-@@ -4740,26 +4889,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
+@@ -4740,26 +4891,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
  }
  
  static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
