@@ -437,19 +437,25 @@ esac
 # Mac keycodes that stay with macOS while full grab owns the keyboard. Unset
 # keeps the app's defaults (brightness, Mission Control, Spotlight,
 # Dictation, Do Not Disturb); empty sends every dedicated key to Omarchy.
-# QEMU separates options with commas, so the display option lists them with
-# colons.
+# A keycode with modifiers, such as 124+ctrl, is a shortcut that stays with
+# macOS only while exactly those modifiers are held. QEMU separates options
+# with commas, so the display option lists them with colons.
 host_keys=${OMARCHY_QEMU_GPU_HOST_KEYS-131,144,145,160,176,177,178}
 cocoa_host_keys=""
 if [[ -n $host_keys ]]; then
-  host_keys_error="OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255"
-  [[ $host_keys =~ ^[0-9]{1,3}(,[0-9]{1,3})*$ ]] || fail "$host_keys_error"
+  host_keys_error="OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255, each with optional +ctrl, +opt, +shift or +cmd"
+  host_key_pattern='[0-9]{1,3}(\+(ctrl|opt|shift|cmd))*'
+  [[ $host_keys =~ ^$host_key_pattern(,$host_key_pattern)*$ ]] || fail "$host_keys_error"
   IFS=, read -r -a host_key_list <<<"$host_keys"
   for host_key in "${host_key_list[@]}"; do
-    ((10#$host_key <= 255)) || fail "$host_keys_error"
+    ((10#${host_key%%+*} <= 255)) || fail "$host_keys_error"
   done
   LC_ALL=C grep -aFq 'host-keys must be keycodes' "$qemu_bin" ||
     fail "the bundled QEMU cannot leave the Mac's dedicated keys with macOS; run make runtime"
+  if [[ $host_keys == *+* ]]; then
+    LC_ALL=C grep -aFq 'optional +ctrl, +opt, +shift or +cmd' "$qemu_bin" ||
+      fail "the bundled QEMU cannot leave shortcuts with macOS; run make runtime"
+  fi
   cocoa_host_keys=",host-keys=${host_keys//,/:}"
 fi
 
