@@ -57,6 +57,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let setUsesNotch: (Bool) -> Void
     private let usesAllDisplays: () -> Bool
     private let displaysHaveSeparateSpaces: () -> Bool
+    private let presentSeparateSpacesGuide: (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void
+    private let openSeparateSpacesSettings: () -> Void
     private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
     private let setStartAutomatically: (Bool) -> String?
@@ -107,6 +109,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     }
     private var prelaunchControlsLocked: Bool { state.prelaunchLocked }
     private var settingsResetConfirmation: NSAlert?
+    private var separateSpacesGuide: NSAlert?
     private(set) var portForwardingEditor: PortForwardingEditor?
     private(set) var resourceEditor: VMResourceEditor?
     private(set) var usbDeviceEditor: USBDeviceEditor?
@@ -165,6 +168,14 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         presentSettingsResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { alert, window, decide in
             alert.beginSheetModal(for: window) { decide($0 == .alertFirstButtonReturn) }
         },
+        presentSeparateSpacesGuide: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { alert, window, decide in
+            alert.beginSheetModal(for: window) { decide($0 == .alertFirstButtonReturn) }
+        },
+        openSeparateSpacesSettings: @escaping () -> Void = {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension?displays-have-separate-spaces") {
+                NSWorkspace.shared.open(url)
+            }
+        },
         appVersionLabel: String = InstalledAppRelease.current.label,
         appReleaseActionTitle: @escaping () -> String = { "Check for Updates…" },
         checkForAppUpdates: @escaping () -> Void = {},
@@ -218,6 +229,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.setUsesNotch = setUsesNotch
         self.usesAllDisplays = usesAllDisplays
         self.displaysHaveSeparateSpaces = displaysHaveSeparateSpaces
+        self.presentSeparateSpacesGuide = presentSeparateSpacesGuide
+        self.openSeparateSpacesSettings = openSeparateSpacesSettings
         self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
         self.setStartAutomatically = setStartAutomatically
@@ -443,6 +456,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             window.endSheet(sheet, returnCode: .cancel)
         }
         settingsResetConfirmation = nil
+        if let sheet = separateSpacesGuide?.window, let parent = sheet.sheetParent {
+            parent.endSheet(sheet, returnCode: .cancel)
+        }
+        separateSpacesGuide = nil
         portForwardingEditor?.dismiss()
         portForwardingEditor = nil
         resourceEditor?.dismiss()
@@ -583,7 +600,6 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
         state.usesAllDisplays = usesAllDisplays()
-        state.displaysHaveSeparateSpaces = displaysHaveSeparateSpaces()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
     }
@@ -837,6 +853,45 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
 
     func changeDisplaysMode(_ isEnabled: Bool) {
         guard !controlsBusy else { return }
+        if isEnabled, !displaysHaveSeparateSpaces() {
+            guideToSeparateSpaces()
+            return
+        }
+        saveDisplaysMode(isEnabled)
+    }
+
+    /// macOS keeps full screen to one display unless each display has its
+    /// own Spaces, and that setting applies only after logging out.
+    private func guideToSeparateSpaces() {
+        guard separateSpacesGuide == nil else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Turn on separate Spaces for your displays"
+        alert.informativeText = """
+            To use every display, Omarchy needs “Displays have separate Spaces”, a macOS setting.
+
+            In Desktop & Dock settings, turn it on under Mission Control. Then log out of your Mac and back in.
+            """
+        alert.addButton(withTitle: "Open Desktop & Dock")
+        alert.addButton(withTitle: "Cancel")
+        separateSpacesGuide = alert
+        presentSeparateSpacesGuide(alert, window.attachedSheet ?? window) { [weak self, weak alert] confirmed in
+            guard let self, let alert, separateSpacesGuide === alert else { return }
+            separateSpacesGuide = nil
+            guard confirmed, !controlsBusy else { return }
+            saveDisplaysMode(true)
+            yieldToAnotherApp()
+            openSeparateSpacesSettings()
+        }
+    }
+
+    /// All Displays works in Immersive Mode only, so turning it on turns
+    /// Immersive Mode on too.
+    private func saveDisplaysMode(_ isEnabled: Bool) {
+        if isEnabled, !state.immersive {
+            setImmersiveMode(true)
+            state.immersive = true
+        }
         setUsesAllDisplays(isEnabled)
         state.usesAllDisplays = isEnabled
         NSAccessibility.post(

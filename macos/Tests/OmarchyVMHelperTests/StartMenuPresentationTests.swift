@@ -190,14 +190,6 @@ struct StartMenuPresentationTests {
         #expect(StartMenuPresentation.displaysDetail(isEnabled: false) == "Full Screen uses one display.")
     }
 
-    @Test("all displays warns, with the way to fix it, when macOS keeps full screen to one display")
-    func displaysSeparateSpacesWarning() {
-        #expect(StartMenuPresentation.displaysWarning(isEnabled: true, separateSpaces: false)
-            == "Omarchy uses one display until “Displays have separate Spaces” is on in System Settings › Desktop & Dock. Log out after changing it.")
-        #expect(StartMenuPresentation.displaysWarning(isEnabled: true, separateSpaces: true) == nil)
-        #expect(StartMenuPresentation.displaysWarning(isEnabled: false, separateSpaces: false) == nil)
-    }
-
     @Test("camera notch guidance says where Full Screen ends")
     func notchGuidance() {
         #expect(StartMenuPresentation.notchDetail(isEnabled: true)

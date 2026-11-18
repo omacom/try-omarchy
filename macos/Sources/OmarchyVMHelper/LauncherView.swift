@@ -257,8 +257,7 @@ private struct HomePane: View {
                     SettingRow(
                         icon: SettingIcon("display.2", .blue),
                         title: "All Displays",
-                        detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)],
-                        warning: state.allDisplaysWarning
+                        detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)]
                     ) {
                         LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
                     }
@@ -576,14 +575,13 @@ private struct WhatsNewSheet: View {
                 Section {
                     ForEach(WhatsNew.items) { item in
                         SettingRow(icon: SettingIcon(item.symbol, item.color), title: item.title,
-                                   detail: [detail(for: item)],
-                                   warning: item.setting == .allDisplays ? state.allDisplaysWarning : nil) {
+                                   detail: [detail(for: item)]) {
                             if item.setting == .allDisplays {
-                                LauncherSwitch("All Displays", isOn: state.immersive && state.usesAllDisplays) { isOn in
-                                    // All Displays works in Immersive Mode only.
-                                    if isOn, !state.immersive { actions.setImmersive(true) }
-                                    actions.setUsesAllDisplays(isOn)
-                                }
+                                LauncherSwitch(
+                                    "All Displays",
+                                    isOn: state.immersive && state.usesAllDisplays,
+                                    set: actions.setUsesAllDisplays
+                                )
                             }
                         }
                     }
@@ -809,8 +807,7 @@ private struct StartupSection: View {
                 SettingRow(
                     icon: SettingIcon("display.2", .blue),
                     title: "All Displays",
-                    detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)],
-                    warning: state.allDisplaysWarning
+                    detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)]
                 ) {
                     LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
                 }

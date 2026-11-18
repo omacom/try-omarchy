@@ -106,9 +106,6 @@ final class LauncherState {
     var notchAvailable = false
     var usesNotch = true
     var usesAllDisplays = false
-    /// All Displays needs macOS's "Displays have separate Spaces", which
-    /// takes effect only after logging out.
-    var displaysHaveSeparateSpaces = true
     var startAutomatically = false
 
     var productName = ProductName.defaultName
@@ -122,12 +119,6 @@ final class LauncherState {
     // MARK: Derived rules
 
     var permissionRequestInFlight: Bool { microphoneRequestInFlight || cameraRequestInFlight }
-
-    var allDisplaysWarning: String? {
-        StartMenuPresentation.displaysWarning(
-            isEnabled: immersive && usesAllDisplays, separateSpaces: displaysHaveSeparateSpaces
-        )
-    }
 
     /// Work that must finish before settings can change or the VM can start.
     var controlsBusy: Bool {
