@@ -55,6 +55,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let notchAvailable: () -> Bool
     private let usesNotch: () -> Bool
     private let setUsesNotch: (Bool) -> Void
+    private let keyboardRouting: () -> KeyboardRoutingPreferences
+    private let saveKeyboardRouting: (KeyboardRoutingPreferences) -> Void
     private let usesAllDisplays: () -> Bool
     private let setUsesAllDisplays: (Bool) -> Void
     private let startAutomatically: () -> Bool
@@ -65,6 +67,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private let launch: () -> Void
     private let permissionPromptShown: () -> Bool
     private let setPermissionPromptShown: () -> Void
+    private let whatsNewDue: () -> Bool
+    private let setWhatsNewSeen: () -> Void
     private let firstBootCompleted: () -> Bool
     private let setFirstBootCompleted: () -> Void
     private let appReleaseActionTitle: () -> String
@@ -86,9 +90,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     var onAppReleasePromptOpportunity: (() -> Void)?
     var canPresentAppReleasePrompt: Bool {
         window.isKeyWindow && !controlsBusy
-            && !state.permissionRequestInFlight && !state.permissionPromptPresented
+            && !state.permissionRequestInFlight && !state.permissionPromptPresented && !state.whatsNewPresented
             && window.attachedSheet == nil && networkEditor == nil
             && portForwardingEditor == nil && resourceEditor == nil && usbDeviceEditor == nil
+            && keyboardRoutingEditor == nil
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -110,6 +115,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
     private(set) var storageEditor: VMStorageEditor? {
         didSet { state.storageEditorOpen = storageEditor != nil }
     }
+    private(set) var keyboardRoutingEditor: KeyboardRoutingEditor?
 
     init(
         accessibilityStatus: @escaping () -> Bool,
@@ -152,6 +158,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
+        keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
+        saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
         usesAllDisplays: @escaping () -> Bool = { false },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
@@ -170,6 +178,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         setPermissionPromptShown: @escaping () -> Void = {},
         firstBootCompleted: @escaping () -> Bool = { false },
         setFirstBootCompleted: @escaping () -> Void = {},
+        whatsNewDue: @escaping () -> Bool = { false },
+        setWhatsNewSeen: @escaping () -> Void = {},
         launch: @escaping () -> Void
     ) {
         self.accessibilityStatus = accessibilityStatus
@@ -210,6 +220,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.notchAvailable = notchAvailable
         self.usesNotch = usesNotch
         self.setUsesNotch = setUsesNotch
+        self.keyboardRouting = keyboardRouting
+        self.saveKeyboardRouting = saveKeyboardRouting
         self.usesAllDisplays = usesAllDisplays
         self.setUsesAllDisplays = setUsesAllDisplays
         self.startAutomatically = startAutomatically
@@ -220,6 +232,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         self.launch = launch
         self.permissionPromptShown = permissionPromptShown
         self.setPermissionPromptShown = setPermissionPromptShown
+        self.whatsNewDue = whatsNewDue
+        self.setWhatsNewSeen = setWhatsNewSeen
         self.firstBootCompleted = firstBootCompleted
         self.setFirstBootCompleted = setFirstBootCompleted
         self.appReleaseActionTitle = appReleaseActionTitle
@@ -262,6 +276,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
                 launchOmarchy()
             },
             dismissPermissionPrompt: { [weak self] in self?.state.permissionPromptPresented = false },
+            dismissWhatsNew: { [weak self] in self?.state.whatsNewPresented = false },
+            openWhatsNewNotes: { NSWorkspace.shared.open(WhatsNew.releaseNotesURL) },
             accessibilityAction: { [weak self] in self?.beginAccessibilityRequest() },
             microphoneAction: { [weak self] in
                 guard let self else { return }
@@ -290,6 +306,7 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
             openStorageLocation: { [weak self] in self?.openStorageLocation() },
             setImmersive: { [weak self] in self?.changeImmersiveMode($0) },
             setUsesNotch: { [weak self] in self?.changeNotchMode($0) },
+            configureKeyboard: { [weak self] in self?.beginKeyboardConfiguration() },
             setUsesAllDisplays: { [weak self] in self?.changeDisplaysMode($0) },
             setStartAutomatically: { [weak self] in self?.changeStartAutomatically($0) },
             resetSettings: { [weak self] in self?.confirmSettingsReset() },
@@ -359,6 +376,10 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        if !state.isRunning, whatsNewDue() {
+            setWhatsNewSeen()
+            state.whatsNewPresented = true
+        }
     }
 
     /// Reuse the current view hierarchy so open editors keep their drafts.
@@ -434,6 +455,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         resourceEditor = nil
         storageEditor?.dismiss()
         storageEditor = nil
+        keyboardRoutingEditor?.dismiss()
+        keyboardRoutingEditor = nil
         window.orderOut(nil)
     }
 
@@ -567,6 +590,9 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         state.immersive = immersiveMode()
         state.notchAvailable = notchAvailable()
         state.usesNotch = usesNotch()
+        let routing = keyboardRouting()
+        state.keyboardRouting = StartMenuPresentation.keyboardRouting(routing)
+        state.keyboardRoutingIsDefault = routing == .defaults
         state.usesAllDisplays = usesAllDisplays()
         state.startAutomatically = startAutomatically()
         state.appReleaseActionTitle = appReleaseActionTitle()
@@ -805,6 +831,21 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         editor.beginSheet(for: window)
     }
 
+    private func beginKeyboardConfiguration() {
+        guard !controlsBusy, !state.permissionRequestInFlight,
+              keyboardRoutingEditor == nil, window.attachedSheet == nil else { return }
+        let editor = KeyboardRoutingEditor(
+            preferences: keyboardRouting(),
+            save: { [weak self] preferences in self?.saveKeyboardRouting(preferences) },
+            didClose: { [weak self] in
+                self?.keyboardRoutingEditor = nil
+                self?.refresh()
+            }
+        )
+        keyboardRoutingEditor = editor
+        editor.beginSheet(for: window)
+    }
+
     func changeImmersiveMode(_ isEnabled: Bool) {
         guard !controlsBusy else { return }
         setImmersiveMode(isEnabled)
@@ -857,8 +898,8 @@ final class StartMenuWindow: NSObject, NSWindowDelegate {
         alert.alertStyle = .warning
         alert.messageText = "Reset all settings?"
         alert.informativeText = state.runsInAnotherApp
-            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, and Camera Notch return to their defaults. Your VM and its files are not changed."
-            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, and Skip Launcher return to their defaults. Your VM and its files are not changed."
+            ? "Resources, networking, port forwarding, the shared folder, USB device, Immersive Mode, Camera Notch, and Keyboard return to their defaults. Your VM and its files are not changed."
+            : "Resources, networking, port forwarding, the shared folder, USB device, audio devices, Immersive Mode, Camera Notch, Keyboard, and Skip Launcher return to their defaults. Your VM and its files are not changed."
         let reset = alert.addButton(withTitle: "Reset Settings")
         reset.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")

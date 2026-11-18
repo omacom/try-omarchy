@@ -61,6 +61,8 @@ display_patch="$native_dir/patches/qemu-cocoa-dynamic-display.patch"
 immersive_patch="$native_dir/patches/qemu-cocoa-immersive-mode.patch"
 full_grab_patch="$native_dir/patches/qemu-cocoa-full-grab-focus.patch"
 reenable_patch="$native_dir/patches/qemu-cocoa-full-grab-reenable.patch"
+host_keys_patch="$native_dir/patches/qemu-cocoa-host-keys.patch"
+media_keys_patch="$native_dir/patches/qemu-cocoa-media-keys.patch"
 pause_ownership_patch="$native_dir/patches/qemu-cocoa-pause-ownership.patch"
 pinch_patch="$native_dir/patches/qemu-cocoa-pinch-zoom.patch"
 precise_scroll_patch="$native_dir/patches/qemu-cocoa-precise-scroll.patch"
@@ -91,6 +93,7 @@ close_patch="$native_dir/patches/libslirp-darwin-async-close.patch"
 qemu_slirp_init_patch="$native_dir/patches/qemu-slirp-init-error.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
+guest_layout_patch="$native_dir/patches/qemu-cocoa-guest-layout.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 virgl_upload_flush_patch="$native_dir/patches/virgl-ctx0-upload-flush.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
@@ -109,6 +112,8 @@ display_patch_sha256=1ce59350b6b8e6842bc0c9ca34c97f54cb75e85e2d7b35e5b483858654c
 immersive_patch_sha256=2462463932f7db0d659f754f7f9c182884564dbcd7d4b8e523f1b57f0bd9fe5b
 full_grab_patch_sha256=4da9a9fd3017b2a9abcdacd449ad6907fd1cd415328598f3a35b895b15b0b072
 reenable_patch_sha256=e331f329afd45d61b130037119bd4099e0f618b42313f0f712ca40ab251b3de7
+host_keys_patch_sha256=c069aeee434ad7e21862fd8ede341b622a5e0235a174c39e095ed5175c5fe921
+media_keys_patch_sha256=eb26c8ea01f8a7dcd1508e73a326aa6dcc440afae51e77e38acaf5c04ab2fecf
 pause_ownership_patch_sha256=1a5729b36eb3e437395d41883a10c3c652df71d289d5df84d95aebd49c78a8f0
 pinch_patch_sha256=618c17eef1c2ab97d48ed82b58d9fa2b727ea3f26a0d30225199ac97985a9f06
 precise_scroll_patch_sha256=54252b3b19358aa7e2c75d5f50775a7f488ef2d8b4db8723ba4768b56316a78f
@@ -117,7 +122,7 @@ iso_swap_patch_sha256=57f33a5fb08fb90a7813b13bb7037a13198e4d7db230085b1faa28b284
 injected_text_patch_sha256=18d64d52f715d0cf1b2b6d1761059371e1859ee61faf3cc4800e2effc1ed4dd1
 command_chord_patch_sha256=d2a6cc3827ddac15f5baa063b36ab857b9571221ca1ce4ef25896cae914ff9f6
 korean_caps_lock_patch_sha256=2de69757123f964dcd9a2ebda8de29ac9218f9638e2e30b73a740a6de0b6a355
-pointer_mapping_patch_sha256=3094b2f00063af1da6e25f84ccf837ff628aae8cbdaba13f82ccfb520eb07d5d
+pointer_mapping_patch_sha256=1c6980ae5f57b23214cfce48780ffef12d18404790ab293307b3ca888ed04547
 pointer_modifiers_patch_sha256=26da2f6937cd36f79cb2b94ef273009cce95140a1fd825917ac57b98ea13edec
 audio_device_patch_sha256=03aca71c26163c337338cc3b2013c35430690fc0e8b66c5ce92a42f59a9b3334
 audio_recovery_patch_sha256=d1e93fd303777f424d7b11522fcf44bf726058901e85de3920c33e9083f301ea
@@ -131,11 +136,12 @@ strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
 no_app_nap_patch_sha256=af5f7c5c04da1293dcfcd752c60bfd258357bd72427492ea81c834ededa39967
-notch_patch_sha256=6b1a6bc134023ee9136d8b077f9663ed67259cb765653a2aaa63a5e31fb6d1c9
+notch_patch_sha256=6b66cd1110dd497db93163ac888d8fbf0cf34d517ea0f1022c99d0629bc3c52f
 hda_no_catch_up_patch_sha256=01c72ca75e8ce8f3eb21541468e87ee29b96488bd4579c14a93836f6cf056a43
 audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5f20811d40c0080d3ce
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
-multi_display_patch_sha256=fe315784ed42221a879ab805e47d5d02d6b498797c4f32941112d6203b43937f
+multi_display_patch_sha256=9cf821bbc00ee9ae94c67e68bd5b6bd50b8448c83e67ca3d1840987e09bb06e5
+guest_layout_patch_sha256=db7a452e8c473ddd9885c892acd995dac790bea7af5f826cfa613d88cc5ab295
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=cc1eed584203a870da0be3cb7891afb86492d580033c9d073d3bd58d4beaf0cc
 slirp_patch_sha256=c1c03f5ec53a2ee908212fa664ff65712bb4e6be2e8b5fc2b24a927de786c7c2
@@ -254,6 +260,10 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa full-grab patch: $full_grab_patch"
 [[ -f $reenable_patch && ! -L $reenable_patch ]] || \
   die "missing Cocoa full-grab re-enable patch: $reenable_patch"
+[[ -f $host_keys_patch && ! -L $host_keys_patch ]] || \
+  die "missing Cocoa host-keys patch: $host_keys_patch"
+[[ -f $media_keys_patch && ! -L $media_keys_patch ]] || \
+  die "missing Cocoa media-keys patch: $media_keys_patch"
 [[ -f $pause_ownership_patch && ! -L $pause_ownership_patch ]] || \
   die "missing Cocoa pause-ownership patch: $pause_ownership_patch"
 [[ -f $pinch_patch && ! -L $pinch_patch ]] || \
@@ -302,6 +312,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing SLIRP initialization error patch: $qemu_slirp_init_patch"
 [[ -f $multi_display_patch && ! -L $multi_display_patch ]] || \
   die "missing Cocoa multi-display patch: $multi_display_patch"
+[[ -f $guest_layout_patch && ! -L $guest_layout_patch ]] || \
+  die "missing Cocoa guest-layout patch: $guest_layout_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -510,6 +522,10 @@ verify_file_sha "Try Omarchy Cocoa full-grab patch" \
   "$full_grab_patch" "$full_grab_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa full-grab re-enable patch" \
   "$reenable_patch" "$reenable_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa host-keys patch" \
+  "$host_keys_patch" "$host_keys_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa media-keys patch" \
+  "$media_keys_patch" "$media_keys_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pause-ownership patch" \
   "$pause_ownership_patch" "$pause_ownership_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa pinch-zoom patch" \
@@ -552,6 +568,8 @@ verify_file_sha "Try Omarchy Cocoa notch patch" \
   "$notch_patch" "$notch_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa multi-display patch" \
   "$multi_display_patch" "$multi_display_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa guest-layout patch" \
+  "$guest_layout_patch" "$guest_layout_patch_sha256"
 verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
   "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
@@ -563,7 +581,7 @@ verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
 verify_file_sha "Try Omarchy SLIRP initialization error patch" \
   "$qemu_slirp_init_patch" "$qemu_slirp_init_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, and multi-display patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, multi-display, and guest-layout patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -571,6 +589,8 @@ patch -d "$source_dir" -p1 -f -i "$display_patch"
 patch -d "$source_dir" -p1 -f -i "$immersive_patch"
 patch -d "$source_dir" -p1 -f -i "$full_grab_patch"
 patch -d "$source_dir" -p1 -f -i "$reenable_patch"
+patch -d "$source_dir" -p1 -f -i "$host_keys_patch"
+patch -d "$source_dir" -p1 -f -i "$media_keys_patch"
 patch -d "$source_dir" -p1 -f -i "$pause_ownership_patch"
 verify_file_sha "Try Omarchy HDA full-ring recovery patch" \
   "$audio_recovery_patch" "$audio_recovery_patch_sha256"
@@ -600,6 +620,7 @@ patch -d "$source_dir" -p1 -f -i "$korean_caps_lock_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_mapping_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_modifiers_patch"
 patch -d "$source_dir" -p1 -f -i "$multi_display_patch"
+patch -d "$source_dir" -p1 -f -i "$guest_layout_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

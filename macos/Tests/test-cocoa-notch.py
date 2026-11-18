@@ -46,10 +46,11 @@ class CocoaNotchTests(unittest.TestCase):
         self.assertIn(f"notch_patch_sha256={digest}", builder)
         self.assertIn('verify_file_sha "Try Omarchy Cocoa notch patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.MULTILINE)
-        # Only the Command-chord, touch-scroll, Korean Caps Lock, pointer-mapping, pointer modifier and multi-display patches, made against this one, come later.
+        # Only the Command-chord, touch-scroll, Korean Caps Lock, pointer-mapping, pointer modifier, multi-display and guest-layout patches, made against this one, come later.
         self.assertEqual(applied[applied.index("notch_patch") + 1:],
                          ["command_chord_patch", "touch_scroll_patch", "korean_caps_lock_patch",
-                          "pointer_mapping_patch", "pointer_modifiers_patch", "multi_display_patch"])
+                          "pointer_mapping_patch", "pointer_modifiers_patch", "multi_display_patch",
+                          "guest_layout_patch"])
 
     def test_one_private_method_checked_before_use(self) -> None:
         install = block(patched(), "static void cocoa_notch_hook_install(void)")
@@ -78,10 +79,11 @@ class CocoaNotchTests(unittest.TestCase):
                           "notchReveal == COCOA_REVEAL_NONE", "!menuTracking"):
             self.assertIn(condition, level)
         self.assertIn("raised ? NSStatusWindowLevel : NSNormalWindowLevel", level)
-        # Entering full screen, a resize or new screen, the keyboard and the
-        # app's focus re-evaluate it.
+        # The window's geometry, the keyboard and the app's focus re-evaluate it.
         text = patched()
-        self.assertEqual(added().count("    [cocoaView updateNotchLevel];"), 7)
+        self.assertEqual(added().count("    [cocoaView updateNotchLevel];"), 5)
+        self.assertIn("[cocoaView updateNotchLevel];",
+                      block(text, "- (void)windowGeometryDidChange"))
         for delegate in ("windowDidBecomeKey", "applicationDidBecomeActive"):
             self.assertIn("[cocoaView updateNotchLevel];",
                           block(text, f"- (void){delegate}:(NSNotification *)notification"))
@@ -89,12 +91,42 @@ class CocoaNotchTests(unittest.TestCase):
                       block(text, "- (void)windowWillExitFullScreen:(NSNotification *)notification"))
 
     def test_guest_is_offered_the_whole_display_while_covering(self) -> None:
-        text = patched()
-        safe = block(text, "- (NSSize) screenSafeAreaSize")
+        safe = block(patched(), "- (NSSize) screenSafeAreaSize")
         self.assertLess(safe.index("if ([self coversNotch])"), safe.index("insets.top + insets.bottom"))
-        # resizeWindow, from its first line on.
-        resize = text[text.index("    [[self window] setContentAspectRatio:"):]
-        self.assertLess(resize.index("if ([self coversNotch])"), resize.index("NSWindowStyleMaskResizable"))
+
+    def test_full_screen_keeps_appkits_layout_on_every_display(self) -> None:
+        # The window server keeps a window that QEMU sized or moved off the
+        # strip, while AppKit reports the whole display: the pointer would be
+        # a strip away from the picture (#428). A window sized on an external
+        # display and moved to the panel carries that over, so the rule holds
+        # on every display.
+        text = patched()
+        # resizeWindow, from its first line on (the hunk shows its start).
+        resize = text[text.index("- (void) resizeWindow\n{\n"):]
+        guard = resize.index("    if ([[self window] styleMask] & NSWindowStyleMaskFullScreen) {\n")
+        self.assertNotIn("cocoa_notch_strip", resize[guard:resize.index("return;", guard)])
+        self.assertLess(guard, resize.index("[[self window] setContentAspectRatio:"))
+        body = resize[:resize.index("\n}\n")]
+        self.assertNotIn("screenSafeAreaSize", body)
+        self.assertNotIn("setFrame:", added())
+
+    def test_geometry_is_followed_after_a_move_or_a_space_switch(self) -> None:
+        text = patched()
+        follow = block(text, "- (void)windowGeometryDidChange")
+        for step in ("[cocoaView updateScale];", "[cocoaView updateUIInfo];", "[cocoaView updateNotchLevel];"):
+            self.assertIn(step, follow)
+        # Entering full screen, a resize and a new screen use it, and so do a
+        # move and a Space switch while in full screen.
+        for delegate in ("windowDidEnterFullScreen", "windowDidResize", "windowDidChangeScreen"):
+            self.assertIn("[self windowGeometryDidChange];",
+                          block(text, f"- (void){delegate}:(NSNotification *)notification"))
+        for delegate in ("windowDidMove", "activeSpaceDidChange"):
+            handler = block(text, f"- (void){delegate}:(NSNotification *)notification")
+            self.assertIn("NSWindowStyleMaskFullScreen", handler)
+            self.assertIn("[self windowGeometryDidChange];", handler)
+        self.assertIn("[[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self\n"
+                      "            selector:@selector(activeSpaceDidChange:)\n"
+                      "            name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];", text)
 
     def test_menu_bar_and_dock_reveal_only_outside_immersive_mode(self) -> None:
         reveal = block(patched(), "- (void) updateNotchReveal")

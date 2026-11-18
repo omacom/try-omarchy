@@ -7,6 +7,8 @@ struct LauncherActions {
     var launchOrDone: () -> Void = {}
     var launchAnyway: () -> Void = {}
     var dismissPermissionPrompt: () -> Void = {}
+    var dismissWhatsNew: () -> Void = {}
+    var openWhatsNewNotes: () -> Void = {}
     var accessibilityAction: () -> Void = {}
     var microphoneAction: () -> Void = {}
     var cameraAction: () -> Void = {}
@@ -21,6 +23,7 @@ struct LauncherActions {
     var openStorageLocation: () -> Void = {}
     var setImmersive: (Bool) -> Void = { _ in }
     var setUsesNotch: (Bool) -> Void = { _ in }
+    var configureKeyboard: () -> Void = {}
     var setUsesAllDisplays: (Bool) -> Void = { _ in }
     var setStartAutomatically: (Bool) -> Void = { _ in }
     var resetSettings: () -> Void = {}
@@ -72,6 +75,9 @@ struct LauncherView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
             .disabled(state.permissionRequestInFlight)
+            .sheet(isPresented: $state.whatsNewPresented) {
+                WhatsNewSheet(state: state, actions: actions)
+            }
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 760, minHeight: 500)
@@ -247,6 +253,15 @@ private struct HomePane: View {
                     detail: [StartMenuPresentation.immersiveDetail(isEnabled: state.immersive)]
                 ) {
                     LauncherSwitch("Immersive Mode", isOn: state.immersive, set: actions.setImmersive)
+                }
+                if state.immersive {
+                    SettingRow(
+                        icon: SettingIcon("display.2", .blue),
+                        title: "All Displays",
+                        detail: [StartMenuPresentation.displaysDetail(isEnabled: state.usesAllDisplays)]
+                    ) {
+                        LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
+                    }
                 }
                 SettingRow(
                     icon: SettingIcon("folder.fill", .cyan),
@@ -535,6 +550,69 @@ private struct PermissionPromptSheet: View {
     }
 }
 
+/// What changed in this release, once after an update; an item that is a
+/// setting has its switch here.
+private struct WhatsNewSheet: View {
+    let state: LauncherState
+    let actions: LauncherActions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                OmarchyAppTile(size: 64)
+                    .accessibilityHidden(true)
+                Text("What’s New in Try Omarchy \(WhatsNew.version.major).\(WhatsNew.version.minor)")
+                    .font(.title2.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text("You can change these anytime in Settings.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 28)
+
+            Form {
+                Section {
+                    ForEach(WhatsNew.items) { item in
+                        SettingRow(icon: SettingIcon(item.symbol, item.color), title: item.title,
+                                   detail: [detail(for: item)]) {
+                            if item.setting == .allDisplays {
+                                LauncherSwitch("All Displays", isOn: state.immersive && state.usesAllDisplays) { isOn in
+                                    // All Displays works in Immersive Mode only.
+                                    if isOn, !state.immersive { actions.setImmersive(true) }
+                                    actions.setUsesAllDisplays(isOn)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .scrollContentBackground(.hidden)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Button("Release Notes", action: actions.openWhatsNewNotes)
+                Spacer()
+                Button("Continue", action: actions.dismissWhatsNew)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("whats-new-continue")
+            }
+            .controlSize(.large)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 520)
+    }
+
+    private func detail(for item: WhatsNew.Item) -> String {
+        guard item.setting == .allDisplays, !state.immersive else { return item.detail }
+        return item.detail + " Turning it on also turns on Immersive Mode."
+    }
+}
+
 private struct PermissionControl: View {
     let presentation: StartMenuPermissionPresentation
     var waiting = false
@@ -734,6 +812,17 @@ private struct StartupSection: View {
                 ) {
                     LauncherSwitch("All Displays", isOn: state.usesAllDisplays, set: actions.setUsesAllDisplays)
                 }
+            }
+
+            SettingRow(
+                icon: SettingIcon("keyboard", .gray),
+                title: "Keyboard",
+                detail: [state.keyboardRouting]
+            ) {
+                if state.keyboardRoutingIsDefault {
+                    Text("Default").foregroundStyle(.secondary)
+                }
+                Button("Configure…", action: actions.configureKeyboard)
             }
 
             if !state.runsInAnotherApp {

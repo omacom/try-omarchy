@@ -51,7 +51,8 @@ help:
 	  '  make release        Choose a version, tag, and build a notarized DMG (latest factory)' \
 	  '  make release VERSION=vX.Y.Z  Choose the version without prompting' \
 	  '  make release FORCE=1  Rebuild the factory even if it matches upstream' \
-	  '  make publish        Push the release tag and attach the DMG and image to its GitHub draft' \
+	  '  make publish        Push the release tag and attach the DMG, its digest and image to its GitHub draft' \
+	  '  make publish KIT=1  Also attach the kit' \
 	  '' \
 	  'Component builds:' \
 	  '  make guest          Ensure dist/guest (try-omarchy package and factory disk) is current (Docker)' \
@@ -93,6 +94,8 @@ test-contracts: test-libslirp-close
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-scroll.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-touch-scroll.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-iso-keyboard.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-host-keys.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-media-keys.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-korean-caps-lock.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-minimum-guest-size.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-no-app-nap.py"
@@ -106,6 +109,7 @@ test-contracts: test-libslirp-close
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-pointer-modifiers.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-no-console.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-multi-display.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-cocoa-guest-layout.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hvf-memory-reclaim.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-hvf-mapped-sections.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/macos/Tests/test-runtime-capabilities.py"
@@ -250,7 +254,7 @@ release: release-preflight
 # Pushes the built release's tag, then uploads to the draft release with that
 # tag (or creates one). Publishing the draft stays manual.
 publish:
-	@python3 "$(ROOT)/scripts/publish.py" --root "$(ROOT)"
+	@python3 "$(ROOT)/scripts/publish.py" --root "$(ROOT)" $(if $(filter 1,$(KIT)),--kit)
 
 clean:
 	@echo 'Removing repository build output and caches...'
