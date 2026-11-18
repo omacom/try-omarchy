@@ -508,6 +508,32 @@ launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=2 OMARCHY_QEMU_GPU_STATE_ROOT="$test_roo
 output=$(launch) && fail "media keys 2 were accepted"
 assert_contains "$output" "OMARCHY_QEMU_GPU_MEDIA_KEYS must be 0 or 1"
 [[ ! -e $test_root/untouched ]] || fail "invalid media keys touched storage"
+# The release shortcut needs a QEMU that reads it. Unset keeps QEMU's own
+# Control-Option-G.
+launch_env=()
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178 "
+assert_not_contains "$output" "release-key="
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd' 'release-key must be one keycode'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178,release-key=5+ctrl+opt "
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=48+opt+shift+cmd OMARCHY_QEMU_GPU_HOST_KEYS=)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,release-key=48+opt+shift+cmd "
+for release_key in 5 5+ 256+ctrl 1234+ctrl 5+ctrl,6+ctrl 5+ctrl:6+ctrl +ctrl 5+fn 5ctrl abc; do
+  launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY="$release_key" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+  output=$(launch) && fail "release key $release_key was accepted"
+  assert_contains "$output" "OMARCHY_QEMU_GPU_RELEASE_KEY must be one keycode from 0 to 255"
+  [[ ! -e $test_root/untouched ]] || fail "release key $release_key touched storage"
+done
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch) && fail "a QEMU without the release key was accepted"
+assert_contains "$output" "cannot release the keyboard from a shortcut"
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=)
+output=$(launch)
+assert_not_contains "$output" "release-key="
 
 # --- shared folder --------------------------------------------------------------------
 mkdir -p "$test_root/My Work"

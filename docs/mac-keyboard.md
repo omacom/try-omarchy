@@ -85,15 +85,23 @@ and mouse buttons; returning to the VM does not require typing to reset capture.
 
 Held modifiers follow the keyboard. Cocoa releases a guest Shift, Control, Option or Command that an event's flags lack only on a key down, key up or modifier change. Pointer and scroll events never release one. With an external keyboard and mouse, wired or Bluetooth, a pointer event that arrives within a few milliseconds of a modifier press can lack that modifier, which ended Shift+click and Control+click at that motion. Losing focus still releases everything the guest holds.
 
-If input appears stuck while using an older runtime, focus the VM and press
-Control–Option–G to release its mouse grab, then select the Mac application.
-Quit the VM if host input still does not recover.
-
 For diagnosis, `TRYOMARCHY_INPUT_TRACE=1` logs foreground PID, local activation,
 window-key state and capture decisions, without recording key contents.
 `TRYOMARCHY_INPUT_OBSERVE_ONLY=1` makes the global tap pass every event through;
 it observes the capture decision without forwarding or suppressing the event.
 These variables apply to the QEMU process and are unset during normal use.
+
+## Releasing the keyboard
+
+Full grab keeps every key with Omarchy while its window is key, including Command–Tab. In Immersive, with the menu bar and Dock hidden, that leaves no keyboard way back to macOS. The release shortcut, Control–Option–G by default, gives macOS the keyboard and the mouse until Omarchy is focused again.
+
+- QEMU reserves Control–Option–G to release its mouse grab, and Omarchy binds nothing to it. Keyboard capture doesn't follow the mouse grab, so on its own it released nothing that mattered.
+- Released, Command and every other shortcut go to macOS. Ordinary typing still reaches Omarchy while its window is focused. Keys Omarchy holds are let go, as when focus leaves.
+- Capture returns when Try Omarchy becomes the active app again, when the Omarchy view is clicked, or when the shortcut is pressed again.
+- The Keyboard sheet's **Release keyboard and mouse** row records another shortcut, with at least one of Control, Option, Shift or Command. A kept shortcut with the same keys is removed, since it would never release. Like the rest of the sheet, the change applies at the next launch.
+- The launcher passes it to QEMU as `release-key=5+ctrl+opt`, in the same form as a kept shortcut. With the option set, Control–Option–G has no meaning of its own and reaches Omarchy when it isn't the release shortcut. Without it, as with an older launcher, QEMU keeps its own Control–Option–G.
+
+If input appears stuck, press the release shortcut, then select the Mac application. Quit the VM if host input still does not recover.
 
 ## Dedicated keys
 

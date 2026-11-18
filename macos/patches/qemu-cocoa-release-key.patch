@@ -1,0 +1,289 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: release the keyboard and mouse from a shortcut
+
+Applies after the Try Omarchy host-shortcuts patch.
+
+Full grab keeps every key inside the guest while its window is key,
+including Command-Tab. In immersive full screen, with the menu bar and
+Dock hidden, that leaves no keyboard way back to macOS. Control-Option-G
+releases only the mouse grab, which keyboard capture no longer follows.
+
+Add a release-key display option, a keycode with modifiers such as
+5+ctrl+opt. Pressing it releases the mouse grab and stops capturing the
+keyboard, so macOS shortcuts work again, and lets go of every key the
+guest holds. Capture returns when the app becomes active, the view is
+clicked, or the shortcut is pressed again. With release-key set,
+Control-Option-G no longer has a meaning of its own and reaches the guest.
+
+diff --git a/qapi/ui.json b/qapi/ui.json
+index 04fecbb..59b897e 100644
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1451,6 +1451,11 @@
+ #     only while exactly those modifiers are held: +ctrl, +opt, +shift
+ #     and +cmd.  (default: none)
+ #
++# @release-key: A shortcut that hands the keyboard and the mouse back
++#     to macOS until the VM is focused again, as a keycode with at
++#     least one modifier, such as 5+ctrl+opt.  Without it, Control-
++#     Option-G releases only the mouse grab.  (default: none)
++#
+ # @media-keys: Send the Mac's media transport keys (previous,
+ #     play/pause, next) to the guest while full grab captures the
+ #     keyboard.  Volume keys always stay with macOS.  (default: off)
+@@ -1477,6 +1482,7 @@
+       '*left-command-key': 'bool',
+       '*full-grab': 'bool',
+       '*host-keys': 'str',
++      '*release-key': 'str',
+       '*media-keys': 'bool',
+       '*immersive': 'bool',
+       '*swap-opt-cmd': 'bool',
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 9f856ef..5be5ad0 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -2259,7 +2259,8 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
+ #endif
+ #if defined(CONFIG_COCOA)
+     "-display cocoa[,full-grab=on|off][,immersive=on|off][,swap-opt-cmd=on|off]\n"
+-    "              [,host-keys=code[+mod...]:...][,media-keys=on|off]\n"
++    "              [,host-keys=code[+mod...]:...][,release-key=code+mod...]\n"
++    "              [,media-keys=on|off]\n"
+     "              [,show-cursor=on|off][,left-command-key=on|off]\n"
+     "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
+ #endif
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index 8486f01..d41fc9f 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -853,6 +853,7 @@ - (bool) handleEventLocked:(NSEvent *)event;
+ - (void) notifyMouseModeChange;
+ - (BOOL) isMouseGrabbed;
+ - (BOOL) isKeyboardCaptured;
++- (void) setKeyboardReleased:(bool)released;
+ - (BOOL) capsLockTapHandlesKeys;
+ - (void) capsLockInputSourceChanged;
+ - (void) capsLockWindowActivated;
+@@ -1237,6 +1238,16 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+ static unsigned cocoa_host_shortcut_count;
+ static bool cocoa_host_shortcut_held[256];
+ 
++/*
++ * The release-key shortcut hands the keyboard and the mouse back to macOS
++ * until the VM is focused again. Full grab otherwise keeps every way back to
++ * macOS, such as Command-Tab, inside the guest.
++ */
++static CocoaHostShortcut cocoa_release_key;
++static bool cocoa_release_key_enabled;
++static bool cocoa_release_key_held;
++static bool keyboard_released;
++
+ /*
+  * Parse "a:b+ctrl:c+opt+cmd" (keycodes 0-255): bare keycodes into
+  * host_keys, keycodes with modifiers into shortcuts. False if malformed.
+@@ -1349,6 +1360,49 @@ static bool cocoa_host_shortcut_event(unsigned keycode,
+     return false;
+ }
+ 
++/* Parse the release-key option: one keycode with at least one modifier. */
++static bool cocoa_parse_release_key(const char *spec, CocoaHostShortcut *key)
++{
++    bool host_keys[256];
++    CocoaHostShortcut shortcuts[COCOA_HOST_SHORTCUT_MAX];
++    unsigned count;
++
++    if (!cocoa_parse_host_keys(spec, host_keys, shortcuts, &count) ||
++        count != 1 || strchr(spec, ':')) {
++        return false;
++    }
++    *key = shortcuts[0];
++    return true;
++}
++
++/*
++ * Whether a key event belongs to the release key, and *pressed when it is
++ * a new press. Its repeats and key up follow its key down, so the guest
++ * sees none of it.
++ */
++static bool cocoa_release_key_event(unsigned keycode,
++                                    NSEventModifierFlags flags,
++                                    bool down, bool repeat, bool *pressed)
++{
++    *pressed = false;
++    if (!cocoa_release_key_enabled || keycode != cocoa_release_key.keycode) {
++        return false;
++    }
++    if (!down) {
++        bool held = cocoa_release_key_held;
++
++        cocoa_release_key_held = false;
++        return held;
++    }
++    if (repeat) {
++        return cocoa_release_key_held;
++    }
++    cocoa_release_key_held = cocoa_release_key.modifiers ==
++                             (flags & cocoa_host_shortcut_modifier_mask);
++    *pressed = cocoa_release_key_held;
++    return cocoa_release_key_held;
++}
++
+ static bool cocoa_is_host_key(CGKeyCode keycode)
+ {
+     return keycode < 256 && cocoa_host_keys[keycode];
+@@ -2716,9 +2770,20 @@ - (bool) handleEventLocked:(NSEvent *)event
+                 }
+             }
+             return true;
+-        case NSEventTypeKeyDown:
++        case NSEventTypeKeyDown: {
++            bool release_pressed;
++
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
++            if (cocoa_release_key_event([event keyCode], [event modifierFlags],
++                                        true, [event isARepeat],
++                                        &release_pressed)) {
++                if (release_pressed) {
++                    [self setKeyboardReleased:!keyboard_released];
++                }
++                return true;
++            }
++
+             // Keep Command chords with the host unless the focused guest
+             // captured the keyboard.
+             if (![self isKeyboardCaptured] &&
+@@ -2749,8 +2814,11 @@ - (bool) handleEventLocked:(NSEvent *)event
+                             [self selectConsoleLocked:key - '0' - 1]; /* ascii math */
+                             return true;
+ 
+-                        // release the mouse grab
++                        // release the mouse grab, unless release-key replaces it
+                         case 'g':
++                            if (cocoa_release_key_enabled) {
++                                break;
++                            }
+                             [self ungrabMouse];
+                             return true;
+                     }
+@@ -2763,9 +2831,17 @@ - (bool) handleEventLocked:(NSEvent *)event
+                 [self handleMonitorInput: event];
+             }
+             return true;
+-        case NSEventTypeKeyUp:
++        }
++        case NSEventTypeKeyUp: {
++            bool release_pressed;
++
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
++            if (cocoa_release_key_event([event keyCode], [event modifierFlags],
++                                        false, false, &release_pressed)) {
++                return true;
++            }
++
+             if (cocoa_is_host_key([event keyCode])) {
+                 return false;
+             }
+@@ -2785,6 +2861,7 @@ - (bool) handleEventLocked:(NSEvent *)event
+                 qkbd_state_key_event(kbd, keycode, false);
+             }
+             return true;
++        }
+         case NSEventTypeMagnify:
+             return [self handlePinchLocked:event];
+         case NSEventTypeScrollWheel:
+@@ -3004,6 +3081,7 @@ - (void) mouseMoved:(NSEvent *)event
+ 
+ - (void) mouseDown:(NSEvent *)event
+ {
++    keyboard_released = false;
+     [self handleMouseEvent:event button:INPUT_BUTTON_LEFT down:true];
+ }
+ 
+@@ -3056,7 +3134,11 @@ - (void) grabMouse
+ {
+     COCOA_DEBUG("QemuCocoaView: grabMouse\n");
+ 
+-    [[self window] setTitle:[NSString stringWithFormat:@"%@ - (Press  " UC_CTRL_KEY " " UC_ALT_KEY " G  to release Mouse)", cocoa_product_name()]];
++    if (cocoa_release_key_enabled) {
++        [[self window] setTitle:cocoa_product_name()];
++    } else {
++        [[self window] setTitle:[NSString stringWithFormat:@"%@ - (Press  " UC_CTRL_KEY " " UC_ALT_KEY " G  to release Mouse)", cocoa_product_name()]];
++    }
+     [self hideCursor];
+     CGAssociateMouseAndMouseCursorPosition(isAbsoluteEnabled);
+     isMouseGrabbed = TRUE; // while isMouseGrabbed = TRUE, QemuCocoaApp sends all events to [cocoaView handleEvent:]
+@@ -3114,19 +3196,20 @@ - (BOOL) isKeyboardCaptured
+     /* Any head's window: the keyboard is one, whichever display has it. */
+     BOOL keyWindow = cocoa_head_window_is_key();
+     BOOL captured = foregroundPID == getpid() && keyWindow &&
+-                    (isMouseGrabbed || full_grab_enabled);
++                    (isMouseGrabbed || full_grab_enabled) && !keyboard_released;
+ 
+     /* Opt-in diagnostics contain focus state only, never key contents. */
+     if (getenv("TRYOMARCHY_INPUT_TRACE")) {
+         static pid_t lastForegroundPID = -2;
+         static int lastState = -1;
+         int state = ([NSApp isActive] ? 1 : 0) | (keyWindow ? 2 : 0) |
+-                    (isMouseGrabbed ? 4 : 0) | (captured ? 8 : 0);
++                    (isMouseGrabbed ? 4 : 0) | (captured ? 8 : 0) |
++                    (keyboard_released ? 16 : 0);
+         if (lastForegroundPID != foregroundPID || lastState != state) {
+             fprintf(stderr, "[input-focus] self=%d foreground=%d app-active=%d "
+-                    "key-window=%d mouse-grab=%d captured=%d\n",
++                    "key-window=%d mouse-grab=%d released=%d captured=%d\n",
+                     getpid(), foregroundPID, !![NSApp isActive], !!keyWindow,
+-                    !!isMouseGrabbed, !!captured);
++                    !!isMouseGrabbed, !!keyboard_released, !!captured);
+             lastForegroundPID = foregroundPID;
+             lastState = state;
+         }
+@@ -3134,6 +3217,22 @@ - (BOOL) isKeyboardCaptured
+     return captured;
+ }
+ 
++/*
++ * Released, full grab lets every key through to macOS until the VM is
++ * focused again: the app becomes active, the view is clicked or the release
++ * key is pressed again. Keys the guest holds are let go, as when focus leaves.
++ */
++- (void) setKeyboardReleased:(bool)released
++{
++    keyboard_released = released;
++    if (released) {
++        for (unsigned i = 0; i < head_count; i++) {
++            [heads[i].view ungrabMouse];
++        }
++        [self raiseAllKeys];
++    }
++}
++
+ /* The full-grab tap handles Caps Lock key events while it captures the keyboard. */
+ - (BOOL) capsLockTapHandlesKeys
+ {
+@@ -3509,6 +3608,7 @@ - (void)windowDidBecomeKey:(NSNotification *)notification
+ 
+ - (void)applicationDidBecomeActive:(NSNotification *)notification
+ {
++    keyboard_released = false;
+     for (unsigned i = 0; i < head_count; i++) {
+         [heads[i].view updateNotchLevel];
+         cocoa_enter_full_screen(i);
+@@ -4872,6 +4972,15 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+                      "optional +ctrl, +opt, +shift or +cmd, separated by ':'");
+         exit(1);
+     }
++    if (opts->u.cocoa.release_key) {
++        if (!cocoa_parse_release_key(opts->u.cocoa.release_key,
++                                     &cocoa_release_key)) {
++            error_report("cocoa: release-key must be one keycode 0-255 with "
++                         "at least one of +ctrl, +opt, +shift or +cmd");
++            exit(1);
++        }
++        cocoa_release_key_enabled = true;
++    }
+ 
+     // Pull this console process up to being a fully-fledged graphical
+     // app with a menubar and Dock icon

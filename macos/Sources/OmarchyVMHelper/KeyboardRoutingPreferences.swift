@@ -71,8 +71,12 @@ struct KeyboardRoutingPreferences: Equatable {
     var doNotDisturb: KeyRoute = .macOS
     var media: KeyRoute = .macOS
     var shortcuts: [KeptShortcut] = []
+    /// Gives macOS the keyboard and the mouse until Omarchy is focused again.
+    var releaseShortcut: KeptShortcut = Self.defaultReleaseShortcut
 
     static let defaults = Self(brightness: .macOS, missionControl: .macOS, spotlight: .macOS)
+    /// Control-Option-G, which QEMU already reserves to release the mouse.
+    static let defaultReleaseShortcut = KeptShortcut(keyCode: 5, modifiers: [.control, .option], key: "G")
     /// Well under the 64 QEMU takes.
     static let maximumShortcuts = 32
 
@@ -97,9 +101,10 @@ struct KeyboardRoutingPreferences: Equatable {
         return keycodes.sorted()
     }
 
-    /// Everything that stays with macOS, in QEMU's host-keys form.
+    /// Everything that stays with macOS, in QEMU's host-keys form. The
+    /// release shortcut wins over a kept shortcut with the same keys.
     var hostKeys: [String] {
-        var seen = Set<String>()
+        var seen: Set<String> = [releaseShortcut.hostKey]
         let shortcutKeys = shortcuts.map(\.hostKey).filter { seen.insert($0).inserted }
         return hostKeycodes.map(String.init) + shortcutKeys
     }
@@ -133,7 +138,8 @@ struct KeyboardRoutingPreferenceStore {
             doNotDisturb: payload.doNotDisturb ?? .macOS,
             media: payload.media ?? .macOS,
             shortcuts: Array((payload.shortcuts ?? []).compactMap { $0.payload?.shortcut }
-                .prefix(KeyboardRoutingPreferences.maximumShortcuts))
+                .prefix(KeyboardRoutingPreferences.maximumShortcuts)),
+            releaseShortcut: payload.releaseShortcut?.payload?.shortcut ?? KeyboardRoutingPreferences.defaultReleaseShortcut
         )
     }
 
@@ -146,7 +152,8 @@ struct KeyboardRoutingPreferenceStore {
             dictation: preferences.dictation,
             doNotDisturb: preferences.doNotDisturb,
             media: preferences.media,
-            shortcuts: preferences.shortcuts.map(SavedShortcut.init)
+            shortcuts: preferences.shortcuts.map(SavedShortcut.init),
+            releaseShortcut: SavedShortcut(preferences.releaseShortcut)
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? storage.setSettingData(data, forKey: Self.key)
@@ -161,6 +168,7 @@ struct KeyboardRoutingPreferenceStore {
         let doNotDisturb: KeyRoute?
         let media: KeyRoute?
         let shortcuts: [SavedShortcut]?
+        let releaseShortcut: SavedShortcut?
     }
 
     /// Nil for an entry that doesn't decode, so one bad entry can't reset
@@ -207,6 +215,7 @@ struct KeyboardRoutingPreferenceStore {
 struct KeyboardRoutingLaunchConfiguration: Equatable {
     static let hostKeysEnvironmentKey = "OMARCHY_QEMU_GPU_HOST_KEYS"
     static let mediaKeysEnvironmentKey = "OMARCHY_QEMU_GPU_MEDIA_KEYS"
+    static let releaseKeyEnvironmentKey = "OMARCHY_QEMU_GPU_RELEASE_KEY"
 
     let environment: [String: String]
 
@@ -217,6 +226,7 @@ struct KeyboardRoutingLaunchConfiguration: Equatable {
         var environment = baseEnvironment
         environment[hostKeysEnvironmentKey] = preferences.hostKeys.joined(separator: ",")
         environment[mediaKeysEnvironmentKey] = preferences.media == .omarchy ? "1" : "0"
+        environment[releaseKeyEnvironmentKey] = preferences.releaseShortcut.hostKey
         return Self(environment: environment)
     }
 }

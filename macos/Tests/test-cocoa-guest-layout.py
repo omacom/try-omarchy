@@ -36,7 +36,7 @@ class CocoaGuestLayoutTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         self.assertIn('verify_file_sha "Try Omarchy Cocoa guest-layout patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.M)
-        self.assertEqual(applied[-2:], ["guest_layout_patch", "host_shortcuts_patch"])
+        self.assertEqual(applied[-3:], ["guest_layout_patch", "host_shortcuts_patch", "release_key_patch"])
 
     def test_the_launcher_serves_the_port_qemu_reads(self) -> None:
         launcher = LAUNCHER.read_text(encoding="utf-8")
