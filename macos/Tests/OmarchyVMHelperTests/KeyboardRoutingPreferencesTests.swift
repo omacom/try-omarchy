@@ -193,6 +193,21 @@ struct KeyboardRoutingPreferenceStoreTests {
         #expect(fixture.store.load().releaseShortcut == KeyboardRoutingPreferences.defaultReleaseShortcut)
     }
 
+    @Test("A stored kept shortcut with the release shortcut's keys is dropped")
+    func keptReleaseShortcutIsDropped() throws {
+        let fixture = DefaultsFixture()
+        let stored = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
+            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+            "shortcuts": [
+                ["keyCode": 5, "modifiers": ["option", "control"], "key": "G"],
+                ["keyCode": 124, "modifiers": ["control"], "key": "→"],
+            ],
+        ])
+        fixture.defaults.set(stored, forKey: KeyboardRoutingPreferenceStore.key)
+        #expect(fixture.store.load().shortcuts == [KeptShortcut(keyCode: 124, modifiers: .control, key: "→")])
+    }
+
     @Test("A kept shortcut with the release shortcut's keys stays out of the host keys")
     func releaseShortcutWinsOverKeptShortcut() {
         var preferences = KeyboardRoutingPreferences(

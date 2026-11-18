@@ -147,7 +147,21 @@ int main(void) {{
         self.assertIn("[self raiseAllKeys];", released)
         self.assertIn("- (void)applicationDidBecomeActive:(NSNotification *)notification\n{\n"
                       "    keyboard_released = false;", cocoa)
-        self.assertIn("- (void) mouseDown:(NSEvent *)event\n{\n    keyboard_released = false;", cocoa)
+        for handler in ("mouseDown", "rightMouseDown", "otherMouseDown"):
+            self.assertIn(f"- (void) {handler}:(NSEvent *)event\n{{\n    keyboard_released = false;", cocoa)
+        self.assertLess(released.index("ungrabMouse"), released.index("qemu_input_event_sync();"))
+
+    def test_the_tap_catches_the_release_key_before_macos_while_released(self) -> None:
+        cocoa = patched_cocoa(PATCH)
+        tap = extract(cocoa, "    if (keyboard_released && [NSApp isActive] && cocoa_head_window_is_key() &&",
+                      "            return NULL;\n        }\n    }")
+        self.assertIn("cocoa_release_key_event(", tap)
+        self.assertIn("[view setKeyboardReleased:false];", tap)
+        self.assertLess(cocoa.index(tap), cocoa.index("    NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];"))
+
+    def test_a_key_the_guest_holds_goes_up_when_command_joins_it(self) -> None:
+        self.assertIn("([event modifierFlags] & NSEventModifierFlagCommand) &&\n"
+                      "                !qkbd_state_key_get(kbd, keycode)) {", patched_cocoa(PATCH))
 
     def test_the_key_handler_toggles_before_command_chords(self) -> None:
         cocoa = patched_cocoa(PATCH)

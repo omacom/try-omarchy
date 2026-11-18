@@ -130,6 +130,7 @@ struct KeyboardRoutingPreferenceStore {
               payload.schemaVersion == Self.schemaVersion else {
             return .defaults
         }
+        let releaseShortcut = payload.releaseShortcut?.payload?.shortcut ?? KeyboardRoutingPreferences.defaultReleaseShortcut
         return KeyboardRoutingPreferences(
             brightness: payload.brightness,
             missionControl: payload.missionControl,
@@ -138,8 +139,9 @@ struct KeyboardRoutingPreferenceStore {
             doNotDisturb: payload.doNotDisturb ?? .macOS,
             media: payload.media ?? .macOS,
             shortcuts: Array((payload.shortcuts ?? []).compactMap { $0.payload?.shortcut }
+                .filter { !$0.isSameKeys(as: releaseShortcut) }
                 .prefix(KeyboardRoutingPreferences.maximumShortcuts)),
-            releaseShortcut: payload.releaseShortcut?.payload?.shortcut ?? KeyboardRoutingPreferences.defaultReleaseShortcut
+            releaseShortcut: releaseShortcut
         )
     }
 

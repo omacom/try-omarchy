@@ -12,7 +12,9 @@ Add a release-key display option, a keycode with modifiers such as
 5+ctrl+opt. Pressing it releases the mouse grab and stops capturing the
 keyboard, so macOS shortcuts work again, and lets go of every key the
 guest holds. Capture returns when the app becomes active, the view is
-clicked, or the shortcut is pressed again. With release-key set,
+clicked, or the shortcut is pressed again, which the event tap catches
+before macOS can act on it. While released, a key the guest holds still
+goes up when Command joins it. With release-key set,
 Control-Option-G no longer has a meaning of its own and reaches the guest.
 
 diff --git a/qapi/ui.json b/qapi/ui.json
@@ -54,7 +56,7 @@ index 9f856ef..5be5ad0 100644
      "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
  #endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index 8486f01..d41fc9f 100644
+index 8486f01..4ab4c91 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
 @@ -853,6 +853,7 @@ - (bool) handleEventLocked:(NSEvent *)event;
@@ -132,7 +134,38 @@ index 8486f01..d41fc9f 100644
  static bool cocoa_is_host_key(CGKeyCode keycode)
  {
      return keycode < 256 && cocoa_host_keys[keycode];
-@@ -2716,9 +2770,20 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -1439,6 +1493,30 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+         return cgEvent;
+     }
+ 
++    /*
++     * Released, the tap lets every key through, so a release key that macOS
++     * acts on first, such as Command-Tab, would never reach -sendEvent: to
++     * capture the keyboard again.
++     */
++    if (keyboard_released && [NSApp isActive] && cocoa_head_window_is_key() &&
++        (type == kCGEventKeyDown || type == kCGEventKeyUp) &&
++        !getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY")) {
++        bool pressed;
++
++        if (cocoa_release_key_event(
++                CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode),
++                (NSEventModifierFlags)CGEventGetFlags(cgEvent),
++                type == kCGEventKeyDown,
++                CGEventGetIntegerValueField(cgEvent,
++                                            kCGKeyboardEventAutorepeat),
++                &pressed)) {
++            if (pressed) {
++                [view setKeyboardReleased:false];
++            }
++            return NULL;
++        }
++    }
++
+     NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];
+     if (getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY")) {
+         [view isKeyboardCaptured];
+@@ -2716,9 +2794,20 @@ - (bool) handleEventLocked:(NSEvent *)event
                  }
              }
              return true;
@@ -154,7 +187,7 @@ index 8486f01..d41fc9f 100644
              // Keep Command chords with the host unless the focused guest
              // captured the keyboard.
              if (![self isKeyboardCaptured] &&
-@@ -2749,8 +2814,11 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2749,8 +2838,11 @@ - (bool) handleEventLocked:(NSEvent *)event
                              [self selectConsoleLocked:key - '0' - 1]; /* ascii math */
                              return true;
  
@@ -167,7 +200,7 @@ index 8486f01..d41fc9f 100644
                              [self ungrabMouse];
                              return true;
                      }
-@@ -2763,9 +2831,17 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2763,9 +2855,17 @@ - (bool) handleEventLocked:(NSEvent *)event
                  [self handleMonitorInput: event];
              }
              return true;
@@ -186,7 +219,21 @@ index 8486f01..d41fc9f 100644
              if (cocoa_is_host_key([event keyCode])) {
                  return false;
              }
-@@ -2785,6 +2861,7 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2775,9 +2875,11 @@ - (bool) handleEventLocked:(NSEvent *)event
+             }
+ 
+             // don't pass the guest a spurious key-up if we treated this
+-            // command-key combo as a host UI action
++            // command-key combo as a host UI action. A key the guest holds,
++            // pressed before Command while released, still goes up.
+             if (![self isKeyboardCaptured] &&
+-                ([event modifierFlags] & NSEventModifierFlagCommand)) {
++                ([event modifierFlags] & NSEventModifierFlagCommand) &&
++                !qkbd_state_key_get(kbd, keycode)) {
+                 return true;
+             }
+ 
+@@ -2785,6 +2887,7 @@ - (bool) handleEventLocked:(NSEvent *)event
                  qkbd_state_key_event(kbd, keycode, false);
              }
              return true;
@@ -194,7 +241,7 @@ index 8486f01..d41fc9f 100644
          case NSEventTypeMagnify:
              return [self handlePinchLocked:event];
          case NSEventTypeScrollWheel:
-@@ -3004,6 +3081,7 @@ - (void) mouseMoved:(NSEvent *)event
+@@ -3004,16 +3107,19 @@ - (void) mouseMoved:(NSEvent *)event
  
  - (void) mouseDown:(NSEvent *)event
  {
@@ -202,7 +249,19 @@ index 8486f01..d41fc9f 100644
      [self handleMouseEvent:event button:INPUT_BUTTON_LEFT down:true];
  }
  
-@@ -3056,7 +3134,11 @@ - (void) grabMouse
+ - (void) rightMouseDown:(NSEvent *)event
+ {
++    keyboard_released = false;
+     [self handleMouseEvent:event button:INPUT_BUTTON_RIGHT down:true];
+ }
+ 
+ - (void) otherMouseDown:(NSEvent *)event
+ {
++    keyboard_released = false;
+     [self handleMouseEvent:event button:INPUT_BUTTON_MIDDLE down:true];
+ }
+ 
+@@ -3056,7 +3162,11 @@ - (void) grabMouse
  {
      COCOA_DEBUG("QemuCocoaView: grabMouse\n");
  
@@ -215,7 +274,7 @@ index 8486f01..d41fc9f 100644
      [self hideCursor];
      CGAssociateMouseAndMouseCursorPosition(isAbsoluteEnabled);
      isMouseGrabbed = TRUE; // while isMouseGrabbed = TRUE, QemuCocoaApp sends all events to [cocoaView handleEvent:]
-@@ -3114,19 +3196,20 @@ - (BOOL) isKeyboardCaptured
+@@ -3114,19 +3224,20 @@ - (BOOL) isKeyboardCaptured
      /* Any head's window: the keyboard is one, whichever display has it. */
      BOOL keyWindow = cocoa_head_window_is_key();
      BOOL captured = foregroundPID == getpid() && keyWindow &&
@@ -240,7 +299,7 @@ index 8486f01..d41fc9f 100644
              lastForegroundPID = foregroundPID;
              lastState = state;
          }
-@@ -3134,6 +3217,22 @@ - (BOOL) isKeyboardCaptured
+@@ -3134,6 +3245,25 @@ - (BOOL) isKeyboardCaptured
      return captured;
  }
  
@@ -256,6 +315,9 @@ index 8486f01..d41fc9f 100644
 +        for (unsigned i = 0; i < head_count; i++) {
 +            [heads[i].view ungrabMouse];
 +        }
++        with_bql(^{
++            qemu_input_event_sync();
++        });
 +        [self raiseAllKeys];
 +    }
 +}
@@ -263,7 +325,7 @@ index 8486f01..d41fc9f 100644
  /* The full-grab tap handles Caps Lock key events while it captures the keyboard. */
  - (BOOL) capsLockTapHandlesKeys
  {
-@@ -3509,6 +3608,7 @@ - (void)windowDidBecomeKey:(NSNotification *)notification
+@@ -3509,6 +3639,7 @@ - (void)windowDidBecomeKey:(NSNotification *)notification
  
  - (void)applicationDidBecomeActive:(NSNotification *)notification
  {
@@ -271,7 +333,7 @@ index 8486f01..d41fc9f 100644
      for (unsigned i = 0; i < head_count; i++) {
          [heads[i].view updateNotchLevel];
          cocoa_enter_full_screen(i);
-@@ -4872,6 +4972,15 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+@@ -4872,6 +5003,15 @@ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
                       "optional +ctrl, +opt, +shift or +cmd, separated by ':'");
          exit(1);
      }
