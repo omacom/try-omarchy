@@ -173,6 +173,54 @@ struct KeyboardRoutingPreferenceStoreTests {
         #expect(preferences.shortcuts[1].symbols == "⌃⌥⇧⌘1")
     }
 
+    @Test("The release shortcut defaults to Control-Option-G, round-trips, and an older payload has the default")
+    func releaseShortcut() throws {
+        let fixture = DefaultsFixture()
+        #expect(fixture.store.load().releaseShortcut == KeptShortcut(keyCode: 5, modifiers: [.control, .option], key: "G"))
+        #expect(KeyboardRoutingPreferences.defaults.releaseShortcut.hostKey == "5+ctrl+opt")
+
+        var choice = KeyboardRoutingPreferences.defaults
+        choice.releaseShortcut = KeptShortcut(keyCode: 53, modifiers: [.control, .command], key: "⎋")
+        fixture.store.save(choice)
+        #expect(fixture.store.load() == choice)
+
+        let stored = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
+            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+            "releaseShortcut": ["keyCode": 5, "modifiers": [], "key": "G"],
+        ])
+        fixture.defaults.set(stored, forKey: KeyboardRoutingPreferenceStore.key)
+        #expect(fixture.store.load().releaseShortcut == KeyboardRoutingPreferences.defaultReleaseShortcut)
+    }
+
+    @Test("A stored kept shortcut with the release shortcut's keys is dropped")
+    func keptReleaseShortcutIsDropped() throws {
+        let fixture = DefaultsFixture()
+        let stored = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": KeyboardRoutingPreferenceStore.schemaVersion,
+            "brightness": "macOS", "missionControl": "macOS", "spotlight": "macOS",
+            "shortcuts": [
+                ["keyCode": 5, "modifiers": ["option", "control"], "key": "G"],
+                ["keyCode": 124, "modifiers": ["control"], "key": "→"],
+            ],
+        ])
+        fixture.defaults.set(stored, forKey: KeyboardRoutingPreferenceStore.key)
+        #expect(fixture.store.load().shortcuts == [KeptShortcut(keyCode: 124, modifiers: .control, key: "→")])
+    }
+
+    @Test("A kept shortcut with the release shortcut's keys stays out of the host keys")
+    func releaseShortcutWinsOverKeptShortcut() {
+        var preferences = KeyboardRoutingPreferences(
+            brightness: .omarchy, missionControl: .omarchy, spotlight: .omarchy,
+            dictation: .omarchy, doNotDisturb: .omarchy
+        )
+        preferences.shortcuts = [
+            KeptShortcut(keyCode: 5, modifiers: [.option, .control], key: "G"),
+            KeptShortcut(keyCode: 124, modifiers: .control, key: "→"),
+        ]
+        #expect(preferences.hostKeys == ["124+ctrl"])
+    }
+
     private final class DefaultsFixture {
         let suiteName = "KeyboardRoutingPreferenceStoreTests.\(UUID().uuidString)"
         let defaults: UserDefaults
@@ -212,6 +260,18 @@ struct KeyboardRoutingLaunchConfigurationTests {
             )
         )
         #expect(none.environment[KeyboardRoutingLaunchConfiguration.hostKeysEnvironmentKey] == "")
+    }
+
+    @Test("Publishes the release shortcut and replaces inherited values")
+    func publishesReleaseKey() {
+        let inherited = [KeyboardRoutingLaunchConfiguration.releaseKeyEnvironmentKey: "9"]
+        let defaults = KeyboardRoutingLaunchConfiguration.make(baseEnvironment: inherited, preferences: .defaults)
+        #expect(defaults.environment[KeyboardRoutingLaunchConfiguration.releaseKeyEnvironmentKey] == "5+ctrl+opt")
+
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.releaseShortcut = KeptShortcut(keyCode: 53, modifiers: [.shift, .command], key: "⎋")
+        let custom = KeyboardRoutingLaunchConfiguration.make(baseEnvironment: inherited, preferences: preferences)
+        #expect(custom.environment[KeyboardRoutingLaunchConfiguration.releaseKeyEnvironmentKey] == "53+shift+cmd")
     }
 
     @Test("Publishes the media-key choice and replaces inherited values")

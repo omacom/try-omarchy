@@ -17,7 +17,8 @@ struct FullscreenNativeContractTests {
         #expect(!runner.contains("cocoa_full_grab"))
         #expect(runner.contains("host_keys=${OMARCHY_QEMU_GPU_HOST_KEYS-131,144,145,160,176,177,178}"))
         #expect(runner.contains("grep -aFq 'host-keys must be keycodes' \"$qemu_bin\""))
-        #expect(runner.contains("swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys\""))
+        #expect(runner.contains("swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys$cocoa_release_key\""))
+        #expect(runner.contains("grep -aFq 'release-key must be one keycode' \"$qemu_bin\""))
         #expect(runner.contains("case ${OMARCHY_QEMU_GPU_MEDIA_KEYS:-0} in"))
         #expect(runner.contains("grep -aFq 'media-keys=on|off' \"$qemu_bin\""))
     }

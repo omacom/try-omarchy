@@ -266,14 +266,14 @@ int main(void) {{
         self.assertIsNotNone(message)
         self.assertIn(f"grep -aFq '{message.group(1)}'", LAUNCHER.read_text(encoding="utf-8"))
 
-    def test_runtime_verifies_and_applies_it_last(self) -> None:
+    def test_runtime_verifies_and_applies_it_before_the_release_key(self) -> None:
         builder = BUILDER.read_text(encoding="utf-8")
         expected = re.search(r"^host_shortcuts_patch_sha256=([a-f0-9]{64})$", builder, re.M)
         self.assertIsNotNone(expected)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         self.assertIn('verify_file_sha "Try Omarchy Cocoa host-shortcuts patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.M)
-        self.assertEqual(applied[-1], "host_shortcuts_patch")
+        self.assertEqual(applied[-2:], ["host_shortcuts_patch", "release_key_patch"])
         self.assertLess(applied.index("host_keys_patch"), applied.index("host_shortcuts_patch"))
 
 

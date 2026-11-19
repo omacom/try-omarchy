@@ -474,6 +474,20 @@ if [[ -n $cocoa_media_keys ]]; then
     fail "the bundled QEMU cannot send the Mac's media keys to Omarchy; run make runtime"
 fi
 
+# The shortcut that gives macOS the keyboard and mouse until Omarchy is
+# focused again, as a keycode with modifiers, such as 5+ctrl+opt. Unset or
+# empty keeps QEMU's own Control-Option-G, which releases only the mouse.
+release_key=${OMARCHY_QEMU_GPU_RELEASE_KEY-}
+cocoa_release_key=""
+if [[ -n $release_key ]]; then
+  release_key_error="OMARCHY_QEMU_GPU_RELEASE_KEY must be one keycode from 0 to 255 with at least one of +ctrl, +opt, +shift or +cmd"
+  [[ $release_key =~ ^[0-9]{1,3}(\+(ctrl|opt|shift|cmd))+$ ]] || fail "$release_key_error"
+  ((10#${release_key%%+*} <= 255)) || fail "$release_key_error"
+  LC_ALL=C grep -aFq 'release-key must be one keycode' "$qemu_bin" ||
+    fail "the bundled QEMU cannot release the keyboard from a shortcut; run make runtime"
+  cocoa_release_key=",release-key=$release_key"
+fi
+
 # In immersive mode, one virtio-gpu head per Mac display, arranged as the
 # Mac's display settings are. The helper lists the main display first, as
 # OUTPUT:XxY in Hyprland's logical pixels; the guest places its outputs from
@@ -811,7 +825,7 @@ qemu_args=(
   -drive "if=none,id=omarchy-root,file=${working_disk//,/,,},format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root,bootindex=0'
   -device "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=$display_count,xres=$gpu_xres,yres=$gpu_yres,romfile="
-  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys"
+  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys$cocoa_release_key"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='

@@ -116,6 +116,43 @@ struct KeyboardRoutingEditorTests {
         #expect(saved == [.defaults])
     }
 
+    @Test("The release shortcut shows, replaces a kept shortcut with its keys, and resets with Use Defaults")
+    func releaseShortcut() throws {
+        _ = NSApplication.shared
+        let escape = KeptShortcut(keyCode: 53, modifiers: [.control, .command], key: "⎋")
+        let right = KeptShortcut(keyCode: 124, modifiers: .control, key: "→")
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.shortcuts = [escape, right]
+        var saved: [KeyboardRoutingPreferences] = []
+        let editor = KeyboardRoutingEditor(
+            preferences: preferences,
+            picks: [MacSystemShortcuts.Pick(title: "Escape", shortcuts: [escape])],
+            save: { saved.append($0) },
+            didClose: {}
+        )
+        let release: NSButton = try control("release-shortcut", in: editor)
+        #expect(release.title == "⌃⌥G")
+
+        editor.setReleaseShortcut(KeptShortcut(keyCode: 53, modifiers: [.control, .command], key: "⎋", name: "Something"))
+        #expect(release.title == "⌃⌘⎋")
+        #expect(editor.releaseShortcut == escape)
+        #expect(editor.shortcuts == [right])
+        let add: NSPopUpButton = try control("add-shortcut", in: editor)
+        #expect(add.item(at: 1)?.isEnabled == false)
+        editor.add([escape])
+        #expect(editor.shortcuts == [right])
+
+        let save: NSButton = try control("save", in: editor)
+        save.performClick(nil)
+        #expect(saved.map(\.releaseShortcut) == [escape])
+
+        let reset = KeyboardRoutingEditor(preferences: saved[0], picks: [], save: { _ in }, didClose: {})
+        let defaults: NSButton = try control("defaults", in: reset)
+        defaults.performClick(nil)
+        #expect(reset.releaseShortcut == KeyboardRoutingPreferences.defaultReleaseShortcut)
+        #expect(try (control("release-shortcut", in: reset) as NSButton).title == "⌃⌥G")
+    }
+
     private func choose(_ tag: Int, in popup: NSPopUpButton) {
         popup.selectItem(withTag: tag)
         _ = popup.target?.perform(popup.action, with: popup)

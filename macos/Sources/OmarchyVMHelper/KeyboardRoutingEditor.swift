@@ -14,9 +14,12 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     private let mediaPopup = NSPopUpButton()
     private let addShortcutPopup = NSPopUpButton(frame: .zero, pullsDown: true)
     private let shortcutsContainer = NSView()
+    private let releaseButton = NSButton()
     private let recorder = ShortcutRecorder()
     private let picks: [MacSystemShortcuts.Pick]
     private(set) var shortcuts: [KeptShortcut] = []
+    private(set) var releaseShortcut = KeyboardRoutingPreferences.defaultReleaseShortcut
+    private var isRecordingRelease = false
     private var didClose = false
 
     private static let rowsBeforeScrolling = 6
@@ -32,6 +35,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         closeHandler = didClose
         self.picks = picks
         shortcuts = preferences.shortcuts
+        releaseShortcut = preferences.releaseShortcut
         super.init()
         buildWindow()
         setFields(preferences)
@@ -107,6 +111,14 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         )
 
         let shortcutsTitle = NativeSheetChrome.sectionTitle("Shortcuts")
+        configureReleaseButton()
+        let releaseGroup = NativeSheetChrome.group([
+            NativeSheetChrome.row(
+                title: "Release keyboard and mouse",
+                detail: "Gives macOS the keyboard, so its shortcuts work again, until you click in Omarchy or switch back to it.",
+                control: releaseButton
+            ),
+        ])
         configureAddShortcutPopup()
         let shortcutsNote = NativeSheetChrome.footnote(
             "Shortcuts kept with macOS never reach Omarchy. Keeping Switch Spaces gives up Control–arrow word movement in Omarchy."
@@ -119,15 +131,49 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         save.keyEquivalent = "\r"
         let actions = NativeSheetChrome.actions(leading: [defaults], trailing: [cancel, save])
 
-        let stack = NSStackView(views: [heading, group, note, shortcutsTitle, shortcutsContainer, shortcutsNote, actions])
+        let stack = NSStackView(views: [
+            heading, group, note, shortcutsTitle, releaseGroup, shortcutsContainer, shortcutsNote, actions,
+        ])
         stack.spacing = 8
         stack.setCustomSpacing(16, after: heading)
         stack.setCustomSpacing(6, after: group)
         stack.setCustomSpacing(16, after: note)
+        stack.setCustomSpacing(10, after: releaseGroup)
         stack.setCustomSpacing(6, after: shortcutsContainer)
         stack.setCustomSpacing(12, after: shortcutsNote)
         rebuildShortcuts()
         NativeSheetChrome.install(stack, in: window, width: width)
+    }
+
+    private func configureReleaseButton() {
+        releaseButton.bezelStyle = .push
+        releaseButton.identifier = NSUserInterfaceItemIdentifier("keyboard-routing-release-shortcut")
+        releaseButton.setAccessibilityLabel("Shortcut that releases the keyboard and mouse")
+        releaseButton.target = self
+        releaseButton.action = #selector(recordReleaseShortcut)
+        releaseButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
+    }
+
+    private func refreshReleaseButton() {
+        releaseButton.title = isRecordingRelease ? "Press Shortcut…" : releaseShortcut.symbols
+        releaseButton.isEnabled = !recorder.isRecording
+    }
+
+    @objc private func recordReleaseShortcut() {
+        isRecordingRelease = true
+        recorder.start { [weak self] shortcut in
+            guard let self else { return }
+            self.isRecordingRelease = false
+            if let shortcut { self.setReleaseShortcut(shortcut) } else { self.shortcutsChanged() }
+        }
+        shortcutsChanged()
+    }
+
+    /// A kept shortcut with the same keys would never release, so it goes.
+    func setReleaseShortcut(_ shortcut: KeptShortcut) {
+        releaseShortcut = KeptShortcut(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, key: shortcut.key)
+        shortcuts.removeAll { $0.isSameKeys(as: releaseShortcut) }
+        shortcutsChanged()
     }
 
     private func configureAddShortcutPopup() {
@@ -139,15 +185,14 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
 
     private func refreshAddShortcutMenu() {
         addShortcutPopup.removeAllItems()
-        addShortcutPopup.addItem(withTitle: recorder.isRecording ? "Recording…" : "Add")
-        addShortcutPopup.lastItem?.tag = Self.titleTag
+        addShortcutPopup.addItem(withTitle: recorder.isRecording && !isRecordingRelease ? "Recording…" : "Add")
         let isFull = shortcuts.count >= KeyboardRoutingPreferences.maximumShortcuts
         for (index, pick) in picks.enumerated() {
             let symbols = pick.shortcuts.map(\.symbols).joined(separator: " ")
             addShortcutPopup.addItem(withTitle: "\(pick.title)  \(symbols)")
             let item = addShortcutPopup.lastItem
             item?.tag = index
-            item?.isEnabled = !isFull && !pick.shortcuts.allSatisfy(isKept)
+            item?.isEnabled = !isFull && !pick.shortcuts.allSatisfy { isKept($0) || $0.isSameKeys(as: releaseShortcut) }
         }
         if !picks.isEmpty { addShortcutPopup.menu?.addItem(.separator()) }
         addShortcutPopup.addItem(withTitle: "Record Shortcut…")
@@ -169,7 +214,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         let rows = shortcuts.enumerated().map { index, shortcut in
             shortcutRow(shortcut, index: index)
         }
-        let addDetail = recorder.isRecording
+        let addDetail = recorder.isRecording && !isRecordingRelease
             ? "Press the shortcut to keep with macOS. Esc cancels."
             : "Choose one of macOS's shortcuts, or record another."
         let addRow = NativeSheetChrome.row(
@@ -178,6 +223,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
             control: addShortcutPopup
         )
         refreshAddShortcutMenu()
+        refreshReleaseButton()
         let group = FormGroupView()
         if rows.count < Self.rowsBeforeScrolling {
             group.embed(NativeSheetChrome.rowStack(rows + [addRow]))
@@ -252,7 +298,8 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
     }
 
     func add(_ added: [KeptShortcut]) {
-        for shortcut in added where !isKept(shortcut) && shortcuts.count < KeyboardRoutingPreferences.maximumShortcuts {
+        for shortcut in added where !isKept(shortcut) && !shortcut.isSameKeys(as: releaseShortcut)
+            && shortcuts.count < KeyboardRoutingPreferences.maximumShortcuts {
             shortcuts.append(shortcut)
         }
         shortcutsChanged()
@@ -301,6 +348,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
 
     @objc private func useDefaults() {
         recorder.stop()
+        isRecordingRelease = false
         setFields(.defaults)
         shortcutsChanged()
     }
@@ -313,6 +361,7 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
         doNotDisturbPopup.selectItem(withTag: Self.tag(preferences.doNotDisturb))
         mediaPopup.selectItem(withTag: Self.tag(preferences.media))
         shortcuts = preferences.shortcuts
+        releaseShortcut = preferences.releaseShortcut
     }
 
     private func draft() -> KeyboardRoutingPreferences {
@@ -323,7 +372,8 @@ final class KeyboardRoutingEditor: NSObject, NSWindowDelegate {
             dictation: Self.route(dictationPopup),
             doNotDisturb: Self.route(doNotDisturbPopup),
             media: Self.route(mediaPopup),
-            shortcuts: shortcuts
+            shortcuts: shortcuts,
+            releaseShortcut: releaseShortcut
         )
     }
 
