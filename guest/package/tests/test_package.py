@@ -865,6 +865,23 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         self.assertEqual(self.menu.read_text().count('"setup.region.timezone"'), 1)
 
+    def test_a_moved_timezone_row_the_user_deletes_stays_deleted(self):
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        text = "".join(row for row in self.menu.read_text().splitlines(keepends=True)
+                       if not row.startswith('  "setup.region.timezone"'))
+        self.menu.write_text(text)
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+
+    def test_a_commented_example_does_not_block_a_fresh_setup(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text('{\n  // "setup.region.timezone": {"label":"Example"},\n}\n')
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertIn("setup.region.timezone", self.parse(self.menu.read_text()))
+
     def test_a_deleted_or_edited_timezone_row_is_not_moved(self):
         self.entries()
         text = self.menu.read_text()

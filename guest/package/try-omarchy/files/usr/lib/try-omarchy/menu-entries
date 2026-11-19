@@ -153,6 +153,10 @@ def omarchy_rows():
     return rows if isinstance(rows, dict) else {}
 
 
+def mentions(text, key):
+    return any(f'"{key}"' in line for line in text.splitlines() if not line.lstrip().startswith("//"))
+
+
 def render(key, entry):
     return f'  "{key}": {json.dumps(entry, ensure_ascii=False, separators=(",", ":"))},\n'
 
@@ -211,15 +215,15 @@ def main():
         entry = build(omarchy)
         row = render(key, entry) if entry else None
         line = re.search(rf'^  "{re.escape(key)}":[^\n]*\n', text, re.M)
-        if line or f'"{key}"' in text:
+        if line or mentions(text, key):
             current = line.group(0) if line else None
             new_key = RETIRED.get(key)
             moved = BUILDERS[new_key](omarchy) if new_key and not row else None
-            if moved and current and current in (written.get(key), LEGACY.get(key)):
-                hidden = render(key, {"when": "false"})
+            hidden = render(key, {"when": "false"})
+            if moved and current and current != hidden and current in (written.get(key), LEGACY.get(key)):
                 text = text.replace(current, hidden, 1)
                 written[key] = hidden
-                if not re.search(rf'^\s*"{re.escape(new_key)}"\s*:', text, re.M):
+                if not mentions(text, new_key):
                     new_rows += render(new_key, moved)
                     written[new_key] = render(new_key, moved)
             elif row and current and current != row and current in (written.get(key), LEGACY.get(key)):
