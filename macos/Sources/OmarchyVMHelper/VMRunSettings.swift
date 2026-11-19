@@ -323,6 +323,7 @@ final class VMRunSettingsWindow {
             keyboardRouting: { keyboardRoutingStore.load() },
             saveKeyboardRouting: { keyboardRoutingStore.save($0) },
             usesAllDisplays: { fullscreenStore.load().usesAllDisplays },
+            displaysHaveSeparateSpaces: { NSScreen.screensHaveSeparateSpaces },
             setUsesAllDisplays: { usesAllDisplays in
                 var preferences = fullscreenStore.load()
                 preferences.usesAllDisplays = usesAllDisplays

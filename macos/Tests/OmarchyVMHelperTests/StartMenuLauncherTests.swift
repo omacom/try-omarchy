@@ -245,6 +245,47 @@ struct StartMenuLauncherTests {
         #expect(menu.state.usesAllDisplays)
     }
 
+    @Test("turning on all displays turns on immersive mode, which it needs")
+    func allDisplaysTurnsOnImmersive() {
+        _ = NSApplication.shared
+        var immersive = false
+        let menu = makeMenu(immersiveMode: { immersive }, setImmersiveMode: { immersive = $0 })
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        menu.actions.setUsesAllDisplays(true)
+        #expect(immersive)
+        #expect(menu.state.immersive)
+    }
+
+    @Test("turning on all displays without separate Spaces guides to the setting", arguments: [false, true])
+    func allDisplaysSeparateSpaces(confirmed: Bool) {
+        _ = NSApplication.shared
+        var usesAllDisplays = false
+        var shown: [String] = []
+        var settingsOpened = 0
+        let menu = makeMenu(
+            usesAllDisplays: { usesAllDisplays },
+            displaysHaveSeparateSpaces: { false },
+            setUsesAllDisplays: { usesAllDisplays = $0 },
+            presentSeparateSpacesGuide: { alert, _, decide in
+                shown.append(alert.messageText)
+                decide(confirmed)
+            },
+            openSeparateSpacesSettings: { settingsOpened += 1 }
+        )
+        defer { menu.dismiss() }
+        menu.prepareForPresentation(visibleFrame: nil)
+        menu.actions.setUsesAllDisplays(true)
+        #expect(shown == ["Turn on separate Spaces for your displays"])
+        #expect(usesAllDisplays == confirmed)
+        #expect(menu.state.usesAllDisplays == confirmed)
+        #expect(settingsOpened == (confirmed ? 1 : 0))
+
+        menu.actions.setUsesAllDisplays(false)
+        #expect(shown.count == 1)
+        #expect(!usesAllDisplays)
+    }
+
     @Test("returning to the launcher keeps its view and skips storage probes")
     func activationPreservesLauncher() throws {
         _ = NSApplication.shared
@@ -564,18 +605,23 @@ struct StartMenuLauncherTests {
         resetSettings: @escaping () -> Void = {},
         networkPreferences: @escaping () -> VMNetworkPreferences = { VMNetworkPreferences() },
         networkService: NetworkServiceControls = .thisApp,
+        immersiveMode: @escaping () -> Bool = { true },
+        setImmersiveMode: @escaping (Bool) -> Void = { _ in },
         notchAvailable: @escaping () -> Bool = { false },
         usesNotch: @escaping () -> Bool = { true },
         setUsesNotch: @escaping (Bool) -> Void = { _ in },
         keyboardRouting: @escaping () -> KeyboardRoutingPreferences = { .defaults },
         saveKeyboardRouting: @escaping (KeyboardRoutingPreferences) -> Void = { _ in },
         usesAllDisplays: @escaping () -> Bool = { false },
+        displaysHaveSeparateSpaces: @escaping () -> Bool = { true },
         setUsesAllDisplays: @escaping (Bool) -> Void = { _ in },
         startAutomatically: @escaping () -> Bool = { false },
         setStartAutomatically: @escaping (Bool) -> String? = { _ in nil },
         presentStartupSaveError: @escaping (NSAlert, NSWindow) -> Void = { _, _ in },
         confirmAutomaticStartup: @escaping (NSAlert) -> NSApplication.ModalResponse = { _ in .alertFirstButtonReturn },
         presentSettingsResetConfirmation: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { _, _, _ in },
+        presentSeparateSpacesGuide: @escaping (NSAlert, NSWindow, @escaping (Bool) -> Void) -> Void = { _, _, _ in },
+        openSeparateSpacesSettings: @escaping () -> Void = {},
         permissionPromptShown: @escaping () -> Bool = { true },
         setPermissionPromptShown: @escaping () -> Void = {},
         launch: @escaping () -> Void = {}
@@ -607,20 +653,23 @@ struct StartMenuLauncherTests {
             portForwardingStatus: { [] },
             networkPreferences: networkPreferences,
             networkService: networkService,
-            immersiveMode: { true },
-            setImmersiveMode: { _ in },
+            immersiveMode: immersiveMode,
+            setImmersiveMode: setImmersiveMode,
             notchAvailable: notchAvailable,
             usesNotch: usesNotch,
             setUsesNotch: setUsesNotch,
             keyboardRouting: keyboardRouting,
             saveKeyboardRouting: saveKeyboardRouting,
             usesAllDisplays: usesAllDisplays,
+            displaysHaveSeparateSpaces: displaysHaveSeparateSpaces,
             setUsesAllDisplays: setUsesAllDisplays,
             startAutomatically: startAutomatically,
             setStartAutomatically: setStartAutomatically,
             presentStartupSaveError: presentStartupSaveError,
             confirmAutomaticStartup: confirmAutomaticStartup,
             presentSettingsResetConfirmation: presentSettingsResetConfirmation,
+            presentSeparateSpacesGuide: presentSeparateSpacesGuide,
+            openSeparateSpacesSettings: openSeparateSpacesSettings,
             permissionPromptShown: permissionPromptShown,
             setPermissionPromptShown: setPermissionPromptShown,
             launch: launch

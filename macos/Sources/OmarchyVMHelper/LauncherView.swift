@@ -578,11 +578,11 @@ private struct WhatsNewSheet: View {
                         SettingRow(icon: SettingIcon(item.symbol, item.color), title: item.title,
                                    detail: [detail(for: item)]) {
                             if item.setting == .allDisplays {
-                                LauncherSwitch("All Displays", isOn: state.immersive && state.usesAllDisplays) { isOn in
-                                    // All Displays works in Immersive Mode only.
-                                    if isOn, !state.immersive { actions.setImmersive(true) }
-                                    actions.setUsesAllDisplays(isOn)
-                                }
+                                LauncherSwitch(
+                                    "All Displays",
+                                    isOn: state.immersive && state.usesAllDisplays,
+                                    set: actions.setUsesAllDisplays
+                                )
                             }
                         }
                     }
