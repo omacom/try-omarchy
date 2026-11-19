@@ -20,6 +20,7 @@ the whole run, so the VM keeps working out of sight while an idle Mac can still
 sleep. The app pauses the VM for Mac sleep on its own. QEMU's log says "Try
 Omarchy: App Nap off while the VM runs". `TRYOMARCHY_APP_NAP=1` in QEMU's
 environment leaves the activity out, to measure the difference.
+Omarchy's Stay Awake keeps the Mac awake too, through the Stay Awake port in [architecture](architecture.md).
 
 ## Idle audio bridge
 

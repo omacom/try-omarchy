@@ -762,6 +762,7 @@ timezone_socket="$socket_dir/timezone.sock"
 display_socket="$socket_dir/display.sock"
 settings_socket="$socket_dir/settings.sock"
 guest_socket="$socket_dir/guest.sock"
+stay_awake_socket="$socket_dir/stay-awake.sock"
 audio_routes="$socket_dir/audio-routes"
 mkdir -m 700 "$work_dir/audio-routes"
 
@@ -839,6 +840,8 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
   -chardev "socket,id=omarchy-display-layout,path=$display_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'
+  -chardev "socket,id=omarchy-stay-awake,path=$stay_awake_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-stay-awake,name=dev.tryomarchy.awake'
 )
 # The guest reports its display layout on dev.tryomarchy.display, and QEMU's
 # Cocoa display reads it to place the pointer (docs/multi-display.md).
@@ -925,7 +928,7 @@ bridge_names=(audio)
 for bridge in clipboard authentication camera battery timezone; do
   bridge_enabled "$bridge" && bridge_names+=("$bridge")
 done
-bridge_names+=(guest-status)
+bridge_names+=(guest-status stay-awake)
 bridge_restarts=()
 for _ in "${bridge_names[@]}"; do bridge_restarts+=(0); done
 start_bridge() { # index
@@ -937,6 +940,7 @@ start_bridge() { # index
     battery) "$native_bridge" --bridge-native-battery "$qemu_pid" "$battery_socket" 9>&- & ;;
     timezone) "$native_bridge" --bridge-native-timezone "$qemu_pid" "$timezone_socket" 9>&- & ;;
     guest-status) "$native_bridge" --bridge-guest-status "$qemu_pid" "$guest_socket" "$status_file" 9>&- & ;;
+    stay-awake) "$native_bridge" --bridge-stay-awake "$qemu_pid" "$stay_awake_socket" 9>&- & ;;
   esac
   bridge_pids[$1]=$!
 }
