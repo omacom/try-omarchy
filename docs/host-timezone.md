@@ -21,7 +21,8 @@ does, does not. Unsupported zone names are rejected without changing the
 guest.
 
 **Same as macOS** is the first row of the time zone picker opened by the
-Omarchy menu's **Update → Timezone** row. Choosing it turns following back on;
+Omarchy menu's **Setup → Region → Timezone** row (**Update → Timezone** in
+earlier Omarchy). Choosing it turns following back on;
 choosing any zone there fixes the guest zone. Try Omarchy doesn't patch
 Omarchy: its menu extension carries Omarchy's own Timezone row with the action
 pointing at `try-omarchy-timezone-menu`, and a sudoers rule lets the picker apply the

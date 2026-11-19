@@ -818,6 +818,71 @@ class MenuEntries(unittest.TestCase):
                                        "appearance.top-bar.indicators.battery-percentage-on",
                                        "appearance.top-bar.indicators.battery-percentage-off"})
 
+    def moved_timezone(self):
+        return self.OMARCHY.replace('"update.timezone":', '"setup.region.timezone":')
+
+    def test_the_timezone_row_follows_omarchy_to_region(self):
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertNotIn("update.timezone", parsed)
+        self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
+
+    def test_an_unedited_timezone_row_moves_when_omarchy_updates(self):
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        text = self.menu.read_text()
+        parsed = self.parse(text)
+        self.assertNotIn("update.timezone", parsed)
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
+        self.assertEqual(text.count("setup.region.timezone"), 1)
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+
+    def test_moves_a_timezone_row_earlier_packages_wrote(self):
+        self.menu.parent.mkdir(parents=True)
+        legacy = self.entries_module()["LEGACY"]["update.timezone"]
+        self.menu.write_text("{\n" + legacy + "}\n")
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries").write_text("9\n")
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(set(parsed), {"setup.region.timezone"})
+        self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
+
+    def test_an_edited_timezone_row_stays(self):
+        self.entries()
+        text = self.menu.read_text()
+        self.menu.write_text(text.replace('"label":"Timezone"', '"label":"My Timezone"'))
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(parsed["update.timezone"]["label"], "My Timezone")
+        self.assertNotIn("setup.region.timezone", parsed)
+
+    def test_an_unedited_direct_boot_row_goes_when_omarchy_drops_it(self):
+        self.entries()
+        rows = self.OMARCHY.splitlines(keepends=True)
+        self.omarchy.write_text("".join(row for row in rows if '"setup.direct-boot"' not in row))
+        self.entries()
+        self.assertNotIn("setup.direct-boot", self.parse(self.menu.read_text()))
+
+    def test_rows_stay_while_omarchys_menu_is_unreadable(self):
+        self.entries()
+        text = self.menu.read_text()
+        self.omarchy.unlink()
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+
+    @staticmethod
+    def entries_module():
+        namespace = {"__name__": "menu_entries"}
+        exec(compile((LIB / "menu-entries").read_text(), "menu-entries", "exec"), namespace)
+        return namespace
+
     def test_without_omarchys_menu_only_own_rows_are_added(self):
         self.omarchy.unlink()
         self.entries()
