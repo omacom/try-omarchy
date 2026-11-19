@@ -11,7 +11,7 @@ fi
 
 readonly PINNED_GLIB_ROOT=glib/2.88.3
 readonly PINNED_PIXMAN_ROOT=pixman/0.46.4
-readonly PINNED_LIBSLIRP_ROOT=libslirp/4.9.4
+readonly PINNED_LIBSLIRP_ROOT=libslirp/4.9.7
 readonly PINNED_LIBUSB_ROOT=libusb/1.0.30
 readonly PINNED_SDL2_ROOT=sdl2-compat/2.32.70
 readonly PINNED_SDL3_ROOT=sdl3/3.4.14
@@ -23,7 +23,7 @@ readonly PINNED_XZ_ROOT=xz/5.8.3
 
 readonly PINNED_GLIB_ARCHIVE=glib--2.88.3.arm64_sequoia.bottle.1.tar.gz
 readonly PINNED_PIXMAN_ARCHIVE=pixman--0.46.4.arm64_sequoia.bottle.1.tar.gz
-readonly PINNED_LIBSLIRP_ARCHIVE=libslirp--4.9.4.arm64_sequoia.bottle.tar.gz
+readonly PINNED_LIBSLIRP_ARCHIVE=libslirp--4.9.7.arm64_sequoia.bottle.tar.gz
 readonly PINNED_LIBUSB_ARCHIVE=libusb--1.0.30.arm64_sequoia.bottle.tar.gz
 readonly PINNED_SDL2_ARCHIVE=sdl2-compat--2.32.70.arm64_sequoia.bottle.tar.gz
 readonly PINNED_SDL3_ARCHIVE=sdl3--3.4.14.arm64_sequoia.bottle.tar.gz
@@ -37,7 +37,7 @@ pinned_core_bottle_manifest() {
   cat <<EOF
 glib	2.88.3	$PINNED_GLIB_ARCHIVE	$PINNED_GLIB_ROOT	ca168ac34920f6ee13187d8e88af7d55c50b582fa78a5511e15fe9dd875e8b40
 pixman	0.46.4	$PINNED_PIXMAN_ARCHIVE	$PINNED_PIXMAN_ROOT	86f5fc013d2b22bbe41c1c14661287bf8e8e4c3ac95cd05b08b886d24918fe34
-libslirp	4.9.4	$PINNED_LIBSLIRP_ARCHIVE	$PINNED_LIBSLIRP_ROOT	78dc33e108213bceb8f4b8a9d0293c0ff578a806ace4dfc4199af8c9714a2ffe
+libslirp	4.9.7	$PINNED_LIBSLIRP_ARCHIVE	$PINNED_LIBSLIRP_ROOT	c42971e7df9e9a58df62547c10ce1621ec994db2fd274e21692680b11b538432
 libusb	1.0.30	$PINNED_LIBUSB_ARCHIVE	$PINNED_LIBUSB_ROOT	a8d271bd5d9e7065987960caa52a9130d7fe6321ff1bad751499e465d0413e38
 sdl2-compat	2.32.70	$PINNED_SDL2_ARCHIVE	$PINNED_SDL2_ROOT	b5da3b02dfd9a68368f62a317b29f845dad4f29e067fc4aa81a351ca527a82c3
 sdl3	3.4.14	$PINNED_SDL3_ARCHIVE	$PINNED_SDL3_ROOT	012d5bb068548cb42df1fd6ab231a8ef76e706a82822d84ed71a10be7f155263

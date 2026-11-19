@@ -19,7 +19,7 @@ How Try Omarchy works, for contributors. User guides are in the [manual](../manu
   - [trackpad scrolling](trackpad-scrolling.md)
   - [memory reclamation](memory-reclamation.md)
   - [shared-folder safety](shared-folder-safety.md)
-- Networking: [ICMP replies](nat-icmp-reply-matching.md) and [UDP replies](nat-udp-reply-translation.md)
+- Networking: [ICMP replies](nat-icmp-reply-matching.md), [UDP replies](nat-udp-reply-translation.md), and [socket-close stalls](nat-socket-close.md)
 
 ## Working on it
 

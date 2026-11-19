@@ -49,6 +49,8 @@ for VirGL, libslirp, and QEMU; otherwise Ninja selects its usual parallelism.
 See [performance profiling](../docs/performance.md) for CPU/memory accounting,
 reproducible measurements, and the current native-comparison limitations.
 
+The [NAT socket-close fix](../docs/nat-socket-close.md) closes TCP sockets on a thread pool, so a slow host close doesn't block the VM's main loop.
+
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. It offers patch, minor, or major selection
 and direct version entry (or accepts `VERSION=vX.Y.Z`), ensures the guest and

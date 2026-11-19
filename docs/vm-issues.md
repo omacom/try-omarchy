@@ -16,6 +16,7 @@ needs a check in a running guest first), **limit** (a design constraint).
 
 | Issue | Evidence | Status |
 | --- | --- | --- |
+| A content filter's slow NAT TCP close freezes the VM | A main-thread sample spent all its time in `tcp_close → close`; [details](nat-socket-close.md) | verify: TCP sockets close on a thread pool; check on a Mac with a content filter |
 | Empty bar, menus, OSD and notifications on Qt 6.12. Qt 6.12 adds a QtQuick `Color` singleton that shadows the shell's `qs.Commons` `Color` | Omarchy's ARM mirror serves `qt6-declarative 6.12.0-1`. The stable `omarchy 4.0.4` package still has 52 shell files with a bare `Color`, but the factory installs `omarchy-dev`, whose edge build `4.0.0.r7026.g51bfd1d` uses `Commons.Color` throughout (no bare uses). OmacVM's workaround for stable: `src/guest/shell-colors.py` (TS #35) | not an issue on `omarchy-dev`: no `Color` errors in the session log on the new factory |
 | Suspend leaves the VM looking frozen: no wake source | Upstream shows Suspend unless `/etc/systemd/sleep.conf.d/omarchy-sleep-disabled.conf` exists (`bin/omarchy-sleep-disabled`) | fixed: the package ships that switch; verified logind `CanSuspend` "no" |
 | NTP may be off. The old guest enabled `systemd-timesyncd`; nothing in the factory, package or upstream does now | `guest-clock-recover` only try-restarts it; host-timezone.md assumes it is enabled | fixed: the package enables it once; verified enabled and synchronized |

@@ -16,7 +16,7 @@ def added_file(name):
     start = lines.index(f"+++ b/{name}\n") + 1
     result = []
     for line in lines[start:]:
-        if line.startswith("--- "):
+        if line.startswith("--- ") or line.startswith("diff --git "):
             break
         if line.startswith("@@"):
             continue
@@ -43,6 +43,7 @@ class ICMPPatchTests(unittest.TestCase):
         for variable, filename in (
             ("slirp_patch_sha256", "libslirp-darwin-icmp-matching.patch"),
             ("udp_patch_sha256", "libslirp-ipv4-udp-translation.patch"),
+            ("close_patch_sha256", "libslirp-darwin-async-close.patch"),
         ):
             with self.subTest(patch=filename):
                 patch = NATIVE / "patches" / filename

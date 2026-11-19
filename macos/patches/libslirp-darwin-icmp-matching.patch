@@ -1,91 +1,23 @@
---- a/src/ip_icmp.c
-+++ b/src/ip_icmp.c
-@@ -310,8 +310,8 @@
-  */
- 
- #define ICMP_MAXDATALEN (IP_MSS - 28)
--void icmp_forward_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
--                        const char *message, struct in_addr *src)
-+static void icmp_forward_error_mtu(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
-+                        const char *message, struct in_addr *src, uint16_t mtu)
- {
-     unsigned hlen, shlen, s_ip_len;
-     register struct ip *ip;
-@@ -396,6 +396,8 @@
-     icp->icmp_code = code;
-     icp->icmp_id = 0;
-     icp->icmp_seq = 0;
-+    if (type == ICMP_UNREACH && code == ICMP_UNREACH_NEEDFRAG)
-+        icp->icmp_nextmtu = htons(mtu);
- 
-     memcpy(&icp->icmp_ip, msrc->m_data, s_ip_len); /* report the ip packet */
-     HTONS(icp->icmp_ip.ip_len);
-@@ -436,6 +438,12 @@
-     return;
- }
- #undef ICMP_MAXDATALEN
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -295,3 +295,14 @@ gatewaydnstest = executable('gatewaydnstest', 'test/gatewaydnstest.c',
+   dependencies: libslirp_deps,
+ )
+ test('gatewaydns', gatewaydnstest)
 +
-+void icmp_forward_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
-+                        const char *message, struct in_addr *src)
-+{
-+    icmp_forward_error_mtu(msrc, type, code, minsize, message, src, 0);
-+}
- 
- void icmp_send_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
-                      const char *message)
-@@ -493,6 +501,10 @@
-     ip_output((struct socket *)NULL, m);
- }
- 
-+#ifdef __APPLE__
-+#include "icmp-match.h"
-+#endif
-+
- void icmp_receive(struct socket *so)
- {
-     struct mbuf *m = so->so_m;
-@@ -501,6 +513,41 @@
-     uint8_t error_code;
-     struct icmp *icp;
-     int id, len;
-+
-+#ifdef __APPLE__
-+    /* Preserve the pending request until a validated reply arrives. */
-+    if (so->so_type == IPPROTO_IP) {
-+        uint8_t *packet = g_malloc(65535);
-+        ssize_t received = recv(so->s, packet, 65535, 0);
-+        if (received < 0) {
-+            int saved_errno = errno;
-+            g_free(packet);
-+            if (saved_errno == EAGAIN || saved_errno == EWOULDBLOCK || saved_errno == EINTR) return;
-+            icmp_send_error(m, ICMP_UNREACH,
-+                            saved_errno == ENETUNREACH ? ICMP_UNREACH_NET : ICMP_UNREACH_HOST,
-+                            0, g_strerror(saved_errno));
-+            icmp_detach(so);
-+            return;
-+        }
-+        size_t offset = 0;
-+        int match = icmp_match(packet, received, (uint8_t *)m->m_data + hlen,
-+                               m->m_len - hlen, (uint8_t *)&so->so_faddr, &offset);
-+        if (match == 1) {
-+            memcpy(m->m_data + hlen, packet + offset, m->m_len - hlen);
-+            icmp_reflect(m);
-+            so->so_m = NULL;
-+        } else if (match == 2) {
-+            struct in_addr source;
-+            memcpy(&source, packet + 12, sizeof(source));
-+            uint16_t mtu = ((uint16_t)packet[offset + 6] << 8) | packet[offset + 7];
-+            icmp_forward_error_mtu(m, packet[offset], packet[offset + 1],
-+                                   0, NULL, &source, mtu);
-+        }
-+        g_free(packet);
-+        if (match) icmp_detach(so);
-+        return;
-+    }
-+#endif
- 
-     m->m_data += hlen;
-     m->m_len -= hlen;
++# The matcher consumes Darwin socket bytes; it can be tested on any host.
++icmpmatchtest = executable('icmpmatchtest', 'test/icmp-match-test.c',
++  include_directories: ['src'])
++test('icmp-match', icmpmatchtest)
++if host_machine.system() == 'darwin'
++  icmpdarwintest = executable('icmpdarwintest', 'test/icmp-darwin-test.c',
++    link_with: [lib], c_args: cargs, include_directories: ['src'],
++    dependencies: libslirp_deps)
++  test('icmp-darwin', icmpdarwintest)
++endif
+diff --git a/src/icmp-match.h b/src/icmp-match.h
+new file mode 100644
 --- /dev/null
 +++ b/src/icmp-match.h
 @@ -0,0 +1,49 @@
@@ -138,6 +70,211 @@
 +    return 2;
 +}
 +#endif
+diff --git a/src/ip_icmp.c b/src/ip_icmp.c
+--- a/src/ip_icmp.c
++++ b/src/ip_icmp.c
+@@ -479,8 +479,8 @@ end_error:
+  */
+ 
+ #define ICMP_MAXDATALEN (IP_MSS - 28)
+-void icmp_forward_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
+-                        const char *message, struct in_addr *src)
++static void icmp_forward_error_mtu(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
++                        const char *message, struct in_addr *src, uint16_t mtu)
+ {
+     unsigned hlen, shlen, s_ip_len;
+     register struct ip *ip;
+@@ -568,6 +568,8 @@ void icmp_forward_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsi
+     icp->icmp_code = code;
+     icp->icmp_id = 0;
+     icp->icmp_seq = 0;
++    if (type == ICMP_UNREACH && code == ICMP_UNREACH_NEEDFRAG)
++        icp->icmp_nextmtu = htons(mtu);
+ 
+     memcpy(&icp->icmp_ip, msrc->m_data, s_ip_len); /* report the ip packet */
+     HTONS(icp->icmp_ip.ip_len);
+@@ -609,6 +611,12 @@ end_error:
+ }
+ #undef ICMP_MAXDATALEN
+ 
++void icmp_forward_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
++                        const char *message, struct in_addr *src)
++{
++    icmp_forward_error_mtu(msrc, type, code, minsize, message, src, 0);
++}
++
+ void icmp_send_error(struct mbuf *msrc, uint8_t type, uint8_t code, int minsize,
+                      const char *message)
+ {
+@@ -717,6 +725,10 @@ static bool icmp_receive_error_queue(struct socket *so)
+ }
+ #endif
+ 
++#ifdef __APPLE__
++#include "icmp-match.h"
++#endif
++
+ /* VirtualBox/virtualbox#479: Receive into a temporary buffer so router errors do not overwrite the quoted Echo Request. */
+ void icmp_receive(struct socket *so)
+ {
+@@ -736,6 +748,42 @@ void icmp_receive(struct socket *so)
+ #endif
+     int id, len, room;
+ 
++#ifdef __APPLE__
++    /* Preserve the pending request until a validated reply arrives. */
++    if (so->so_type == IPPROTO_IP) {
++        uint8_t *packet = g_malloc(65535);
++        ssize_t received = recv(so->s, packet, 65535, 0);
++        if (received < 0) {
++            int saved_errno = errno;
++            g_free(packet);
++            if (saved_errno == EAGAIN || saved_errno == EWOULDBLOCK || saved_errno == EINTR) return;
++            icmp_send_error(m, ICMP_UNREACH,
++                            saved_errno == ENETUNREACH ? ICMP_UNREACH_NET : ICMP_UNREACH_HOST,
++                            0, g_strerror(saved_errno));
++            icmp_detach(so);
++            return;
++        }
++        size_t offset = 0;
++        int match = icmp_match(packet, received, (uint8_t *)m->m_data + hlen,
++                               m->m_len - hlen, (uint8_t *)&so->so_faddr, &offset);
++        if (match == 1) {
++            memcpy(m->m_data + hlen, packet + offset, m->m_len - hlen);
++            ip->ip_ttl = packet[8];
++            icmp_reflect(m);
++            so->so_m = NULL;
++        } else if (match == 2) {
++            struct in_addr source;
++            memcpy(&source, packet + 12, sizeof(source));
++            uint16_t mtu = ((uint16_t)packet[offset + 6] << 8) | packet[offset + 7];
++            icmp_forward_error_mtu(m, packet[offset], packet[offset + 1],
++                                   0, NULL, &source, mtu);
++        }
++        g_free(packet);
++        if (match) icmp_detach(so);
++        return;
++    }
++#endif
++
+ #ifdef __linux__
+     if (so->so_type == IPPROTO_ICMP && icmp_receive_error_queue(so)) {
+         icmp_detach(so);
+diff --git a/test/icmp-darwin-test.c b/test/icmp-darwin-test.c
+new file mode 100644
+--- /dev/null
++++ b/test/icmp-darwin-test.c
+@@ -0,0 +1,108 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++#include "slirp.h"
++static unsigned replies;
++static unsigned expected_type;
++static unsigned registered;
++static uint16_t sum(const uint8_t *p, size_t n)
++{
++    unsigned v = 0;
++    for (size_t i = 0; i < n; i += 2)
++        v += ((unsigned)p[i] << 8) | (i + 1 < n ? p[i + 1] : 0);
++    while (v >> 16) v = (v & 65535) + (v >> 16);
++    return (uint16_t)~v;
++}
++static void checksum(uint8_t *p, size_t n)
++{
++    p[2] = p[3] = 0;
++    uint16_t v = sum(p, n); p[2] = v >> 8; p[3] = v;
++}
++static slirp_ssize_t output(const void *buf, size_t len, void *opaque)
++{
++    const uint8_t *p = buf;
++    if (len < 42 || p[12] != 8 || p[13] != 0) return len;
++    g_assert_cmpuint(p[34], ==, expected_type);
++    size_t iplen = ((size_t)p[16] << 8) | p[17];
++    g_assert_cmpuint(iplen + 14, <=, len);
++    g_assert_cmpuint(sum(p + 34, iplen - 20), ==, 0);
++    if (expected_type == 3) {
++        g_assert_cmpuint(p[35], ==, 4);
++        g_assert_cmpuint(((unsigned)p[40] << 8) | p[41], ==, 1400);
++        g_assert_cmpuint(p[26], ==, 9);
++        g_assert_cmpuint(p[27], ==, 9);
++        g_assert_cmpuint(p[28], ==, 9);
++        g_assert_cmpuint(p[29], ==, 9);
++        g_assert_cmpuint(p[66], ==, 0x12);
++        g_assert_cmpuint(p[67], ==, 0x34);
++        g_assert_cmpuint(p[69], ==, 7);
++    } else {
++        g_assert_cmpuint(p[22], ==, 43);
++        g_assert_cmpuint(p[38], ==, 0x12);
++        g_assert_cmpuint(p[39], ==, 0x34);
++        g_assert_cmpuint(p[41], ==, 7);
++    }
++    replies++;
++    return len;
++}
++static int64_t now(void *opaque) { return 0; }
++static void reg(slirp_os_socket fd, void *opaque) { registered++; }
++static void unreg(slirp_os_socket fd, void *opaque) { registered--; }
++static void notify(void *opaque) { }
++static struct socket *pending(Slirp *slirp, int fds[2])
++{
++    struct mbuf *m = m_get(slirp);
++    m->m_len = 32; memset(m->m_data, 0, 32);
++    struct ip *ip = mtod(m, struct ip *);
++    ip->ip_v = 4; ip->ip_hl = 5; ip->ip_len = 32;
++    ip->ip_ttl = 64; ip->ip_p = 1;
++    ip->ip_src.s_addr = htonl(0x0a00020e);
++    ip->ip_dst.s_addr = htonl(0x01010101);
++    uint8_t *q = (uint8_t *)m->m_data + 20;
++    q[0] = 8; q[4] = 0x12; q[5] = 0x34; q[7] = 7;
++    q[8] = 1; q[9] = 2; q[10] = 3; q[11] = 4; checksum(q, 12);
++    g_assert_cmpint(socketpair(AF_UNIX, SOCK_DGRAM, 0, fds), ==, 0);
++    struct socket *so = socreate(slirp, IPPROTO_IP);
++    so->s = fds[0]; so->so_m = m; so->so_faddr = ip->ip_dst;
++    so->so_laddr = ip->ip_src; so->so_state = SS_ISFCONNECTED;
++    slirp_insque(so, &slirp->icmp); slirp_register_poll_socket(so);
++    return so;
++}
++int main(void)
++{
++    SlirpConfig cfg = {.version = 6, .in_enabled = true,
++        .vnetwork.s_addr = htonl(0x0a000200), .vnetmask.s_addr = htonl(0xffffff00),
++        .vhost.s_addr = htonl(0x0a000202), .vdhcp_start.s_addr = htonl(0x0a00020f),
++        .vnameserver.s_addr = htonl(0x0a000203)};
++    SlirpCb cb = {.send_packet = output, .clock_get_ns = now,
++        .register_poll_socket = reg, .unregister_poll_socket = unreg, .notify = notify};
++    Slirp *slirp = slirp_new(&cfg, &cb, NULL); g_assert_nonnull(slirp);
++    const uint8_t mac[6] = {0x52, 0x55, 0x0a, 0, 2, 14};
++    arp_table_add(slirp, htonl(0x0a00020e), mac);
++    int fds[2]; struct socket *so = pending(slirp, fds);
++    uint8_t packet[56] = {0}, original[32];
++    memcpy(original, so->so_m->m_data, 32);
++    packet[0] = 0x45; uint16_t size = 12; memcpy(packet + 2, &size, 2);
++    packet[8] = 43; packet[9] = 1; memset(packet + 12, 1, 4);
++    memcpy(packet + 20, original + 20, 12); packet[20] = 0;
++    packet[27] = 8; checksum(packet + 20, 12);
++    g_assert_cmpint(send(fds[1], packet, 32, 0), ==, 32);
++    icmp_receive(so);
++    g_assert_cmpuint(replies, ==, 0); g_assert_cmpuint(registered, ==, 1);
++    g_assert_cmpint(memcmp(original, so->so_m->m_data, 32), ==, 0);
++    packet[27] = 7; checksum(packet + 20, 12);
++    g_assert_cmpint(send(fds[1], packet, 32, 0), ==, 32);
++    icmp_receive(so);
++    g_assert_cmpuint(replies, ==, 1); g_assert_cmpuint(registered, ==, 0); close(fds[1]);
++    so = pending(slirp, fds); expected_type = 3;
++    memset(packet, 0, sizeof(packet)); packet[0] = 0x45;
++    size = 36; memcpy(packet + 2, &size, 2); packet[9] = 1;
++    memset(packet + 12, 9, 4); packet[20] = 3; packet[21] = 4;
++    packet[26] = 5; packet[27] = 120;
++    memcpy(packet + 28, original, 28); packet[30] = 0; packet[31] = 32;
++    checksum(packet + 20, 36);
++    g_assert_cmpint(send(fds[1], packet, sizeof(packet), 0), ==, sizeof(packet));
++    icmp_receive(so);
++    g_assert_cmpuint(replies, ==, 2); g_assert_cmpuint(registered, ==, 0);
++    close(fds[1]); slirp_cleanup(slirp);
++    puts("Darwin ICMP receive regression tests passed");
++    return 0;
++}
+diff --git a/test/icmp-match-test.c b/test/icmp-match-test.c
+new file mode 100644
 --- /dev/null
 +++ b/test/icmp-match-test.c
 @@ -0,0 +1,74 @@
@@ -215,130 +352,3 @@
 +    puts("ICMP matching regression tests passed");
 +    return 0;
 +}
---- /dev/null
-+++ b/test/icmp-darwin-test.c
-@@ -0,0 +1,107 @@
-+/* SPDX-License-Identifier: BSD-3-Clause */
-+#include "slirp.h"
-+static unsigned replies;
-+static unsigned expected_type;
-+static unsigned registered;
-+static uint16_t sum(const uint8_t *p, size_t n)
-+{
-+    unsigned v = 0;
-+    for (size_t i = 0; i < n; i += 2)
-+        v += ((unsigned)p[i] << 8) | (i + 1 < n ? p[i + 1] : 0);
-+    while (v >> 16) v = (v & 65535) + (v >> 16);
-+    return (uint16_t)~v;
-+}
-+static void checksum(uint8_t *p, size_t n)
-+{
-+    p[2] = p[3] = 0;
-+    uint16_t v = sum(p, n); p[2] = v >> 8; p[3] = v;
-+}
-+static slirp_ssize_t output(const void *buf, size_t len, void *opaque)
-+{
-+    const uint8_t *p = buf;
-+    if (len < 42 || p[12] != 8 || p[13] != 0) return len;
-+    g_assert_cmpuint(p[34], ==, expected_type);
-+    size_t iplen = ((size_t)p[16] << 8) | p[17];
-+    g_assert_cmpuint(iplen + 14, <=, len);
-+    g_assert_cmpuint(sum(p + 34, iplen - 20), ==, 0);
-+    if (expected_type == 3) {
-+        g_assert_cmpuint(p[35], ==, 4);
-+        g_assert_cmpuint(((unsigned)p[40] << 8) | p[41], ==, 1400);
-+        g_assert_cmpuint(p[26], ==, 9);
-+        g_assert_cmpuint(p[27], ==, 9);
-+        g_assert_cmpuint(p[28], ==, 9);
-+        g_assert_cmpuint(p[29], ==, 9);
-+        g_assert_cmpuint(p[66], ==, 0x12);
-+        g_assert_cmpuint(p[67], ==, 0x34);
-+        g_assert_cmpuint(p[69], ==, 7);
-+    } else {
-+        g_assert_cmpuint(p[38], ==, 0x12);
-+        g_assert_cmpuint(p[39], ==, 0x34);
-+        g_assert_cmpuint(p[41], ==, 7);
-+    }
-+    replies++;
-+    return len;
-+}
-+static int64_t now(void *opaque) { return 0; }
-+static void reg(slirp_os_socket fd, void *opaque) { registered++; }
-+static void unreg(slirp_os_socket fd, void *opaque) { registered--; }
-+static void notify(void *opaque) { }
-+static struct socket *pending(Slirp *slirp, int fds[2])
-+{
-+    struct mbuf *m = m_get(slirp);
-+    m->m_len = 32; memset(m->m_data, 0, 32);
-+    struct ip *ip = mtod(m, struct ip *);
-+    ip->ip_v = 4; ip->ip_hl = 5; ip->ip_len = 32;
-+    ip->ip_ttl = 64; ip->ip_p = 1;
-+    ip->ip_src.s_addr = htonl(0x0a00020e);
-+    ip->ip_dst.s_addr = htonl(0x01010101);
-+    uint8_t *q = (uint8_t *)m->m_data + 20;
-+    q[0] = 8; q[4] = 0x12; q[5] = 0x34; q[7] = 7;
-+    q[8] = 1; q[9] = 2; q[10] = 3; q[11] = 4; checksum(q, 12);
-+    g_assert_cmpint(socketpair(AF_UNIX, SOCK_DGRAM, 0, fds), ==, 0);
-+    struct socket *so = socreate(slirp, IPPROTO_IP);
-+    so->s = fds[0]; so->so_m = m; so->so_faddr = ip->ip_dst;
-+    so->so_laddr = ip->ip_src; so->so_state = SS_ISFCONNECTED;
-+    slirp_insque(so, &slirp->icmp); slirp_register_poll_socket(so);
-+    return so;
-+}
-+int main(void)
-+{
-+    SlirpConfig cfg = {.version = 6, .in_enabled = true,
-+        .vnetwork.s_addr = htonl(0x0a000200), .vnetmask.s_addr = htonl(0xffffff00),
-+        .vhost.s_addr = htonl(0x0a000202), .vdhcp_start.s_addr = htonl(0x0a00020f),
-+        .vnameserver.s_addr = htonl(0x0a000203)};
-+    SlirpCb cb = {.send_packet = output, .clock_get_ns = now,
-+        .register_poll_socket = reg, .unregister_poll_socket = unreg, .notify = notify};
-+    Slirp *slirp = slirp_new(&cfg, &cb, NULL); g_assert_nonnull(slirp);
-+    const uint8_t mac[6] = {0x52, 0x55, 0x0a, 0, 2, 14};
-+    arp_table_add(slirp, htonl(0x0a00020e), mac);
-+    int fds[2]; struct socket *so = pending(slirp, fds);
-+    uint8_t packet[56] = {0}, original[32];
-+    memcpy(original, so->so_m->m_data, 32);
-+    packet[0] = 0x45; uint16_t size = 12; memcpy(packet + 2, &size, 2);
-+    packet[9] = 1; memset(packet + 12, 1, 4);
-+    memcpy(packet + 20, original + 20, 12); packet[20] = 0;
-+    packet[27] = 8; checksum(packet + 20, 12);
-+    g_assert_cmpint(send(fds[1], packet, 32, 0), ==, 32);
-+    icmp_receive(so);
-+    g_assert_cmpuint(replies, ==, 0); g_assert_cmpuint(registered, ==, 1);
-+    g_assert_cmpint(memcmp(original, so->so_m->m_data, 32), ==, 0);
-+    packet[27] = 7; checksum(packet + 20, 12);
-+    g_assert_cmpint(send(fds[1], packet, 32, 0), ==, 32);
-+    icmp_receive(so);
-+    g_assert_cmpuint(replies, ==, 1); g_assert_cmpuint(registered, ==, 0); close(fds[1]);
-+    so = pending(slirp, fds); expected_type = 3;
-+    memset(packet, 0, sizeof(packet)); packet[0] = 0x45;
-+    size = 36; memcpy(packet + 2, &size, 2); packet[9] = 1;
-+    memset(packet + 12, 9, 4); packet[20] = 3; packet[21] = 4;
-+    packet[26] = 5; packet[27] = 120;
-+    memcpy(packet + 28, original, 28); packet[30] = 0; packet[31] = 32;
-+    checksum(packet + 20, 36);
-+    g_assert_cmpint(send(fds[1], packet, sizeof(packet), 0), ==, sizeof(packet));
-+    icmp_receive(so);
-+    g_assert_cmpuint(replies, ==, 2); g_assert_cmpuint(registered, ==, 0);
-+    close(fds[1]); slirp_cleanup(slirp);
-+    puts("Darwin ICMP receive regression tests passed");
-+    return 0;
-+}
---- a/meson.build
-+++ b/meson.build
-@@ -277,3 +277,14 @@
- meson.override_dependency('slirp', libslirp_libdep)
- 
- subdir('fuzzing')
-+
-+# The matcher consumes Darwin socket bytes; it can be tested on any host.
-+icmpmatchtest = executable('icmpmatchtest', 'test/icmp-match-test.c',
-+  include_directories: ['src'])
-+test('icmp-match', icmpmatchtest)
-+if host_machine.system() == 'darwin'
-+  icmpdarwintest = executable('icmpdarwintest', 'test/icmp-darwin-test.c',
-+    link_with: [lib], c_args: cargs, include_directories: ['src'],
-+    dependencies: libslirp_deps)
-+  test('icmp-darwin', icmpdarwintest)
-+endif
