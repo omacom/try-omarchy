@@ -223,7 +223,7 @@ def main():
             if moved and current and current != hidden and current in (written.get(key), LEGACY.get(key)):
                 text = text.replace(current, hidden, 1)
                 written[key] = hidden
-                if not mentions(text, new_key):
+                if new_key not in written and not mentions(text, new_key):
                     new_rows += render(new_key, moved)
                     written[new_key] = render(new_key, moved)
             elif row and current and current != row and current in (written.get(key), LEGACY.get(key)):

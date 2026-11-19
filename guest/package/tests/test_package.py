@@ -874,6 +874,12 @@ class MenuEntries(unittest.TestCase):
         self.menu.write_text(text)
         self.entries()
         self.assertEqual(self.menu.read_text(), text)
+        # A rollback and a later update don't bring it back either.
+        self.omarchy.write_text(self.OMARCHY)
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertNotIn("setup.region.timezone", self.parse(self.menu.read_text()))
 
     def test_a_commented_example_does_not_block_a_fresh_setup(self):
         self.menu.parent.mkdir(parents=True)
