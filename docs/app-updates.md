@@ -48,11 +48,18 @@ notification feature, not a second installation mechanism. When Sparkle ships,
 replace its GitHub transport and preserve the user's automatic-check preference; do not
 run two automatic checkers.
 
+The app already carries Sparkle, pinned in `macos/Package.swift`.
+`macos/build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`,
+without the XPC services meant for sandboxed apps, and signs its updater
+inside out. Sparkle stays off until `Info.plist` names both `SUFeedURL` and
+`SUPublicEDKey` (`AppUpdater.swift`). The kit drops the framework, since the
+app embedding it owns its updates, and the helper links Sparkle weakly so it
+runs without it.
+
 Before enabling installation, maintainers need to:
 
 1. Choose a stable HTTPS appcast location and create an Ed25519 signing key in
-   their release environment. Embed only the public key in the app. Pin Sparkle
-   and integrate framework/helper signing with the existing bundle build.
+   their release environment. Embed only the public key in the app.
 2. Establish monotonically increasing release build numbers across release
    branches. Verify version stamping and build-cache invalidation together;
    commit counts alone need scrutiny for shallow checkouts and parallel branches.

@@ -26,6 +26,8 @@ CI builds a kit on macOS 15 and 26 from the runtime and a stand-in for the guest
 - the manifest at `Contents/Resources/kit.json`;
 - the runtime, firmware, scripts and guest files beside the manifest, in `Contents/Resources`.
 
+The kit carries no updater: the app's Sparkle framework is left out, because the embedding app updates itself and the kit with it.
+
 An embedding app keeps its kit in `Contents/Helpers/TryOmarchyKit.bundle`, and a kit it fetches in a folder of its own. The client follows the same paths: `TryOmarchyKit.embedded(in:)` for the kit in an app, `TryOmarchyKit.unpacked(in:)` for a folder that holds the unpacked zip, and `helperURL()` and `manifestURL` within either.
 
 ### No identity
