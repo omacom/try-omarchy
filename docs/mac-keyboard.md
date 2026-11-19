@@ -111,6 +111,16 @@ Built-in keyboards send brightness as system-defined events, which always stay w
 
 Media transport keys arrive as system-defined aux-control events, which full grab's tap doesn't capture by default. When the Keyboard setting sends them to Omarchy, the launcher passes `media-keys=on` to QEMU. Its tap then also takes previous, play/pause and next while the guest has the keyboard, and sends them as `audioprev`, `audioplay` and `audionext`, which Omarchy's own Hyprland bindings handle. A media key held when focus leaves is released. Volume, mute, brightness and backlight events always stay with macOS. Like the other keys, the setting applies at the next launch.
 
+## Shortcuts kept with macOS
+
+Full grab sends every shortcut to Omarchy, including macOS's own, such as Control–arrow to switch Spaces. The Keyboard sheet's **Shortcuts** list keeps chosen shortcuts with macOS instead.
+
+- Quick picks offer macOS's Spaces shortcuts: Switch Spaces, Mission Control, Application Windows and, when they're turned on in System Settings, Switch to Desktop 1–9. Picks follow the bindings in System Settings → Keyboard → Keyboard Shortcuts, read from `com.apple.symbolichotkeys`, and a shortcut turned off there isn't offered. A pick is a copy, so a binding changed later in System Settings needs picking again.
+- **Record Shortcut…** keeps any other shortcut. It needs at least one of Control, Option or Command, so typing in Omarchy keeps working, capitals included. With Accessibility, the launcher records through an HID event tap: it sees shortcuts that macOS or another app would act on, and keeps them from acting while it records. Without Accessibility, it records only shortcuts that reach its window.
+- The launcher passes each shortcut to QEMU in `host-keys` as a keycode with its modifiers, such as `124+ctrl`. The Cocoa tap hands a key down back to macOS only while exactly those modifiers are held; Caps Lock and Fn don't count. The key's repeats and key up follow its key down, so releasing Control first can't leave the arrow held in Omarchy. A key Omarchy already holds stays with Omarchy. The capture swallows Command's own events, so the keys pressed with it can reach the tap without the Command flag; the tap remembers Command from Command's events, so Command shortcuts still match and reach macOS with Command.
+- Omarchy never receives a kept shortcut. Keeping Switch Spaces gives up Control–arrow word movement in Omarchy's terminals and text fields.
+- Omarchy still sees the modifiers go down and up, since they arrive before the key that completes the shortcut. Only the key itself is kept from Omarchy.
+
 ## Validation
 
 `make test` checksums the Cocoa patch and compiles the ISO swap helper. The upstream QEMU pin is unchanged. Review

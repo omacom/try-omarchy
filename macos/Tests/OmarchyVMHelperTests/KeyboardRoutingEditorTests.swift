@@ -60,6 +60,67 @@ struct KeyboardRoutingEditorTests {
         #expect(saved.isEmpty)
     }
 
+    @Test("Quick picks and removals edit the draft, and Save publishes the shortcuts")
+    func shortcuts() throws {
+        _ = NSApplication.shared
+        var saved: [KeyboardRoutingPreferences] = []
+        let left = KeptShortcut(keyCode: 123, modifiers: .control, key: "←", name: "Move left a space")
+        let right = KeptShortcut(keyCode: 124, modifiers: .control, key: "→", name: "Move right a space")
+        let up = KeptShortcut(keyCode: 126, modifiers: .control, key: "↑", name: "Mission Control")
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.shortcuts = [right]
+        let editor = KeyboardRoutingEditor(
+            preferences: preferences,
+            picks: [
+                MacSystemShortcuts.Pick(title: "Switch Spaces", shortcuts: [left, right]),
+                MacSystemShortcuts.Pick(title: "Mission Control", shortcuts: [up]),
+            ],
+            save: { saved.append($0) },
+            didClose: {}
+        )
+        let add: NSPopUpButton = try control("add-shortcut", in: editor)
+        #expect(add.itemTitles == ["Add", "Switch Spaces  ⌃← ⌃→", "Mission Control  ⌃↑", "", "Record Shortcut…"])
+        #expect(add.item(at: 1)?.isEnabled == true)
+
+        choose(0, in: add)
+        #expect(editor.shortcuts == [right, left])
+        #expect(add.item(at: 1)?.isEnabled == false)
+        choose(1, in: add)
+        #expect(editor.shortcuts == [right, left, up])
+
+        let remove: NSButton = try control("remove-shortcut-0", in: editor)
+        remove.performClick(nil)
+        #expect(editor.shortcuts == [left, up])
+
+        let save: NSButton = try control("save", in: editor)
+        save.performClick(nil)
+        #expect(saved.map(\.shortcuts) == [[left, up]])
+    }
+
+    @Test("Use Defaults clears the kept shortcuts")
+    func defaultsClearShortcuts() throws {
+        _ = NSApplication.shared
+        var preferences = KeyboardRoutingPreferences.defaults
+        preferences.shortcuts = [KeptShortcut(keyCode: 124, modifiers: .control, key: "→")]
+        var saved: [KeyboardRoutingPreferences] = []
+        let editor = KeyboardRoutingEditor(
+            preferences: preferences, picks: [], save: { saved.append($0) }, didClose: {}
+        )
+        let add: NSPopUpButton = try control("add-shortcut", in: editor)
+        #expect(add.itemTitles == ["Add", "Record Shortcut…"])
+        let defaults: NSButton = try control("defaults", in: editor)
+        defaults.performClick(nil)
+        #expect(editor.shortcuts.isEmpty)
+        let save: NSButton = try control("save", in: editor)
+        save.performClick(nil)
+        #expect(saved == [.defaults])
+    }
+
+    private func choose(_ tag: Int, in popup: NSPopUpButton) {
+        popup.selectItem(withTag: tag)
+        _ = popup.target?.perform(popup.action, with: popup)
+    }
+
     private func control<T: NSView>(_ name: String, in editor: KeyboardRoutingEditor) throws -> T {
         func find(in view: NSView) -> T? {
             if view.identifier?.rawValue == "keyboard-routing-\(name)" { return view as? T }

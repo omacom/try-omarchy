@@ -93,6 +93,7 @@ close_patch="$native_dir/patches/libslirp-darwin-async-close.patch"
 fence_poll_patch="$native_dir/patches/qemu-darwin-gpu-fence-poll.patch"
 multi_display_patch="$native_dir/patches/qemu-cocoa-multi-display.patch"
 guest_layout_patch="$native_dir/patches/qemu-cocoa-guest-layout.patch"
+host_shortcuts_patch="$native_dir/patches/qemu-cocoa-host-shortcuts.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 virgl_upload_flush_patch="$native_dir/patches/virgl-ctx0-upload-flush.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
@@ -141,6 +142,7 @@ audio_capture_thread_patch_sha256=1e8c71480829985091a583cba2da7eb4cb5137e21632a5
 audio_playback_thread_patch_sha256=66792195f69c517854970688172b7cc87bc6cfb0f4ad13334ec274db12eac473
 multi_display_patch_sha256=9cf821bbc00ee9ae94c67e68bd5b6bd50b8448c83e67ca3d1840987e09bb06e5
 guest_layout_patch_sha256=db7a452e8c473ddd9885c892acd995dac790bea7af5f826cfa613d88cc5ab295
+host_shortcuts_patch_sha256=4b86b2a182595c7d8d3722d008f4cf823ddcab0688f28640a4c6592e574894f7
 main_loop_qos_patch_sha256=a8e7dbdf602b9451123fe55a6a714c816dbcc5c94811d85dbbaedda473647e49
 udp_patch_sha256=0a9fc08ad2da35009ba2ff5447b00dadf02f18b17941509c6b2b96e73acda4bc
 slirp_patch_sha256=6f950af012259578bbabef29531cfded3e2426314519509e6902e24531289a0e
@@ -310,6 +312,8 @@ macos_major=$(sw_vers -productVersion | awk -F. '{ print $1 }')
   die "missing Cocoa multi-display patch: $multi_display_patch"
 [[ -f $guest_layout_patch && ! -L $guest_layout_patch ]] || \
   die "missing Cocoa guest-layout patch: $guest_layout_patch"
+[[ -f $host_shortcuts_patch && ! -L $host_shortcuts_patch ]] || \
+  die "missing Cocoa host-shortcuts patch: $host_shortcuts_patch"
 [[ -x $prepare_runtime && ! -L $prepare_runtime ]] || \
   die "missing runtime preparation script: $prepare_runtime"
 if [[ -n $archive_cache ]]; then
@@ -566,6 +570,8 @@ verify_file_sha "Try Omarchy Cocoa multi-display patch" \
   "$multi_display_patch" "$multi_display_patch_sha256"
 verify_file_sha "Try Omarchy Cocoa guest-layout patch" \
   "$guest_layout_patch" "$guest_layout_patch_sha256"
+verify_file_sha "Try Omarchy Cocoa host-shortcuts patch" \
+  "$host_shortcuts_patch" "$host_shortcuts_patch_sha256"
 verify_file_sha "Try Omarchy HDA no-catch-up pacing patch" \
   "$hda_no_catch_up_patch" "$hda_no_catch_up_patch_sha256"
 verify_file_sha "Try Omarchy SDL audio capture-thread patch" \
@@ -575,7 +581,7 @@ verify_file_sha "Try Omarchy SDL audio playback-thread patch" \
 verify_file_sha "Try Omarchy Darwin main-loop QoS patch" \
   "$main_loop_qos_patch" "$main_loop_qos_patch_sha256"
 
-log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, multi-display, and guest-layout patches"
+log "Applying the exact render, identity, display, immersive, pause-ownership, audio, folder, Darwin compatibility, memory reclaim, pinch, precise-scroll, ISO keyboard, USB exact-bus, minimum guest size, App Nap, audio pacing and threading, main-loop QoS, notch, Command-chord, touch-scroll, Korean Caps Lock, pointer modifier, multi-display, guest-layout, and host-shortcuts patches"
 patch -d "$source_dir" -p1 -f -i "$texture_patch"
 patch -d "$source_dir" -p1 -f -i "$gpu_fix_patch"
 patch -d "$source_dir" -p1 -f -i "$identity_patch"
@@ -614,6 +620,7 @@ patch -d "$source_dir" -p1 -f -i "$pointer_mapping_patch"
 patch -d "$source_dir" -p1 -f -i "$pointer_modifiers_patch"
 patch -d "$source_dir" -p1 -f -i "$multi_display_patch"
 patch -d "$source_dir" -p1 -f -i "$guest_layout_patch"
+patch -d "$source_dir" -p1 -f -i "$host_shortcuts_patch"
 
 virgl_root="$dependency_root/virglrenderer/$virgl_version"
 angle_root="$dependency_root/angle/$angle_version"

@@ -295,9 +295,11 @@ enum StartMenuPresentation {
             ("Do Not Disturb", preferences.doNotDisturb),
             ("Media", preferences.media),
         ]
+        let shortcuts = preferences.shortcuts.count
         let macOS = rows.filter { $0.1 == .macOS }.map(\.0)
+            + (shortcuts == 0 ? [] : ["\(shortcuts) \(shortcuts == 1 ? "shortcut" : "shortcuts")"])
         let omarchy = rows.filter { $0.1 == .omarchy }.map(\.0)
-        let staysWithMacOS = "\(macOS.joined(separator: ", ")) \(macOS.count == 1 ? "stays" : "stay") with macOS"
+        let staysWithMacOS = "\(macOS.joined(separator: ", ")) \(macOS.count == 1 && shortcuts < 2 ? "stays" : "stay") with macOS"
         let goesToOmarchy = "\(omarchy.joined(separator: ", ")) \(omarchy.count == 1 ? "goes" : "go") to Omarchy"
         switch (macOS.isEmpty, omarchy.isEmpty) {
         case (false, true): return staysWithMacOS + "."
