@@ -71,8 +71,8 @@ not ignore, so caches and other local files never reach the package.
   are replaced), so each changed row carries Omarchy's complete row, read from
   the installed Omarchy at every login, with our change applied. Rows still
   exactly as written follow Omarchy's later changes, including a row Omarchy
-  moves (Timezone, now under Setup → Region) or drops (Direct Boot); rows the
-  user edits or removes are left alone. The settings row and its desktop entry, which the app
+  moves (Timezone, now under Setup → Region), whose old row is hidden until
+  Omarchy has it again; rows the user edits or removes are left alone. The settings row and its desktop entry, which the app
   launcher hides, say Try Omarchy Settings in every app that runs the VM.
 
 ## Host interfaces

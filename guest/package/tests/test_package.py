@@ -829,46 +829,71 @@ class MenuEntries(unittest.TestCase):
         self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
 
-    def test_an_unedited_timezone_row_moves_when_omarchy_updates(self):
+    def test_an_unedited_timezone_row_moves_and_comes_back_with_omarchy(self):
         self.entries()
         self.omarchy.write_text(self.moved_timezone())
         self.entries()
         text = self.menu.read_text()
         parsed = self.parse(text)
-        self.assertNotIn("update.timezone", parsed)
+        self.assertEqual(parsed["update.timezone"], {"when": "false"})
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
-        self.assertEqual(text.count("setup.region.timezone"), 1)
         self.entries()
         self.assertEqual(self.menu.read_text(), text)
+        # A snapshot rollback brings the older Omarchy back with the same home.
+        self.omarchy.write_text(self.OMARCHY)
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
+        self.assertEqual(parsed["update.timezone"]["label"], "Timezone")
 
     def test_moves_a_timezone_row_earlier_packages_wrote(self):
         self.menu.parent.mkdir(parents=True)
         legacy = self.entries_module()["LEGACY"]["update.timezone"]
         self.menu.write_text("{\n" + legacy + "}\n")
         self.state.mkdir(parents=True)
-        (self.state / "menu-entries").write_text("9\n")
+        (self.state / "menu-entries").write_text("8\n")
         self.omarchy.write_text(self.moved_timezone())
         self.entries()
         parsed = self.parse(self.menu.read_text())
-        self.assertEqual(set(parsed), {"setup.region.timezone"})
+        self.assertEqual(set(parsed), {"update.timezone", "setup.region.timezone"})
         self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
 
-    def test_an_edited_timezone_row_stays(self):
-        self.entries()
-        text = self.menu.read_text()
-        self.menu.write_text(text.replace('"label":"Timezone"', '"label":"My Timezone"'))
+    def test_moves_a_timezone_row_once_without_a_marker(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text("{\n" + self.entries_module()["LEGACY"]["update.timezone"] + "}\n")
         self.omarchy.write_text(self.moved_timezone())
         self.entries()
-        parsed = self.parse(self.menu.read_text())
-        self.assertEqual(parsed["update.timezone"]["label"], "My Timezone")
-        self.assertNotIn("setup.region.timezone", parsed)
+        self.assertEqual(self.menu.read_text().count('"setup.region.timezone"'), 1)
 
-    def test_an_unedited_direct_boot_row_goes_when_omarchy_drops_it(self):
+    def test_a_deleted_or_edited_timezone_row_is_not_moved(self):
         self.entries()
+        text = self.menu.read_text()
+        line = next(row for row in text.splitlines(keepends=True) if row.startswith('  "update.timezone"'))
+        self.omarchy.write_text(self.moved_timezone())
+        for edit in ("", line.replace('"label":"Timezone"', '"label":"My Timezone"')):
+            self.menu.write_text(text.replace(line, edit))
+            self.entries()
+            parsed = self.parse(self.menu.read_text())
+            self.assertNotIn("setup.region.timezone", parsed)
+            self.assertEqual(self.menu.read_text(), text.replace(line, edit))
+
+    def test_a_commented_example_does_not_block_the_move(self):
+        self.entries()
+        text = self.menu.read_text()
+        self.menu.write_text(text.replace("{\n", '{\n  // "setup.region.timezone": {"label":"Example"},\n', 1))
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu",
+                      self.parse(self.menu.read_text())["setup.region.timezone"]["action"])
+
+    def test_a_direct_boot_row_stays_hidden_when_omarchy_drops_it(self):
+        self.entries()
+        text = self.menu.read_text()
         rows = self.OMARCHY.splitlines(keepends=True)
         self.omarchy.write_text("".join(row for row in rows if '"setup.direct-boot"' not in row))
         self.entries()
-        self.assertNotIn("setup.direct-boot", self.parse(self.menu.read_text()))
+        self.assertEqual(self.menu.read_text(), text)
+        self.assertTrue(self.parse(text)["setup.direct-boot"]["when"].startswith("! omarchy-hw-vm && "))
 
     def test_rows_stay_while_omarchys_menu_is_unreadable(self):
         self.entries()
