@@ -48,10 +48,18 @@ index 7c4ece1..9f856ef 100644
      "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
  #endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index ee199f0..1df6b40 100644
+index ee199f0..6f85385 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1207,58 +1207,205 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+@@ -856,6 +856,7 @@
+ - (BOOL) capsLockTapHandlesKeys;
+ - (void) capsLockInputSourceChanged;
+ - (void) capsLockWindowActivated;
++- (BOOL) appSwitcherTapHandlesModifiers;
+ - (void) reenableEventTap;
+ - (void) sendMediaKey:(int)qcode down:(bool)down;
+ - (void) raiseAllKeys;
+@@ -1207,58 +1208,205 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
  
  
  /*
@@ -261,7 +269,7 @@ index ee199f0..1df6b40 100644
   */
  static bool cocoa_media_key(long data1, int *qcode, bool *down)
  {
-@@ -1316,29 +1446,52 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+@@ -1316,29 +1447,52 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
              cocoa_media_key([systemEvent data1], &qcode, &down)) {
              [view sendMediaKey:qcode down:down];
              return NULL;
@@ -314,7 +322,7 @@ index ee199f0..1df6b40 100644
      if (cocoa_caps_lock_key_event(event)) {
          /*
           * macOS decides between switching the input source and locking
-@@ -2613,24 +2756,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2613,24 +2757,28 @@ - (bool) handleEventLocked:(NSEvent *)event
  
              // Keep Command chords with the host unless the focused guest
              // captured the keyboard.
@@ -343,7 +351,7 @@ index ee199f0..1df6b40 100644
  
                          // enable graphic console
                          case '1' ... '9':
-@@ -2648,24 +2795,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+@@ -2648,24 +2796,28 @@ - (bool) handleEventLocked:(NSEvent *)event
              if (qemu_console_is_graphic(head->dcl.con)) {
                  qkbd_state_key_event(kbd, keycode, true);
              } else {
@@ -372,7 +380,62 @@ index ee199f0..1df6b40 100644
                  qkbd_state_key_event(kbd, keycode, false);
              }
              return true;
-@@ -4740,26 +4891,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
+@@ -3045,6 +3224,12 @@
+     with_bql(^{
+         cocoa_caps_lock_state.synced = false;
+     });
++}
++
++- (BOOL) appSwitcherTapHandlesModifiers
++{
++    return eventsTap && CGEventTapIsEnabled(eventsTap) &&
++           !getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY");
+ }
+ 
+ /* macOS can disable a slow tap; restore capture after either notification. */
+@@ -3765,32 +3950,41 @@
+ - (void)sendEvent:(NSEvent *)event
+ {
+     QemuCocoaView *view = cocoaView;
+ 
+     COCOA_DEBUG("QemuApplication: sendEvent\n");
++    if ([event type] == NSEventTypeFlagsChanged &&
++        cocoa_share_app_switcher_modifier([event keyCode])) {
++        /* Shift toggles in handleEvent, so deliver it only once. */
++        if (![view appSwitcherTapHandlesModifiers] && [view isKeyboardCaptured]) {
++            [view handleEvent:event];
++        }
++        [super sendEvent:event];
++        return;
++    }
+     if (cocoa_caps_lock_key_event(event)) {
+         /*
+          * AppKit takes part in locking capitals from these events, so they
+          * always reach it. QEMU handles them here only when the tap did not.
+          */
+         if (![cocoaView capsLockTapHandlesKeys]) {
+             [cocoaView handleEvent:event];
+         }
+         [super sendEvent:event];
+         return;
+     }
+     /*
+      * Keys go to the first head's view, which keeps the keyboard state for
+      * all of them. Gestures and wheels belong to the window under them.
+      */
+     switch ([event type]) {
+     case NSEventTypeMagnify:
+     case NSEventTypeScrollWheel:
+         view = cocoa_view_of_window([event window]);
+         break;
+     default:
+         break;
+     }
+     if (![view handleEvent:event]) {
+         [super sendEvent: event];
+     }
+ }
+@@ -4740,26 +4907,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
  }
  
  static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
