@@ -834,6 +834,14 @@ class MenuEntries(unittest.TestCase):
         self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
         self.assertEqual((self.state / "menu-entries").read_text().strip(), "8")
 
+    def test_an_unreadable_menu_does_not_use_up_the_release_marker(self):
+        self.omarchy.write_text("{ not json\n")
+        self.entries()
+        self.assertFalse((self.state / "menu-entries").exists())
+        self.omarchy.write_text(self.OMARCHY)
+        self.entries()
+        self.assertIn("update.timezone", self.parse(self.menu.read_text()))
+
     def test_a_later_release_adds_only_its_new_rows(self):
         self.menu.parent.mkdir(parents=True)
         self.menu.write_text("{\n}\n")  # the user removed the first release's rows
