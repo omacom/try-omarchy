@@ -51,7 +51,7 @@ diff --git a/ui/cocoa.m b/ui/cocoa.m
 index ee199f0..1df6b40 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
-@@ -1207,58 +1207,188 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+@@ -1207,58 +1207,205 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
  
  
  /*
@@ -232,6 +232,23 @@ index ee199f0..1df6b40 100644
 +    return flags;
 +}
 +
++static bool cocoa_share_app_switcher_modifier(CGKeyCode key)
++{
++    bool command = key == kVK_Command || key == kVK_RightCommand;
++    bool shift = key == kVK_Shift || key == kVK_RightShift;
++
++    for (unsigned i = 0; (command || shift) && i < cocoa_host_shortcut_count; i++) {
++        CocoaHostShortcut shortcut = cocoa_host_shortcuts[i];
++        if (shortcut.keycode == kVK_Tab &&
++            (shortcut.modifiers == NSEventModifierFlagCommand ||
++             shortcut.modifiers == (NSEventModifierFlagCommand | NSEventModifierFlagShift)) &&
++            (command || (shortcut.modifiers & NSEventModifierFlagShift))) {
++            return true;
++        }
++    }
++    return false;
++}
++
  static bool cocoa_is_host_key(CGKeyCode keycode)
  {
      return keycode < 256 && cocoa_host_keys[keycode];
@@ -244,7 +261,7 @@ index ee199f0..1df6b40 100644
   */
  static bool cocoa_media_key(long data1, int *qcode, bool *down)
  {
-@@ -1316,29 +1446,42 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+@@ -1316,29 +1446,52 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
              cocoa_media_key([systemEvent data1], &qcode, &down)) {
              [view sendMediaKey:qcode down:down];
              return NULL;
@@ -265,6 +282,16 @@ index ee199f0..1df6b40 100644
                                      kCGKeyboardEventKeycode))) {
          return cgEvent;
      }
++    /* Preserve the modifier transitions the macOS app switcher needs. */
++    if (type == kCGEventFlagsChanged &&
++        !getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY") &&
++        cocoa_share_app_switcher_modifier(
++            CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode))) {
++        if ([view isKeyboardCaptured]) {
++            [view handleEvent:[NSEvent eventWithCGEvent:cgEvent]];
++        }
++        return cgEvent;
++    }
 +    if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
 +        cocoa_host_shortcut_event(
 +            CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode),

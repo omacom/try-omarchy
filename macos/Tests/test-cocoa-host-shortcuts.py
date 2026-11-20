@@ -50,6 +50,9 @@ class CocoaHostShortcutsTests(unittest.TestCase):
             "            cocoa_host_shortcut_held[keycode] = true;\n"
             "            return true;\n        }\n    }\n    return false;\n}",
         )
+        share = extract_c_block(
+            patched_cocoa(), "static bool cocoa_share_app_switcher_modifier", "\n}",
+        )
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             (work / "host-shortcuts.c").write_text(
@@ -60,6 +63,9 @@ class CocoaHostShortcutsTests(unittest.TestCase):
 #include <string.h>
 
 typedef unsigned long NSEventModifierFlags;
+typedef unsigned short CGKeyCode;
+enum {{ kVK_Tab = 48, kVK_Command = 55, kVK_RightCommand = 54,
+         kVK_Shift = 56, kVK_RightShift = 60 }};
 enum {{
     NSEventModifierFlagCapsLock = 1 << 16,
     NSEventModifierFlagShift = 1 << 17,
@@ -72,6 +78,7 @@ enum {{
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 {code}
+{share}
 
 static int count(const bool table[256]) {{
     int total = 0;
@@ -90,6 +97,21 @@ int main(void) {{
     unsigned shortcut_count = 99;
     const NSEventModifierFlags ctrl = NSEventModifierFlagControl;
     const NSEventModifierFlags arrow = NSEventModifierFlagNumericPad | NSEventModifierFlagFunction;
+
+    /* Only kept Mac app-switching shortcuts share modifier transitions. */
+    assert(parse("48+ctrl+cmd"));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(parse("48+cmd"));
+    assert(cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(cocoa_share_app_switcher_modifier(kVK_RightCommand));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Shift));
+    assert(parse("48+cmd:48+shift+cmd"));
+    assert(cocoa_share_app_switcher_modifier(kVK_Shift));
+    assert(cocoa_share_app_switcher_modifier(kVK_RightShift));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Tab));
+    assert(parse("123+ctrl:49+cmd"));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Shift));
 
     /* Bare keycodes keep their meaning. */
     assert(cocoa_parse_host_keys("", table, shortcuts, &shortcut_count));
