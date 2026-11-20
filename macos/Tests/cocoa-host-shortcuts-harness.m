@@ -116,7 +116,7 @@ static CGEventRef dispatchTapModifier(QemuCocoaView *view, CGEventRef cgEvent) {
 }
 
 static void sendModifier(QemuApplication *app, CGKeyCode key, bool down,
-                         unsigned expectedGuestDeliveries) {
+                         unsigned expectedTapDeliveries) {
     NativeEvent nativeEvent = {key, down};
     CGEventRef event = &nativeEvent;
     unsigned guestBefore = cocoaView->guestDeliveries;
@@ -124,9 +124,10 @@ static void sendModifier(QemuApplication *app, CGKeyCode key, bool down,
     if (cocoaView->eventsTap) {
         assert(dispatchTapModifier(cocoaView, event) == event);
     }
+    assert(cocoaView->guestDeliveries == guestBefore + expectedTapDeliveries);
     [app sendEvent:[NSEvent eventWithCGEvent:event]];
     assert(app.hostDeliveries == hostBefore + 1);
-    assert(cocoaView->guestDeliveries == guestBefore + expectedGuestDeliveries);
+    assert(cocoaView->guestDeliveries == guestBefore + 1);
 }
 
 int main(void) {
@@ -145,17 +146,20 @@ int main(void) {
         sendModifier(app, kVK_Command, false, 1);
 
         cocoaView->eventsTap = false;
-        sendModifier(app, kVK_Shift, true, 1);
-        sendModifier(app, kVK_Shift, false, 1);
+        sendModifier(app, kVK_Shift, true, 0);
+        sendModifier(app, kVK_Shift, false, 0);
 
         cocoaView->eventsTap = true;
         setenv("TRYOMARCHY_INPUT_OBSERVE_ONLY", "1", 1);
-        sendModifier(app, kVK_Command, true, 1);
-        sendModifier(app, kVK_Command, false, 1);
+        sendModifier(app, kVK_Command, true, 0);
+        sendModifier(app, kVK_Command, false, 0);
         unsetenv("TRYOMARCHY_INPUT_OBSERVE_ONLY");
 
+        // The VM is still the key window after releasing keyboard capture.
         cocoaView->captured = false;
         sendModifier(app, kVK_Shift, true, 0);
+        assert(cocoaView->guestShiftDown);
         sendModifier(app, kVK_Shift, false, 0);
+        assert(!cocoaView->guestShiftDown);
     }
 }

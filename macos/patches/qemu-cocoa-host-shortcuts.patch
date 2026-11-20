@@ -48,7 +48,7 @@ index 7c4ece1..9f856ef 100644
      "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
  #endif
 diff --git a/ui/cocoa.m b/ui/cocoa.m
-index ee199f0..6f85385 100644
+index ee199f0..abaef6b 100644
 --- a/ui/cocoa.m
 +++ b/ui/cocoa.m
 @@ -856,6 +856,7 @@
@@ -389,7 +389,7 @@ index ee199f0..6f85385 100644
 +- (BOOL) appSwitcherTapHandlesModifiers
 +{
 +    return eventsTap && CGEventTapIsEnabled(eventsTap) &&
-+           !getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY");
++           !getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY") && [self isKeyboardCaptured];
  }
  
  /* macOS can disable a slow tap; restore capture after either notification. */
@@ -402,7 +402,7 @@ index ee199f0..6f85385 100644
 +    if ([event type] == NSEventTypeFlagsChanged &&
 +        cocoa_share_app_switcher_modifier([event keyCode])) {
 +        /* Shift toggles in handleEvent, so deliver it only once. */
-+        if (![view appSwitcherTapHandlesModifiers] && [view isKeyboardCaptured]) {
++        if (![view appSwitcherTapHandlesModifiers]) {
 +            [view handleEvent:event];
 +        }
 +        [super sendEvent:event];
