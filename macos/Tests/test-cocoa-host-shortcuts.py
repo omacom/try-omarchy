@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile and exercise the Cocoa host-shortcuts parser and matcher, without AppKit."""
+"""Exercise Cocoa host shortcut matching and delivery without a live event tap."""
 
 from __future__ import annotations
 
@@ -50,6 +50,9 @@ class CocoaHostShortcutsTests(unittest.TestCase):
             "            cocoa_host_shortcut_held[keycode] = true;\n"
             "            return true;\n        }\n    }\n    return false;\n}",
         )
+        share = extract_c_block(
+            patched_cocoa(), "static bool cocoa_share_app_switcher_modifier", "\n}",
+        )
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             (work / "host-shortcuts.c").write_text(
@@ -60,6 +63,9 @@ class CocoaHostShortcutsTests(unittest.TestCase):
 #include <string.h>
 
 typedef unsigned long NSEventModifierFlags;
+typedef unsigned short CGKeyCode;
+enum {{ kVK_Tab = 48, kVK_Command = 55, kVK_RightCommand = 54,
+         kVK_Shift = 56, kVK_RightShift = 60 }};
 enum {{
     NSEventModifierFlagCapsLock = 1 << 16,
     NSEventModifierFlagShift = 1 << 17,
@@ -72,6 +78,7 @@ enum {{
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 {code}
+{share}
 
 static int count(const bool table[256]) {{
     int total = 0;
@@ -90,6 +97,21 @@ int main(void) {{
     unsigned shortcut_count = 99;
     const NSEventModifierFlags ctrl = NSEventModifierFlagControl;
     const NSEventModifierFlags arrow = NSEventModifierFlagNumericPad | NSEventModifierFlagFunction;
+
+    /* Only kept Mac app-switching shortcuts share modifier transitions. */
+    assert(parse("48+ctrl+cmd"));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(parse("48+cmd"));
+    assert(cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(cocoa_share_app_switcher_modifier(kVK_RightCommand));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Shift));
+    assert(parse("48+cmd:48+shift+cmd"));
+    assert(cocoa_share_app_switcher_modifier(kVK_Shift));
+    assert(cocoa_share_app_switcher_modifier(kVK_RightShift));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Tab));
+    assert(parse("123+ctrl:49+cmd"));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Command));
+    assert(!cocoa_share_app_switcher_modifier(kVK_Shift));
 
     /* Bare keycodes keep their meaning. */
     assert(cocoa_parse_host_keys("", table, shortcuts, &shortcut_count));
@@ -259,6 +281,36 @@ int main(void) {{
                       "                                          true, [event isARepeat])) {", added)
         self.assertIn("if (cocoa_host_shortcut_event([event keyCode], [event modifierFlags],\n"
                       "                                          false, false)) {", added)
+
+    def test_shared_modifier_transitions_reach_host_and_guest_once(self) -> None:
+        source = patched_cocoa()
+        tap_branch = extract_c_block(
+            source, "    /* Preserve the modifier transitions", "\n    }",
+        )
+        sections = {
+            "share-modifier.inc": extract_c_block(
+                source, "static bool cocoa_share_app_switcher_modifier", "\n}",
+            ),
+            "tap-availability.inc": extract_c_block(
+                source, "- (BOOL) appSwitcherTapHandlesModifiers\n{", "\n}",
+            ),
+            "tap-modifier.inc": tap_branch,
+            "send-event.inc": extract_c_block(
+                source, "- (void)sendEvent:(NSEvent *)event", "\n}",
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            for filename, section in sections.items():
+                (work / filename).write_text(section + "\n", encoding="utf-8")
+            program = work / "host-shortcut-delivery"
+            subprocess.run(
+                ["cc", "-fobjc-arc", "-Wall", "-Werror", "-framework", "Foundation",
+                 "-I", str(work), "-o", str(program),
+                 str(Path(__file__).with_name("cocoa-host-shortcuts-harness.m"))],
+                check=True,
+            )
+            subprocess.run([str(program)], check=True)
 
     def test_the_launcher_detects_the_error_message_qemu_prints(self) -> None:
         added = plus_lines()
