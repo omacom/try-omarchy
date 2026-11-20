@@ -842,6 +842,30 @@ class MenuEntries(unittest.TestCase):
         self.entries()
         self.assertIn("update.timezone", self.parse(self.menu.read_text()))
 
+    def test_a_failed_state_write_puts_the_menu_back(self):
+        self.entries()
+        text = self.menu.read_text()
+        marker = (self.state / "menu-entries").read_text()
+        record = self.state / "menu-rows.json"
+        self.omarchy.write_text(self.OMARCHY.replace('"label":"Timezone"', '"label":"Zone"'))
+        os.chflags(record, stat.UF_IMMUTABLE)
+        try:
+            result = subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, **self.env})
+        finally:
+            os.chflags(record, 0)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.menu.read_text(), text)
+        self.assertNotIn('"label":"Zone"', self.menu.read_text())
+        self.assertEqual((self.state / "menu-entries").read_text(), marker)
+
+    def test_a_failed_state_write_on_first_login_removes_the_new_menu(self):
+        record = self.state / "menu-rows.json"
+        record.parent.mkdir(parents=True)
+        record.mkdir()
+        result = subprocess.run(["python3", str(LIB / "menu-entries")], env={**os.environ, **self.env})
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.menu.exists())
+
     def test_a_later_release_adds_only_its_new_rows(self):
         self.menu.parent.mkdir(parents=True)
         self.menu.write_text("{\n}\n")  # the user removed the first release's rows
