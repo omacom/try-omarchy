@@ -15,7 +15,10 @@ edited is left as it is.
 
 A marker in ~/.local/state/try-omarchy records the newest release of rows
 added, so rows the user deletes stay deleted and a later release adds only its
-new rows. menu-rows.json beside it records the text written for each row.
+new rows. The marker advances only after Omarchy's menu was read and the row
+record was written, so a missing menu at first login does not skip later rows.
+menu-rows.json beside it records the text written for each row. If that record
+cannot be written, the menu file is put back.
 """
 
 import json
@@ -136,13 +139,20 @@ def parse_jsonc(text):
 
 
 def omarchy_rows():
+    """Return Omarchy's rows and whether the menu file was actually read.
+
+    A missing or unreadable menu is not the same as a menu with no rows: the
+    caller still adds rows of our own, but must not treat the release as done.
+    """
     path = Path(os.environ.get("TRY_OMARCHY_OMARCHY_MENU")
                 or Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy") / "default/omarchy/omarchy-menu.jsonc")
     try:
         rows = parse_jsonc(path.read_text())
     except (OSError, ValueError):
-        return {}
-    return rows if isinstance(rows, dict) else {}
+        return {}, False
+    if not isinstance(rows, dict):
+        return {}, False
+    return rows, True
 
 
 def render(key, entry):
@@ -197,7 +207,7 @@ def main():
         written = {}
 
     done = added_release(state)
-    omarchy = omarchy_rows()
+    omarchy, upstream_read = omarchy_rows()
     new_rows = ""
     for key, release, build in ROWS:
         entry = build(omarchy)
@@ -220,11 +230,19 @@ def main():
             new_rows = HEADER + new_rows
         opening = text.find("{")
         text = text[: opening + 1] + "\n" + new_rows + text[opening + 1:].lstrip("\n")
+    created = not path.exists()
     if text != original:
         write(path, text)
-    write(written_path, json.dumps(written, ensure_ascii=False, indent=1) + "\n")
-    marker = state / "try-omarchy/menu-entries"
-    marker.write_text(f"{RELEASE}\n")
+    try:
+        write(written_path, json.dumps(written, ensure_ascii=False, indent=1) + "\n")
+    except OSError:
+        if created:
+            path.unlink(missing_ok=True)
+        elif text != original:
+            write(path, original)
+        return 1
+    if upstream_read:
+        write(state / "try-omarchy/menu-entries", f"{RELEASE}\n")
     return 0
 
 
