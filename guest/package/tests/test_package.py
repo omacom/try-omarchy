@@ -961,6 +961,72 @@ class PackageInstall(unittest.TestCase):
         self.assertIn("omarchy-provision-hardware.service", after)
         self.assertRegex(unit, r"(?m)^Before=.*omarchy-provision-owner\.service")
 
+    def install_with_root(self, options):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            scripts = {
+                "findmnt": '#!/bin/bash\nprintf "%s\\n" "$TEST_ROOT_OPTIONS"\n',
+                "pacman": '#!/bin/bash\nprintf "%s\\n" "$*" >>"$TEST_LOG"\n'
+                          '[[ $1 == -Q ]] && printf "try-omarchy 0.1.0-47\\n"\n',
+                "vercmp": '#!/bin/bash\nprintf "0\\n"\n',
+            }
+            for name, body in scripts.items():
+                (bin_dir / name).write_text(body)
+                (bin_dir / name).chmod(0o755)
+            credentials = tmp / "credentials"
+            credentials.mkdir()
+            package = "try-omarchy-0.1.0-47-aarch64.pkg.tar.zst"
+            (credentials / "tryomarchy.package").write_text(package)
+            state = tmp / "state/package-install.json"
+            log = tmp / "pacman.log"
+            run(LIB / "package-install", env={
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "CREDENTIALS_DIRECTORY": str(credentials),
+                "TRY_OMARCHY_PACKAGE_INSTALL_STATE": str(state),
+                "TEST_ROOT_OPTIONS": options,
+                "TEST_LOG": str(log),
+            })
+            return json.loads(state.read_text()), log.read_text().splitlines() if log.exists() else []
+
+    def test_skips_package_installation_on_a_snapper_snapshot(self):
+        report, calls = self.install_with_root("rw,relatime,subvolid=257,subvol=/@/.snapshots/3/snapshot")
+        self.assertEqual(report["result"], "skipped")
+        self.assertEqual(report["message"], "running from a Snapper snapshot")
+        self.assertEqual(calls, [])
+
+    def test_checks_the_offered_package_on_the_default_root(self):
+        report, calls = self.install_with_root("rw,relatime,subvolid=256,subvol=/@")
+        self.assertEqual(report["result"], "current")
+        self.assertEqual(calls, ["-Q try-omarchy"])
+
+    def run_boot_hook_with_root(self, caller, options):
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            findmnt = tmp / "findmnt"
+            findmnt.write_text('#!/bin/bash\nprintf "%s\\n" "$TEST_ROOT_OPTIONS"\n')
+            findmnt.chmod(0o755)
+            return subprocess.run(
+                [str(FILES / "etc/boot/hooks/pre.d/00-try-omarchy-snapshot")],
+                capture_output=True, text=True, env={
+                    **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}",
+                    "TEST_ROOT_OPTIONS": options, "HOOK_CALLER": caller})
+
+    def test_snapshot_boot_hooks_protect_esp_without_blocking_restore(self):
+        snapshot = "rw,relatime,subvolid=257,subvol=/@/.snapshots/3/snapshot"
+        normal = "rw,relatime,subvolid=256,subvol=/@"
+        for caller in ("limine-mkinitcpio-install", "limine-mkinitcpio-remove"):
+            with self.subTest(caller=caller, root="snapshot"):
+                result = self.run_boot_hook_with_root(caller, snapshot)
+                self.assertEqual(result.returncode, 100)
+                self.assertIn("not changing the shared ESP", result.stderr)
+            with self.subTest(caller=caller, root="normal"):
+                self.assertEqual(self.run_boot_hook_with_root(caller, normal).returncode, 0)
+        for caller in ("limine-snapper-restore", "limine-snapper-sync"):
+            with self.subTest(caller=caller, root="snapshot"):
+                self.assertEqual(self.run_boot_hook_with_root(caller, snapshot).returncode, 0)
+
     def test_name_pattern_matches_launcher(self):
         install = (LIB / "package-install").read_text()
         launcher = (Path(__file__).resolve().parents[3] / "macos/run-qemu-gpu.sh").read_text()

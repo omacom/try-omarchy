@@ -29,7 +29,8 @@ not ignore, so caches and other local files never reach the package.
 ## Rules
 
 - **No file another package owns is edited.** The package installs under
-  `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
+  `/usr`, plus `/etc/UPower/UPower.conf.d`, a Limine pre-hook in
+  `/etc/boot/hooks/pre.d`, a fontconfig link,
   `/etc/chromium-flags.conf`, the Limine drop-ins
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` and
   `50-try-omarchy-cpu.conf`, and

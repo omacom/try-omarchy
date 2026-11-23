@@ -1,0 +1,12 @@
+#!/bin/bash
+
+case ${HOOK_CALLER:-} in
+  limine-mkinitcpio-install | limine-mkinitcpio-remove) ;;
+  *) exit 0 ;;
+esac
+
+root_options=$(findmnt -no OPTIONS /) || exit 100
+if [[ ,$root_options, == *",subvol=/@/.snapshots/"* ]]; then
+  echo "try-omarchy: not changing the shared ESP from a Snapper snapshot" >&2
+  exit 100
+fi

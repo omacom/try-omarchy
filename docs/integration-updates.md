@@ -24,16 +24,11 @@ On every boot the launcher:
 1. names that archive in the systemd credential `tryomarchy.package`, and
 2. shares it on a read-only virtio-9p share tagged `tryomarchy-packages`.
 
-Before any login, `try-omarchy-package-install.service` compares the offered
-version with the installed one (`vercmp`). It installs the archive with
-`pacman -U` only when it is newer. A guest that already has the same version,
-or a newer one installed in the guest, keeps it. Package
-installation uses pacman and the package's own install hooks; there is no
-host-side file journal, consent catalog or migration runner.
+Before any login, `try-omarchy-package-install.service` compares the offered version with the installed one (`vercmp`). It installs the archive with `pacman -U` only when it is newer. A guest that already has the same version, or a newer one installed in the guest, keeps it. Package installation uses pacman and the package's own install hooks; there is no host-side file journal, consent catalog or migration runner.
 
-The result goes to `/var/lib/try-omarchy/package-install.json`
-(`installed`, `current` or `failed`, with a message). The status reporter
-sends it to the app with the next report.
+A boot from a Snapper snapshot skips the installation so the package's DKMS and mkinitcpio hooks cannot replace the shared ESP's kernel with the snapshot's kernel. A Limine pre-hook shipped by the new package also stops mkinitcpio install and remove operations from snapshot roots, even when an older installer starts the transaction. Snapshot restoration remains available.
+
+The result goes to `/var/lib/try-omarchy/package-install.json` (`installed`, `current`, `skipped` or `failed`, with a message). The status reporter sends it to the app with the next report.
 
 Developers can turn the offer off with `OMARCHY_SHELL_INSTALL_PACKAGE=` (an
 empty value) or name another archive with
