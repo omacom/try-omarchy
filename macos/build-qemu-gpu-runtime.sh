@@ -97,6 +97,7 @@ host_shortcuts_patch="$native_dir/patches/qemu-cocoa-host-shortcuts.patch"
 release_key_patch="$native_dir/patches/qemu-cocoa-release-key.patch"
 virgl_native_patch="$native_dir/patches/virgl-native-opengl.patch"
 virgl_upload_flush_patch="$native_dir/patches/virgl-ctx0-upload-flush.patch"
+virgl_core_profile_bit_patch="$native_dir/patches/virgl-core-profile-bit.patch"
 prepare_runtime="$native_dir/prepare-qemu-gpu-runtime.sh"
 pinned_bottles="$native_dir/pinned-runtime-bottles.sh"
 
@@ -133,6 +134,7 @@ mapped_sections_patch_sha256=2991378d565faeaf114bb5948bfa9ad05c39b078e4e1f4c2a67
 fence_poll_patch_sha256=1ac407bdb617dfc52d004d0ebd0d07641d920f7d3a9756223c6426a207fb1499
 virgl_native_patch_sha256=692ed73cf88780b4c0e04c56e3cfb21cec761768dea909d755624e07d82fc60c
 virgl_upload_flush_patch_sha256=e5de1617bfeeb2e0ea0fa5cc5c4192f34c896c86efc51e0f68cfa14057afcac0
+virgl_core_profile_bit_patch_sha256=4a701285eaa7c1139167369bd9574d8cbb9ed477c165ec420d5f431f03dc672d
 strchrnul_patch_sha256=ec1048dd0e8ebe53bf7e8a3bca9bf2f5f4336cd607d4cd077437470e9a32094a
 usb_exact_bus_patch_sha256=5e39159171295c566d014a1ef2744130f80fa02b742c349fa47373b00ae697ec
 minimum_guest_size_patch_sha256=f01e20999bf87821639c93f3489eb093b292c48b107a14ba4fbdad5cbf5840a5
@@ -747,6 +749,8 @@ verify_file_sha "Native OpenGL browser compatibility patch" "$virgl_native_patch
 patch -d "$virgl_source" -p1 -f -i "$virgl_native_patch"
 verify_file_sha "Context 0 upload flush patch" "$virgl_upload_flush_patch" "$virgl_upload_flush_patch_sha256"
 patch -d "$virgl_source" -p1 -f -i "$virgl_upload_flush_patch"
+verify_file_sha "Core profile capability bit patch" "$virgl_core_profile_bit_patch" "$virgl_core_profile_bit_patch_sha256"
+patch -d "$virgl_source" -p1 -f -i "$virgl_core_profile_bit_patch"
 virgl_build="$virgl_source/build"
 meson="$tool_root/$meson_root/meson.py"
 # Optimize the graphics command path while retaining assertions and diagnostics.

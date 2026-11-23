@@ -70,7 +70,9 @@ Native Apple drivers select integer vertex attributes automatically, and alpha
 and BGRA texture paths avoid duplicate channel conversions. The kernel's text
 console, where Omarchy's first-boot setup runs, reaches the host as 2D uploads
 in VirGL's context 0. Apple GL shows one context's texture writes to another
-only after a flush, so VirGL flushes context 0 after each upload. The guest runs
+only after a flush, so VirGL flushes context 0 after each upload. VirGL leaves
+capability bit 19 clear: Mesa 26.3 reads it as support for GBM format and layout
+queries, which a Mac has no GBM to answer. The guest runs
 Omarchy's own aarch64 Hyprland package unpatched.
 Storage, networking, audio, and input use their matching
 QEMU virtual devices and host backends.
