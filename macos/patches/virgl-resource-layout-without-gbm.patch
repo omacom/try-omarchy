@@ -1,0 +1,40 @@
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -14422,6 +14422,8 @@
+ 
+    return size;
+ }
++
++#endif
+ 
+ int
+ vrend_renderer_pipe_resource_get_layout(struct vrend_context *ctx,
+@@ -14442,6 +14444,7 @@
+       return EINVAL;
+    }
+ 
++#ifdef ENABLE_GBM
+    if (res->gbm_bo) {
+       int num_planes = gbm_bo_get_plane_count(res->gbm_bo);
+ 
+@@ -14466,6 +14469,7 @@
+          }
+       }
+    }
++#endif
+ 
+    if (out_res->iov) {
+       if (vrend_write_to_iovec(out_res->iov, out_res->num_iovs, 0,
+@@ -14485,12 +14489,4 @@
+    }
+ 
+    return 0;
+-}
+-#else
+-int
+-vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
+-                                        UNUSED uint32_t out_res_id, UNUSED uint32_t res_id)
+-{
+-   return EINVAL;
+ }
+-#endif
