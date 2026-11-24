@@ -62,7 +62,7 @@ write_qemu() { # extra-markers...
 #!/bin/bash
 # TryOmarchy.icns OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY guest_owner_uid $*
 if [[ "\$*" == "-device help" ]]; then
-  for device in hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \\
+  for device in virtio-sound-pci virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \\
     virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci virtio-net-pci virtio-rng-pci \\
     virtio-serial-pci virtio-tablet-pci virtio-pinch-pci qemu-xhci usb-kbd usb-host; do
     printf 'name "%s", bus PCI\n' "\$device"
@@ -205,6 +205,11 @@ launch_env=()
 assert_contains "$output" "-monitor none"
 for forbidden in -no-reboot -no-shutdown ' -gdb ' ' -s '; do
   assert_not_contains "$output" "$forbidden"
+done
+assert_contains "$output" "-audiodev sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.buffer-length=10000,"
+assert_contains "$output" "-device virtio-sound-pci,audiodev=omarchy-audio"
+for device in intel-hda hda-micro; do
+  assert_not_contains "$output" "$device"
 done
 assert_contains "$output" "-device qemu-xhci,id=omarchy-usb,streams=off"
 assert_contains "$output" "-device usb-kbd,bus=omarchy-usb.0,id=omarchy-boot-keyboard"

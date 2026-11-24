@@ -217,7 +217,7 @@ qemu_devices=$("$qemu_bin" -device help 2>&1) || fail "cannot inspect the bundle
 require_qemu_device() {
   [[ $qemu_devices == *"name \"$1\""* ]] || fail "the bundled QEMU does not provide $1; run make runtime"
 }
-for device in hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \
+for device in virtio-sound-pci virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \
   virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci virtio-net-pci virtio-rng-pci \
   virtio-serial-pci virtio-tablet-pci virtio-pinch-pci qemu-xhci usb-kbd; do
   require_qemu_device "$device"
@@ -816,9 +816,8 @@ qemu_args=(
   -smbios "type=11,value=$(credential tryomarchy.host "$host_options")"
   -netdev "$qemu_netdev"
   -device "virtio-net-pci,id=omarchy-nic,netdev=omarchy-net,mac=$network_mac,romfile="
-  -audiodev "sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.frequency=$audio_output_frequency,in.frequency=$audio_input_frequency"
-  -device 'intel-hda,id=omarchy-hda,romfile='
-  -device 'hda-micro,bus=omarchy-hda.0,audiodev=omarchy-audio'
+  -audiodev "sdl,id=omarchy-audio,timer-period=1000,out.buffer-count=8,out.buffer-length=10000,out.frequency=$audio_output_frequency,in.frequency=$audio_input_frequency"
+  -device 'virtio-sound-pci,audiodev=omarchy-audio'
   -serial none
   -monitor none
   -qmp "unix:$qmp_socket,server=on,wait=off"
