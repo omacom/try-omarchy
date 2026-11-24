@@ -12,6 +12,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1075,6 +1076,116 @@ class AudioBridge(unittest.TestCase):
             self.assertEqual(mirror.retry_timeout(), 0.0)
             mirror.run_due()
             self.assertEqual((len(calls), mirror.retry_delay), (5, 1))
+
+
+class HdaQuantum(unittest.TestCase):
+    def test_only_an_hda_card_runs_the_graph_at_4096_frames(self):
+        rule = (FILES / "usr/share/wireplumber/wireplumber.conf.d/60-try-omarchy-hda-quantum.conf").read_text()
+        self.assertIn('alsa.driver_name = "snd_hda_intel"', rule)
+        self.assertIn("node.force-quantum = 4096", rule)
+        self.assertFalse((FILES / "usr/share/pipewire/pipewire.conf.d").exists())
+
+
+class MicEchoCancel(unittest.TestCase):
+    SOURCES = "\n".join([
+        "1\talsa_output.pci-0000_00_02.0.stereo-fallback.monitor\tPipeWire",
+        "2\talsa_input.pci-0000_00_02.0.stereo-fallback\tPipeWire",
+        "3\tomarchy_host_input_abc\tPipeWire",
+        "4\techo-cancel-source\tPipeWire",
+    ])
+
+    @staticmethod
+    def output(index, source, pid=None, binary=None):
+        lines = [f"Source Output #{index}", f"\tSource: {source}", "\tProperties:"]
+        if pid:
+            lines.append(f'\t\tapplication.process.id = "{pid}"')
+        if binary:
+            lines.append(f'\t\tapplication.process.binary = "{binary}"')
+        return "\n".join(lines) + "\n"
+
+    def streams(self, outputs, exclude=()):
+        canceller = load(FILES / "usr/bin/try-omarchy-mic-echo-cancel", "mic_echo_cancel")
+        replies = {("list", "short", "sources"): self.SOURCES, ("list", "source-outputs"): "".join(outputs)}
+        with mock.patch.object(canceller, "pactl", lambda *args: replies[args]), \
+                mock.patch.object(canceller, "EXCLUDE", canceller.INTERNAL | set(exclude)):
+            return [(index, name) for index, _, name in canceller.app_mic_streams()]
+
+    def test_claims_app_streams_on_the_mac_microphone(self):
+        self.assertEqual(self.streams([
+            self.output(10, 3, 100, "chrome"),
+            self.output(11, 2, 101, "zoom"),
+            self.output(12, 4, 102, "chrome"),
+            self.output(13, 9, 103, "chrome"),
+        ]), [("10", "chrome"), ("11", "zoom"), ("12", "chrome"), ("13", "chrome")])
+
+    def test_leaves_monitors_internal_and_excluded_streams_alone(self):
+        self.assertEqual(self.streams([
+            self.output(20, 1, 200, "chrome"),
+            self.output(21, 3),
+            self.output(22, 3, 201, "wireplumber"),
+            self.output(23, 3, 202, "obs"),
+        ], exclude={"obs"}), [])
+
+    def test_quantum_matches_the_cancellers_block(self):
+        canceller = load(FILES / "usr/bin/try-omarchy-mic-echo-cancel", "mic_echo_cancel")
+        config = (FILES / canceller.CONFIG.lstrip("/")).read_text()
+        self.assertIn(f"node.latency = {canceller.QUANTUM}/48000", config)
+        self.assertEqual(canceller.QUANTUM % 480, 0)
+
+    def test_stays_off_on_an_hda_card(self):
+        canceller = load(FILES / "usr/bin/try-omarchy-mic-echo-cancel", "mic_echo_cancel")
+        with tempfile.NamedTemporaryFile("w") as cards:
+            cards.write(" 0 [Intel          ]: HDA-Intel - HDA Intel\n")
+            cards.flush()
+            with mock.patch.object(canceller, "CARDS", cards.name), \
+                    mock.patch.object(canceller.subprocess, "Popen", side_effect=AssertionError("started")), \
+                    mock.patch("builtins.print"):
+                canceller.main()
+            cards.seek(0)
+            cards.truncate()
+            cards.write(" 0 [SoundCard      ]: virtio-snd - VirtIO SoundCard\n")
+            cards.flush()
+            with mock.patch.object(canceller, "CARDS", cards.name):
+                self.assertFalse(canceller.hda_card())
+
+    def test_stopping_the_service_releases_the_forced_quantum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bin_dir = Path(directory)
+            log = bin_dir / "log"
+            (bin_dir / "pactl").write_text(f"""#!/bin/sh
+case "$1" in
+  subscribe) exec sleep 60 ;;
+  list) [ "$3" = sources ] && printf '3\\tomarchy_host_input_abc\\tPipeWire\\n4\\techo-cancel-source\\tPipeWire\\n'
+        [ "$2" = source-outputs ] && printf 'Source Output #7\\n\\tSource: 3\\n\\t\\tapplication.process.id = "1"\\n' ;;
+esac
+exit 0
+""")
+            (bin_dir / "pw-metadata").write_text(f'#!/bin/sh\necho "$5" >> {log}\n')
+            (bin_dir / "pipewire").write_text("#!/bin/sh\nexec sleep 60\n")
+            for name in ("pactl", "pw-metadata", "pipewire"):
+                (bin_dir / name).chmod(0o755)
+            process = subprocess.Popen(
+                ["python3", str(FILES / "usr/bin/try-omarchy-mic-echo-cancel")],
+                env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+                stdout=subprocess.DEVNULL)
+            for _ in range(50):
+                if log.exists():
+                    break
+                time.sleep(0.1)
+            process.terminate()
+            self.assertEqual(process.wait(timeout=10), 0)
+            self.assertEqual(log.read_text().split(), ["960", "0"])
+
+    def test_reacts_only_to_capture_events(self):
+        canceller = load(FILES / "usr/bin/try-omarchy-mic-echo-cancel", "mic_echo_cancel")
+        self.assertTrue(canceller.relevant("Event 'new' on source-output #12"))
+        self.assertTrue(canceller.relevant("Event 'remove' on source #4"))
+        self.assertFalse(canceller.relevant("Event 'change' on sink-input #9"))
+        self.assertFalse(canceller.relevant("Event 'new' on client #31"))
+
+    def test_targets_no_device_by_name(self):
+        config = (FILES / "usr/share/try-omarchy/pipewire/echo-cancel.conf").read_text()
+        self.assertNotIn("target.object", config)
 
 
 class ClockRecovery(unittest.TestCase):

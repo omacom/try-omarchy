@@ -1,0 +1,13 @@
+[Unit]
+Description=Echo-cancel the Mac microphone while an app records
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service pipewire-pulse.service wireplumber.service
+
+[Service]
+ExecStart=/usr/bin/try-omarchy-mic-echo-cancel
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target
