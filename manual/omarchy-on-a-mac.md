@@ -14,7 +14,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 ## Clipboard, audio and camera
 
 - **Copy and paste work in both directions,** for text and images.
-- **Audio:** Omarchy's sound controls list the Mac's speakers and microphones, plus **Mac System Default**, which follows whatever the Mac uses. Switching takes effect immediately.
+- **Audio:** Omarchy's sound controls list the Mac's speakers and microphones, plus **Mac System Default**, which follows whatever the Mac uses. Switching takes effect immediately. While an app records, its microphone audio goes through an echo canceller, listed as **Mac Mic (Echo Cancelled)**, so callers don't hear your speakers. To give an app the raw microphone, add its program name to `MIC_ECHO_CANCEL_EXCLUDE` (comma-separated) in a drop-in for `try-omarchy-mic-echo-cancel.service`.
 - **Camera:** the Mac's camera appears in Omarchy as **Mac Camera**. Browsers and video call apps can use it like any webcam.
 
 ## Display, power and time

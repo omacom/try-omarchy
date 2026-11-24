@@ -4,6 +4,12 @@
 
 The VM's sound card is QEMU's `virtio-sound-pci`, on the patched SDL backend that the audio bridge routes. The emulated Intel HDA card it replaced reported its playback position in coarse jumps, which forced the guest to a 4096-frame PipeWire quantum (about 85 ms). virtio-sound reports position as it plays, so the guest uses PipeWire's default quantum. A guest package can still run under an older app with the HDA card, so a WirePlumber rule keeps 4096 frames for an `snd_hda_intel` card alone. The HDA patches below remain in the runtime but no longer affect the VM's sound card.
 
+## Echo cancellation
+
+The VM receives the Mac's raw microphone, without macOS voice processing, so speaker output leaks back into calls. The package's `try-omarchy-mic-echo-cancel` user service watches PipeWire. When an app records from a Mac microphone, it starts PipeWire's WebRTC echo canceller (with noise suppression) and moves the app's stream onto **Mac Mic (Echo Cancelled)**. It stops the canceller 10 seconds after the last recording ends, which releases the Mac microphone. While idle it wakes only for capture events, so it doesn't keep PipeWire busy. On an HDA card it stays off, because the canceller's quantum would bring back that card's xruns.
+
+WebRTC processes the graph in 10 ms frames, so the service forces a 960-frame quantum (20 ms) while the canceller runs. At 480 frames a busy guest, such as one in a video call, xruns. A WirePlumber rule lets the speaker drive the graph, so only the microphone is resampled and music keeps its pitch.
+
 ## Problem and behavior
 
 A delayed audio callback can leave the emulated HDA output ring full. The original

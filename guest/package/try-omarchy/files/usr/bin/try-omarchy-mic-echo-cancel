@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Echo-cancel the Mac microphone for any app while it records."""
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+
+TARGET = "echo-cancel-source"
+CONFIG = "/usr/share/try-omarchy/pipewire/echo-cancel.conf"
+IDLE_GRACE = 10
+# WebRTC processes 480-sample frames, one block per graph cycle, so the
+# quantum must equal node.latency in CONFIG and be a multiple of 480. At 480
+# (10 ms) a busy guest xruns; 960 (20 ms) holds.
+QUANTUM = 960
+MIC_PREFIXES = ("omarchy_host_input_", "alsa_input.")
+INTERNAL = {"pipewire", "wireplumber"}
+CARDS = "/proc/asound/cards"
+EXCLUDE = INTERNAL | {
+    name.strip() for name in os.environ.get("MIC_ECHO_CANCEL_EXCLUDE", "").split(",") if name.strip()
+}
+
+canceller: subprocess.Popen | None = None
+last_seen = 0.0
+
+
+def pactl(*args: str) -> str:
+    return subprocess.run(
+        ["pactl", *args], capture_output=True, text=True, env={**os.environ, "LC_ALL": "C"}
+    ).stdout
+
+
+def app_mic_streams() -> list[tuple[str, str, str]]:
+    sources = {}
+    for line in pactl("list", "short", "sources").splitlines():
+        fields = line.split("\t")
+        if len(fields) > 1:
+            sources[fields[0]] = fields[1]
+
+    own_pid = str(canceller.pid) if canceller and canceller.poll() is None else None
+    streams = []
+    for block in pactl("list", "source-outputs").split("Source Output #")[1:]:
+        index = block.split("\n", 1)[0].strip()
+        source = re.search(r"^\s*Source: (\d+)", block, re.M)
+        pid = re.search(r'application\.process\.id = "(\d+)"', block)
+        binary = re.search(r'application\.process\.binary = "([^"]*)"', block)
+        # The audio bridge's own loopbacks carry no process.
+        if not source or not pid:
+            continue
+        name = binary.group(1) if binary else ""
+        if pid.group(1) == own_pid or name in EXCLUDE:
+            continue
+        current = sources.get(source.group(1), "")
+        if current == TARGET:
+            streams.append((index, current, name))
+            continue
+        if current.endswith(".monitor"):
+            continue
+        # An empty source is a stream mid-move or one whose source vanished.
+        if current == "" or current.startswith(MIC_PREFIXES):
+            streams.append((index, current, name))
+    return streams
+
+
+def force_quantum(value: int) -> None:
+    subprocess.run(
+        ["pw-metadata", "-n", "settings", "0", "clock.force-quantum", str(value)],
+        capture_output=True,
+    )
+
+
+def start_canceller() -> None:
+    global canceller
+    if canceller is None or canceller.poll() is not None:
+        canceller = subprocess.Popen(["pipewire", "-c", CONFIG])
+        # Forced only once the canceller is recorded, so stop_canceller
+        # always releases it.
+        force_quantum(QUANTUM)
+        print("started echo canceller", flush=True)
+
+
+def stop_canceller() -> None:
+    global canceller
+    if canceller is not None:
+        if canceller.poll() is None:
+            canceller.terminate()
+            canceller.wait(timeout=5)
+        force_quantum(0)
+        print("stopped echo canceller", flush=True)
+    canceller = None
+
+
+def update() -> None:
+    global last_seen
+    streams = app_mic_streams()
+    if not streams:
+        if time.monotonic() - last_seen > IDLE_GRACE:
+            stop_canceller()
+        return
+
+    last_seen = time.monotonic()
+    start_canceller()
+    available = TARGET in pactl("list", "short", "sources")
+    for index, current, name in streams:
+        if current != TARGET and available:
+            subprocess.run(["pactl", "move-source-output", index, TARGET], capture_output=True)
+            print(f"moved {name or '?'} stream {index} from {current} to {TARGET}", flush=True)
+
+
+def relevant(line: str) -> bool:
+    return " on source-output " in line or " on source " in line
+
+
+def hda_card() -> bool:
+    try:
+        with open(CARDS) as cards:
+            return "HDA-Intel" in cards.read()
+    except OSError:
+        return False
+
+
+def main() -> None:
+    # The small quantum the canceller forces brings back xruns on the
+    # emulated HDA card older apps give the VM.
+    if hda_card():
+        print("HDA sound card: echo cancellation stays off", flush=True)
+        return
+    # systemd stops the service with SIGTERM; exit through the finally below
+    # so the canceller stops and the forced quantum is released.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        while True:
+            with subprocess.Popen(
+                ["pactl", "subscribe"], stdout=subprocess.PIPE, text=True,
+                env={**os.environ, "LC_ALL": "C"},
+            ) as sub:
+                assert sub.stdout
+                selector = selectors.DefaultSelector()
+                selector.register(sub.stdout, selectors.EVENT_READ)
+                try:
+                    watch(sub, selector)
+                finally:
+                    sub.terminate()
+            time.sleep(2)
+    finally:
+        stop_canceller()
+
+
+def watch(sub: subprocess.Popen, selector: selectors.BaseSelector) -> None:
+    assert sub.stdout
+    update()
+    while sub.poll() is None:
+        if selector.select(timeout=2):
+            line = sub.stdout.readline()
+            if not line:
+                break
+            if not relevant(line):
+                continue
+        # While the canceller runs, its source appearing and the
+        # idle grace expiring raise no event of their own. Idle,
+        # only a capture event can need it.
+        elif canceller is None:
+            continue
+        update()
+
+
+if __name__ == "__main__":
+    main()
