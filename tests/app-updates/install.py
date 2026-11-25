@@ -83,7 +83,6 @@ class Rehearsal:
         self.site.mkdir()
         self.installed = scratch / "Applications/Try Omarchy.app"
         self.state = state
-        self.trigger = scratch / "update-now"
         self.key_tool = scratch / "update-key"
         run("xcrun", "swiftc", REPOSITORY / "tests/app-updates/update-key.swift", "-o", self.key_tool)
         self.chooser = scratch / "choose-update.dylib"
@@ -176,7 +175,6 @@ class Rehearsal:
         run("defaults", "write", BUNDLE, "LauncherPermissionPromptShown", "-bool", "true")
         run("defaults", "write", BUNDLE, "appReleaseAutomaticChecks", "-bool", "false")
         Feed.served.clear()
-        self.trigger.unlink(missing_ok=True)
         app, log = self.launch()
         if choose:
             time.sleep(3)
@@ -184,7 +182,10 @@ class Rehearsal:
         return app, log
 
     def launch(self) -> tuple[subprocess.Popen, Path]:
-        log = self.scratch / f"app-{time.monotonic_ns()}.log"
+        launch = time.monotonic_ns()
+        log = self.scratch / f"app-{launch}.log"
+        # Only the instance launched last chooses the update.
+        self.trigger = self.scratch / f"update-{launch}"
         app = subprocess.Popen(
             [str(self.installed / EXECUTABLE)], stderr=log.open("w"), stdout=subprocess.DEVNULL,
             env=os.environ | {"DYLD_INSERT_LIBRARIES": str(self.chooser), "UPDATE_TEST_TRIGGER": str(self.trigger)}
