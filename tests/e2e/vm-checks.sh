@@ -19,7 +19,7 @@ uid=$(id -u "$user")
 as_user() { runuser -u "$user" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" "$@"; }
 
 # --- the Mac's ports ---------------------------------------------------------------------
-for port in audio clipboard camera battery timezone settings authentication guest; do
+for port in audio clipboard camera battery timezone settings authentication guest awake; do
   [[ -e /dev/virtio-ports/dev.tryomarchy.$port ]] && ok "port dev.tryomarchy.$port" || bad "no port dev.tryomarchy.$port"
 done
 [[ -s /run/try-omarchy/cmdline ]] && ok "host settings credential published: $(tr '\n' ' ' </run/try-omarchy/cmdline | cut -c1-120)" ||
@@ -28,7 +28,7 @@ done
 for unit in try-omarchy-timezone.service try-omarchy-guest-status.service omarchy-native-battery-bridge.service; do
   [[ $(systemctl is-active "$unit") == active ]] && ok "$unit is active" || bad "$unit is $(systemctl is-active "$unit")"
 done
-for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service omarchy-native-clipboard-bridge.service; do
+for unit in omarchy-native-audio-bridge.service omarchy-native-camera-bridge.service omarchy-native-clipboard-bridge.service try-omarchy-stay-awake.service; do
   active=$(as_user systemctl --user show "$unit" -p ActiveState | sed 's/^ActiveState=//')
   restarts=$(as_user systemctl --user show "$unit" -p NRestarts | sed 's/^NRestarts=//')
   if [[ $active == active && ${restarts:-0} == 0 ]]; then ok "$unit is active"; else bad "$unit: $active, $restarts restarts"; fi

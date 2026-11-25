@@ -226,11 +226,12 @@ done
 # --- bridges -----------------------------------------------------------------
 # Audio and the guest status always run. The app that starts the VM chooses
 # the others; without settings the guest has no settings port, so Omarchy's
-# Setup menu shows no row for an app that cannot open them.
-enabled_bridges=${OMARCHY_QEMU_GPU_BRIDGES-clipboard authentication camera battery timezone settings}
+# Setup menu shows no row for an app that cannot open them, and without
+# stay-awake it has no Stay Awake port.
+enabled_bridges=${OMARCHY_QEMU_GPU_BRIDGES-clipboard authentication camera battery timezone stay-awake settings}
 for bridge in $enabled_bridges; do
   case $bridge in
-    clipboard | authentication | camera | battery | timezone | settings) ;;
+    clipboard | authentication | camera | battery | timezone | stay-awake | settings) ;;
     *) fail "OMARCHY_QEMU_GPU_BRIDGES names an unknown bridge: $bridge" ;;
   esac
 done
@@ -800,8 +801,6 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
   -chardev "socket,id=omarchy-display-layout,path=$display_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'
-  -chardev "socket,id=omarchy-stay-awake,path=$stay_awake_socket,server=on,wait=off"
-  -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-stay-awake,name=dev.tryomarchy.awake'
 )
 # The guest reports its display layout on dev.tryomarchy.display, and QEMU's
 # Cocoa display reads it to place the pointer (docs/multi-display.md).
@@ -810,6 +809,12 @@ if bridge_enabled settings; then
   qemu_args+=(
     -chardev "socket,id=omarchy-settings-bridge,path=$settings_socket,server=on,wait=off"
     -device 'virtserialport,bus=omarchy-serial.0,nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings'
+  )
+fi
+if bridge_enabled stay-awake; then
+  qemu_args+=(
+    -chardev "socket,id=omarchy-stay-awake,path=$stay_awake_socket,server=on,wait=off"
+    -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-stay-awake,name=dev.tryomarchy.awake'
   )
 fi
 
@@ -885,10 +890,10 @@ echo "[qemu-gpu] Ready. QMP: $qmp_socket" >&2
 status_file="$vm_dir/guest-status.json"
 [[ $storage_mode == persistent ]] || status_file="$work_dir/guest-status.json"
 bridge_names=(audio)
-for bridge in clipboard authentication camera battery timezone; do
+for bridge in clipboard authentication camera battery timezone stay-awake; do
   bridge_enabled "$bridge" && bridge_names+=("$bridge")
 done
-bridge_names+=(guest-status stay-awake)
+bridge_names+=(guest-status)
 bridge_restarts=()
 for _ in "${bridge_names[@]}"; do bridge_restarts+=(0); done
 start_bridge() { # index

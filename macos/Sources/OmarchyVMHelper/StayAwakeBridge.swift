@@ -4,57 +4,68 @@ import IOKit.pwr_mgt
 
 /// The guest's Stay Awake state, one `on` or `off` line at a time. Other lines are ignored.
 struct StayAwakeRequestBuffer {
-    static let maximumLineBytes = 64
-    private var line = Data()
-    private var discarding = false
+    private var lines = GuestLineBuffer(maximumLineBytes: 64)
 
     /// The last complete state in `data`, or nil when it holds none.
-    mutating func consume(_ data: Data) -> Bool? {
+    mutating func consume(_ data: some Sequence<UInt8>) -> Bool? {
         var state: Bool?
-        for byte in data {
-            if byte == 10 {
-                if !discarding {
-                    if line == Data("on".utf8) { state = true }
-                    if line == Data("off".utf8) { state = false }
-                }
-                line.removeAll(keepingCapacity: true)
-                discarding = false
-            } else if !discarding {
-                line.append(byte)
-                if line.count > Self.maximumLineBytes {
-                    line.removeAll(keepingCapacity: true)
-                    discarding = true
-                }
-            }
+        for line in lines.consume(data) {
+            if line == Data("on".utf8) { state = true }
+            if line == Data("off".utf8) { state = false }
         }
         return state
     }
 }
 
+/// Whether the guest still wants the Mac awake. QEMU keeps the socket open
+/// when the guest restarts or its reporter stops, so an `on` that is not
+/// resent has to expire. The reporter (stay-awake-report) resends every 10 s.
+struct StayAwakeState {
+    static let expiry: Duration = .seconds(30)
+    private var expires: SuspendingClock.Instant?
+
+    mutating func report(_ awake: Bool, at now: SuspendingClock.Instant) {
+        expires = awake ? now + Self.expiry : nil
+    }
+
+    func isAwake(at now: SuspendingClock.Instant) -> Bool {
+        expires.map { now < $0 } ?? false
+    }
+}
+
 /// Keeps the Mac's display and system awake while the guest asks it to.
 final class StayAwakeAssertion {
+    private let create: () -> IOPMAssertionID?
+    private let release: (IOPMAssertionID) -> Void
     private var identifier: IOPMAssertionID?
 
-    var isHeld: Bool { identifier != nil }
+    init(
+        create: @escaping () -> IOPMAssertionID? = createDisplaySleepAssertion,
+        release: @escaping (IOPMAssertionID) -> Void = { IOPMAssertionRelease($0) }
+    ) {
+        self.create = create
+        self.release = release
+    }
 
     func set(_ awake: Bool) {
         if awake {
-            guard identifier == nil else { return }
-            var created = IOPMAssertionID(0)
-            let result = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                "Omarchy Stay Awake" as CFString,
-                &created
-            )
-            if result == kIOReturnSuccess { identifier = created }
+            if identifier == nil { identifier = create() }
         } else if let held = identifier {
-            IOPMAssertionRelease(held)
+            release(held)
             identifier = nil
         }
     }
 
-    deinit { set(false) }
+    static func createDisplaySleepAssertion() -> IOPMAssertionID? {
+        var created = IOPMAssertionID(0)
+        let result = IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "Omarchy Stay Awake" as CFString,
+            &created
+        )
+        return result == kIOReturnSuccess ? created : nil
+    }
 }
 
 /// `--bridge-stay-awake PID SOCKET`: holds the assertion while Omarchy's Stay
@@ -67,11 +78,21 @@ enum StayAwakeBridge {
         }
         let descriptor = try NativeBridgeSocket.connectSecure(path: socketPath, label: "stay awake")
         defer { Darwin.close(descriptor) }
-        let assertion = StayAwakeAssertion()
+        try serve(descriptor: descriptor, assertion: StayAwakeAssertion()) { identity.isStillRunning }
+    }
+
+    static func serve(
+        descriptor: Int32,
+        assertion: StayAwakeAssertion,
+        now: () -> SuspendingClock.Instant = { SuspendingClock.now },
+        whileRunning isRunning: () -> Bool
+    ) throws {
         defer { assertion.set(false) }
         var requests = StayAwakeRequestBuffer()
+        var state = StayAwakeState()
         var bytes = [UInt8](repeating: 0, count: 512)
-        while identity.isStillRunning {
+        while isRunning() {
+            assertion.set(state.isAwake(at: now()))
             var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
             let ready = poll(&poller, 1, 1000)
             if ready < 0 && errno != EINTR { throw HelperError.io("stay awake poll failed") }
@@ -82,8 +103,8 @@ enum StayAwakeBridge {
                 if errno == EINTR || errno == EAGAIN { continue }
                 return
             }
-            if let awake = requests.consume(Data(bytes.prefix(count))) {
-                assertion.set(awake)
+            if let awake = requests.consume(bytes.prefix(count)) {
+                state.report(awake, at: now())
             }
         }
     }

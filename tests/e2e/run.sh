@@ -143,7 +143,7 @@ for setting in OMARCHY_QEMU_GPU_MEMORY_MIB OMARCHY_QEMU_GPU_CPUS; do
 done
 launcher_args=()
 [[ -z $factory ]] || launcher_args=("$factory")
-run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone"], "network": "shared"}))' "$state")
+run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone", "stay-awake"], "network": "shared"}))' "$state")
 launch() { # log
   if ((run_mode)); then
     # The run mode reads its configuration, then commands, until its input
@@ -264,6 +264,26 @@ if /usr/bin/python3 "$repo/tests/e2e/qmp-pause.py" "$qmp" 30 && notifyutil -p de
     miss "the guest clock is $behind s behind 2 s after a Mac wake"
 else
   miss "the VM could not be paused and continued"
+fi
+# The session checks left Stay Awake on. Only this run's helper counts: the Mac
+# may run other VMs.
+stay_awake_pid=$(pgrep -f -- "--bridge-stay-awake [0-9]+ ${qmp%/*}/stay-awake.sock" || true)
+mac_awake() { pmset -g assertions | grep -q "pid $stay_awake_pid(.*PreventUserIdleDisplaySleep.*Omarchy Stay Awake"; }
+mac_may_sleep() { ! mac_awake; }
+stay_awake_service() { guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user $1 try-omarchy-stay-awake.service"; }
+stay_awake() { guest "runuser -l $user -c 'omarchy-toggle-idle $1'" >/dev/null 2>&1; }
+if [[ $stay_awake_pid =~ ^[0-9]+$ ]]; then
+  eventually 15 mac_awake && pass "Stay Awake keeps the Mac awake" || miss "Stay Awake did not keep the Mac awake"
+  stay_awake allow-idle
+  eventually 15 mac_may_sleep && pass "turning Stay Awake off lets the Mac sleep" || miss "the Mac is still kept awake with Stay Awake off"
+  stay_awake stay-awake
+  eventually 15 mac_awake || miss "Stay Awake did not keep the Mac awake again"
+  stay_awake_service stop
+  eventually 45 mac_may_sleep && pass "a guest that stops reporting lets the Mac sleep" || miss "the Mac is still kept awake after the guest stopped reporting"
+  stay_awake_service start
+  eventually 15 mac_awake && pass "a guest that reports again keeps the Mac awake" || miss "the Mac is not kept awake after the guest reported again"
+else
+  miss "no Stay Awake bridge for this VM"
 fi
 status_file="$state/shell/guest-status.json"
 if [[ -s $status_file ]]; then pass "the app receives guest status: $(tr -d '\n' <"$status_file" | cut -c1-140)"

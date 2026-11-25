@@ -177,7 +177,7 @@ On a Mac with no internal battery the guest sees only mains power and the bar
 shows nothing. See [host battery](host-battery.md) for the protocol and the
 sysfs contract.
 
-A Stay Awake port (`dev.tryomarchy.awake`) carries Omarchy's Stay Awake toggle to the Mac, one `on` or `off` line per change. While it reads `on`, the helper holds a macOS power assertion that keeps the display awake, and it drops it on `off` or when QEMU exits.
+A Stay Awake port (`dev.tryomarchy.awake`) carries Omarchy's Stay Awake toggle to the Mac: one `on` or `off` line per change, resent every 10 s. While it reads `on`, the helper holds a macOS power assertion that keeps the display awake. It drops it on `off`, when QEMU exits, or 30 s after the last line: QEMU keeps the port open when the guest restarts or the session ends, so silence has to count as off. The port is one of the optional bridges.
 
 A display port (`dev.tryomarchy.display`) carries the guest's display layout to QEMU itself: each Hyprland output's position and logical size, one JSON line per change. QEMU's Cocoa display places the pointer from it and validates every report. See [multiple displays](multi-display.md).
 

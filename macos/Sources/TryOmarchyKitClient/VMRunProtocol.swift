@@ -14,6 +14,7 @@ public enum VMRunBridge: String, CaseIterable, Codable, Sendable {
     case camera
     case battery
     case timezone
+    case stayAwake = "stay-awake"
 }
 
 /// `shared` is NAT. `bridged` gives Omarchy its own address on the Mac's

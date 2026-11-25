@@ -18,6 +18,7 @@ from unittest import mock
 PACKAGE = Path(__file__).resolve().parents[1] / "try-omarchy"
 FILES = PACKAGE / "files"
 LIB = FILES / "usr/lib/try-omarchy"
+REPO = PACKAGE.parents[2]
 
 
 def run(script, *args, env=None, check=True):
@@ -956,29 +957,57 @@ class GuestStatus(unittest.TestCase):
 class StayAwakeReport(unittest.TestCase):
     """stay-awake-report sends the Mac `on` or `off` as Omarchy's state file comes and goes."""
 
-    def test_reports_each_change_once(self):
+    class Finished(Exception):
+        pass
+
+    def reports(self, seconds, changes):
+        """(second, line) for each line sent, as `changes` turns Stay Awake on or off."""
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
         with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            port = tmp / "port"
-            os.mkfifo(port)
-            state = tmp / ".local/state/omarchy/indicators/stay-awake"
-            env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
-            reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
-            try:
-                with port.open() as reader:
-                    self.assertEqual(reader.readline(), "off\n")
-                    state.parent.mkdir(parents=True)
-                    state.touch()
-                    self.assertEqual(reader.readline(), "on\n")
-                    state.unlink()
-                    self.assertEqual(reader.readline(), "off\n")
-            finally:
-                reporter.kill()
-                reporter.wait()
+            module.STATE = Path(tmp) / "stay-awake"
+            now = 0
+            lines = []
+
+            class Port:
+                def write(self, line):
+                    lines.append((now, line))
+
+                def flush(self):
+                    pass
+
+            def sleep(duration):
+                nonlocal now
+                now += duration
+                if now > seconds:
+                    raise self.Finished
+                if now in changes:
+                    module.STATE.touch() if changes[now] else module.STATE.unlink()
+
+            with mock.patch.object(module.time, "monotonic", lambda: now), \
+                    mock.patch.object(module.time, "sleep", sleep), \
+                    self.assertRaises(self.Finished):
+                module.report(Port())
+        return lines
+
+    def test_reports_each_change_within_a_second(self):
+        self.assertEqual(
+            self.reports(9, {3: True, 5: False}),
+            [(0, "off\n"), (3, "on\n"), (5, "off\n")],
+        )
 
     def test_resends_the_current_state_while_unchanged(self):
-        # A helper that restarts starts with no assertion. The reporter has to
-        # write the current state again, not only when the toggle changes.
+        self.assertEqual(
+            self.reports(25, {4: True}),
+            [(0, "off\n"), (4, "on\n"), (14, "on\n"), (24, "on\n")],
+        )
+
+    def test_resends_before_the_mac_forgets_an_on(self):
+        bridge = (REPO / "macos/Sources/OmarchyVMHelper/StayAwakeBridge.swift").read_text()
+        expiry = int(re.search(r"expiry: Duration = \.seconds\((\d+)\)", bridge).group(1))
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
+        self.assertLess(2 * module.RESEND_SECONDS, expiry)
+
+    def test_the_script_writes_the_state_to_its_port(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             port = tmp / "port"
@@ -990,7 +1019,6 @@ class StayAwakeReport(unittest.TestCase):
             reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
             try:
                 with port.open() as reader:
-                    self.assertEqual(reader.readline(), "on\n")
                     self.assertEqual(reader.readline(), "on\n")
             finally:
                 reporter.kill()

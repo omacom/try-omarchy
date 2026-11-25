@@ -277,10 +277,13 @@ for name in ' Omarchy' 'Omarchy ' $'Omarchy\nInstaller'; do
 done
 rm "$resources/TryOmarchy.icns"
 
-# --- an app without settings leaves the settings port out ----------------------------
+# --- an app without settings or Stay Awake leaves their ports out ---------------------
 output=$(OMARCHY_QEMU_GPU_BRIDGES='clipboard authentication camera battery timezone' launch)
 assert_not_contains "$output" "dev.tryomarchy.settings"
+assert_not_contains "$output" "dev.tryomarchy.awake"
 assert_contains "$output" "name=dev.tryomarchy.clipboard"
+output=$(OMARCHY_QEMU_GPU_BRIDGES='stay-awake' launch)
+assert_contains "$output" "name=dev.tryomarchy.awake"
 output=$(OMARCHY_QEMU_GPU_BRIDGES='clipboard network' launch) && fail "an unknown bridge launched"
 assert_contains "$output" "OMARCHY_QEMU_GPU_BRIDGES names an unknown bridge: network"
 

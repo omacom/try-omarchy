@@ -689,6 +689,7 @@ struct VMRunLaunchSettingsTests {
     @Test func theSettingsBridgeAlwaysRuns() {
         #expect(VMRunBridges.names([]) == "settings")
         #expect(VMRunBridges.names([.clipboard, .timezone]) == "clipboard timezone settings")
+        #expect(VMRunBridges.names([.stayAwake]) == "stay-awake settings")
     }
 }
 
