@@ -434,6 +434,106 @@ case ${OMARCHY_QEMU_GPU_IMMERSIVE:-1} in
   *) fail "OMARCHY_QEMU_GPU_IMMERSIVE must be 0 or 1" ;;
 esac
 
+# Mac keycodes that stay with macOS while full grab owns the keyboard. Unset
+# keeps the app's defaults (brightness, Mission Control, Spotlight,
+# Dictation, Do Not Disturb); empty sends every dedicated key to Omarchy.
+# A keycode with modifiers, such as 124+ctrl, is a shortcut that stays with
+# macOS only while exactly those modifiers are held. QEMU separates options
+# with commas, so the display option lists them with colons.
+host_keys=${OMARCHY_QEMU_GPU_HOST_KEYS-131,144,145,160,176,177,178}
+cocoa_host_keys=""
+if [[ -n $host_keys ]]; then
+  host_keys_error="OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255, each with optional +ctrl, +opt, +shift or +cmd"
+  host_key_pattern='[0-9]{1,3}(\+(ctrl|opt|shift|cmd))*'
+  [[ $host_keys =~ ^$host_key_pattern(,$host_key_pattern)*$ ]] || fail "$host_keys_error"
+  IFS=, read -r -a host_key_list <<<"$host_keys"
+  host_shortcut_count=0
+  for host_key in "${host_key_list[@]}"; do
+    ((10#${host_key%%+*} <= 255)) || fail "$host_keys_error"
+    [[ $host_key != *+* ]] || ((++host_shortcut_count))
+  done
+  ((host_shortcut_count <= 64)) ||
+    fail "OMARCHY_QEMU_GPU_HOST_KEYS can keep at most 64 shortcuts with macOS"
+  LC_ALL=C grep -aFq 'host-keys must be keycodes' "$qemu_bin" ||
+    fail "the bundled QEMU cannot leave the Mac's dedicated keys with macOS; run make runtime"
+  if [[ $host_keys == *+* ]]; then
+    LC_ALL=C grep -aFq 'optional +ctrl, +opt, +shift or +cmd' "$qemu_bin" ||
+      fail "the bundled QEMU cannot leave shortcuts with macOS; run make runtime"
+  fi
+  cocoa_host_keys=",host-keys=${host_keys//,/:}"
+fi
+
+# Media transport keys go to Omarchy only when the Keyboard setting says so.
+case ${OMARCHY_QEMU_GPU_MEDIA_KEYS:-0} in
+  0) cocoa_media_keys="" ;;
+  1) cocoa_media_keys=",media-keys=on" ;;
+  *) fail "OMARCHY_QEMU_GPU_MEDIA_KEYS must be 0 or 1" ;;
+esac
+if [[ -n $cocoa_media_keys ]]; then
+  LC_ALL=C grep -aFq 'media-keys=on|off' "$qemu_bin" ||
+    fail "the bundled QEMU cannot send the Mac's media keys to Omarchy; run make runtime"
+fi
+
+# The shortcut that gives macOS the keyboard and mouse until Omarchy is
+# focused again, as a keycode with modifiers, such as 5+ctrl+opt. Unset or
+# empty keeps QEMU's own Control-Option-G, which releases only the mouse.
+release_key=${OMARCHY_QEMU_GPU_RELEASE_KEY-}
+cocoa_release_key=""
+if [[ -n $release_key ]]; then
+  release_key_error="OMARCHY_QEMU_GPU_RELEASE_KEY must be one keycode from 0 to 255 with at least one of +ctrl, +opt, +shift or +cmd"
+  [[ $release_key =~ ^[0-9]{1,3}(\+(ctrl|opt|shift|cmd))+$ ]] || fail "$release_key_error"
+  ((10#${release_key%%+*} <= 255)) || fail "$release_key_error"
+  LC_ALL=C grep -aFq 'release-key must be one keycode' "$qemu_bin" ||
+    fail "the bundled QEMU cannot release the keyboard from a shortcut; run make runtime"
+  cocoa_release_key=",release-key=$release_key"
+fi
+
+# In immersive mode, one virtio-gpu head per Mac display, arranged as the
+# Mac's display settings are. The helper lists the main display first, as
+# OUTPUT:XxY in Hyprland's logical pixels; the guest places its outputs from
+# that line, and QEMU reads it as TRYOMARCHY_DISPLAY_LAYOUT to give each
+# window its head. The built-in panel's output, named beside it, keeps the
+# camera housing. Only the launcher's All Displays setting
+# (OMARCHY_QEMU_GPU_DISPLAYS=1, off by default) in full screen gives more than
+# one head; a window, one display, or a failed probe keep one.
+case ${OMARCHY_QEMU_GPU_DISPLAYS:-0} in
+  0 | 1) ;;
+  *) fail "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1" ;;
+esac
+# Full screen's first mode is the main display's size in pixels. Linux sizes
+# its console when it probes the GPU and keeps that size, so the size has to
+# be there before full screen reports it; a window starts at 1920x1080 as before.
+gpu_xres=1920 gpu_yres=1080
+if [[ $immersive == on ]]; then
+  display_pixels=$("$native_bridge" --host-display-pixels 2>/dev/null) || display_pixels=
+  if [[ $display_pixels =~ ^([1-9][0-9]{2,4})x([1-9][0-9]{2,4})$ ]] &&
+     ((BASH_REMATCH[1] <= 16384 && BASH_REMATCH[2] <= 16384)); then
+    gpu_xres=${BASH_REMATCH[1]} gpu_yres=${BASH_REMATCH[2]}
+  elif [[ -n $display_pixels ]]; then
+    echo "run-qemu-gpu: ignoring unexpected display size: $display_pixels" >&2
+  fi
+fi
+display_count=1
+unset TRYOMARCHY_DISPLAY_LAYOUT
+if [[ $immersive == on && ${OMARCHY_QEMU_GPU_DISPLAYS:-0} == 1 ]]; then
+  display_layout=$("$native_bridge" --host-display-layout 2>/dev/null) || display_layout=
+  placement='Virtual-[1-4]:[0-9]{1,5}x[0-9]{1,5}'
+  if [[ $display_layout =~ ^$placement(,$placement){1,3}$ ]]; then
+    IFS=, read -ra placements <<<"$display_layout"
+    display_count=${#placements[@]}
+    host_options+=" tryomarchy.display_layout=$display_layout"
+    export TRYOMARCHY_DISPLAY_LAYOUT=$display_layout
+    display_panel=$("$native_bridge" --host-display-panel 2>/dev/null) || display_panel=
+    if [[ $display_panel =~ ^Virtual-[1-4]$ && ",$display_layout" == *",$display_panel:"* ]]; then
+      host_options+=" tryomarchy.display_panel=$display_panel"
+    elif [[ -n $display_panel ]]; then
+      echo "run-qemu-gpu: ignoring unexpected display panel: $display_panel" >&2
+    fi
+  elif [[ -n $display_layout && ! $display_layout =~ ^$placement$ ]]; then
+    echo "run-qemu-gpu: ignoring unexpected display layout: $display_layout" >&2
+  fi
+fi
+
 open_storage
 if [[ $storage_mode == reset ]]; then
   reset_vm
@@ -673,6 +773,7 @@ authentication_socket="$socket_dir/authentication.sock"
 camera_socket="$socket_dir/camera.sock"
 battery_socket="$socket_dir/battery.sock"
 timezone_socket="$socket_dir/timezone.sock"
+display_socket="$socket_dir/display.sock"
 settings_socket="$socket_dir/settings.sock"
 guest_socket="$socket_dir/guest.sock"
 audio_routes="$socket_dir/audio-routes"
@@ -723,8 +824,8 @@ qemu_args=(
   -qmp "unix:$qmp_socket,server=on,wait=off"
   -drive "if=none,id=omarchy-root,file=${working_disk//,/,,},format=raw,media=disk,cache=writeback"
   -device 'virtio-blk-pci,drive=omarchy-root,serial=omarchy-root,bootindex=0'
-  -device 'virtio-gpu-gl-pci,max_outputs=1,xres=1920,yres=1080,romfile='
-  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off"
+  -device "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=$display_count,xres=$gpu_xres,yres=$gpu_yres,romfile="
+  -display "cocoa,gl=on,show-cursor=on,zoom-to-fit=on,full-screen=$full_screen,full-grab=on,immersive=$immersive,swap-opt-cmd=off$cocoa_host_keys$cocoa_media_keys$cocoa_release_key"
   -device 'virtio-keyboard-pci,romfile='
   -device 'virtio-tablet-pci,romfile='
   -device 'virtio-pinch-pci,romfile='
@@ -750,7 +851,12 @@ qemu_args=(
   -device 'virtserialport,bus=omarchy-serial.0,nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery'
   -chardev "socket,id=omarchy-timezone-bridge,path=$timezone_socket,server=on,wait=off"
   -device 'virtserialport,bus=omarchy-serial.0,nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'
+  -chardev "socket,id=omarchy-display-layout,path=$display_socket,server=on,wait=off"
+  -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'
 )
+# The guest reports its display layout on dev.tryomarchy.display, and QEMU's
+# Cocoa display reads it to place the pointer (docs/multi-display.md).
+export TRYOMARCHY_DISPLAY_SOCKET=$display_socket
 if bridge_enabled settings; then
   qemu_args+=(
     -chardev "socket,id=omarchy-settings-bridge,path=$settings_socket,server=on,wait=off"

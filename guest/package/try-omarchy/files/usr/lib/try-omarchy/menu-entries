@@ -11,7 +11,8 @@ filling every field the extension leaves out with a default, so a changed row
 carries Omarchy's complete row, read from the installed Omarchy at every
 login, with only our change applied. A row whose text is still exactly what
 this wrote last time is rewritten when Omarchy's row changes; a row the user
-edited is left as it is.
+edited is left as it is. When Omarchy moves a row, an unedited row of ours
+moves with it, and the old one is hidden until Omarchy has it again.
 
 A marker in ~/.local/state/try-omarchy records the newest release of rows
 added, so rows the user deletes stay deleted and a later release adds only its
@@ -92,6 +93,7 @@ ROWS = (
         "action": "omarchy-launch-floating-terminal-with-presentation /usr/bin/try-omarchy-import-previous"})),
     # Omarchy's Timezone row opens the picker with Same as macOS first.
     ("update.timezone", 3, changed("update.timezone", set_action(TIMEZONE_ACTION))),
+    ("setup.region.timezone", 3, changed("setup.region.timezone", set_action(TIMEZONE_ACTION))),
     # A direct UEFI entry would skip Limine and its snapshots; a VM has no
     # firmware to update, and no Wi-Fi or Bluetooth hardware to restart.
     ("setup.direct-boot", 4, changed("setup.direct-boot", hide_unless("! omarchy-hw-vm"))),
@@ -112,6 +114,12 @@ ROWS = (
     ("install.gaming.lutris", 5, changed("install.gaming.lutris", hide_unless("omarchy-hw-x86"))),
 )
 RELEASE = 8
+BUILDERS = {key: build for key, _, build in ROWS}
+
+# Rows Omarchy has moved (old key to new) or dropped (None), kept for VMs whose
+# Omarchy hasn't updated yet. A dropped row of ours is inert: it shows only
+# outside a VM.
+RETIRED = {"update.timezone": "setup.region.timezone", "setup.direct-boot": None}
 
 # Rows earlier packages wrote with only the changed field, which Omarchy's
 # merge turned into rows without a label or an action. Still exactly as
@@ -143,6 +151,10 @@ def omarchy_rows():
     except (OSError, ValueError):
         return {}
     return rows if isinstance(rows, dict) else {}
+
+
+def mentions(text, key):
+    return any(f'"{key}"' in line for line in text.splitlines() if not line.lstrip().startswith("//"))
 
 
 def render(key, entry):
@@ -203,15 +215,24 @@ def main():
         entry = build(omarchy)
         row = render(key, entry) if entry else None
         line = re.search(rf'^  "{re.escape(key)}":[^\n]*\n', text, re.M)
-        if line or f'"{key}"' in text:
+        if line or mentions(text, key):
             current = line.group(0) if line else None
-            if row and current and current != row and current in (written.get(key), LEGACY.get(key)):
+            new_key = RETIRED.get(key)
+            moved = BUILDERS[new_key](omarchy) if new_key and not row else None
+            hidden = render(key, {"when": "false"})
+            if moved and current and current != hidden and current in (written.get(key), LEGACY.get(key)):
+                text = text.replace(current, hidden, 1)
+                written[key] = hidden
+                if new_key not in written and not mentions(text, new_key):
+                    new_rows += render(new_key, moved)
+                    written[new_key] = render(new_key, moved)
+            elif row and current and current != row and current in (written.get(key), LEGACY.get(key)):
                 text = text.replace(current, row, 1)
                 written[key] = row
             elif row and current == row:
                 written[key] = row
             continue
-        if release > done and row:
+        if release > done and row and f'  "{key}":' not in new_rows:
             new_rows += row
             written[key] = row
 

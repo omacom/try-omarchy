@@ -181,4 +181,19 @@ struct ApplicationPresentationTests {
             #expect(item.keyEquivalent == (link == .usage ? "?" : ""))
         }
     }
+
+    @Test("a launch failure is shown with its reason, and advice only when given")
+    func launchFailureAlert() {
+        let damaged = LaunchFailureAlert.alert(
+            for: HelperError.io("the launcher is missing"), advice: LaunchFailureAlert.damagedAppAdvice
+        )
+        #expect(damaged.alertStyle == .critical)
+        #expect(damaged.messageText == "Try Omarchy can\u{2019}t start")
+        #expect(damaged.informativeText.contains("the launcher is missing"))
+        #expect(damaged.informativeText.hasSuffix(LaunchFailureAlert.damagedAppAdvice))
+        #expect(damaged.buttons.map(\.title) == ["Quit"])
+
+        let other = LaunchFailureAlert.alert(for: HelperError.io("the guest folder is missing"))
+        #expect(other.informativeText == HelperError.io("the guest folder is missing").localizedDescription)
+    }
 }

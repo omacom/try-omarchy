@@ -1,0 +1,446 @@
+Subject: [PATCH] tcp: close host sockets on a thread pool on Darwin
+
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -316,3 +316,14 @@ if host_system != 'windows'
+     dependencies: libslirp_deps)
+   test('udp-translation', udp_translation_test)
+ endif
++
++if host_machine.system() == 'darwin'
++  tcpclosetest = executable('tcpclosetest', 'test/tcp-close-test.c',
++    objects: lib.extract_all_objects(recursive: false),
++    c_args: cargs,
++    link_args: vflag,
++    include_directories: ['src'],
++    dependencies: libslirp_deps,
++  )
++  test('tcp-close', tcpclosetest, timeout: 30)
++endif
+diff --git a/src/slirp.h b/src/slirp.h
+--- a/src/slirp.h
++++ b/src/slirp.h
+@@ -189,6 +189,9 @@ struct Slirp {
+     struct socket tcb;
+     struct socket *tcp_last_so;
+     tcp_seq tcp_iss; /* tcp initial send seq # */
++#ifdef __APPLE__
++    GThreadPool *tcp_close_pool;
++#endif
+     uint32_t tcp_now; /* for RFC 1323 timestamps */
+ 
+     /* udp states */
+diff --git a/src/tcp_subr.c b/src/tcp_subr.c
+--- a/src/tcp_subr.c
++++ b/src/tcp_subr.c
+@@ -45,11 +45,35 @@
+ /*
+  * Tcp initialization
+  */
++#ifdef __APPLE__
++/*
++ * A Darwin content filter can block close() even on a nonblocking socket,
++ * which would stall the application's main loop:
++ * https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/content_filter.c
++ * So TCP connections close on a thread pool. It starts another thread only
++ * while every running one is busy, and idle threads exit. Listeners close at
++ * once, so their ports are free when cleanup returns. Past the backlog,
++ * connections close at once too, so a filter that blocks every thread cannot
++ * pile up descriptors.
++ */
++#define TCP_CLOSE_THREADS 16
++#define TCP_CLOSE_BACKLOG 1024
++
++static void tcp_close_task(gpointer data, gpointer user_data)
++{
++    close(GPOINTER_TO_INT(data) - 1);
++}
++#endif
++
+ void tcp_init(Slirp *slirp)
+ {
+     slirp->tcp_iss = 1; /* wrong */
+     slirp->tcb.so_next = slirp->tcb.so_prev = &slirp->tcb;
+     slirp->tcp_last_so = &slirp->tcb;
++#ifdef __APPLE__
++    slirp->tcp_close_pool =
++        g_thread_pool_new(tcp_close_task, NULL, TCP_CLOSE_THREADS, FALSE, NULL);
++#endif
+ }
+ 
+ void tcp_cleanup(Slirp *slirp)
+@@ -57,6 +81,29 @@ void tcp_cleanup(Slirp *slirp)
+     while (slirp->tcb.so_next != &slirp->tcb) {
+         tcp_close(sototcpcb(slirp->tcb.so_next));
+     }
++#ifdef __APPLE__
++    /* Queued closes still run, without making cleanup wait for them. */
++    g_thread_pool_free(slirp->tcp_close_pool, FALSE, FALSE);
++#endif
++}
++
++static void tcp_close_socket(struct socket *so)
++{
++#ifdef __APPLE__
++    GThreadPool *pool = so->slirp->tcp_close_pool;
++
++    if (have_valid_socket(so->s) && !(so->so_state & SS_FACCEPTCONN) &&
++        g_thread_pool_unprocessed(pool) < TCP_CLOSE_BACKLOG) {
++        int saved_errno = errno;
++
++        g_thread_pool_push(pool, GINT_TO_POINTER(so->s + 1), NULL);
++        errno = saved_errno;
++        so->s = SLIRP_INVALID_SOCKET;
++        return;
++    }
++#endif
++    closesocket(so->s);
++    so->s = SLIRP_INVALID_SOCKET;
+ }
+ 
+ void tcp_template(struct tcpcb *tp)
+@@ -316,7 +363,7 @@ struct tcpcb *tcp_close(struct tcpcb *tp)
+     if (so == slirp->tcp_last_so)
+         slirp->tcp_last_so = &slirp->tcb;
+     slirp_unregister_poll_socket(so);
+-    closesocket(so->s);
++    tcp_close_socket(so);
+     sbfree(&so->so_rcv);
+     sbfree(&so->so_snd);
+     sofree(so);
+@@ -401,8 +448,7 @@ int tcp_fconnect(struct socket *so, unsigned short af)
+         ret = slirp_bind_outbound(so, af);
+         if (ret < 0) {
+             // bind failed - close socket
+-            closesocket(so->s);
+-            so->s = SLIRP_INVALID_SOCKET;
++            tcp_close_socket(so);
+             return (ret);
+         }
+     }
+diff --git a/test/tcp-close-test.c b/test/tcp-close-test.c
+new file mode 100644
+--- /dev/null
++++ b/test/tcp-close-test.c
+@@ -0,0 +1,320 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++#undef NDEBUG
++#include "slirp.h"
++#include <assert.h>
++#include <fcntl.h>
++#include <poll.h>
++#include <pthread.h>
++#include <sys/resource.h>
++
++static pthread_t owner;
++static pthread_mutex_t gate = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
++static int stalled_fd = -1;
++static bool stall_all;
++static unsigned closed_count;
++static bool registered[4096];
++
++static void register_fd(slirp_os_socket fd, void *opaque)
++{
++    assert(pthread_equal(pthread_self(), owner));
++    assert(fd >= 0 && fd < (int)G_N_ELEMENTS(registered));
++    registered[fd] = true;
++}
++
++static void unregister_fd(slirp_os_socket fd, void *opaque)
++{
++    assert(pthread_equal(pthread_self(), owner));
++    if (fd >= 0) {
++        registered[fd] = false;
++    }
++}
++
++/* Stands in for a close that a content filter holds until it is released. */
++static void gated_close(gpointer data, gpointer user_data)
++{
++    int fd = GPOINTER_TO_INT(data) - 1;
++
++    assert(!pthread_equal(pthread_self(), owner));
++    assert(!registered[fd]);
++    pthread_mutex_lock(&gate);
++    while (stall_all || fd == stalled_fd) {
++        pthread_cond_wait(&changed, &gate);
++    }
++    assert(close(fd) == 0);
++    closed_count++;
++    pthread_cond_broadcast(&changed);
++    pthread_mutex_unlock(&gate);
++}
++
++static Slirp *new_slirp(bool gated)
++{
++    static const SlirpCb callbacks = {
++        .register_poll_socket = register_fd,
++        .unregister_poll_socket = unregister_fd,
++    };
++    SlirpConfig cfg = { 0 };
++    Slirp *slirp;
++
++    cfg.version = 6;
++    cfg.in_enabled = true;
++    inet_pton(AF_INET, "10.0.2.0", &cfg.vnetwork);
++    inet_pton(AF_INET, "255.255.255.0", &cfg.vnetmask);
++    inet_pton(AF_INET, "10.0.2.2", &cfg.vhost);
++    slirp = slirp_new(&cfg, &callbacks, NULL);
++    assert(slirp);
++    if (gated) {
++        g_thread_pool_free(slirp->tcp_close_pool, FALSE, TRUE);
++        slirp->tcp_close_pool =
++            g_thread_pool_new(gated_close, NULL, 16, FALSE, NULL);
++    }
++    return slirp;
++}
++
++static void wait_for_closes(unsigned count)
++{
++    gint64 deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
++
++    pthread_mutex_lock(&gate);
++    while (closed_count < count) {
++        struct timespec delay = { .tv_nsec = 10 * 1000 * 1000 };
++
++        assert(g_get_monotonic_time() < deadline);
++        pthread_cond_timedwait_relative_np(&changed, &gate, &delay);
++    }
++    assert(closed_count == count);
++    closed_count = 0;
++    pthread_mutex_unlock(&gate);
++}
++
++static void release_stalled_close(void)
++{
++    pthread_mutex_lock(&gate);
++    stalled_fd = -1;
++    stall_all = false;
++    pthread_cond_broadcast(&changed);
++    pthread_mutex_unlock(&gate);
++}
++
++static int listen_on_loopback(int family, struct sockaddr_storage *addr)
++{
++    socklen_t len = family == AF_INET ? sizeof(struct sockaddr_in)
++                                      : sizeof(struct sockaddr_in6);
++    int listener = socket(family, SOCK_STREAM, 0);
++
++    assert(listener >= 0);
++    memset(addr, 0, sizeof(*addr));
++    addr->ss_family = family;
++    if (family == AF_INET) {
++        ((struct sockaddr_in *)addr)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    } else {
++        ((struct sockaddr_in6 *)addr)->sin6_addr = in6addr_loopback;
++    }
++    assert(bind(listener, (struct sockaddr *)addr, len) == 0);
++    assert(listen(listener, 4) == 0);
++    assert(getsockname(listener, (struct sockaddr *)addr, &len) == 0);
++    return listener;
++}
++
++static const char payload[] = "queued TCP data survives the deferred close";
++
++/* An outgoing NAT connection with payload queued for the peer. */
++static struct socket *connect_out(Slirp *slirp, int family, int listener,
++                                  const struct sockaddr_storage *addr,
++                                  int *peer)
++{
++    struct socket *so = socreate(slirp, IPPROTO_TCP);
++    struct pollfd pfd = { .fd = listener, .events = POLLIN };
++    int result;
++
++    so->fhost.ss = *addr;
++    tcp_attach(so);
++    result = tcp_fconnect(so, family);
++    assert(result == 0 || errno == EINPROGRESS);
++    assert(registered[so->s]);
++    assert(poll(&pfd, 1, 5000) == 1);
++    *peer = accept(listener, NULL, NULL);
++    assert(*peer >= 0);
++    pfd.fd = so->s;
++    pfd.events = POLLOUT;
++    assert(poll(&pfd, 1, 5000) == 1);
++    assert(write(so->s, payload, sizeof(payload)) == sizeof(payload));
++    return so;
++}
++
++static void expect_payload_then_eof(int peer)
++{
++    char received[sizeof(payload)];
++    size_t total = 0;
++
++    while (total < sizeof(received)) {
++        ssize_t n = read(peer, received + total, sizeof(received) - total);
++        assert(n > 0);
++        total += n;
++    }
++    assert(!memcmp(received, payload, sizeof(payload)));
++    assert(read(peer, received, 1) == 0);
++    close(peer);
++}
++
++static void test_close_on_pool(int family)
++{
++    Slirp *slirp = new_slirp(false);
++    struct sockaddr_storage addr;
++    int listener = listen_on_loopback(family, &addr);
++    int peer;
++    struct socket *so = connect_out(slirp, family, listener, &addr, &peer);
++
++    tcp_close(so->so_tcpcb);
++    expect_payload_then_eof(peer);
++    slirp_cleanup(slirp);
++    close(listener);
++    printf("PASS: IPv%d tcp_close closes the host socket on the pool\n",
++           family == AF_INET ? 4 : 6);
++}
++
++static void test_stalled_close(int family)
++{
++    Slirp *slirp = new_slirp(true);
++    struct sockaddr_storage addr;
++    int listener = listen_on_loopback(family, &addr);
++    int peers[3];
++    struct socket *so[3];
++    unsigned i;
++
++    for (i = 0; i < 3; i++) {
++        so[i] = connect_out(slirp, family, listener, &addr, &peers[i]);
++    }
++    pthread_mutex_lock(&gate);
++    stalled_fd = so[0]->s;
++    pthread_mutex_unlock(&gate);
++
++    tcp_close(so[0]->so_tcpcb);
++    tcp_close(so[1]->so_tcpcb);
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[1]);
++
++    slirp_cleanup(slirp);
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[2]);
++
++    release_stalled_close();
++    wait_for_closes(1);
++    expect_payload_then_eof(peers[0]);
++    close(listener);
++    printf("PASS: IPv%d tcp_close, later closes and slirp_cleanup return while "
++           "a close is stalled\n", family == AF_INET ? 4 : 6);
++}
++
++static void test_failed_bind(void)
++{
++    Slirp *slirp = new_slirp(true);
++    struct socket *so = socreate(slirp, IPPROTO_TCP);
++    struct sockaddr_in6 bad_source = { .sin6_family = AF_INET6 };
++
++    slirp->outbound_addr = (struct sockaddr_in *)&bad_source;
++    tcp_attach(so);
++    assert(tcp_fconnect(so, AF_INET) == -1);
++    assert(errno == EAFNOSUPPORT || errno == EINVAL);
++    assert(so->s == SLIRP_INVALID_SOCKET);
++    wait_for_closes(1);
++    tcp_close(so->so_tcpcb);
++    slirp_cleanup(slirp);
++    puts("PASS: a failed outbound bind closes its socket on the pool and "
++         "keeps errno");
++}
++
++static void stall_every_close(void)
++{
++    pthread_mutex_lock(&gate);
++    stall_all = true;
++    pthread_mutex_unlock(&gate);
++}
++
++static void test_listener_closes_at_once(void)
++{
++    Slirp *slirp = new_slirp(true);
++    struct sockaddr_in addr = { .sin_family = AF_INET };
++    socklen_t len = sizeof(addr);
++    struct in_addr guest;
++    int probe = socket(AF_INET, SOCK_STREAM, 0);
++
++    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++    assert(bind(probe, (struct sockaddr *)&addr, len) == 0);
++    assert(getsockname(probe, (struct sockaddr *)&addr, &len) == 0);
++    close(probe);
++    inet_pton(AF_INET, "10.0.2.15", &guest);
++    assert(slirp_add_hostfwd(slirp, false, addr.sin_addr,
++                             ntohs(addr.sin_port), guest, 22) == 0);
++
++    stall_every_close();
++    slirp_cleanup(slirp);
++    probe = socket(AF_INET, SOCK_STREAM, 0);
++    assert(bind(probe, (struct sockaddr *)&addr, len) == 0);
++    close(probe);
++    release_stalled_close();
++    assert(closed_count == 0);
++    puts("PASS: a forwarded port's listener is closed when cleanup returns");
++}
++
++static void test_backlog_is_bounded(void)
++{
++    Slirp *slirp = new_slirp(true);
++    unsigned queued;
++
++    stall_every_close();
++    for (queued = 0;; queued++) {
++        struct socket *so = socreate(slirp, IPPROTO_TCP);
++        int fd;
++
++        tcp_attach(so);
++        fd = so->s = socket(AF_INET, SOCK_STREAM, 0);
++        assert(fd >= 0 && fd < (int)G_N_ELEMENTS(registered));
++        tcp_close(so->so_tcpcb);
++        if (fcntl(fd, F_GETFD) < 0) {
++            break;
++        }
++        assert(queued < 2000);
++    }
++    assert(queued > 16);
++    release_stalled_close();
++    wait_for_closes(queued);
++    slirp_cleanup(slirp);
++    printf("PASS: with every close stalled, close %u happens at once\n",
++           queued + 1);
++}
++
++static void test_failed_socket(void)
++{
++    Slirp *slirp = new_slirp(true);
++    struct socket *so = socreate(slirp, IPPROTO_TCP);
++
++    tcp_attach(so);
++    assert(tcp_fconnect(so, AF_UNSPEC) == -1);
++    assert(so->s == SLIRP_INVALID_SOCKET);
++    tcp_close(so->so_tcpcb);
++    assert(g_thread_pool_unprocessed(slirp->tcp_close_pool) == 0);
++    slirp_cleanup(slirp);
++    assert(closed_count == 0);
++    puts("PASS: a socket that was never created queues no close");
++}
++
++int main(void)
++{
++    struct rlimit files;
++
++    assert(getrlimit(RLIMIT_NOFILE, &files) == 0);
++    files.rlim_cur = MIN(files.rlim_max, G_N_ELEMENTS(registered));
++    assert(setrlimit(RLIMIT_NOFILE, &files) == 0);
++    alarm(25);
++    owner = pthread_self();
++    test_close_on_pool(AF_INET);
++    test_close_on_pool(AF_INET6);
++    test_stalled_close(AF_INET);
++    test_stalled_close(AF_INET6);
++    test_failed_bind();
++    test_failed_socket();
++    test_listener_closes_at_once();
++    test_backlog_is_bounded();
++    return 0;
++}

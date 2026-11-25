@@ -161,10 +161,22 @@ def check_kit(root: Path, identity: str) -> None:
     subprocess.run([str(root / "tests/kit/check.sh"), str(root / "dist/kit.noindex")], env=environment, check=True)
 
 
-def release_assets(root: Path) -> list[Path]:
-    kit = root / "dist/kit.noindex"
-    return [root / "dist/TryOmarchy.dmg", kit / "TryOmarchyKit.zip", kit / "TryOmarchyKit.zip.sha256",
-            kit / "TryOmarchyKit.json", *sorted((root / "dist/factory").glob("*"))]
+def write_dmg_digest(root: Path) -> Path:
+    """People check a downloaded DMG with `shasum -a 256 -c TryOmarchy.dmg.sha256`."""
+    dmg = root / "dist/TryOmarchy.dmg"
+    digest = dmg.with_name(f"{dmg.name}.sha256")
+    digest.write_text(f"{hashlib.sha256(dmg.read_bytes()).hexdigest()}  {dmg.name}\n")
+    return digest
+
+
+def release_assets(root: Path, kit: bool = False) -> list[Path]:
+    """The DMG, its digest and the factory parts; the kit only when asked,
+    since no installer downloads it from a release yet."""
+    assets = [root / "dist/TryOmarchy.dmg", root / "dist/TryOmarchy.dmg.sha256"]
+    if kit:
+        bundle = root / "dist/kit.noindex"
+        assets += [bundle / "TryOmarchyKit.zip", bundle / "TryOmarchyKit.zip.sha256", bundle / "TryOmarchyKit.json"]
+    return [*assets, *sorted((root / "dist/factory").glob("*"))]
 
 
 def prepare_factory(root: Path, make: str, force: bool) -> None:

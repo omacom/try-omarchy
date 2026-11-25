@@ -8,6 +8,8 @@ The IPv4 patch isolates virtual-network and broadcast destinations by remote end
 
 The automated loopback regression injects guest UDP frames through libslirp, deliberately returns the replies in reverse order, and checks their guest-visible source addresses and payloads. It requires no VM, administrator privileges, or Internet connection. The pinned runtime build compiles and runs it with the existing libslirp suite.
 
+libslirp 4.9.7 rejects guest loopback destinations, so the ordinary-destination cases use a reachable host address outside the test's virtual network. Without one, they are skipped.
+
 The packet-level reproduction emitted an incorrect source address in all three trials with both original 4.9.4 and the ICMP-only patch; the UDP candidate emitted the correct address in all three trials.
 
 | Live VM check | Before UDP fix | UDP candidate |

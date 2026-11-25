@@ -45,6 +45,7 @@ final class LauncherSettingsFile: LauncherSettingsStorage {
         SharedFolderPreferenceStore.key,
         USBDevicePreferenceStore.key,
         FullscreenPreferenceStore.key,
+        KeyboardRoutingPreferenceStore.key,
     ]
 
     private enum Location {

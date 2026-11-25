@@ -473,6 +473,6 @@ final class PortForwardingEditor: NSObject, NSWindowDelegate, NSTextFieldDelegat
     }
 }
 
-private final class FlippedDocumentView: NSView {
+final class FlippedDocumentView: NSView {
     override var isFlipped: Bool { true }
 }

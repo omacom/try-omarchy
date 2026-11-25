@@ -83,15 +83,51 @@ mouse grab cannot authorize global keyboard capture after switching to a Mac
 app. App deactivation and window focus loss both release the guest's held keys
 and mouse buttons; returning to the VM does not require typing to reset capture.
 
-If input appears stuck while using an older runtime, focus the VM and press
-Control–Option–G to release its mouse grab, then select the Mac application.
-Quit the VM if host input still does not recover.
+Held modifiers follow the keyboard. Cocoa releases a guest Shift, Control, Option or Command that an event's flags lack only on a key down, key up or modifier change. Pointer and scroll events never release one. With an external keyboard and mouse, wired or Bluetooth, a pointer event that arrives within a few milliseconds of a modifier press can lack that modifier, which ended Shift+click and Control+click at that motion. Losing focus still releases everything the guest holds.
 
 For diagnosis, `TRYOMARCHY_INPUT_TRACE=1` logs foreground PID, local activation,
 window-key state and capture decisions, without recording key contents.
 `TRYOMARCHY_INPUT_OBSERVE_ONLY=1` makes the global tap pass every event through;
 it observes the capture decision without forwarding or suppressing the event.
 These variables apply to the QEMU process and are unset during normal use.
+
+## Releasing the keyboard
+
+Full grab keeps every key with Omarchy while its window is key, including Command–Tab. In Immersive, with the menu bar and Dock hidden, that leaves no keyboard way back to macOS. The release shortcut, Control–Option–G by default, gives macOS the keyboard and the mouse until Omarchy is focused again.
+
+- QEMU reserves Control–Option–G to release its mouse grab, and Omarchy binds nothing to it. Keyboard capture doesn't follow the mouse grab, so on its own it released nothing that mattered.
+- Released, Command and every other shortcut go to macOS. Ordinary typing still reaches Omarchy while its window is focused. Keys Omarchy holds are let go, as when focus leaves.
+- Capture returns when Try Omarchy becomes the active app again, when the Omarchy view is clicked, or when the shortcut is pressed again.
+- The Keyboard sheet's **Release keyboard and mouse** row records another shortcut, with at least one of Control, Option, Shift or Command. A kept shortcut with the same keys is removed, since it would never release. Like the rest of the sheet, the change applies at the next launch.
+- The launcher passes it to QEMU as `release-key=5+ctrl+opt`, in the same form as a kept shortcut. With the option set, Control–Option–G has no meaning of its own and reaches Omarchy when it isn't the release shortcut. Without it, as with an older launcher, QEMU keeps its own Control–Option–G.
+
+If input appears stuck, press the release shortcut, then select the Mac application. Quit the VM if host input still does not recover.
+
+## Dedicated keys
+
+In its default mode, an Apple keyboard sends its dedicated keys as plain key events with their own keycodes, not as F-keys. The codes differ by keyboard:
+
+| Key | Built-in M1 Max | Magic Keyboard A1843 |
+|---|---|---|
+| Brightness down/up (F1/F2) | system-defined events, never reach QEMU's key path | 145 / 144 |
+| Mission Control (F3) | 160 | 160 |
+| Spotlight / Launchpad (F4) | 177 | 131 |
+| Dictation / Siri (F5) | 176 | plain F5 |
+| Do Not Disturb (F6) | 178 | plain F6 |
+
+Built-in keyboards send brightness as system-defined events, which always stay with macOS. Full grab would swallow the other keys, so the launcher passes the keycodes the Keyboard setting leaves with macOS to QEMU as `-display cocoa,host-keys=131:144:145:160:176:177:178`, and the Cocoa tap hands them back to macOS. With "Use F1, F2, etc. as standard function keys" on, the same keys arrive as F-keys and always reach Omarchy.
+
+Media transport keys arrive as system-defined aux-control events, which full grab's tap doesn't capture by default. When the Keyboard setting sends them to Omarchy, the launcher passes `media-keys=on` to QEMU. Its tap then also takes previous, play/pause and next while the guest has the keyboard, and sends them as `audioprev`, `audioplay` and `audionext`, which Omarchy's own Hyprland bindings handle. A media key held when focus leaves is released. Volume, mute, brightness and backlight events always stay with macOS. Like the other keys, the setting applies at the next launch.
+
+## Shortcuts kept with macOS
+
+Full grab sends every shortcut to Omarchy, including macOS's own, such as Control–arrow to switch Spaces. The Keyboard sheet's **Shortcuts** list keeps chosen shortcuts with macOS instead.
+
+- Quick picks offer macOS's Spaces shortcuts: Switch Spaces, Mission Control, Application Windows and, when they're turned on in System Settings, Switch to Desktop 1–9. Picks follow the bindings in System Settings → Keyboard → Keyboard Shortcuts, read from `com.apple.symbolichotkeys`, and a shortcut turned off there isn't offered. A pick is a copy, so a binding changed later in System Settings needs picking again.
+- **Record Shortcut…** keeps any other shortcut. It needs at least one of Control, Option or Command, so typing in Omarchy keeps working, capitals included. With Accessibility, the launcher records through an HID event tap: it sees shortcuts that macOS or another app would act on, and keeps them from acting while it records. Without Accessibility, it records only shortcuts that reach its window.
+- The launcher passes each shortcut to QEMU in `host-keys` as a keycode with its modifiers, such as `124+ctrl`. The Cocoa tap hands a key down back to macOS only while exactly those modifiers are held; Caps Lock and Fn don't count. The key's repeats and key up follow its key down, so releasing Control first can't leave the arrow held in Omarchy. A key Omarchy already holds stays with Omarchy. The capture swallows Command's own events, so the keys pressed with it can reach the tap without the Command flag; the tap remembers Command from Command's events, so Command shortcuts still match and reach macOS with Command.
+- Omarchy never receives a kept shortcut. Keeping Switch Spaces gives up Control–arrow word movement in Omarchy's terminals and text fields.
+- Omarchy still sees the modifiers go down and up, since they arrive before the key that completes the shortcut. Only the key itself is kept from Omarchy.
 
 ## Validation
 

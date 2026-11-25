@@ -46,6 +46,9 @@ case $1 in
   --host-keyboard-geometry) echo "${FAKE_KEYBOARD-jis}" ;;
   --host-caps-lock-input) printf '%s\n' "${FAKE_CAPS_LOCK_INPUT-}" ;;
   --host-display-cutouts) printf '%s\n' "${FAKE_DISPLAY_CUTOUTS-3024x1964:64,2048x1330:44}" ;;
+  --host-display-layout) printf '%s\n' "${FAKE_DISPLAY_LAYOUT-Virtual-1:0x0}" ;;
+  --host-display-panel) printf '%s\n' "${FAKE_DISPLAY_PANEL-Virtual-1}" ;;
+  --host-display-pixels) printf '%s\n' "${FAKE_DISPLAY_PIXELS-3024x1964}" ;;
   --host-timezone) echo America/Sao_Paulo ;;
   --sparsify) exit 0 ;;
   *) exit 1 ;;
@@ -54,10 +57,10 @@ SH
 # The fake QEMU carries the project's patch markers, answers -device help and
 # records every other invocation. It never starts: a real launch fails with
 # "QEMU exited before it was ready" after the storage work is done.
-write_qemu() { # extra-marker
+write_qemu() { # extra-markers...
   cat >"$resources/runtime/bin/Try Omarchy" <<SH
 #!/bin/bash
-# TryOmarchy.icns OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY guest_owner_uid $1
+# TryOmarchy.icns OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY guest_owner_uid $*
 if [[ "\$*" == "-device help" ]]; then
   for device in hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \\
     virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci virtio-net-pci virtio-rng-pci \\
@@ -68,7 +71,7 @@ if [[ "\$*" == "-device help" ]]; then
 fi
 # The nested-virtualization probe fails, as on M1/M2 Macs.
 [[ "\$*" == *"-qmp stdio"* ]] && exit 1
-printf '%s\n' "\$*" >>"$test_root/qemu-invocations"
+printf '%s\n' "\$*" "TRYOMARCHY_DISPLAY_LAYOUT=\${TRYOMARCHY_DISPLAY_LAYOUT-unset}" >>"$test_root/qemu-invocations"
 printf '%s -> %s\n' "\$0" "\$(readlink "\$0")" >>"$test_root/qemu-executables"
 info="\$(dirname "\$0")/../Info.plist"
 if [[ -f \$info ]]; then
@@ -80,7 +83,7 @@ exit 1
 SH
   chmod 755 "$resources/runtime/bin/Try Omarchy"
 }
-write_qemu 'exact bus 0 matching'
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
 # The fake factory is stored uncompressed; "decompressing" copies it.
 cat >"$resources/runtime/bin/zstd" <<'SH'
 #!/bin/bash
@@ -169,7 +172,8 @@ for port in 'nr=0,chardev=omarchy-hvc0' 'nr=1,chardev=omarchy-audio-bridge,name=
   'nr=3,chardev=omarchy-authentication-bridge,name=dev.tryomarchy.authentication' \
   'nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera' 'nr=5,chardev=omarchy-guest-status,name=dev.tryomarchy.guest' \
   'nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings' 'nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery' \
-  'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone'; do
+  'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone' \
+  'nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'; do
   assert_contains "$output" "$port"
 done
 [[ -f $state/shell/disk.img && -f $state/shell/efi-vars.fd && -f $state/shell/vm.json && -f $state/shell-factory/$sha.img ]] ||
@@ -205,6 +209,10 @@ done
 assert_contains "$output" "-device qemu-xhci,id=omarchy-usb,streams=off"
 assert_contains "$output" "-device usb-kbd,bus=omarchy-usb.0,id=omarchy-boot-keyboard"
 assert_not_contains "$output" "usb-host"
+# Unset keeps the app's defaults: brightness, Mission Control, Spotlight,
+# Dictation, Do Not Disturb.
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178 "
+assert_not_contains "$output" "media-keys="
 
 # --- Caps Lock follows the Mac input source only on a non-JIS Mac with an input method --
 assert_contains "$output" "Caps Lock input: caps-lock"
@@ -286,6 +294,59 @@ output=$(launch) && fail "an unknown storage layout launched"
 assert_contains "$output" "this VM uses a storage layout this version does not know"
 mv "$test_root/vm.json" "$state/shell/vm.json"
 
+# --- immersive mode gets one virtio-gpu head per Mac display ------------------------
+output=$(launch)
+assert_contains "$output" "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=1,xres=3024,yres=1964,"
+# A window keeps the first mode of old; a bad answer or none does too.
+output=$(OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
+assert_contains "$output" "max_outputs=1,xres=1920,yres=1080,"
+for pixels in '' '3024x1964;reboot' '99999x1964' '30x20'; do
+  output=$(FAKE_DISPLAY_PIXELS=$pixels launch)
+  assert_contains "$output" "xres=1920,yres=1080,"
+done
+assert_contains "$(FAKE_DISPLAY_PIXELS=99999x1964 launch)" "ignoring unexpected display size"
+output=$(launch)
+assert_not_contains "$output" "tryomarchy.display_layout"
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
+assert_contains "$output" "virtio-gpu-gl-pci,id=omarchy-gpu,max_outputs=2,"
+assert_contains "$output" "tryomarchy.display_layout=Virtual-1:0x458,Virtual-2:1512x0 tryomarchy.display_panel=Virtual-1"
+# The panel is whichever output the helper names, as long as the layout has it.
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=Virtual-2 launch)
+assert_contains "$output" "tryomarchy.display_panel=Virtual-2"
+for panel in Virtual-3 HDMI-A-1 'Virtual-2 tryomarchy.ssh_from=any'; do
+  output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL=$panel launch)
+  assert_contains "$output" "ignoring unexpected display panel"
+  assert_not_contains "$output" "display_panel"
+done
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:248x1440 FAKE_DISPLAY_PANEL= launch)
+assert_contains "$output" "tryomarchy.display_layout="
+assert_not_contains "$output" "display_panel"
+# A window, or the launcher's All Displays setting off or unset, keeps one head.
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_IMMERSIVE=0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
+assert_not_contains "$output" "tryomarchy.display_panel"
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 OMARCHY_QEMU_GPU_DISPLAYS=0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
+assert_not_contains "$output" "tryomarchy.display_panel"
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=all launch) && fail "an invalid displays setting launched"
+assert_contains "$output" "OMARCHY_QEMU_GPU_DISPLAYS must be 0 or 1"
+output=$(FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "tryomarchy.display_layout"
+# Anything but Virtual-1..4 placements, or more than four, is left out.
+for layout in 'Virtual-1:0x0,HDMI-A-1:1512x0' 'Virtual-1:0x0,Virtual-2:1512x0 tryomarchy.ssh_from=any' \
+  'Virtual-1:0x0,Virtual-2:1x0,Virtual-3:2x0,Virtual-4:3x0,Virtual-5:4x0'; do
+  output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=$layout launch)
+  assert_contains "$output" "ignoring unexpected display layout"
+  assert_contains "$output" "max_outputs=1,"
+  assert_not_contains "$(grep "host settings:" <<<"$output")" "display_layout"
+done
+output=$(OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT= launch)
+assert_contains "$output" "max_outputs=1,"
+assert_not_contains "$output" "ignoring unexpected display layout"
+
 # --- the VM persists; the package offer can be turned off --------------------------
 printf 'guest data' | dd of="$state/shell/disk.img" conv=notrunc 2>/dev/null
 launch_env=(OMARCHY_SHELL_INSTALL_PACKAGE=)
@@ -336,6 +397,15 @@ product_start=$(head -1 "$test_root/qemu-executables")
 [[ $(tail -n +2 "$test_root/qemu-executables") == $'CFBundleExecutable=Omarchy Installer\nCFBundleName=Omarchy Installer\nCFBundleDisplayName=Omarchy Installer\nCFBundlePackageType=APPL' ]] ||
   fail "the product's app bundle does not name the product"
 assert_contains "$(<"$test_root/qemu-invocations")" "-name guest=Omarchy Installer "
+# QEMU sees the layout the helper reports, never one inherited from the environment.
+: >"$test_root/qemu-invocations"
+launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
+OMARCHY_QEMU_GPU_DISPLAYS=1 FAKE_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0 launch >/dev/null && fail "the fake QEMU launch succeeded"
+assert_contains "$(<"$test_root/qemu-invocations")" "TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x458,Virtual-2:1512x0"
+: >"$test_root/qemu-invocations"
+launch_env=(OMARCHY_QEMU_GPU_DRY_RUN=0 OMARCHY_QEMU_GPU_DISK_GIB=1 OMARCHY_QEMU_GPU_IMMERSIVE=0 TRYOMARCHY_DISPLAY_LAYOUT=Virtual-1:0x0,Virtual-2:9x9)
+launch >/dev/null && fail "the fake QEMU launch succeeded"
+assert_contains "$(<"$test_root/qemu-invocations")" "TRYOMARCHY_DISPLAY_LAYOUT=unset"
 : >"$test_root/qemu-invocations"
 
 # The lock refuses a second launch of the same VM.
@@ -382,7 +452,88 @@ assert_contains "$output" "-device usb-host,bus=omarchy-usb.0,id=omarchy-usb-hos
 write_qemu ''
 output=$(launch) && fail "a QEMU without exact USB bus matching was accepted"
 assert_contains "$output" "exact USB bus matching"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+
+# --- the Mac's dedicated keys ---------------------------------------------------------
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=144,145)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=144:145 "
+# Empty sends every dedicated key to Omarchy: no option at all, so a QEMU
+# without the host-keys patch still launches.
 write_qemu 'exact bus 0 matching'
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off "
+assert_not_contains "$output" "host-keys="
+launch_env=()
+output=$(launch) && fail "a QEMU without the host-keys option was accepted"
+assert_contains "$output" "cannot leave the Mac's dedicated keys with macOS"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+for host_keys in 256 abc 1,,2 ,144 144, 1:2 -1 1234 123+ 123+fn +ctrl 123ctrl 256+ctrl 123+ctrl+ 123+ctrl:124+ctrl; do
+  launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+  output=$(launch) && fail "host keys $host_keys were accepted"
+  assert_contains "$output" "OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255"
+  [[ ! -e $test_root/untouched ]] || fail "host keys $host_keys touched storage"
+done
+# Shortcuts carry their modifiers and need a QEMU that reads them; a QEMU
+# without them still takes bare keycodes.
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=160,123+ctrl,124+ctrl,18+opt+shift+cmd)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=160:123+ctrl:124+ctrl:18+opt+shift+cmd "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off'
+output=$(launch) && fail "a QEMU without host shortcuts was accepted"
+assert_contains "$output" "cannot leave shortcuts with macOS"
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=144,145)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=144:145 "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+host_keys=144
+for _ in $(seq 64); do host_keys+=,1+ctrl; done
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys")
+output=$(launch)
+assert_contains "$output" "host-keys=144:1+ctrl:"
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys,1+ctrl" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+output=$(launch) && fail "65 host shortcuts were accepted"
+assert_contains "$output" "at most 64 shortcuts"
+[[ ! -e $test_root/untouched ]] || fail "too many host shortcuts touched storage"
+# Media transport keys go to Omarchy only when enabled.
+launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=1)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178,media-keys=on "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes'
+output=$(launch) && fail "a QEMU without the media-keys option was accepted"
+assert_contains "$output" "cannot send the Mac's media keys to Omarchy"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=2 OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+output=$(launch) && fail "media keys 2 were accepted"
+assert_contains "$output" "OMARCHY_QEMU_GPU_MEDIA_KEYS must be 0 or 1"
+[[ ! -e $test_root/untouched ]] || fail "invalid media keys touched storage"
+# The release shortcut needs a QEMU that reads it. Unset keeps QEMU's own
+# Control-Option-G.
+launch_env=()
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178 "
+assert_not_contains "$output" "release-key="
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd' 'release-key must be one keycode'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178,release-key=5+ctrl+opt "
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=48+opt+shift+cmd OMARCHY_QEMU_GPU_HOST_KEYS=)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,release-key=48+opt+shift+cmd "
+for release_key in 5 5+ 256+ctrl 1234+ctrl 5+ctrl,6+ctrl 5+ctrl:6+ctrl +ctrl 5+fn 5ctrl abc; do
+  launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY="$release_key" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+  output=$(launch) && fail "release key $release_key was accepted"
+  assert_contains "$output" "OMARCHY_QEMU_GPU_RELEASE_KEY must be one keycode from 0 to 255"
+  [[ ! -e $test_root/untouched ]] || fail "release key $release_key touched storage"
+done
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch) && fail "a QEMU without the release key was accepted"
+assert_contains "$output" "cannot release the keyboard from a shortcut"
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=)
+output=$(launch)
+assert_not_contains "$output" "release-key="
 
 # --- shared folder --------------------------------------------------------------------
 mkdir -p "$test_root/My Work"

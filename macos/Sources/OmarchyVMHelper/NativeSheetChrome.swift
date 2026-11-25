@@ -83,6 +83,12 @@ enum NativeSheetChrome {
     /// Stacks rows in a rounded group with hairline separators between them.
     static func group(_ rows: [NSView]) -> FormGroupView {
         let group = FormGroupView()
+        group.embed(rowStack(rows))
+        return group
+    }
+
+    /// The rows of a group, without its container.
+    static func rowStack(_ rows: [NSView]) -> NSStackView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -100,8 +106,7 @@ enum NativeSheetChrome {
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        group.embed(stack)
-        return group
+        return stack
     }
 
     /// A form row: title with optional secondary detail below, control trailing.

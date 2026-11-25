@@ -34,10 +34,10 @@ changes that:
   AppKit's tile) holds only until the window server tiles the Space again,
   which every Space switch does. UTM and OmacVM hook AppKit's full-screen
   machinery for the same reason, more widely.
-- While the window covers the strip and has the keyboard, it sits at
-  `NSStatusWindowLevel`, just above the black strip. An alert, a menu,
-  another app taking the keyboard, and the way out of full screen put it back
-  at the normal level, so nothing of macOS ends up behind it.
+- While the window covers the strip and the VM has the keyboard, on any of
+  its displays, it sits at `NSStatusWindowLevel`, just above the black strip.
+  An alert, a menu, another app taking the keyboard, and the way out of full
+  screen put it back at the normal level, so nothing of macOS ends up behind it.
 - With **Immersive** off, macOS keeps its auto-hidden menu bar and Dock in
   full screen. They slide out under the raised window, so the window steps
   down while the pointer is at the top edge or the Dock's edge and comes back
@@ -46,9 +46,19 @@ changes that:
   where that menu bar lives.
 - The guest is offered the whole display's backing size, so the Hyprland
   output follows the window (see [guest display synchronization](architecture.md#guest-display-synchronization)).
+- QEMU never sizes or moves a full-screen window, on any display; AppKit
+  lays it out. When the app moves such a window off the strip, the window
+  server keeps it off, even after AppKit gives it the whole display again.
+  AppKit's frame, which the pointer is mapped through, then sits a strip
+  away from the picture. A window sized on an external display and moved to
+  the panel carries that over, so the rule covers every display. A guest
+  mode that lags the window is scaled onto it instead. After the window
+  moves, for example when its Space comes back, the guest's size, the scale
+  and the window's level follow it again. With several displays, each
+  full-screen window follows its own.
 
-Screens without a housing report no safe-area inset and keep QEMU's
-behaviour: external displays, Macs without a notch, and the built-in panel's
+Screens without a housing report no safe-area inset, so there is no strip
+to cover: external displays, Macs without a notch, and the built-in panel's
 modes below the camera (the 16:10 ones, such as 1512 x 945 on a 14-inch
 MacBook Pro). QEMU's log says when full screen covers the strip.
 
@@ -79,7 +89,7 @@ the `tryomarchy.host` credential; a Mac without a notch passes nothing.
 
 In the guest, `try-omarchy-host-config.service` writes it as Omarchy's
 cutout schema to `/run/try-omarchy/display-cutouts.json`, one entry per mode
-for QEMU's `Virtual-1` output:
+for the built-in panel's output, `Virtual-1` alone or the output `tryomarchy.display_panel` names with more [displays](multi-display.md):
 
 ```json
 { "panels": [

@@ -55,7 +55,9 @@ class UpstreamContracts(unittest.TestCase):
         # A row of our own builds without Omarchy's rows; a change to one of
         # Omarchy's rows builds only from that row.
         cls.own = {key: build({}) for key, _, build in cls.entries["ROWS"] if build({}) is not None}
-        cls.changed = {key: build for key, _, build in cls.entries["ROWS"] if key not in cls.own}
+        # A row Omarchy has moved or dropped is kept only for an Omarchy that hasn't.
+        cls.changed = {key: build for key, _, build in cls.entries["ROWS"]
+                       if key not in cls.own and key not in cls.entries["RETIRED"]}
         cls.full_system = (ROOT / "usr/lib/os-release").is_file()
 
     def test_menu_extension_is_read_from_the_path_we_write(self):
@@ -74,6 +76,12 @@ class UpstreamContracts(unittest.TestCase):
         for key, build in self.changed.items():
             self.assertNotEqual(build(self.upstream_menu), self.upstream_menu.get(key), f"{key}: try-omarchy's change no longer changes Omarchy's row")
 
+    def test_retired_rows_are_gone_from_omarchys_menu(self):
+        for old, new in self.entries["RETIRED"].items():
+            self.assertNotIn(old, self.upstream_menu, f"Omarchy has {old} again; it's no longer retired")
+            if new:
+                self.assertIn(new, self.changed, f"{old} moved to {new}, which try-omarchy doesn't change")
+
     def test_changed_rows_keep_omarchys_label_and_action(self):
         # Omarchy's merge replaces a row whole: a change must carry the rest.
         for key, build in self.changed.items():
@@ -88,7 +96,7 @@ class UpstreamContracts(unittest.TestCase):
             self.assertTrue(parent in self.upstream_menu, f"{key}: no {parent} menu upstream")
 
     def test_timezone_row_falls_back_to_upstreams_action(self):
-        upstream = self.upstream_menu.get("update.timezone", {}).get("action", "")
+        upstream = self.upstream_menu.get("setup.region.timezone", {}).get("action", "")
         self.assertIn(f"exec {upstream}", self.entries["TIMEZONE_ACTION"])
 
     def test_every_omarchy_command_we_call_exists(self):
@@ -161,13 +169,15 @@ class UpstreamContracts(unittest.TestCase):
     def test_setup_form_preselects_the_time_zone_default(self):
         # setup-form-defaults sets the default in the environment, which the
         # form-defaults file doesn't override, to Same as macOS, a row the
-        # timedatectl stand-in lists.
+        # timedatectl stand-in lists. The prompt lists that row first.
         form = (OMARCHY / "install/provisioning/setup-form.sh").read_text()
         self.assertIn(': "${OMARCHY_FORM_TIMEZONE_DEFAULT:=', form)
         prompt = form[form.index("omarchy_prompt_timezone() {"):]
         prompt = prompt[:prompt.index("\n}\n")]
         self.assertIn("guess=${OMARCHY_FORM_TIMEZONE_DEFAULT:-}", prompt)
-        self.assertRegex(prompt, r'timedatectl list-timezones \| gum choose\b[^\n]*--selected "\$guess"')
+        self.assertIn("zones=$(timedatectl list-timezones)", prompt)
+        self.assertIn("""zones=$(printf '%s\\n' "$guess"; grep -vxF -- "$guess" <<<"$zones")""", prompt)
+        self.assertRegex(prompt, r'timezone=\$\(gum filter\b[^\n]*<<<"\$zones"\)')
         self.assertIn("OMARCHY_FORM_TIMEZONE_DEFAULT=", (FILES / "usr/lib/try-omarchy/setup-form-defaults").read_text())
 
     def test_provisioning_service_and_its_autologin_cleanup_keep_their_names(self):

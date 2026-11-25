@@ -309,21 +309,28 @@ struct QEMUGPULaunchRequest: Equatable {
 
 }
 
+/// The launch script inside the app or kit that holds the running helper.
+/// The app's folder can have any name, so a renamed copy still starts.
 enum QEMUGPULauncherPath {
-    static let appName = "Try Omarchy.app"
     static let kitName = TryOmarchyKit.bundleName
     static let launcherName = "run-qemu-gpu.sh"
 
-    static func resolve(bundleURL: URL) throws -> URL {
+    static func resolve(bundleURL: URL = Bundle.main.bundleURL,
+                        executableURL: URL? = Bundle.main.executableURL) throws -> URL {
         let standardizedBundle = bundleURL.standardizedFileURL
         var bundleInformation = stat()
-        guard [appName, kitName].contains(standardizedBundle.lastPathComponent),
+        guard standardizedBundle.pathExtension == "app" || standardizedBundle.lastPathComponent == kitName,
               Darwin.lstat(standardizedBundle.path, &bundleInformation) == 0,
               bundleInformation.st_mode & S_IFMT == S_IFDIR else {
-            throw HelperError.io("QEMU launch is available only from the built Omarchy app")
+            throw HelperError.io("Omarchy can start only from inside the app")
         }
 
         let canonicalBundle = standardizedBundle.resolvingSymlinksInPath()
+        let bundledHelper = canonicalBundle.appendingPathComponent(TryOmarchyKit.helperPath, isDirectory: false)
+        guard let executableURL,
+              executableURL.standardizedFileURL.resolvingSymlinksInPath().path == bundledHelper.path else {
+            throw HelperError.io("Omarchy can start only from the app's own helper")
+        }
         let resources = canonicalBundle
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Resources", isDirectory: true)

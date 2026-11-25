@@ -20,6 +20,7 @@ struct VMRunLaunchSettings {
         SharedFolderPolicy.environmentKey,
         FullscreenLaunchConfiguration.immersiveEnvironmentKey,
         FullscreenLaunchConfiguration.notchEnvironmentKey,
+        FullscreenLaunchConfiguration.displaysEnvironmentKey,
         VMResourceLaunchConfiguration.memoryEnvironmentKey,
         VMResourceLaunchConfiguration.cpuEnvironmentKey,
         VMResourceLaunchConfiguration.diskEnvironmentKey,
@@ -113,6 +114,10 @@ struct VMRunLaunchSettings {
         var resolved = FullscreenLaunchConfiguration.make(
             baseEnvironment: forwarding.environment,
             preferences: FullscreenPreferenceStore(storage: stored).load()
+        ).environment
+        resolved = KeyboardRoutingLaunchConfiguration.make(
+            baseEnvironment: resolved,
+            preferences: KeyboardRoutingPreferenceStore(storage: stored).load()
         ).environment
         if let resources = VMResourcePreferenceStore(storage: stored).load() {
             resolved = VMResourceLaunchConfiguration.make(
@@ -212,6 +217,7 @@ final class VMRunSettingsWindow {
         let portForwardingStore = PortForwardingPreferenceStore(storage: settings)
         let networkStore = VMNetworkPreferenceStore(storage: settings)
         let fullscreenStore = FullscreenPreferenceStore(storage: settings)
+        let keyboardRoutingStore = KeyboardRoutingPreferenceStore(storage: settings)
         let resourceStore = VMResourcePreferenceStore(storage: settings)
         let limits = VMResourceLimits.current
         let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
@@ -251,6 +257,7 @@ final class VMRunSettingsWindow {
                 try? PortForwardingPreferenceStore(storage: settings).save([])
                 try? VMNetworkPreferenceStore(storage: settings).save(VMNetworkPreferences())
                 FullscreenPreferenceStore(storage: settings).save(.defaults)
+                KeyboardRoutingPreferenceStore(storage: settings).save(.defaults)
                 VMResourcePreferenceStore(storage: settings).clear()
             },
             sharedFolderStatus: {
@@ -311,6 +318,14 @@ final class VMRunSettingsWindow {
             setUsesNotch: { usesNotch in
                 var preferences = fullscreenStore.load()
                 preferences.usesNotch = usesNotch
+                fullscreenStore.save(preferences)
+            },
+            keyboardRouting: { keyboardRoutingStore.load() },
+            saveKeyboardRouting: { keyboardRoutingStore.save($0) },
+            usesAllDisplays: { fullscreenStore.load().usesAllDisplays },
+            setUsesAllDisplays: { usesAllDisplays in
+                var preferences = fullscreenStore.load()
+                preferences.usesAllDisplays = usesAllDisplays
                 fullscreenStore.save(preferences)
             },
             productName: configuration.productName,

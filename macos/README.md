@@ -49,6 +49,8 @@ for VirGL, libslirp, and QEMU; otherwise Ninja selects its usual parallelism.
 See [performance profiling](../docs/performance.md) for CPU/memory accounting,
 reproducible measurements, and the current native-comparison limitations.
 
+The [NAT socket-close fix](../docs/nat-socket-close.md) closes TCP sockets on a thread pool, so a slow host close doesn't block the VM's main loop.
+
 `make release` defaults to the maintainer's Developer ID Application identity
 and `try-omarchy` notarytool profile. It offers patch, minor, or major selection
 and direct version entry (or accepts `VERSION=vX.Y.Z`), ensures the guest and
@@ -111,11 +113,11 @@ ignored.
 
 **Virtual Machine → Reset Settings…** asks once, then returns every launcher
 setting (resources, networking, port forwarding, shared folder, USB device,
-audio routing, Immersive Mode, Camera Notch, Skip launcher) to its default. It
-keeps the VM, the selected VM folder, and permission choices. Starting over
-from the factory is **Manage… → Delete VM…**, described below. The next launch
-prepares a new disk if needed, with its button showing checking, image
-preparation, setup, and startup phases.
+audio routing, Immersive Mode, Camera Notch, keyboard routing, Skip launcher)
+to its default. It keeps the VM, the selected VM folder, and permission
+choices. Starting over from the factory is **Manage… → Delete VM…**, described
+below. The next launch prepares a new disk if needed, with its button showing
+checking, image preparation, setup, and startup phases.
 Phase changes come from the launcher process and are also announced to VoiceOver.
 
 The launcher's **Selected VM → Manage…** sheet shows the current selection,
@@ -151,8 +153,8 @@ the launcher as `OMARCHY_QEMU_GPU_STATE_ROOT`. An inherited value still wins
 and disables location changes in the launcher.
 
 The VM's other settings (resources, networking, port forwarding, the shared
-folder, the USB device, Immersive Mode and the camera notch) are stored in the
-versioned `settings.json` file at the workspace's root
+folder, the USB device, Immersive Mode, the camera notch and keyboard routing)
+are stored in the versioned `settings.json` file at the workspace's root
 (`LauncherSettingsFile.swift`), so they move and are deleted with the VM, and
 the run mode reads them under any app's identity
 ([VM kit](../docs/vm-kit.md#settings)). Both files are private and ignored when

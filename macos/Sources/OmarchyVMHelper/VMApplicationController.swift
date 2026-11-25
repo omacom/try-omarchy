@@ -56,6 +56,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let portForwardingStore: PortForwardingPreferenceStore
     private let networkStore: VMNetworkPreferenceStore
     private let fullscreenPreferenceStore: FullscreenPreferenceStore
+    private let keyboardRoutingPreferenceStore: KeyboardRoutingPreferenceStore
     private let startupPreferenceStore: StartupPreferenceStore
     private let resourcePreferenceStore: VMResourcePreferenceStore
     private let resourceLimits: VMResourceLimits
@@ -127,6 +128,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.portForwardingStore = PortForwardingPreferenceStore(storage: vmSettings)
         self.networkStore = VMNetworkPreferenceStore(storage: vmSettings)
         self.fullscreenPreferenceStore = FullscreenPreferenceStore(storage: vmSettings)
+        self.keyboardRoutingPreferenceStore = KeyboardRoutingPreferenceStore(storage: vmSettings)
         self.startupPreferenceStore = startupPreferenceStore
         self.resourcePreferenceStore = VMResourcePreferenceStore(storage: vmSettings)
         self.resourceLimits = resourceLimits
@@ -334,6 +336,21 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
                 preferences.usesNotch = usesNotch
                 store.save(preferences)
             },
+            keyboardRouting: { [weak self] in
+                self?.keyboardRoutingPreferenceStore.load() ?? .defaults
+            },
+            saveKeyboardRouting: { [weak self] preferences in
+                self?.keyboardRoutingPreferenceStore.save(preferences)
+            },
+            usesAllDisplays: { [weak self] in
+                self?.fullscreenPreferenceStore.load().usesAllDisplays ?? false
+            },
+            setUsesAllDisplays: { [weak self] usesAllDisplays in
+                guard let store = self?.fullscreenPreferenceStore else { return }
+                var preferences = store.load()
+                preferences.usesAllDisplays = usesAllDisplays
+                store.save(preferences)
+            },
             startAutomatically: { [weak self] in
                 guard let self else { return false }
                 return self.startupPreferenceStore.load(storageRoot: self.startupPreferenceRoot())
@@ -358,6 +375,8 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             setPermissionPromptShown: { UserDefaults.standard.set(true, forKey: Self.permissionPromptShownKey) },
             firstBootCompleted: { UserDefaults.standard.bool(forKey: Self.firstBootCompletedKey) },
             setFirstBootCompleted: { UserDefaults.standard.set(true, forKey: Self.firstBootCompletedKey) },
+            whatsNewDue: { [weak self] in self?.whatsNewDue() ?? false },
+            setWhatsNewSeen: { Self.recordWhatsNewSeen() },
             launch: { [weak self] in
                 self?.startVirtualMachine()
             }
@@ -372,6 +391,28 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             if honorInitialReset && initialResetRequested {
                 startMenu.promptForDeletion()
             }
+        }
+    }
+
+    /// A throwaway VM says nothing about an update. A new install records
+    /// this version as seen, so What's New never greets someone on day one.
+    private func whatsNewDue() -> Bool {
+        guard !isDisposable else { return false }
+        let root = startupPreferenceRoot()
+        let hasExistingVM = root.map {
+            QEMUGPUStorageSpaceEstimate.hasRecordedPersistentDisk(stateRoot: $0.path)
+        } ?? false
+        let storageIsReachable = root.map { WhatsNew.driveIsConnected(for: $0.path) } ?? false
+        if WhatsNew.skipsForNewInstall(hasExistingVM: hasExistingVM, storageIsReachable: storageIsReachable) {
+            Self.recordWhatsNewSeen()
+        }
+        return WhatsNew.isDue(seen: WhatsNewPreferences().seenVersion, hasExistingVM: hasExistingVM)
+    }
+
+    private static func recordWhatsNewSeen() {
+        let preferences = WhatsNewPreferences()
+        if preferences.seenVersion.map({ WhatsNew.version > $0 }) ?? true {
+            preferences.seenVersion = WhatsNew.version
         }
     }
 
@@ -474,6 +515,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         try? portForwardingStore.save([])
         try? networkStore.save(VMNetworkPreferences())
         fullscreenPreferenceStore.save(.defaults)
+        keyboardRoutingPreferenceStore.save(.defaults)
         resourcePreferenceStore.clear()
         if let root = startupPreferenceRoot() {
             try? startupPreferenceStore.save(false, storageRoot: root)
@@ -595,8 +637,12 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             baseEnvironment: forwarding.environment,
             preferences: fullscreenPreferenceStore.load()
         )
-        let resources = VMResourceLaunchConfiguration.make(
+        let keyboard = KeyboardRoutingLaunchConfiguration.make(
             baseEnvironment: fullscreen.environment,
+            preferences: keyboardRoutingPreferenceStore.load()
+        )
+        let resources = VMResourceLaunchConfiguration.make(
+            baseEnvironment: keyboard.environment,
             preferences: resolvedResources(),
             limits: resourceLimits
         )
