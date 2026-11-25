@@ -267,12 +267,17 @@ else
 fi
 # The session checks left Stay Awake on. Only this run's helper counts: the Mac
 # may run other VMs.
-stay_awake_pid=$(pgrep -f -- "--bridge-stay-awake [0-9]+ ${qmp%/*}/stay-awake.sock" || true)
-mac_awake() { pmset -g assertions | grep -q "pid $stay_awake_pid(.*PreventUserIdleDisplaySleep.*Omarchy Stay Awake"; }
-mac_may_sleep() { ! mac_awake; }
+stay_awake_helper() { stay_awake_pid=$(pgrep -f -- "--bridge-stay-awake [0-9]+ ${qmp%/*}/stay-awake.sock"); }
+stay_awake_assertions() { # count
+  local assertions
+  assertions=$(pmset -g assertions) || return 1
+  [[ $(grep -c "pid $stay_awake_pid(.*PreventUserIdleDisplaySleep.*Omarchy Stay Awake" <<<"$assertions") == "$1" ]]
+}
+mac_awake() { stay_awake_assertions 1; }
+mac_may_sleep() { stay_awake_assertions 0; }
 stay_awake_service() { guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user $1 try-omarchy-stay-awake.service"; }
 stay_awake() { guest "runuser -l $user -c 'omarchy-toggle-idle $1'" >/dev/null 2>&1; }
-if [[ $stay_awake_pid =~ ^[0-9]+$ ]]; then
+if stay_awake_helper && [[ $stay_awake_pid =~ ^[0-9]+$ ]]; then
   eventually 15 mac_awake && pass "Stay Awake keeps the Mac awake" || miss "Stay Awake did not keep the Mac awake"
   stay_awake allow-idle
   eventually 15 mac_may_sleep && pass "turning Stay Awake off lets the Mac sleep" || miss "the Mac is still kept awake with Stay Awake off"
@@ -282,6 +287,11 @@ if [[ $stay_awake_pid =~ ^[0-9]+$ ]]; then
   eventually 45 mac_may_sleep && pass "a guest that stops reporting lets the Mac sleep" || miss "the Mac is still kept awake after the guest stopped reporting"
   stay_awake_service start
   eventually 15 mac_awake && pass "a guest that reports again keeps the Mac awake" || miss "the Mac is not kept awake after the guest reported again"
+  stopped_pid=$stay_awake_pid
+  kill "$stopped_pid"
+  helper_restarted() { stay_awake_helper && [[ $stay_awake_pid != "$stopped_pid" ]]; }
+  eventually 15 helper_restarted && eventually 15 mac_awake && pass "a restarted helper keeps the Mac awake" ||
+    miss "the Mac is not kept awake after its helper restarted"
 else
   miss "no Stay Awake bridge for this VM"
 fi

@@ -70,7 +70,7 @@ struct StayAwakeBridgeTests {
 
     @Test("On lasts until off, or until it is not resent")
     func expiry() {
-        let start = SuspendingClock.now
+        let start = ContinuousClock.now
         var state = StayAwakeState()
         #expect(!state.isAwake(at: start))
         state.report(true, at: start)
@@ -89,7 +89,7 @@ struct StayAwakeBridgeTests {
         defer { Darwin.close(guest) }
         write("on\n", to: guest)
         let power = Power()
-        let start = SuspendingClock.now
+        let start = ContinuousClock.now
         var elapsed: Duration = .zero
         var turns = 0
         var heldAfterTurn: [Bool] = []

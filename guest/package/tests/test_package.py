@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import stat
 import subprocess
@@ -1016,13 +1017,16 @@ class StayAwakeReport(unittest.TestCase):
             state.parent.mkdir(parents=True)
             state.touch()
             env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
+            # Opening to write as well never waits for the script's end.
+            reader = os.open(port, os.O_RDWR)
             reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
             try:
-                with port.open() as reader:
-                    self.assertEqual(reader.readline(), "on\n")
+                self.assertTrue(select.select([reader], [], [], 30)[0], "the script wrote nothing")
+                self.assertEqual(os.read(reader, 64), b"on\n")
             finally:
                 reporter.kill()
                 reporter.wait()
+                os.close(reader)
 
 
 class PackageInstall(unittest.TestCase):

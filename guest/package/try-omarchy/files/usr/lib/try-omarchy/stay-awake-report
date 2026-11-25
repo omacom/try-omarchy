@@ -20,7 +20,7 @@ RESEND_SECONDS = 10
 
 
 def state_line():
-    return "on\n" if STATE.exists() else "off\n"
+    return "on\n" if STATE.is_file() else "off\n"
 
 
 def report(port):

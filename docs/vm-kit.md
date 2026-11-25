@@ -64,7 +64,7 @@ Every kit carries a manifest, `Contents/Resources/kit.json`, and each release al
 - `buildDate` is when the kit was built, in UTC.
 - Readers ignore keys they do not know. `format` changes only when a known key changes meaning.
 
-Releases compare by their numbers (`TryOmarchyKitVersion`). A development kit compares newer than every release, so an app built with one keeps it rather than replacing it with a fetched kit. For that reason an installer refuses a fetched kit whose version is `development`, and an installer's release build refuses to embed one; `TryOmarchyKitVersion.isDevelopment` checks it. An app never runs a kit older than the one it embeds. A kit without a manifest predates it, so it is older than any kit that has one.
+Releases compare by their numbers (`TryOmarchyKitVersion`). A development kit compares newer than every release, so an app built with one keeps it rather than replacing it with a fetched kit. For that reason an installer refuses a fetched kit whose version is `development`, and an installer's release build refuses to embed one; `TryOmarchyKitVersion.isDevelopment` checks it. An app never runs a kit older than the one it embeds, and takes its client from that kit's release: a newer client can name a bridge that an older kit refuses. A kit without a manifest predates it, so it is older than any kit that has one.
 
 `make release` checks that the kit's manifest names the release's tag.
 

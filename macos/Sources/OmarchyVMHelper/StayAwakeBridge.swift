@@ -22,13 +22,13 @@ struct StayAwakeRequestBuffer {
 /// resent has to expire. The reporter (stay-awake-report) resends every 10 s.
 struct StayAwakeState {
     static let expiry: Duration = .seconds(30)
-    private var expires: SuspendingClock.Instant?
+    private var expires: ContinuousClock.Instant?
 
-    mutating func report(_ awake: Bool, at now: SuspendingClock.Instant) {
+    mutating func report(_ awake: Bool, at now: ContinuousClock.Instant) {
         expires = awake ? now + Self.expiry : nil
     }
 
-    func isAwake(at now: SuspendingClock.Instant) -> Bool {
+    func isAwake(at now: ContinuousClock.Instant) -> Bool {
         expires.map { now < $0 } ?? false
     }
 }
@@ -84,7 +84,7 @@ enum StayAwakeBridge {
     static func serve(
         descriptor: Int32,
         assertion: StayAwakeAssertion,
-        now: () -> SuspendingClock.Instant = { SuspendingClock.now },
+        now: () -> ContinuousClock.Instant = { ContinuousClock.now },
         whileRunning isRunning: () -> Bool
     ) throws {
         defer { assertion.set(false) }
