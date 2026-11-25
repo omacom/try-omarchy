@@ -24,7 +24,7 @@ SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest guest-package refresh runtime firmware app kit build run run-ephemeral reset version-preflight package package-preflight release release-preflight publish clean clean-all clean-guest
 .PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
-.PHONY: test-upstream test-guest-install test-kit e2e
+.PHONY: test-upstream test-guest-install test-kit test-app-updates e2e
 
 help:
 	@printf '%s\n' \
@@ -36,7 +36,8 @@ help:
 	  '  make test-upstream  Check the guest package against the current Omarchy (network)' \
 	  '  make test-guest-install  Install, upgrade and remove the guest package (Docker, network)' \
 	  '  make test-kit       Check the kit make kit built (KIT_DIR=DIR checks another)' \
-	  '  make e2e            Boot a disposable VM in the app and check it end to end' \
+	  '  make test-app-updates  Check the updater in the built app (UPDATES_APP=APP checks another)' \
+  '  make e2e            Boot a disposable VM in the app and check it end to end' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component (the guest takes the newest Omarchy edge)' \
 	  '  make refresh        Rebuild the factory from the latest Omarchy edge, then build' \
@@ -142,6 +143,11 @@ test-upstream:
 KIT_DIR ?= $(DIST)/kit.noindex
 test-kit:
 	@"$(ROOT)/tests/kit/check.sh" "$(KIT_DIR)"
+
+# The updater a built app carries (tests/app-updates/check.sh).
+UPDATES_APP ?= $(APP)
+test-app-updates:
+	@"$(ROOT)/tests/app-updates/check.sh" "$(UPDATES_APP)"
 
 # A disposable VM in the built app, first boot to second boot (tests/e2e/run.sh).
 E2E_ARGS ?=

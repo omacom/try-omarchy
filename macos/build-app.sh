@@ -262,6 +262,7 @@ install -m 0755 "$helper" "$contents/MacOS/omarchy-vm-helper"
 mkdir -p "$contents/Frameworks"
 ditto "$macos_dir/.build/release/Sparkle.framework" "$sparkle"
 rm -rf "$sparkle/Versions/B/XPCServices" "$sparkle/XPCServices"
+install -m 0644 "$macos_dir/.build/artifacts/sparkle/Sparkle/LICENSE" "$sparkle/Versions/B/Resources/LICENSE"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
 python3 - "$contents/Info.plist" "$bundle_identifier" "$app_display_name" <<'PYTHON'
 import plistlib, sys

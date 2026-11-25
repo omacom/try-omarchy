@@ -51,7 +51,7 @@ run two automatic checkers.
 The app already carries Sparkle, pinned in `macos/Package.swift`.
 `macos/build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`,
 without the XPC services meant for sandboxed apps, and signs its updater
-inside out. Sparkle stays off until `Info.plist` names both `SUFeedURL` and
+inside out. `make test-app-updates` checks that bundle in CI. Sparkle stays off until `Info.plist` names both `SUFeedURL` and
 `SUPublicEDKey` (`AppUpdater.swift`). The kit drops the framework, since the
 app embedding it owns its updates, and the helper links Sparkle weakly so it
 runs without it.
