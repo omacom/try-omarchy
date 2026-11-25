@@ -68,6 +68,12 @@ jobs:
         if: matrix.target == 'runtime'
         run: make test-app-updates UPDATES_APP="dist/release.noindex/Try Omarchy.app"
 
+      # Two versions of it signed with a throwaway key: Sparkle replaces one
+      # with the other and reopens it, and refuses what it must not install.
+      - name: Update the app for real
+        if: matrix.target == 'runtime'
+        run: make test-app-install
+
   # The guest package on Linux, the way a guest runs it: its tests on GNU
   # tools, its shell scripts, and its contracts with the Omarchy the factory
   # installs today (omarchy-dev and omarchy-settings-dev from the live edge

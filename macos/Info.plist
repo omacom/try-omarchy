@@ -30,6 +30,12 @@
   <true/>
   <key>LSMinimumSystemVersion</key>
   <string>15.0</string>
+  <key>SUAllowsAutomaticUpdates</key>
+  <false/>
+  <key>SUEnableAutomaticChecks</key>
+  <false/>
+  <key>SUVerifyUpdateBeforeExtraction</key>
+  <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSDesktopFolderUsageDescription</key>

@@ -4,6 +4,8 @@ import Foundation
 final class AppReleaseChecker {
     typealias Fetch = () async throws -> AppRelease
     let installed: InstalledAppRelease
+    /// Whether the app replaces itself, rather than opening the release page.
+    let installsUpdates: Bool
     let preferences: AppReleasePreferences
     private let fetch: Fetch
     private let now: () -> Date
@@ -39,11 +41,13 @@ final class AppReleaseChecker {
         installed: InstalledAppRelease = .current,
         preferences: AppReleasePreferences = AppReleasePreferences(),
         now: @escaping () -> Date = Date.init,
+        installsUpdates: Bool = false,
         fetch: @escaping Fetch = { try await AppReleaseChecker.fetchLatest() }
     ) {
         self.installed = installed
         self.preferences = preferences
         self.now = now
+        self.installsUpdates = installsUpdates
         self.fetch = fetch
         if let latest = preferences.latestRelease {
             state = .result(installed: installed, latest: latest)

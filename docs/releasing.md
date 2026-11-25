@@ -214,6 +214,7 @@ KIT_TEAM_ID=RZC79MPD34 KIT_NOTARIZED=1 tests/kit/check.sh "$kit"
    this version; their disks stay in the storage folder, and **Setup > Import
    Previous VM** copies their files into the new VM.
 8. Check that the draft has `appcast.xml`, and `TryOmarchy.dmg.sha256`, which `make publish` writes from the final DMG. People verify a download with `shasum -a 256 -c TryOmarchy.dmg.sha256`.
+9. Install the previous release, and update it to this one from the app, with Omarchy running. Do it right after publishing, and run [a signed rehearsal](#a-signed-rehearsal) before.
 
 Never publish generated artifacts from an unreviewed or locally modified build
 input.
@@ -221,6 +222,16 @@ input.
 The guest protocols are a compatibility boundary: the host credential tokens,
 every `dev.tryomarchy.*` port, and the guest status report. Older guest
 packages must keep working with a newer app, and the reverse.
+
+### A signed rehearsal
+
+`make test-app-install` uses ad hoc signatures. On a Mac that signs releases, run it on a release build with the release's identity before publishing a change to the update path, Sparkle or the signing:
+
+```sh
+make test-app-install APP_UPDATE_IDENTITY="Developer ID Application: Example (TEAMID)"
+```
+
+It signs its copies and their DMG with that identity and a throwaway update key, sends nothing to Apple, and adds the [lost key](#the-update-key) case: an update whose key is new but whose DMG has the same Developer ID team installs, and one signed by neither does not.
 
 ## macOS compatibility validation
 

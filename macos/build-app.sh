@@ -264,13 +264,17 @@ ditto "$macos_dir/.build/release/Sparkle.framework" "$sparkle"
 rm -rf "$sparkle/Versions/B/XPCServices" "$sparkle/XPCServices"
 install -m 0644 "$macos_dir/.build/artifacts/sparkle/Sparkle/LICENSE" "$sparkle/Versions/B/Resources/LICENSE"
 install -m 0644 "$macos_dir/Info.plist" "$contents/Info.plist"
-python3 - "$contents/Info.plist" "$bundle_identifier" "$app_display_name" <<'PYTHON'
+python3 - "$contents/Info.plist" "$bundle_identifier" "$app_display_name" "$configuration" <<'PYTHON'
 import plistlib, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 value = plistlib.loads(path.read_bytes())
 value["CFBundleIdentifier"] = sys.argv[2]
 value["CFBundleName"] = value["CFBundleDisplayName"] = sys.argv[3]
+# A development build is never replaced by a release.
+if sys.argv[4] != "production":
+    for key in ("SUFeedURL", "SUPublicEDKey"):
+        value.pop(key, None)
 path.write_bytes(plistlib.dumps(value))
 PYTHON
 python3 "$repo_dir/scripts/app_version.py" \

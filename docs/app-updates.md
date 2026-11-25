@@ -6,62 +6,42 @@ Replacing the app preserves the existing VM; the guest keeps updating itself
 with `omarchy update`. The app offers its bundled `try-omarchy` package at the
 next boot (see [integration updates](integration-updates.md)).
 
-## Release checks
+## Finding a release
 
-The first stage of issue #232 provides version display, manual release checks,
-and default-on checks on app startup, limited to one attempt per 24 hours. An
-explicit opt-out is preserved. Both
-successful and failed attempts count toward the limit; manual checks bypass
-it. A cached release keeps the update indicator available across launches.
-Checks run asynchronously with bounded network timeouts and never invoke VM
-shutdown, app replacement, or an installer. A newer known release changes the
-launcher link and presents a Download / Skip sheet once per release, when the
-launcher or settings are active and idle. Checks finishing during guest use,
-launch/reset/shutdown, permission requests, or other dialogs defer presentation.
-Both choices suppress further automatic reminders for that version; Skip leaves
-the cached update link and manual download available. Network failures remain
-quiet. Unknown installed releases and development builds never receive an
-automatic update prompt. Reading an available-update result in the manual
-Updates window also counts as its notification.
+The launcher checks once every 24 hours by default, when the app starts. Opting out is preserved, and a manual check ignores the limit. Failed attempts count toward it. The last release found is kept, so the link in the launcher keeps saying **Update Available…** across launches.
 
-The checker uses GitHub's public `/repos/omacom/try-omarchy/releases/latest`
-endpoint without credentials. It accepts published, non-prerelease `vX.Y.Z`
-tags with an uploaded `TryOmarchy.dmg`. It also accepts the previously used
-`TryOmarchy-vX.Y.Z.dmg` when its version matches the tag. Versions compare
-numerically. The download action opens the project's release page so the user
-can read notes and OS requirements. GitHub release metadata does not declare a
-structured minimum macOS version; this stage does not claim compatibility or
-select an installer for the host.
+A newer release is offered once, in a sheet on the launcher or the settings window, when that window is active and idle. Checks that finish during guest use, launch, shutdown, a permission request or another dialog wait. **Skip** leaves the link and manual updates available. Failures stay quiet.
 
-Accurate installed-release comparisons depend on the build metadata proposed
-in [PR #223](https://github.com/omacom/try-omarchy/pull/223):
-`TryOmarchyBuildDescribe` must exactly equal `v` followed by
-`CFBundleShortVersionString`. Without that agreement, the checker cannot
-identify the installed release and never reports it as up to date. No existing
-guest package version is used as a substitute.
+`AppReleaseChecker` owns that schedule for every build, so there is one automatic checker. Where it looks depends on the build:
 
-## Recommended installation stage
+- **Releases** ask Sparkle, which reads the [appcast](releasing.md#the-appcast) and offers only releases with a higher build number that support this macOS.
+- **Development builds and builds without an update feed** ask GitHub for the latest stable release, and open its page instead of installing it. `TryOmarchyBuildDescribe` must equal `v` followed by `CFBundleShortVersionString` for versions to be compared.
 
-Use [Sparkle 2](https://sparkle-project.org/documentation/) for signed downloads,
-verification, replacement, and relaunch. The release checker is an interim
-notification feature, not a second installation mechanism. When Sparkle ships,
-replace its GitHub transport and preserve the user's automatic-check preference; do not
-run two automatic checkers.
+## Installing it
 
-The app already carries Sparkle, pinned in `macos/Package.swift`.
-`macos/build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`,
-without the XPC services meant for sandboxed apps, and signs its updater
-inside out. `make test-app-updates` checks that bundle in CI. Sparkle stays off until `Info.plist` names both `SUFeedURL` and
-`SUPublicEDKey` (`AppUpdater.swift`). The kit drops the framework, since the
-app embedding it owns its updates, and the helper links Sparkle weakly so it
-runs without it.
+Releases install updates with [Sparkle 2](https://sparkle-project.org/documentation/), pinned in `macos/Package.swift`. `macos/build-app.sh` embeds `Sparkle.framework` in `Contents/Frameworks`, without the XPC services meant for sandboxed apps, and signs its updater inside out. The kit drops the framework, since the app embedding it owns its updates, and the helper links Sparkle weakly so it runs without it. `--ephemeral` sessions do not update the app, which would discard their VM.
 
-The release scripts sign the update and publish its feed ([the appcast](releasing.md#the-appcast), [the update key](releasing.md#the-update-key)).
+Sparkle is on when `Info.plist` names both `SUFeedURL` and `SUPublicEDKey` and the build is a release (`AppUpdater.swift`). `build-app.sh` removes both from development builds.
 
-Before enabling installation:
+The person agrees once, in the launcher's sheet or with **Update…** in the updates window. Sparkle's own questions are answered for them (`AppUpdateDriver`); its windows show progress and errors. Nothing is downloaded before that, and nothing is installed in the background: Sparkle's own schedule is refused, and its feed is the bundle's even when a preference names another.
 
-1. Create the update key and put its public key and the feed in `Info.plist`.
-2. Gate installation on the QEMU supervisor confirming that launches and storage operations have all finished. The current app termination path forwards SIGTERM, so simply letting Sparkle terminate the app is not a clean-shutdown guarantee. Keep installation pending while the user shuts the guest down, and prevent a new VM launch during replacement.
-3. Test two real signed and notarized builds on a Mac: running guest, cancelled or failed shutdown, interrupted download, invalid signature, read-only DMG, incompatible OS, and preservation of a VM in a custom storage location.
+What happens to the VM first (`AppUpdateStep`):
 
-The first updater-enabled release still requires manual installation. Issue #232 remains open until the signed installation flow and its acceptance checks are complete.
+- **Nothing runs:** the update starts.
+- **Omarchy runs:** the app asks to shut it down, sends ACPI power-off as **Shut Down** in the settings does, and starts the update once QEMU has exited cleanly. There is no forced timer: if the guest never shuts down, nothing is downloaded or replaced. If QEMU exits with an error, the app says so and does not update.
+- **Omarchy is starting or stopping, its image is downloading, its files are being moved, or another instance of the app is open:** the app asks to try again later. Sparkle would quit every instance.
+
+While an update is under way, Omarchy does not start and its storage cannot be moved or deleted. Should anything still be running when Sparkle is ready to replace the app, the replacement is postponed until it ends.
+
+Sparkle verifies the DMG's Ed25519 signature before opening it (`SUVerifyUpdateBeforeExtraction`), and the app's code signature before replacing anything. VM storage, boot files and settings are outside the app and are not touched. The new version opens, and offers its `try-omarchy` package at the VM's next boot as any new version does.
+
+The first release with a feed has to be installed by hand.
+
+## Testing
+
+- `make test`: the steps above, the configuration and the prompts, and the appcast with real signatures (`tests/test-appcast.py`).
+- `make test-app-updates`: the framework in a built app.
+- `make test-app-install`: two versions of an ad hoc production app signed with a throwaway key. Sparkle installs one over the other and reopens it, and refuses another key's signature, a changed DMG, an interrupted download, a release for a newer macOS, an app opened from a disk image, and a second open instance. CI runs it.
+- `make test-app-install APP_UPDATE_VM=DIR`: the same, and an update while a disposable VM runs ([test VMs](../agents/skills/test-vms.md#update-the-app-while-a-vm-runs)). CI cannot boot the VM.
+- `make test-app-install APP_UPDATE_IDENTITY=…`: the same with Developer ID signatures, and replacing a lost update key ([a signed rehearsal](releasing.md#a-signed-rehearsal)).
+- Two published releases, from the app, for what only they show: notarization, GitHub's redirects and the quarantine flag.
