@@ -56,25 +56,12 @@ inside out. `make test-app-updates` checks that bundle in CI. Sparkle stays off 
 app embedding it owns its updates, and the helper links Sparkle weakly so it
 runs without it.
 
-Before enabling installation, maintainers need to:
+The release scripts sign the update and publish its feed ([the appcast](releasing.md#the-appcast), [the update key](releasing.md#the-update-key)).
 
-1. Choose a stable HTTPS appcast location and create an Ed25519 signing key in
-   their release environment. Embed only the public key in the app.
-2. Establish monotonically increasing release build numbers across release
-   branches. Verify version stamping and build-cache invalidation together;
-   commit counts alone need scrutiny for shallow checkouts and parallel branches.
-3. Sign and notarize the completed app, sign the distributable update archive,
-   and publish the appcast only after the artifact is available. Encode the
-   minimum macOS version and stable channel in the feed.
-4. Gate installation on the QEMU supervisor confirming that launches and
-   storage operations have all finished. The current app
-   termination path forwards SIGTERM, so simply letting Sparkle terminate the
-   app is not a clean-shutdown guarantee. Keep installation pending while the
-   user shuts the guest down, and prevent a new VM launch during replacement.
-5. Test two real signed/notarized builds on a Mac: running guest, cancelled or
-   failed shutdown, interrupted download, invalid signature, read-only DMG,
-   incompatible OS, and preservation of a VM in a custom storage location.
+Before enabling installation:
 
-The first updater-enabled release still requires manual installation. Issue
-#232 remains open until the signed installation flow and its acceptance checks
-are complete.
+1. Create the update key and put its public key and the feed in `Info.plist`.
+2. Gate installation on the QEMU supervisor confirming that launches and storage operations have all finished. The current app termination path forwards SIGTERM, so simply letting Sparkle terminate the app is not a clean-shutdown guarantee. Keep installation pending while the user shuts the guest down, and prevent a new VM launch during replacement.
+3. Test two real signed and notarized builds on a Mac: running guest, cancelled or failed shutdown, interrupted download, invalid signature, read-only DMG, incompatible OS, and preservation of a VM in a custom storage location.
+
+The first updater-enabled release still requires manual installation. Issue #232 remains open until the signed installation flow and its acceptance checks are complete.

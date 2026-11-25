@@ -122,6 +122,7 @@ test-contracts:
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-kit-signature.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-release.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-publish.py"
+	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-appcast.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-package-dmg.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-split-factory-image.py"
 	@PYTHONDONTWRITEBYTECODE=1 python3 "$(ROOT)/tests/test-pack-app-icon.py"
@@ -237,6 +238,7 @@ package-preflight: version-preflight
 	@[[ -n "$(strip $(PACKAGE_NOTARY_PROFILE))" ]] || { echo 'error: PACKAGE_NOTARY_PROFILE must name a notarytool keychain profile' >&2; exit 1; }
 
 package: package-preflight
+	@python3 "$(ROOT)/scripts/appcast.py" --root "$(ROOT)" --check-key
 	@$(MAKE) --no-print-directory guest runtime firmware
 	@$(ROOT)/macos/build-app.sh \
 	  --configuration production \
@@ -245,6 +247,7 @@ package: package-preflight
 	  --guest-dir "$(GUEST_DIST)" \
 	  --sign-identity "$(PACKAGE_SIGN_IDENTITY)" \
 	  --notarize-profile "$(PACKAGE_NOTARY_PROFILE)"
+	@python3 "$(ROOT)/scripts/appcast.py" --root "$(ROOT)"
 
 release-preflight:
 	@[[ "$(RELEASE_SIGN_IDENTITY)" == "Developer ID Application:"* ]] || { echo 'error: RELEASE_SIGN_IDENTITY must be a Developer ID Application identity' >&2; exit 1; }

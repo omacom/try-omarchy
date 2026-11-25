@@ -24,7 +24,7 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "scripts").mkdir()
         (self.root / "macos").mkdir()
-        for name in ("release.py", "app_version.py", "kit_manifest.py"):
+        for name in ("release.py", "app_version.py", "appcast.py", "kit_manifest.py"):
             shutil.copy2(REPOSITORY / "scripts" / name, self.root / "scripts" / name)
         # Keep the actual public release/preflight recipes; substitute only the
         # expensive guest, runtime, and signed app builders at their boundaries.
@@ -66,6 +66,7 @@ if sys.argv[1] == "runtime":
     if os.environ.get("MOVE_HEAD"):
         subprocess.run(["git", "commit", "--allow-empty", "-qm", "Concurrent change"], check=True)
 ''')
+        (self.root / "macos/Info.plist").write_bytes(plistlib.dumps({}))
         builder = self.root / "macos/build-app.sh"
         builder.write_text(f'#!{sys.executable}\n' + '''
 import json
