@@ -5,6 +5,7 @@ struct VMRunLifecycle: Equatable {
     enum SettingsAction: Equatable {
         case restart
         case manage
+        case update
     }
 
     private enum StopIntent: Equatable {

@@ -7,7 +7,7 @@ Three things update separately, and none of them needs a new VM.
 | What | How |
 | --- | --- |
 | Omarchy | Inside Omarchy: **Update → Omarchy**, or `omarchy update`. It takes a snapshot first, so you can roll back from the boot menu |
-| The app | The launcher checks for new releases once a day, or use **Check for Updates…**. To update, quit the app and replace it with the new download. Your VM stays as it is |
+| The app | The launcher checks for new releases once a day, or use **Check for Updates…**. Choose **Update** to install one: if Omarchy is running, it shuts down first, then the app reopens as the new version. Your VM stays as it is. Versions up to 1.4.1 can't update themselves: quit the app and replace it with the new download |
 | The Mac integrations | Each app release brings a newer `try-omarchy` package. Omarchy installs it automatically at its next boot |
 
 Omarchy publishes for ARM on its `edge` channel only, so that's the channel Try Omarchy uses. Once Omarchy releases its Mac image on `stable`, Try Omarchy will move to `stable` too.

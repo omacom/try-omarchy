@@ -70,6 +70,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private let disposableWorkspace = DisposableVMWorkspace()
     private var isDisposable: Bool { initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue }
     private var settingsReturnApplication: NSRunningApplication?
+    private let appUpdater: AppUpdater?
     private let appReleaseChecker: AppReleaseChecker
     private var appReleaseWindow: AppReleaseWindow?
     private var appReleasePromptScheduled = false
@@ -137,7 +138,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
         self.volumeRootDetector = volumeRootDetector
         self.deviceProvider = deviceProvider
         self.bundledMetrics = bundledMetrics
-        self.appReleaseChecker = appReleaseChecker ?? AppReleaseChecker()
+        // Updating ends the session, and a disposable VM with it.
+        let isDisposable = initialArguments.first == QEMUGPUStorageOption.ephemeral.rawValue
+        let appUpdater = appReleaseChecker == nil && !isDisposable ? AppUpdater() : nil
+        self.appUpdater = appUpdater
+        self.appReleaseChecker = appReleaseChecker ?? appUpdater.map { updater in
+            AppReleaseChecker(installsUpdates: true, fetch: { try await updater.latestRelease() })
+        } ?? AppReleaseChecker()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -146,6 +153,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             self?.appReleaseWindow?.refresh()
             self?.scheduleAppReleasePrompt()
         }
+        appUpdater?.canReplaceApp = { [weak self] in self?.appUpdateStep == .install }
         session.onEvent = { [weak self] event in self?.handle(event) }
         session.observeHost()
         let startupRoot = startupPreferenceRoot()
@@ -175,23 +183,75 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     private func presentAppReleasePromptIfReady() {
         let ready = NSApp.isActive && !isPresentingBlockingAlert
             && NSApp.modalWindow == nil && !lifecycle.isStopping && !lifecycle.isTerminating
-            && appReleaseWindow?.isVisible != true
+            && appReleaseWindow?.isVisible != true && appUpdater?.isUpdating != true
             && startMenuWindow?.canPresentAppReleasePrompt == true
         guard let release = appReleaseChecker.automaticPromptRelease(presentationReady: ready),
               let window = startMenuWindow?.window else { return }
         // Remember presentation before attaching the sheet to avoid duplicate prompts.
         appReleaseChecker.acknowledgeRelease(release)
-        AppReleasePrompt.alert(for: release).beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn {
+        let installs = appReleaseChecker.installsUpdates
+        let alert = AppReleasePrompt.alert(for: release, installsUpdates: installs, omarchyRuns: session.isRunning)
+        alert.beginSheetModal(for: window) { [weak self] response in
+            switch response {
+            case .alertFirstButtonReturn where installs:
+                self?.installAppUpdate(confirmedShutdown: true)
+            case .alertFirstButtonReturn, .alertThirdButtonReturn:
                 NSWorkspace.shared.open(release.url)
+            default:
+                break
             }
         }
+    }
+
+    private var appUpdateStep: AppUpdateStep {
+        .next(sessionRunning: session.isRunning, reachedStart: session.reachedStart, stopping: lifecycle.isStopping,
+              downloading: session.isDownloading, changingStorage: workspaceTransferProcess != nil,
+              otherInstances: Self.otherInstancesRun)
+    }
+
+    private static var otherInstancesRun: Bool {
+        NSWorkspace.shared.runningApplications.contains {
+            $0.processIdentifier != getpid() && !$0.isTerminated
+                && $0.executableURL?.resolvingSymlinksInPath() == Bundle.main.executableURL?.resolvingSymlinksInPath()
+        }
+    }
+
+    @objc func installAppUpdate(_ sender: Any?) {
+        installAppUpdate(confirmedShutdown: false)
+    }
+
+    private func installAppUpdate(confirmedShutdown: Bool) {
+        guard let appUpdater else { return }
+        switch appUpdateStep {
+        case .install:
+            appUpdater.update()
+        case .shutDownFirst:
+            guard confirmedShutdown || confirmShutdownForUpdate() else { return }
+            shutDownForSettings(.update)
+        case .wait:
+            presentAppUpdateAlert(AppReleasePrompt.waitAlert())
+        }
+    }
+
+    private func confirmShutdownForUpdate() -> Bool {
+        presentAppUpdateAlert(AppReleasePrompt.shutDownAlert()) == .alertFirstButtonReturn
+            && appUpdateStep == .shutDownFirst
+    }
+
+    @discardableResult
+    private func presentAppUpdateAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        NSApp.activate(ignoringOtherApps: true)
+        isPresentingBlockingAlert = true
+        defer { isPresentingBlockingAlert = false }
+        return alert.runModal()
     }
 
     @objc func checkForAppUpdates(_ sender: Any?) {
         activationController.reconcile()
         if appReleaseWindow == nil {
-            appReleaseWindow = AppReleaseWindow(checker: appReleaseChecker)
+            appReleaseWindow = AppReleaseWindow(checker: appReleaseChecker) { [weak self] in
+                self?.installAppUpdate(nil)
+            }
         }
         appReleaseWindow?.show()
     }
@@ -425,6 +485,9 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     private func startVirtualMachine() {
         do {
+            guard appUpdater?.isUpdating != true else {
+                throw HelperError.io("Try Omarchy is updating. Start Omarchy once it has reopened, or cancel the update first.")
+            }
             if isDisposable { _ = try disposableWorkspace.prepare() }
             let accessibilityDecision = AccessibilityLaunchDecision.make(
                 for: AXIsProcessTrusted() ? .authorized : .unavailable
@@ -471,6 +534,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func handle(_ event: VMRunSession.Event) {
+        defer { appUpdater?.resumePostponedInstallation() }
         switch event {
         case .downloadProgress(let progress):
             startMenuWindow?.launchDidDownload(progress)
@@ -845,7 +909,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
 
     private func moveStorageLocation(from source: String, to path: String,
         progress: @escaping (VMTransferProgress) -> Void, completion: @escaping (String?) -> Void) {
-        guard !session.isRunning, storageEnvironmentOverride == nil,
+        guard !session.isRunning, appUpdater?.isUpdating != true, storageEnvironmentOverride == nil,
               let root = startupPreferenceRoot(), root.path == source,
               let executable = Bundle.main.executableURL else {
             completion("Shut down Omarchy before relocating its VM. Environment overrides must be removed first.")
@@ -876,6 +940,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.workspaceTransferProcess = nil
+                defer { self.appUpdater?.resumePostponedInstallation() }
                 guard process.terminationStatus == 0 else {
                     completion(errorMessage.isEmpty
                         ? "VM relocation failed. The original VM and selected location were retained."
@@ -912,7 +977,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
     /// POSIX lock so unrelated UI file reads cannot release it.
     private func runWorkspaceHelper(_ arguments: [String], failure: String,
         completion: @escaping (String?) -> Void) {
-        guard !session.isRunning, workspaceTransferProcess == nil,
+        guard !session.isRunning, workspaceTransferProcess == nil, appUpdater?.isUpdating != true,
               let executable = Bundle.main.executableURL else {
             completion("Shut down Omarchy before changing its VM.")
             return
@@ -933,6 +998,7 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             process.waitUntilExit()
             DispatchQueue.main.async { [weak self] in
                 self?.workspaceTransferProcess = nil
+                defer { self?.appUpdater?.resumePostponedInstallation() }
                 completion(process.terminationStatus == 0 ? nil : (message.isEmpty ? failure : message))
             }
         }
@@ -1110,9 +1176,13 @@ final class VMApplicationController: NSObject, NSApplicationDelegate {
             // original command-line reset request. Reset still needs a new click.
             prepareStartMenu(startAutomatically: false, honorInitialReset: false)
             if status != 0 {
-                startMenuWindow?.shutdownDidFail("Omarchy stopped unexpectedly while shutting down. Your saved settings are ready for the next launch.")
+                startMenuWindow?.shutdownDidFail(settingsAction == .update
+                    ? "Omarchy stopped unexpectedly while shutting down, so the app was not updated. Check that Omarchy starts, then update again."
+                    : "Omarchy stopped unexpectedly while shutting down. Your saved settings are ready for the next launch.")
             } else if settingsAction == .restart {
                 startMenuWindow?.launchOmarchy()
+            } else if settingsAction == .update {
+                installAppUpdate(confirmedShutdown: true)
             }
         } else {
             if presentation.showsStartupFailure,

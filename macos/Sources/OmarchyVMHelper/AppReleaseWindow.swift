@@ -4,15 +4,42 @@ import SwiftUI
 
 @MainActor
 enum AppReleasePrompt {
-    static func alert(for release: AppRelease) -> NSAlert {
+    static func alert(for release: AppRelease, installsUpdates: Bool = false, omarchyRuns: Bool = false) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Try Omarchy \(release.version) is available"
-        alert.informativeText = "Download opens the release page on GitHub. Shut down Omarchy before replacing the app; your VM and settings are kept.\n\nSkip hides reminders for this version."
-        alert.addButton(withTitle: "Download")
+        let skipping = "\n\nSkip hides reminders for this version."
+        if installsUpdates {
+            alert.informativeText = (omarchyRuns ? shutDownText : replacementText) + skipping
+            alert.addButton(withTitle: omarchyRuns ? shutDownTitle : "Update")
+        } else {
+            alert.informativeText = "Download opens the release page on GitHub. Shut down Omarchy before replacing the app; your VM and settings are kept." + skipping
+            alert.addButton(withTitle: "Download")
+        }
         alert.addButton(withTitle: "Skip").keyEquivalent = "\u{1b}"
+        if installsUpdates { alert.addButton(withTitle: "Release Notes") }
         return alert
     }
+
+    static func shutDownAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Shut down Omarchy to update?"
+        alert.informativeText = shutDownText
+        alert.addButton(withTitle: shutDownTitle)
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
+
+    static func waitAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Try Omarchy is busy"
+        alert.informativeText = "Wait until Omarchy has finished starting or shutting down, or its files have been moved, and quit other copies of the app. Then update again."
+        return alert
+    }
+
+    private static let shutDownTitle = "Shut Down and Update"
+    private static let shutDownText = "Save your work first. Omarchy shuts down, then Try Omarchy downloads the update and reopens. Your VM and settings are kept."
+    private static let replacementText = "Try Omarchy downloads the update and reopens. Your VM and settings are kept."
 }
 
 /// What the updates window shows, copied from the checker on every change.
@@ -22,12 +49,14 @@ final class AppReleaseWindowState {
     var installedLabel = ""
     var checkState = AppReleaseCheckState.idle
     var automaticChecks = false
+    var installsUpdates = false
 }
 
 @MainActor
 struct AppReleaseWindowActions {
     var checkNow: () -> Void = {}
     var openRelease: () -> Void = {}
+    var update: () -> Void = {}
     var setAutomaticChecks: (Bool) -> Void = { _ in }
 }
 
@@ -41,7 +70,7 @@ final class AppReleaseWindow: NSObject {
 
     var isVisible: Bool { window.isVisible }
 
-    init(checker: AppReleaseChecker) {
+    init(checker: AppReleaseChecker, update: @escaping () -> Void = {}) {
         self.checker = checker
         window = NSWindow(
             contentRect: NSRect(origin: .zero, size: Self.contentSize),
@@ -61,6 +90,7 @@ final class AppReleaseWindow: NSObject {
                 guard let self else { return }
                 NSWorkspace.shared.open(checker.state.releaseURL)
             },
+            update: update,
             setAutomaticChecks: { [weak self] enabled in
                 guard let self else { return }
                 checker.preferences.automaticChecks = enabled
@@ -88,6 +118,7 @@ final class AppReleaseWindow: NSObject {
         state.installedLabel = checker.installed.label
         state.checkState = checker.state
         state.automaticChecks = checker.preferences.automaticChecks
+        state.installsUpdates = checker.installsUpdates
         // Reading the result here already serves as the update notification.
         if window.isVisible, case .available(let release) = checker.state {
             checker.acknowledgeRelease(release)
@@ -113,8 +144,8 @@ extension AppReleaseCheckState {
         switch self {
         case .idle: "Looks for the latest stable release on GitHub."
         case .checking: "Contacting GitHub"
-        case .available: "Review its release notes and macOS requirements before downloading."
-        case .current: "No newer stable release was found."
+        case .available: "Your VM and settings are kept."
+        case .current: "No newer stable release for this Mac was found."
         case .unknownInstalledVersion:
             "This build doesn’t identify its installed release reliably, so versions can’t be compared."
         case .failed(let message): "\(message) You can still launch Omarchy."
@@ -177,7 +208,9 @@ struct AppReleaseView: View {
                         .accessibilityIdentifier("app-release-automatic-toggle")
                     }
                 } footer: {
-                    SectionNote("Updates are never downloaded or installed automatically. To update, shut down Omarchy and replace the Mac app; your VM and settings are kept, and the guest updates separately.")
+                    SectionNote(state.installsUpdates
+                        ? "Updates are never downloaded or installed until you choose to, and wait for Omarchy to shut down. Omarchy itself updates separately."
+                        : "Updates are never downloaded or installed automatically. To update, shut down Omarchy and replace the Mac app; your VM and settings are kept, and the guest updates separately.")
                 }
             }
             .formStyle(.grouped)
@@ -199,7 +232,8 @@ struct AppReleaseView: View {
             case .checking:
                 ProgressView().controlSize(.small)
             case .available:
-                Button("Download…", action: actions.openRelease)
+                Button(state.installsUpdates ? "Update…" : "Download…",
+                       action: state.installsUpdates ? actions.update : actions.openRelease)
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("app-release-download-button")
             default:

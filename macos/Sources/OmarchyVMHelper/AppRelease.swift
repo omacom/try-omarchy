@@ -53,7 +53,8 @@ struct InstalledAppRelease: Equatable {
 struct AppRelease: Equatable {
     static let releasesURL = URL(string: "https://github.com/omacom/try-omarchy/releases")!
     let version: AppReleaseVersion
-    let url: URL
+    // Construct the project URL instead of opening an arbitrary URL from a response.
+    var url: URL { Self.releasesURL.appendingPathComponent("tag/v\(version)") }
 
     static func decode(_ data: Data) throws -> Self {
         let payload = try JSONDecoder().decode(Payload.self, from: data)
@@ -65,8 +66,7 @@ struct AppRelease: Equatable {
               }) else {
             throw AppReleaseError.invalidRelease
         }
-        // Construct the project URL instead of opening an arbitrary URL from JSON.
-        return Self(version: version, url: releasesURL.appendingPathComponent("tag/v\(version)"))
+        return Self(version: version)
     }
 
     private struct Payload: Decodable {
@@ -171,7 +171,7 @@ struct AppReleasePreferences {
         get {
             guard let text = defaults.string(forKey: Self.latestVersionKey),
                   let version = AppReleaseVersion(text) else { return nil }
-            return AppRelease(version: version, url: AppRelease.releasesURL.appendingPathComponent("tag/v\(version)"))
+            return AppRelease(version: version)
         }
         nonmutating set { defaults.set(newValue?.version.description, forKey: Self.latestVersionKey) }
     }

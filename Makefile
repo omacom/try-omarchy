@@ -24,7 +24,7 @@ SHELL_TEST_TARGETS := $(addprefix test-shell-,$(SHELL_TESTS))
 .DEFAULT_GOAL := help
 .PHONY: help doctor test guest guest-package refresh runtime firmware app kit build run run-ephemeral reset version-preflight package package-preflight release release-preflight publish clean clean-all clean-guest
 .PHONY: test-all test-contracts test-guest test-swift test-shell $(SHELL_TEST_TARGETS)
-.PHONY: test-upstream test-guest-install test-kit test-app-updates e2e
+.PHONY: test-upstream test-guest-install test-kit test-app-updates test-app-install e2e
 
 help:
 	@printf '%s\n' \
@@ -37,6 +37,7 @@ help:
 	  '  make test-guest-install  Install, upgrade and remove the guest package (Docker, network)' \
 	  '  make test-kit       Check the kit make kit built (KIT_DIR=DIR checks another)' \
 	  '  make test-app-updates  Check the updater in the built app (UPDATES_APP=APP checks another)' \
+  '  make test-app-install  Update a copy of an ad hoc production app with Sparkle (APP_UPDATE_VM=DIR with its VM running)' \
   '  make e2e            Boot a disposable VM in the app and check it end to end' \
 	  '  make build          Build only changed guest, runtime, and app inputs' \
 	  '  make build FORCE=1  Rebuild every component (the guest takes the newest Omarchy edge)' \
@@ -149,6 +150,14 @@ test-kit:
 UPDATES_APP ?= $(APP)
 test-app-updates:
 	@"$(ROOT)/tests/app-updates/check.sh" "$(UPDATES_APP)"
+
+# A real update of a copy of that app, from a local feed (tests/app-updates/install.py).
+RELEASE_APP ?= $(DIST)/release.noindex/Try Omarchy.app
+APP_UPDATE_VM ?=
+APP_UPDATE_IDENTITY ?=
+test-app-install:
+	@python3 "$(ROOT)/tests/app-updates/install.py" "$(RELEASE_APP)" $(if $(APP_UPDATE_VM),--vm "$(APP_UPDATE_VM)") \
+	  $(if $(APP_UPDATE_IDENTITY),--sign-identity "$(APP_UPDATE_IDENTITY)")
 
 # A disposable VM in the built app, first boot to second boot (tests/e2e/run.sh).
 E2E_ARGS ?=

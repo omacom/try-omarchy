@@ -34,6 +34,12 @@ Each run's results, screenshots and logs are in `.build/e2e/<time>/`.
 - **Inside the guest:** `journalctl -b` for the system, and `journalctl --user -b` for the desktop user.
 - **To see what the launcher would run:** `OMARCHY_QEMU_GPU_DRY_RUN=1` prints the QEMU command and the host settings without starting anything.
 
+## Update the app while a VM runs
+
+1. Make a disposable VM: `make e2e E2E_ARGS=--prepare-only`. The last lines name its folder.
+2. Build an ad hoc production app: `macos/build-app.sh --configuration production --guest-dir dist/guest --sign-identity - --factory-download-url https://ci.invalid/`.
+3. Run `make test-app-install APP_UPDATE_VM=<vm>/state`. Keep the VM on the internal disk, or macOS asks the reopened copy for access to the drive. Copies of the app boot the VM, update it and boot it again. It takes a few minutes and opens windows on the Mac.
+
 ## Clean up
 
 When you're done, shut down your test VMs and delete their folders.
