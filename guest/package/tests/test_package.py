@@ -99,7 +99,7 @@ class PackageLayout(unittest.TestCase):
             for match in re.finditer(r"^Exec\w*=-?(/\S+)", unit.read_text(), re.M):
                 program = match.group(1)
                 # Other packages' programs: coreutils, python, rtkit (a drop-in).
-                if program.startswith(("/usr/bin/rm", "/usr/bin/python3", "/usr/lib/rtkit-daemon")):
+                if program.startswith(("/usr/bin/rm", "/usr/bin/python3", "/usr/lib/rtkit-daemon", "/usr/bin/modprobe")):
                     continue
                 self.assertTrue((FILES / program.lstrip("/")).is_file(), f"{unit.name}: {program}")
 

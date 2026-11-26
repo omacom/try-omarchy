@@ -1,0 +1,1 @@
+SUBSYSTEM=="virtio-ports", ATTR{name}=="dev.tryomarchy.fido.v2", OWNER="root", GROUP="root", MODE="0600"
