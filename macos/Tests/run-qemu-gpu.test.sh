@@ -538,7 +538,9 @@ assert_not_contains "$output" "release-key="
 
 launch_env=(OMARCHY_QEMU_GPU_FIDO_DEVICE=0x2a)
 output=$(launch)
-assert_contains "$output" "nr=9,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2"
+duplicate_ports=$(grep -oE 'bus=omarchy-serial[.]0,nr=[0-9]+' <<<"$output" | sort | uniq -d)
+[[ -z $duplicate_ports ]] || fail "duplicate serial port assignment: $duplicate_ports"
+assert_contains "$output" "nr=10,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2"
 assert_contains "$output" "socket,id=omarchy-fido-bridge,path="
 assert_not_contains "$output" "usb-host"
 launch_env=(OMARCHY_QEMU_GPU_FIDO_DEVICE=0x2a OMARCHY_QEMU_GPU_USB_HOST=vendorid=0x1050)

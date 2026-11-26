@@ -895,7 +895,7 @@ fi
 if [[ -n $fido_device ]]; then
   qemu_args+=(
     -chardev "socket,id=omarchy-fido-bridge,path=$fido_socket,server=on,wait=off"
-    -device 'virtserialport,bus=omarchy-serial.0,nr=9,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2'
+    -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-fido-bridge,name=dev.tryomarchy.fido.v2'
   )
 fi
 if [[ -n $usb_host_properties ]]; then
