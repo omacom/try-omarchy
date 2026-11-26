@@ -1,0 +1,8 @@
+#!/bin/bash
+#
+# Exits 0 when this boot's root is a Snapper snapshot. Omarchy boots a
+# read-only snapshot on an overlay, which hides the subvolume from the root's
+# mount options, so only the boot entry's rootflags name the snapshot.
+
+cmdline=$(<"${TRY_OMARCHY_CMDLINE:-/proc/cmdline}") || exit 1
+[[ " $cmdline " =~ [[:space:]]rootflags=\"?([^[:space:]\"]*,)?subvol=/?@/\.snapshots/ ]]

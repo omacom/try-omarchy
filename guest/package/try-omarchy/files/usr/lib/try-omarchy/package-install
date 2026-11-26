@@ -10,13 +10,13 @@ set -euo pipefail
 
 credential=${CREDENTIALS_DIRECTORY:-}/tryomarchy.package
 mount_point=/run/try-omarchy/packages
-state=/var/lib/try-omarchy/package-install.json
+state=${TRY_OMARCHY_PACKAGE_INSTALL_STATE:-/var/lib/try-omarchy/package-install.json}
 
 [[ -n ${CREDENTIALS_DIRECTORY:-} && -f $credential ]] || exit 0
 name=$(<"$credential")
 
 record() { # result message
-  install -d -m 0755 /var/lib/try-omarchy
+  install -d -m 0755 "$(dirname "$state")"
   python3 -I -c 'import json, sys; print(json.dumps({"requested": sys.argv[1], "result": sys.argv[2], "message": sys.argv[3]}))' \
     "$name" "$1" "$2" >"$state.tmp"
   mv -f "$state.tmp" "$state"
@@ -25,6 +25,11 @@ record() { # result message
 if [[ ! $name =~ ^try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst$ ]]; then
   record failed "invalid package name"
   exit 1
+fi
+
+if "${TRY_OMARCHY_SNAPSHOT_BOOT:-/usr/lib/try-omarchy/snapshot-boot}"; then
+  record skipped "running from a Snapper snapshot"
+  exit 0
 fi
 
 installed=$(pacman -Q try-omarchy 2>/dev/null | awk '{ print $2 }' || true)

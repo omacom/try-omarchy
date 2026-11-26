@@ -29,7 +29,8 @@ not ignore, so caches and other local files never reach the package.
 ## Rules
 
 - **No file another package owns is edited.** The package installs under
-  `/usr`, plus `/etc/UPower/UPower.conf.d`, a fontconfig link,
+  `/usr`, plus `/etc/UPower/UPower.conf.d`, a Limine pre-hook in
+  `/etc/boot/hooks/pre.d`, a fontconfig link,
   `/etc/chromium-flags.conf`, the Limine drop-ins
   `/etc/limine-entry-tool.d/50-try-omarchy-console.conf` and
   `50-try-omarchy-cpu.conf`, and
@@ -52,6 +53,7 @@ not ignore, so caches and other local files never reach the package.
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
+  Only `snapshot-boot` reads `/proc/cmdline`, for the `rootflags` of the guest's own boot entry, which Limine writes.
 - **Upgrades need no downloads.** The app installs this package at a VM's
   boot from its own copy, possibly offline or with a stale package database,
   so every hard dependency is already in the factory image. Anything new the

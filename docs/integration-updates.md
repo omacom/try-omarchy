@@ -24,16 +24,11 @@ On every boot the launcher:
 1. names that archive in the systemd credential `tryomarchy.package`, and
 2. shares it on a read-only virtio-9p share tagged `tryomarchy-packages`.
 
-Before any login, `try-omarchy-package-install.service` compares the offered
-version with the installed one (`vercmp`). It installs the archive with
-`pacman -U` only when it is newer. A guest that already has the same version,
-or a newer one installed in the guest, keeps it. Package
-installation uses pacman and the package's own install hooks; there is no
-host-side file journal, consent catalog or migration runner.
+Before any login, `try-omarchy-package-install.service` compares the offered version with the installed one (`vercmp`). It installs the archive with `pacman -U` only when it is newer. A guest that already has the same version, or a newer one installed in the guest, keeps it. Package installation uses pacman and the package's own install hooks; there is no host-side file journal, consent catalog or migration runner.
 
-The result goes to `/var/lib/try-omarchy/package-install.json`
-(`installed`, `current` or `failed`, with a message). The status reporter
-sends it to the app with the next report.
+A boot from a Snapper snapshot skips the installation. The ESP holds the kernel and Limine for every root, and isn't part of any snapshot, so a transaction in a snapshot must not write to it. Omarchy boots a read-only snapshot on an in-memory overlay, which hides the snapshot from the root's mount options, so the package recognizes a snapshot by the boot entry's `rootflags` on the kernel command line. A snapshot taken before this check still runs the older installer, so the package also ships a Limine pre-hook (`/etc/boot/hooks/pre.d/00-try-omarchy-snapshot`). It stops every Limine operation that would write the ESP from a snapshot, except restoring or syncing snapshots.
+
+The result goes to `/var/lib/try-omarchy/package-install.json` (`installed`, `current`, `skipped` or `failed`, with a message). The status reporter sends it to the app with the next report.
 
 Developers can turn the offer off with `OMARCHY_SHELL_INSTALL_PACKAGE=` (an
 empty value) or name another archive with

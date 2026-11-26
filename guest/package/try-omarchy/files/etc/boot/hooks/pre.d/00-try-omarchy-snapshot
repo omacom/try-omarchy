@@ -1,0 +1,13 @@
+#!/bin/bash
+#
+# A snapshot's kernel and Limine must not reach the ESP, which every root
+# shares (#473). Restoring a snapshot still may.
+
+case ${HOOK_CALLER:-} in
+  limine-snapper-restore | limine-snapper-sync) exit 0 ;;
+esac
+
+if "${TRY_OMARCHY_SNAPSHOT_BOOT:-/usr/lib/try-omarchy/snapshot-boot}"; then
+  echo "try-omarchy: not changing the shared ESP from a Snapper snapshot" >&2
+  exit 100
+fi
