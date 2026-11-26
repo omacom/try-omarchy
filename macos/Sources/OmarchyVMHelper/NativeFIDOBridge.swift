@@ -16,7 +16,6 @@ final class NativeFIDOBridge: @unchecked Sendable {
     private var session: FIDOForwardingSession?
     private var leaseDeadline: ContinuousClock.Instant?
     private var lastNegotiation: ContinuousClock.Instant?
-    private var sleepRequested = false
     private static let lease = Duration.seconds(10)
 
     convenience init(targetPID: pid_t, socketPath: String, registryID: UInt64) throws {
@@ -66,7 +65,9 @@ final class NativeFIDOBridge: @unchecked Sendable {
     func run() throws {
         let workspace = NSWorkspace.shared.notificationCenter
         let sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification,
-                                                   object: nil, queue: nil) { [weak self] _ in self?.sleepRequested = true }
+                                                   object: nil, queue: nil) { [weak self] _ in
+            self?.release("the Mac is going to sleep", notifyGuest: true)
+        }
         defer {
             workspace.removeObserver(sleepObserver)
             let negotiated = session != nil
@@ -82,10 +83,6 @@ final class NativeFIDOBridge: @unchecked Sendable {
         var chunk = [UInt8](repeating: 0, count: 4096)
         while !hasStopped, processAlive() {
             if let failure { throw failure }
-            if sleepRequested {
-                sleepRequested = false
-                release("the Mac is going to sleep", notifyGuest: true)
-            }
             if let leaseDeadline, now() >= leaseDeadline {
                 release("the guest stopped renewing its lease", notifyGuest: true)
             }

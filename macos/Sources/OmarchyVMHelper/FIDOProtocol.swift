@@ -114,6 +114,7 @@ struct FIDOPendingRequests {
     }
 
     private var requests: [UInt32: Pending] = [:]
+    private var locks: Set<UInt32> = []
 
     mutating func sent(_ report: [UInt8]) throws {
         guard report.count == 64 else { throw HelperError.io("invalid FIDO report size") }
@@ -122,6 +123,16 @@ struct FIDOPendingRequests {
         let command = report[4]
         if command == 0x86 { requests.removeValue(forKey: cid); return }
         guard cid != 0, cid != UInt32.max, command != 0x91 else { return }
+        if command == 0x84 {
+            if report[7] == 0 {
+                locks.remove(cid)
+            } else {
+                guard locks.contains(cid) || locks.count < 16 else {
+                    throw HelperError.io("too many locked FIDO channels")
+                }
+                locks.insert(cid)
+            }
+        }
         guard requests[cid] != nil || requests.count < 16 else {
             throw HelperError.io("too many outstanding FIDO channels")
         }
@@ -154,9 +165,9 @@ struct FIDOPendingRequests {
 
     func cancellationReports(nonce: [UInt8]) -> [[UInt8]] {
         precondition(nonce.count == 8)
-        return requests.keys.sorted().flatMap { cid -> [[UInt8]] in
-            let channel: [UInt8] = [UInt8(cid >> 24), UInt8(truncatingIfNeeded: cid >> 16),
-                                   UInt8(truncatingIfNeeded: cid >> 8), UInt8(truncatingIfNeeded: cid)]
+        let unlocks = locks.sorted().map { Self.bytes($0) + [0x84, 0, 1, 0] + [UInt8](repeating: 0, count: 56) }
+        return unlocks + requests.keys.sorted().flatMap { cid -> [[UInt8]] in
+            let channel = Self.bytes(cid)
             var messages: [[UInt8]] = []
             if requests[cid]?.command == 0x90 {
                 messages.append(channel + [0x91, 0, 0] + [UInt8](repeating: 0, count: 57))
@@ -164,6 +175,10 @@ struct FIDOPendingRequests {
             messages.append(channel + [0x86, 0, 8] + nonce + [UInt8](repeating: 0, count: 49))
             return messages
         }
+    }
+
+    private static func bytes(_ cid: UInt32) -> [UInt8] {
+        [UInt8(cid >> 24), UInt8(truncatingIfNeeded: cid >> 16), UInt8(truncatingIfNeeded: cid >> 8), UInt8(truncatingIfNeeded: cid)]
     }
 
     private static func channel(_ report: [UInt8]) -> UInt32 {

@@ -156,6 +156,27 @@ struct FIDOBridgeTests {
         #expect(device.reports.last?[6] == 8)
     }
 
+    @Test("release unlocks a channel the guest locked, even after the lock was acknowledged")
+    func releaseUnlocksLockedChannels() throws {
+        for unlocksFirst in [false, true] {
+            let device = Device()
+            let session = FIDOForwardingSession { device }
+            _ = try session.receive(.hello(Array(0..<16)))
+            var lock = report(command: 0x84)
+            lock[7] = 10
+            _ = try session.receive(.report(lock))
+            _ = try session.receivedReport(report(command: 0x84, size: 0))
+            if unlocksFirst {
+                _ = try session.receive(.report(report(command: 0x84)))
+                _ = try session.receivedReport(report(command: 0x84, size: 0))
+            }
+            _ = try session.receive(.bye)
+            let cleanup = Array(device.reports.dropFirst(unlocksFirst ? 2 : 1))
+            #expect(cleanup == (unlocksFirst ? [] : [report(command: 0x84) ]))
+            #expect(device.closes == 1)
+        }
+    }
+
     @Test("complete multiframe responses are not cancelled after release")
     func completedRequestsAreForgotten() throws {
         let device = Device()
