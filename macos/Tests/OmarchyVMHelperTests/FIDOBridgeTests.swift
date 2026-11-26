@@ -156,7 +156,7 @@ struct FIDOBridgeTests {
         #expect(device.reports.last?[6] == 8)
     }
 
-    @Test("release unlocks a channel the guest locked, even after the lock was acknowledged")
+    @Test("release unlocks channels the guest locked, even after an acknowledged or rejected unlock")
     func releaseUnlocksLockedChannels() throws {
         for unlocksFirst in [false, true] {
             let device = Device()
@@ -167,14 +167,29 @@ struct FIDOBridgeTests {
             _ = try session.receive(.report(lock))
             _ = try session.receivedReport(report(command: 0x84, size: 0))
             if unlocksFirst {
-                _ = try session.receive(.report(report(command: 0x84)))
-                _ = try session.receivedReport(report(command: 0x84, size: 0))
+                _ = try session.receive(.report(report(command: 0x84, size: 0)))
+                _ = try session.receivedReport(report(command: 0xbf, size: 1))
             }
             _ = try session.receive(.bye)
-            let cleanup = Array(device.reports.dropFirst(unlocksFirst ? 2 : 1))
-            #expect(cleanup == (unlocksFirst ? [] : [report(command: 0x84) ]))
+            #expect(device.reports.last == report(command: 0x84))
             #expect(device.closes == 1)
         }
+    }
+
+    @Test("many short locks keep only the latest channels and never end the session")
+    func lockTrackingIsBounded() throws {
+        let device = Device()
+        let session = FIDOForwardingSession { device }
+        _ = try session.receive(.hello(Array(0..<16)))
+        for cid in UInt32(1)...20 {
+            var lock = report(cid: cid, command: 0x84)
+            lock[7] = 1
+            _ = try session.receive(.report(lock))
+            _ = try session.receivedReport(report(cid: cid, command: 0x84, size: 0))
+        }
+        _ = try session.receive(.bye)
+        let unlocks = device.reports.dropFirst(20).filter { $0[4] == 0x84 }
+        #expect(unlocks == (UInt32(5)...20).map { report(cid: $0, command: 0x84) })
     }
 
     @Test("complete multiframe responses are not cancelled after release")

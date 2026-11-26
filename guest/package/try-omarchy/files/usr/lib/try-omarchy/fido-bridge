@@ -106,7 +106,7 @@ def wait_for_host(port, *, sleep=time.sleep):
     while True:
         try:
             if os.read(port, 4096):
-                continue
+                return
         except (BlockingIOError, InterruptedError):
             return
         sleep(delay)

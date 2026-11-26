@@ -313,7 +313,7 @@ class FIDOSetup(unittest.TestCase):
             written.assert_not_called()
 
     def test_absent_host_is_awaited_with_backoff_before_the_device_exists(self):
-        reads = iter([b'', b'', b'', b'', b'', b'', bridge.message(bridge.BYE), BlockingIOError(errno.EAGAIN, 'connected')])
+        reads = iter([b'', b'', b'', b'', b'', b'', bridge.message(bridge.BYE)])
 
         def read(fd, _):
             self.assertEqual(fd, 11)
@@ -326,6 +326,9 @@ class FIDOSetup(unittest.TestCase):
         with patch.object(bridge.os, 'read', side_effect=read):
             bridge.wait_for_host(11, sleep=sleeps.append)
         self.assertEqual(sleeps, [1, 2, 4, 8, 16, 30])
+        with patch.object(bridge.os, 'read', side_effect=BlockingIOError(errno.EAGAIN, 'connected')):
+            bridge.wait_for_host(11, sleep=sleeps.append)
+        self.assertEqual(len(sleeps), 6)
 
     def test_unprivileged_invocation_does_not_open_a_device(self):
         with patch.object(bridge.os, 'geteuid', return_value=1000), patch.object(bridge.os, 'open') as opened:
