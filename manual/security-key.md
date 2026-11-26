@@ -37,8 +37,8 @@ For a later session without forwarding, launch Try Omarchy normally without the 
 
 See [FIDO bridge design and remaining hardware acceptance](../docs/fido.md) for current limits. Physical registration, authentication, recovery and cross-vendor compatibility must be validated on the target app and guest builds.
 
-Forwarding requires matching protocol-2 app and guest helpers (guest package `0.1.0-49` or newer). Older experimental protocol-1 helpers use a different port and cannot connect to a protocol-2 peer. Stop any already-running legacy forwarding session before updating. Update both components and restart the VM; a mismatch leaves the VM usable but FIDO forwarding unavailable.
+Forwarding requires matching protocol-2 app and guest helpers (guest package `0.1.0-50` or newer). Older experimental protocol-1 helpers use a different port and cannot connect to a protocol-2 peer. Stop any already-running legacy forwarding session before updating. Update both components and restart the VM; a mismatch leaves the VM usable but FIDO forwarding unavailable.
 
 The bridge keeps the virtual key connected during temporary transport delays. A lost connection or expired lease still ends forwarding. The package upgrade replaces an enabled helper without enabling a disabled or masked service.
 
-Package `0.1.0-49` also installs the FIDO integration when updating a VM that already has upstream package `0.1.0-48`. Existing FIDO service choices remain unchanged.
+Package `0.1.0-50` also installs the FIDO integration when updating a VM that already has upstream package `0.1.0-49`. Existing FIDO service choices remain unchanged.

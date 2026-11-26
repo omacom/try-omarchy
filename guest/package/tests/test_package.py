@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import stat
 import subprocess
@@ -18,6 +19,7 @@ from unittest import mock
 PACKAGE = Path(__file__).resolve().parents[1] / "try-omarchy"
 FILES = PACKAGE / "files"
 LIB = FILES / "usr/lib/try-omarchy"
+REPO = PACKAGE.parents[2]
 
 
 def run(script, *args, env=None, check=True):
@@ -130,10 +132,11 @@ fi
                               'a, b = (tuple(map(int, re.split(r"[.-]", v))) for v in sys.argv[1:3])\n'
                               'print((a > b) - (a < b))\n')
             vercmp.chmod(0o755)
-            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13")):
+            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13"),
+                                       ("enabled", "enabled", "0.1.0-48"), ("enabled", "enabled", "0.1.0-49")):
                 log.write_text("")
                 # pacman passes the new and the old version.
-                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-20 "$2"', "bash",
+                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-50 "$2"', "bash",
                                          str(PACKAGE / "try-omarchy.install"), old], check=True,
                                         capture_output=True, text=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log),
@@ -143,6 +146,9 @@ fi
                 # NTP is enabled once, on the upgrade that brings it.
                 ntp = [line for line in log.read_text().splitlines() if "timesyncd" in line]
                 self.assertEqual(ntp, ["enable --now systemd-timesyncd.service"] if old == "0.1.0-12" else [])
+                # Stay Awake is enabled once, on the upgrade that brings it.
+                stay_awake = [line for line in log.read_text().splitlines() if "stay-awake" in line]
+                self.assertEqual(stay_awake, [] if old == "0.1.0-49" else ["--global preset try-omarchy-stay-awake.service"])
                 migrated = [line for line in log.read_text().splitlines() if "reenable" in line]
                 expected = [f"--global reenable omarchy-native-{bridge}-bridge.service"
                             for bridge, state in (("audio", audio), ("camera", camera))
@@ -1064,6 +1070,80 @@ class GuestStatus(unittest.TestCase):
         self.assertEqual(report["channel"], "edge")
         self.assertEqual(report["kernel"]["installed"], "7.2.8-11")
         self.assertLess(len(module.report()), 4096)
+
+
+class StayAwakeReport(unittest.TestCase):
+    """stay-awake-report sends the Mac `on` or `off` as Omarchy's state file comes and goes."""
+
+    class Finished(Exception):
+        pass
+
+    def reports(self, seconds, changes):
+        """(second, line) for each line sent, as `changes` turns Stay Awake on or off."""
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
+        with tempfile.TemporaryDirectory() as tmp:
+            module.STATE = Path(tmp) / "stay-awake"
+            now = 0
+            lines = []
+
+            class Port:
+                def write(self, line):
+                    lines.append((now, line))
+
+                def flush(self):
+                    pass
+
+            def sleep(duration):
+                nonlocal now
+                now += duration
+                if now > seconds:
+                    raise self.Finished
+                if now in changes:
+                    module.STATE.touch() if changes[now] else module.STATE.unlink()
+
+            with mock.patch.object(module.time, "monotonic", lambda: now), \
+                    mock.patch.object(module.time, "sleep", sleep), \
+                    self.assertRaises(self.Finished):
+                module.report(Port())
+        return lines
+
+    def test_reports_each_change_within_a_second(self):
+        self.assertEqual(
+            self.reports(9, {3: True, 5: False}),
+            [(0, "off\n"), (3, "on\n"), (5, "off\n")],
+        )
+
+    def test_resends_the_current_state_while_unchanged(self):
+        self.assertEqual(
+            self.reports(25, {4: True}),
+            [(0, "off\n"), (4, "on\n"), (14, "on\n"), (24, "on\n")],
+        )
+
+    def test_resends_before_the_mac_forgets_an_on(self):
+        bridge = (REPO / "macos/Sources/OmarchyVMHelper/StayAwakeBridge.swift").read_text()
+        expiry = int(re.search(r"expiry: Duration = \.seconds\((\d+)\)", bridge).group(1))
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
+        self.assertLess(2 * module.RESEND_SECONDS, expiry)
+
+    def test_the_script_writes_the_state_to_its_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            port = tmp / "port"
+            os.mkfifo(port)
+            state = tmp / ".local/state/omarchy/indicators/stay-awake"
+            state.parent.mkdir(parents=True)
+            state.touch()
+            env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
+            # Opening to write as well never waits for the script's end.
+            reader = os.open(port, os.O_RDWR)
+            reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
+            try:
+                self.assertTrue(select.select([reader], [], [], 30)[0], "the script wrote nothing")
+                self.assertEqual(os.read(reader, 64), b"on\n")
+            finally:
+                reporter.kill()
+                reporter.wait()
+                os.close(reader)
 
 
 class PackageInstall(unittest.TestCase):

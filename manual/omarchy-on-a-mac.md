@@ -23,6 +23,7 @@ Omarchy runs as it does on any computer. Try Omarchy connects it to your Mac in 
 - **More displays:** turn on **All Displays** in the launcher, and in full screen Omarchy uses every display connected to the Mac, each as its own Hyprland monitor, arranged as in System Settings. Displays are counted when Omarchy starts, so plug one in or out, then restart Omarchy. The first-boot setup and the boot messages show on the Mac's main display, the one with the menu bar in System Settings; until the desktop starts, the other displays say "Display output is not active", QEMU's sign for an output the guest has not turned on yet. macOS's **Displays have separate Spaces** has to be on, which it is by default. **View > Exit Full Screen** leaves full screen on every display at once. Each display can take its own scale in Omarchy's monitor panel, and the pointer still lands under the Mac's cursor.
 - **Trackpad:** pinch to zoom works, and a two-finger swipe goes back or forward in browsers. After a flick, scrolling keeps gliding in apps that support it, as on a Linux laptop.
 - **Battery:** the Mac's battery and charging state show in Omarchy's bar. Power profiles change nothing, because macOS manages power.
+- **Stay Awake:** turning on Omarchy's Stay Awake keeps the Mac's display awake too, until you turn it off, log out or shut Omarchy down.
 - **Time:** Omarchy follows the Mac's time zone unless you choose another one. Its clock catches up after the Mac sleeps.
 - **Memory:** memory Omarchy isn't using goes back to macOS.
 

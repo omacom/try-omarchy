@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep the Mac awake while Omarchy's Stay Awake is on
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionPathExists=/dev/virtio-ports/dev.tryomarchy.awake
+
+[Service]
+ExecStart=/usr/lib/try-omarchy/stay-awake-report
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

@@ -143,7 +143,7 @@ for setting in OMARCHY_QEMU_GPU_MEMORY_MIB OMARCHY_QEMU_GPU_CPUS; do
 done
 launcher_args=()
 [[ -z $factory ]] || launcher_args=("$factory")
-run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone"], "network": "shared"}))' "$state")
+run_config=$(/usr/bin/python3 -c 'import json, sys; print(json.dumps({"version": 1, "productName": "Try Omarchy", "storageRoot": sys.argv[1], "bridges": ["clipboard", "authentication", "camera", "battery", "timezone", "stay-awake"], "network": "shared"}))' "$state")
 launch() { # log
   if ((run_mode)); then
     # The run mode reads its configuration, then commands, until its input
@@ -166,6 +166,14 @@ wait_for_ssh() { # seconds
     ((SECONDS < deadline)) || return 1
     sleep 2
   done
+}
+# VirGL stops a guest context for good once it rejects one command: the desktop
+# then draws nothing, while every check of its state still passes.
+desktop_drawing() { # log
+  local rejected
+  rejected=$(grep -acE 'context error reported [0-9]+ "(Hyprland|Xwayland|quickshell)"' "$1" || true)
+  ((rejected == 0)) && pass "VirGL accepts every command from Hyprland, Xwayland and the shell" ||
+    miss "VirGL rejected $rejected command buffers from Hyprland, Xwayland or the shell: $(grep -a -m1 'failed to dispatch' "$1")"
 }
 # --- a new VM, prepared before its first boot ------------------------------------------
 log "Creating the VM (the app's launcher, dry run)"
@@ -265,11 +273,42 @@ if /usr/bin/python3 "$repo/tests/e2e/qmp-pause.py" "$qmp" 30 && notifyutil -p de
 else
   miss "the VM could not be paused and continued"
 fi
+# The session checks left Stay Awake on. Only this run's helper counts: the Mac
+# may run other VMs.
+stay_awake_helper() { stay_awake_pid=$(pgrep -f -- "--bridge-stay-awake [0-9]+ ${qmp%/*}/stay-awake.sock"); }
+stay_awake_assertions() { # count
+  local assertions
+  assertions=$(pmset -g assertions) || return 1
+  [[ $(grep -c "pid $stay_awake_pid(.*PreventUserIdleDisplaySleep.*Omarchy Stay Awake" <<<"$assertions") == "$1" ]]
+}
+mac_awake() { stay_awake_assertions 1; }
+mac_may_sleep() { stay_awake_assertions 0; }
+stay_awake_service() { guest "runuser -u $user -- env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user $1 try-omarchy-stay-awake.service"; }
+stay_awake() { guest "runuser -l $user -c 'omarchy-toggle-idle $1'" >/dev/null 2>&1; }
+if stay_awake_helper && [[ $stay_awake_pid =~ ^[0-9]+$ ]]; then
+  eventually 15 mac_awake && pass "Stay Awake keeps the Mac awake" || miss "Stay Awake did not keep the Mac awake"
+  stay_awake allow-idle
+  eventually 15 mac_may_sleep && pass "turning Stay Awake off lets the Mac sleep" || miss "the Mac is still kept awake with Stay Awake off"
+  stay_awake stay-awake
+  eventually 15 mac_awake || miss "Stay Awake did not keep the Mac awake again"
+  stay_awake_service stop
+  eventually 45 mac_may_sleep && pass "a guest that stops reporting lets the Mac sleep" || miss "the Mac is still kept awake after the guest stopped reporting"
+  stay_awake_service start
+  eventually 15 mac_awake && pass "a guest that reports again keeps the Mac awake" || miss "the Mac is not kept awake after the guest reported again"
+  stopped_pid=$stay_awake_pid
+  kill "$stopped_pid"
+  helper_restarted() { stay_awake_helper && [[ $stay_awake_pid != "$stopped_pid" ]]; }
+  eventually 15 helper_restarted && eventually 15 mac_awake && pass "a restarted helper keeps the Mac awake" ||
+    miss "the Mac is not kept awake after its helper restarted"
+else
+  miss "no Stay Awake bridge for this VM"
+fi
 status_file="$state/shell/guest-status.json"
 if [[ -s $status_file ]]; then pass "the app receives guest status: $(tr -d '\n' <"$status_file" | cut -c1-140)"
 else miss "no guest status report at $status_file"; fi
 # Omarchy boots quiet, so the virtio console carries the getty, not kernel messages.
 [[ -s $state/shell/console.log ]] && pass "the guest's virtio console reaches console.log" || miss "console.log is empty"
+desktop_drawing "$out/launch-1.log"
 guest 'tar -C /ci-run/screens -cf - .' | tar -C "$out/screens" -xf - 2>/dev/null || true
 guest journalctl -b --no-pager >"$out/journal-1.txt" 2>&1 || true
 
@@ -294,6 +333,7 @@ guest test -e /var/lib/omarchy/provisioning/pending && miss "first-boot setup is
 hypr() { guest "ls /run/user/$uid/hypr/*/.socket.sock" >/dev/null 2>&1; }
 for _ in $(seq 1 90); do hypr && break; sleep 1; done
 hypr && pass "the desktop starts again on the second boot ($((SECONDS - boot_start)) s)" || miss "no desktop on the second boot"
+desktop_drawing "$out/launch-2.log"
 guest journalctl -b --no-pager >"$out/journal-2.txt" 2>&1 || true
 
 if ((run_mode)); then

@@ -95,8 +95,7 @@ enum ShellGuestStatusBridge {
         defer { Darwin.close(descriptor) }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        var buffer = Data()
-        var discarding = false
+        var lines = GuestLineBuffer(maximumLineBytes: ShellGuestReport.maximumLineBytes)
         var bytes = [UInt8](repeating: 0, count: 4096)
         while identity.isStillRunning {
             var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
@@ -109,20 +108,10 @@ enum ShellGuestStatusBridge {
                 if errno == EINTR || errno == EAGAIN { continue }
                 return
             }
-            for byte in bytes.prefix(count) {
-                if byte == 10 {
-                    if !discarding, let report = try? ShellGuestReport.decode(buffer),
-                       let data = try? encoder.encode(ShellGuestStatusRecord(receivedAt: Date(), report: report)) {
-                        try? data.write(to: statusURL, options: .atomic)
-                    }
-                    buffer.removeAll(keepingCapacity: true)
-                    discarding = false
-                } else if !discarding {
-                    buffer.append(byte)
-                    if buffer.count > ShellGuestReport.maximumLineBytes {
-                        discarding = true
-                        buffer.removeAll(keepingCapacity: true)
-                    }
+            for line in lines.consume(bytes.prefix(count)) {
+                if let report = try? ShellGuestReport.decode(line),
+                   let data = try? encoder.encode(ShellGuestStatusRecord(receivedAt: Date(), report: report)) {
+                    try? data.write(to: statusURL, options: .atomic)
                 }
             }
         }

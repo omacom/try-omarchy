@@ -6,7 +6,7 @@ import TryOmarchyKitClient
 private var terminationSignalSources: [DispatchSourceSignal] = []
 
 private func usage() -> Never {
-    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-display-layout | --host-display-panel | --host-display-pixels | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET | --list-fido-devices | --bridge-native-fido QEMU_PID SOCKET DEVICE_ID\n", stderr)
+    fputs("Usage: omarchy-vm-helper --run-qemu [--ephemeral | --reset-storage | --reset-storage-only] [GUEST_DIR] | --run-vm | --copy-vm SOURCE EMPTY_DESTINATION | --trash-vm SOURCE CONFIRMED_IDENTITY | --host-keyboard-geometry | --host-caps-lock-input | --host-display-cutouts | --host-display-layout | --host-display-panel | --host-display-pixels | --host-timezone | --host-audio-frequency output|input [SDL_NAME] | --wait-for-qmp QEMU_PID SOCKET | --sparsify DISK | --bridge-guest-status QEMU_PID SOCKET STATUS_FILE | --bridge-stay-awake QEMU_PID SOCKET | --bridge-command-super QEMU_PID QMP_SOCKET | --bridge-native-audio QEMU_PID SOCKET ROUTE_DIRECTORY | --bridge-native-authentication QEMU_PID SOCKET | --bridge-native-camera QEMU_PID SOCKET | --bridge-native-battery QEMU_PID SOCKET | --bridge-native-clipboard QEMU_PID SOCKET | --bridge-native-timezone QEMU_PID SOCKET | --list-fido-devices | --bridge-native-fido QEMU_PID SOCKET DEVICE_ID\n", stderr)
     exit(64)
 }
 
@@ -111,6 +111,11 @@ do {
     if arguments.first == "--bridge-guest-status" {
         guard arguments.count == 4, let pid = Int32(arguments[1]), pid > 1 else { usage() }
         try ShellGuestStatusBridge.run(targetPID: pid, socketPath: arguments[2], statusPath: arguments[3])
+        exit(0)
+    }
+    if arguments.first == "--bridge-stay-awake" {
+        guard arguments.count == 3, let pid = Int32(arguments[1]), pid > 1 else { usage() }
+        try StayAwakeBridge.run(targetPID: pid, socketPath: arguments[2])
         exit(0)
     }
 
