@@ -4,7 +4,7 @@ Releases are Apple Silicon-only and require macOS 15 or newer.
 
 ## A Mac that signs releases
 
-`make release` signs with the Developer ID Application identity in `RELEASE_SIGN_IDENTITY` and notarizes with the `notarytool` keychain profile in `RELEASE_NOTARY_PROFILE` (`try-omarchy` by default). A Mac needs both once. Signing in to Xcode provides neither.
+`make release` signs with the Developer ID Application identity in `RELEASE_SIGN_IDENTITY`, notarizes with the `notarytool` keychain profile in `RELEASE_NOTARY_PROFILE` (`try-omarchy` by default), and signs the DMG as an update with [the update key](#the-update-key). A Mac needs all three once. Signing in to Xcode provides neither.
 
 1. **The certificate and its private key.** A certificate's private key exists only on the Mac that created it, and Xcode creates Developer ID certificates only for the team's Account Holder. To add a Mac, export the existing one from a Mac that signs: in Keychain Access, under **login > My Certificates**, export it as `.p12` (`.p12` is greyed out when the private key is missing). On the new Mac:
 
@@ -23,6 +23,22 @@ Releases are Apple Silicon-only and require macOS 15 or newer.
    ```
 
 Check both with `security find-identity -v -p codesigning`, which lists the Developer ID identity, and `xcrun notarytool history --keychain-profile try-omarchy`.
+
+## The update key
+
+Installed apps accept an update only when its DMG is signed with the Ed25519 private key that matches the `SUPublicEDKey` they carry ([app updates](app-updates.md)). The private key is in the login keychain of the Mac that releases, under the account `try-omarchy`. Only the public key is in this repository.
+
+`swift package resolve` in `macos` fetches Sparkle's tools, used here as `tools=macos/.build/artifacts/sparkle/Sparkle/bin`.
+
+- **Create it once, for all releases:** `$tools/generate_keys --account try-omarchy` prints the public key for `Info.plist`.
+- **Back it up:** `$tools/generate_keys --account try-omarchy -x update-key.txt`. Store the contents in a password manager, then delete the file. Anyone with them can sign updates.
+- **Move it to another Mac:** `$tools/generate_keys --account try-omarchy -f update-key.txt`, then delete the file.
+
+The first release after the key is created or Sparkle is updated asks for access to the key. Choose **Always Allow**, through Screen Sharing on a Mac nobody sits at. `make release` signs a small file before it builds, so the question comes first and not after notarization. `RELEASE_UPDATE_KEY_FILE` names a file to read the key from instead of the keychain.
+
+A lost key does not strand anyone as long as the Developer ID certificate remains. Create a new key, put its public key in `Info.plist`, and release: an installed app also accepts a DMG signed by its own Developer ID team, provided the app inside carries the new public key and the DMG is signed with it. Change the key and the certificate in different releases, since an app needs one of the two to stay the same. If both are lost, people download the next version by hand.
+
+A leaked key is replaced the same way. Whoever has it would also need to publish on this repository's releases to reach anyone.
 
 ## Build and verify
 
@@ -77,7 +93,17 @@ After verifying the DMG, run:
 make publish
 ```
 
-It reads the version from the built app, checks that the DMG and the kit exist, that the kit matches its recorded digest, that the kit's manifest names the tag, and that the app's download manifest points at that tag's parts in `dist/factory/`, and pushes the tag first, so the release points at the commit that was built rather than one GitHub would create from the draft's target branch. It refuses if origin already has the tag on another commit. It then writes the DMG's digest to `TryOmarchy.dmg.sha256` and uploads the DMG, that digest and the factory parts to the draft release with that tag, replacing earlier uploads. The kit is built and checked by every release but uploaded only with `make publish KIT=1` (`TryOmarchyKit.zip`, its `.sha256` and its manifest `TryOmarchyKit.json`, see [the VM kit](vm-kit.md)), since no installer fetches kits from releases yet; a draft named `vX.Y.Z` with no tag yet gets the tag selected. Without a draft it creates one. A published release is never changed. Review the draft on GitHub and publish it yourself: until then its assets are private and the app cannot download the image.
+It reads the version from the built app, checks that the DMG and the kit exist, that the kit matches its recorded digest, that the kit's manifest names the tag, and that the app's download manifest points at that tag's parts in `dist/factory/`, and pushes the tag first, so the release points at the commit that was built rather than one GitHub would create from the draft's target branch. It refuses if origin already has the tag on another commit. It then writes the DMG's digest to `TryOmarchy.dmg.sha256` and uploads the DMG, that digest, the [appcast](#the-appcast) and the factory parts to the draft release with that tag, replacing earlier uploads. The kit is built and checked by every release but uploaded only with `make publish KIT=1` (`TryOmarchyKit.zip`, its `.sha256` and its manifest `TryOmarchyKit.json`, see [the VM kit](vm-kit.md)), since no installer fetches kits from releases yet; a draft named `vX.Y.Z` with no tag yet gets the tag selected. Without a draft it creates one. A published release is never changed. Review the draft on GitHub and publish it yourself: until then its assets are private and the app cannot download the image.
+
+### The appcast
+
+`make release` and `make package` sign the notarized DMG with the update key and write `dist/appcast.xml` (`scripts/appcast.py`), and `make publish` attaches it. Installed apps read <https://github.com/omacom/try-omarchy/releases/latest/download/appcast.xml>, so an update is offered from the moment its release is published as the latest, and never for a draft or a pre-release. Every release must carry an appcast: without one, checks for updates fail until the next release.
+
+`make release` and `make publish` check that the appcast names the DMG, the release and its build number, and that its signature matches the public key in the app. A build whose `Info.plist` has no update feed gets no appcast.
+
+The build number (`CFBundleVersion`) is the number of commits, and an app is offered only higher ones. `make release` refuses a commit whose count is not above every release tag's, and a shallow clone. Release from `main`.
+
+### Output
 
 The filename stays the same for every release; the app inside is stamped with
 the version from the release tag.
@@ -112,7 +138,7 @@ Existing VMs update themselves with `omarchy update` either way.
 Outputs are written to:
 
 - `dist/release.noindex/Try Omarchy.app` (production)
-- `dist/TryOmarchy.dmg`, and its digest `dist/TryOmarchy.dmg.sha256` once `make publish` runs
+- `dist/TryOmarchy.dmg`, its appcast `dist/appcast.xml`, and its digest `dist/TryOmarchy.dmg.sha256` once `make publish` runs
 - `dist/guest/`
 
 `make package` and `make release` both create distributable builds: they sign the app, the DMG and the kit with Developer ID, submit the DMG and the kit to Apple's notarization service, and staple the resulting tickets. Neither command falls back to an unnotarized build. Both commands first ensure the content-hashed guest, runtime and firmware artifacts are current; packaging and signing themselves always run freshly. Development stays at `dist/app.noindex/Try Omarchy.app` with a separate bundle ID and privacy grants, so production permission flows can be tested independently. Another maintainer can override the release defaults:
@@ -187,7 +213,7 @@ KIT_TEAM_ID=RZC79MPD34 KIT_NOTARIZED=1 tests/kit/check.sh "$kit"
    VMs created by earlier direct-boot releases are not launched by
    this version; their disks stay in the storage folder, and **Setup > Import
    Previous VM** copies their files into the new VM.
-8. Check that the draft has `TryOmarchy.dmg.sha256`, which `make publish` writes from the final DMG. People verify a download with `shasum -a 256 -c TryOmarchy.dmg.sha256`.
+8. Check that the draft has `appcast.xml`, and `TryOmarchy.dmg.sha256`, which `make publish` writes from the final DMG. People verify a download with `shasum -a 256 -c TryOmarchy.dmg.sha256`.
 
 Never publish generated artifacts from an unreviewed or locally modified build
 input.

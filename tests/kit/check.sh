@@ -73,6 +73,7 @@ cmp -s "$resources/kit.json" "$output/TryOmarchyKit.json" || fail "TryOmarchyKit
   fail "the kit registers a launch daemon of its own"
 [[ $(ls "$contents/MacOS" | tr '\n' ' ') == 'omarchy-network-daemon omarchy-vm-helper ' ]] ||
   fail "the kit's MacOS folder holds more than the helper and the networking daemon"
+[[ ! -e $contents/Frameworks ]] || fail "the kit carries frameworks; its embedding app owns updates"
 job="$resources/network/launchd.plist"
 service=$(/usr/bin/plutil -extract Label raw -o - "$job" 2>/dev/null) || fail "the kit has no networking job"
 [[ $service == dev.tryomarchy.kit.network ]] || fail "the kit's networking service is $service"

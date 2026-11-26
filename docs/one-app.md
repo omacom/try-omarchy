@@ -96,6 +96,7 @@ The kit's image parts and manifest stay on this repository's releases, which are
 Once the one app ships with the kit's settings window, Try Omarchy's download ends. This repository then:
 
 - publishes the kit, the client and the image parts with each release, and no DMG;
+- attaches the last DMG's `appcast.xml` to each release, unchanged, so checks for updates in installed apps keep working ([the appcast](releasing.md#the-appcast));
 - keeps `make app` and `make e2e` as the way to develop and test Try on a Mac;
 - keeps the `Try Omarchy` folder under Application Support, so existing VMs and settings stay where they are;
 - moves what the manual says about Try to the one app's documentation, and keeps here what is about the VM itself.

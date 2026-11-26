@@ -57,7 +57,10 @@ guest="$contents/Resources/guest"
 manifest="$output/TryOmarchyKit.json"
 rm -rf "$kit" "$archive" "$archive.sha256" "$manifest"
 ditto "$app" "$kit"
-rm -rf "$contents/_CodeSignature" "$contents/Library" "$contents/MacOS/omarchy-network-daemon"
+# The embedding app owns its updates, so the kit drops Sparkle; the helper
+# links it weakly.
+rm -rf "$contents/_CodeSignature" "$contents/Library" "$contents/MacOS/omarchy-network-daemon" \
+  "$contents/Frameworks"
 
 [[ -f $guest/download.json && ! -L $guest/download.json ]] ||
   fail "the app carries no factory download manifest; build it with --configuration production"

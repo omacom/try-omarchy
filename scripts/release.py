@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 
+import appcast
 from app_version import build_version
 import kit_manifest
 
@@ -138,6 +139,8 @@ def verify_release_artifacts(root: Path, tag: str) -> None:
     if published != bundled or published["version"] != tag:
         raise ValueError(f"the kit's manifest does not name {tag}")
 
+    appcast.verify(root / "dist/appcast.xml", app, dmg, tag)
+
     # The app downloads its factory from this release's assets.
     try:
         manifest = json.loads((app / "Contents/Resources/guest/download.json").read_text())
@@ -170,9 +173,12 @@ def write_dmg_digest(root: Path) -> Path:
 
 
 def release_assets(root: Path, kit: bool = False) -> list[Path]:
-    """The DMG, its digest and the factory parts; the kit only when asked,
-    since no installer downloads it from a release yet."""
+    """The DMG, its digest, the appcast of a build that takes updates and the
+    factory parts; the kit only when asked, since no installer downloads it
+    from a release yet."""
     assets = [root / "dist/TryOmarchy.dmg", root / "dist/TryOmarchy.dmg.sha256"]
+    if (root / "dist/appcast.xml").exists():
+        assets.append(root / "dist/appcast.xml")
     if kit:
         bundle = root / "dist/kit.noindex"
         assets += [bundle / "TryOmarchyKit.zip", bundle / "TryOmarchyKit.zip.sha256", bundle / "TryOmarchyKit.json"]
@@ -205,6 +211,7 @@ def release(root: Path, make: str) -> None:
     head = clean_head(root)
     tag = choose_version(root, os.environ.get("VERSION", ""))
     reusing = validate_tag(root, tag, head)
+    appcast.check_build_number(root, tag, release_tags(root))
     if sys.stdin.isatty():
         action = "Rebuild release" if reusing else "Create release"
         try:
@@ -215,6 +222,7 @@ def release(root: Path, make: str) -> None:
             raise ValueError("release cancelled; no builds or tag changes were made")
     clean_head(root, head)
     print(f"Preparing {tag} from {head[:12]}", flush=True)
+    appcast.check_signing_key(root)
     prepare_factory(root, make, force=os.environ.get("RELEASE_FORCE") == "1")
     # The runtime is pinned by checksum: FORCE=1 would rebuild the same QEMU.
     subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime", "FORCE=0"], check=True)
@@ -233,6 +241,11 @@ def release(root: Path, make: str) -> None:
             "--guest-dir", str(root / "dist/guest"),
             "--sign-identity", identity, "--notarize-profile", profile,
         ], cwd=root, check=True)
+        if appcast.create(root, root / "dist/appcast.xml", root / "dist/release.noindex/Try Omarchy.app",
+                          root / "dist/TryOmarchy.dmg", tag):
+            print("Signed the DMG as an update: dist/appcast.xml", flush=True)
+        else:
+            print("This build takes no app updates; no appcast", flush=True)
         verify_release_artifacts(root, tag)
         check_kit(root, identity)
         clean_head(root, head)
@@ -240,8 +253,8 @@ def release(root: Path, make: str) -> None:
         print(f"Local tag {tag} remains. Retry with make release VERSION={tag}", file=sys.stderr)
         raise
     print(f"Release DMG: {root / 'dist' / 'TryOmarchy.dmg'}", flush=True)
-    print("After verifying it, run make publish to push the tag and attach the DMG and", flush=True)
-    print(f"factory image parts to the {tag} draft release.", flush=True)
+    print("After verifying it, run make publish to push the tag and attach the DMG, its", flush=True)
+    print(f"appcast and the factory image parts to the {tag} draft release.", flush=True)
 
 
 def main() -> None:

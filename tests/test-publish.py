@@ -47,7 +47,7 @@ class PublishTests(unittest.TestCase):
         self.root = base / "checkout"
         self.origin = base / "origin.git"
         (self.root / "scripts").mkdir(parents=True)
-        for name in ("publish.py", "release.py", "app_version.py", "kit_manifest.py"):
+        for name in ("publish.py", "release.py", "app_version.py", "appcast.py", "kit_manifest.py"):
             shutil.copy2(REPOSITORY / "scripts" / name, self.root / "scripts" / name)
         (self.root / ".gitignore").write_text("/dist/\n/scripts/__pycache__/\n")
         subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
@@ -181,6 +181,13 @@ class PublishTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("already published", result.stderr)
         self.assertFalse(any(call[:2] == ["release", "upload"] for call in self.calls()))
+
+    def test_refuses_an_appcast_from_another_build(self) -> None:
+        (self.root / "dist/appcast.xml").write_text("<rss/>")
+        result = self.publish()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("is from another build", result.stderr)
+        self.assertEqual([], self.calls())
 
     def test_refuses_mismatched_or_missing_builds(self) -> None:
         self.build("v1.2.3", factory_tag="v1.2.2")

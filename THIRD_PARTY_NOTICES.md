@@ -28,6 +28,10 @@ code.
   `qemu-sdl-audio-playback-thread` and `qemu-darwin-main-loop-qos`, and the
   guest's RTKit drop-in, are adapted from OmacVM's; each says so in its
   header. The App Nap patch follows OmacVM's approach.
+- **Sparkle** — MIT and the licenses of the code it includes,
+  [sparkle-project.org](https://sparkle-project.org). The app embeds its
+  framework, with the license inside it as
+  `Contents/Frameworks/Sparkle.framework/Resources/LICENSE`.
 - **pacstrap-docker** (`guest/vendor/omarchy-pkgs/`) — from
   [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs); used only inside the
   build container.
