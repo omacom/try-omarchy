@@ -18,17 +18,21 @@ struct NativeFIDOBridgeTests {
         return descriptors
     }
 
-    @Test("a guest that never negotiates cannot acquire the key")
+    @Test("a guest that never negotiates cannot acquire the key, however long the bridge waits")
     func missingPeerDoesNotAcquire() throws {
         let sockets = try pair()
         defer { Darwin.close(sockets[0]) }
         var opens = 0
+        var checks = 0
         var instant = ContinuousClock.now
-        let bridge = try NativeFIDOBridge(descriptor: sockets[1], processAlive: { true }, now: {
+        let bridge = try NativeFIDOBridge(descriptor: sockets[1], processAlive: {
+            checks += 1
+            return checks < 5
+        }, now: {
             defer { instant = instant.advanced(by: .seconds(31)) }
             return instant
         }, openDevice: { _, _ in opens += 1; return Device() })
-        #expect(throws: (any Error).self) { try bridge.run() }
+        try bridge.run()
         #expect(opens == 0)
     }
 
@@ -42,11 +46,15 @@ struct NativeFIDOBridgeTests {
         let base = ContinuousClock.now
         var opened = false
         var ticks = 0
-        let bridge = try NativeFIDOBridge(descriptor: sockets[1], processAlive: { true }, now: {
+        var checks = 0
+        let bridge = try NativeFIDOBridge(descriptor: sockets[1], processAlive: {
+            checks += 1
+            return checks < 5
+        }, now: {
             if opened { ticks += 1 }
             return base.advanced(by: .seconds(ticks * 11))
         }, openDevice: { _, _ in opened = true; return device })
-        #expect(throws: (any Error).self) { try bridge.run() }
+        try bridge.run()
         #expect(opened)
         #expect(device.closes == 1)
     }

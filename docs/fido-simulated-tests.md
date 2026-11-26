@@ -16,7 +16,7 @@ The generated corpus uses seed `0xf1d020261021`. The Swift generator and Python 
 | Truncated streams | Every prefix of a mixed control/report stream on each implementation, plus the 4096-byte read limit and an oversized-read rejection |
 | Host output queue | Every partial drain of an encoded report and heartbeat and three failed appends that preserve the queue |
 | Pending responses | 39 sessions across three commands and eight response lengths, with unrelated replies and incomplete sequences |
-| Native host lifecycle | Nine no-acquisition cases, 11 acquired-session failures, three stop paths, and one successful report round trip |
+| Native host lifecycle | Nine no-acquisition cases, ten acquired-session failures, three stop paths, one successful report round trip, and renegotiation on the same channel after a guest restart or an expired lease |
 | Guest relay | Five rejected direction cases and eight valid streams containing 36 reports |
 | Guest UHID output | 128 accepted normalizations, 255 rejected report IDs, 128 rejected sizes, and four rejected report types |
 | Guest UHID retries | 14 retry sequences that preserve the complete event, plus a deadline case |
@@ -35,4 +35,4 @@ No test authenticates to a relying party or checks key firmware. Mac interface a
 
 The narrow target does not run the full repository suite or E2E. It does not establish release readiness. See [the FIDO bridge design and acceptance matrix](fido.md).
 
-Protocol 2 also checks every incomplete escaped-report prefix against every split of a replacement greeting, reserved bytes across all 256 HID byte values, host-channel teardown and fresh negotiation, stale ready/report handling in the guest, duplicate ready rejection, and both protocol-1 incompatibility directions. These are codec, fake-device and socket controls; they do not establish live virtio-kernel timing or physical-key recovery.
+Protocol 2 also checks every incomplete escaped-report prefix against every split of a replacement greeting, reserved bytes across all 256 HID byte values, fresh negotiation on the same host channel, stale ready/report handling in the guest, duplicate ready rejection, and both protocol-1 incompatibility directions. These are codec, fake-device and socket controls; they do not establish live virtio-kernel timing or physical-key recovery.

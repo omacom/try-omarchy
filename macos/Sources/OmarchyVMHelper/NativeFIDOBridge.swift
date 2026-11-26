@@ -14,6 +14,10 @@ final class NativeFIDOBridge: @unchecked Sendable {
     private var output = FIDOOutputBuffer()
     private var failure: Error?
     private var session: FIDOForwardingSession?
+    private var leaseDeadline: ContinuousClock.Instant?
+    private var lastNegotiation: ContinuousClock.Instant?
+    private var sleepRequested = false
+    private static let lease = Duration.seconds(10)
 
     convenience init(targetPID: pid_t, socketPath: String, registryID: UInt64) throws {
         guard getuid() != 0,
@@ -62,34 +66,31 @@ final class NativeFIDOBridge: @unchecked Sendable {
     func run() throws {
         let workspace = NSWorkspace.shared.notificationCenter
         let sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification,
-                                                   object: nil, queue: nil) { [weak self] _ in self?.stop() }
+                                                   object: nil, queue: nil) { [weak self] _ in self?.sleepRequested = true }
         defer {
             workspace.removeObserver(sleepObserver)
+            let negotiated = session != nil
             session?.close()
-            if output.bytes.isEmpty {
+            if negotiated, output.bytes.isEmpty {
                 let goodbye = FIDOFrame.bye.bytes
                 _ = goodbye.withUnsafeBytes { Darwin.send(descriptor, $0.baseAddress, $0.count, 0) }
             }
             Darwin.close(descriptor)
             descriptor = -1
         }
-        session = FIDOForwardingSession { [weak self] in
-            guard let self else { throw HelperError.io("FIDO bridge stopped") }
-            return try self.openDevice({ [weak self] report in
-                guard let self else { return }
-                do {
-                    if let frame = try self.session?.receivedReport(report) { try self.output.append(frame) }
-                } catch { self.failure = error }
-            }, { [weak self] in self?.failure = HelperError.io("selected FIDO key was disconnected") })
-        }
         var reader = FIDOFrameReader()
         var chunk = [UInt8](repeating: 0, count: 4096)
-        var deadline = now().advanced(by: .seconds(30))
-        while !hasStopped, processAlive(), session?.isClosed == false {
+        while !hasStopped, processAlive() {
             if let failure { throw failure }
-            guard now() < deadline else { throw HelperError.io("FIDO guest lease expired; the key was released") }
+            if sleepRequested {
+                sleepRequested = false
+                release("the Mac is going to sleep", notifyGuest: true)
+            }
+            if let leaseDeadline, now() >= leaseDeadline {
+                release("the guest stopped renewing its lease", notifyGuest: true)
+            }
             var event = pollfd(fd: descriptor, events: Int16(POLLIN | (output.bytes.isEmpty ? 0 : POLLOUT)), revents: 0)
-            let result = Darwin.poll(&event, 1, 20)
+            let result = Darwin.poll(&event, 1, session == nil ? 200 : 20)
             if result < 0 {
                 if errno == EINTR { continue }
                 throw HelperError.io("cannot poll the FIDO channel")
@@ -99,14 +100,7 @@ final class NativeFIDOBridge: @unchecked Sendable {
                 let count = Darwin.read(descriptor, &chunk, chunk.count)
                 if count == 0 { try reader.finish(); return }
                 if count > 0 {
-                    for frame in try reader.feed(Array(chunk[0..<count])) {
-                        let wasReady = session?.isReady == true
-                        if let response = try session?.receive(frame) { try output.append(response) }
-                        if !wasReady, session?.isReady == true {
-                            fputs("[fido-bridge] The selected FIDO interface belongs to this VM until forwarding stops.\n", stderr)
-                        }
-                        deadline = now().advanced(by: .seconds(10))
-                    }
+                    for frame in try reader.feed(Array(chunk[0..<count])) { try receive(frame) }
                 } else if errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR {
                     throw HelperError.io("cannot read the FIDO channel")
                 }
@@ -120,5 +114,55 @@ final class NativeFIDOBridge: @unchecked Sendable {
             }
             CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.001, false)
         }
+    }
+
+    private func receive(_ frame: FIDOFrame) throws {
+        if case .hello = frame {
+            try negotiate(frame)
+            return
+        }
+        guard let session else {
+            switch frame {
+            case .ping, .report, .bye: return
+            default: throw HelperError.io("FIDO guest must negotiate before device access")
+            }
+        }
+        if let response = try session.receive(frame) { try output.append(response) }
+        if session.isClosed {
+            release("the guest released it", notifyGuest: false)
+        } else {
+            leaseDeadline = now().advanced(by: Self.lease)
+        }
+    }
+
+    private func negotiate(_ hello: FIDOFrame) throws {
+        let instant = now()
+        if let lastNegotiation, instant < lastNegotiation.advanced(by: .seconds(1)) {
+            throw HelperError.io("FIDO guest is reconnecting too quickly")
+        }
+        if session != nil { release("the guest reconnected", notifyGuest: false) }
+        let next = FIDOForwardingSession { [weak self] in
+            guard let self else { throw HelperError.io("FIDO bridge stopped") }
+            return try self.openDevice({ [weak self] report in
+                guard let self else { return }
+                do {
+                    if let frame = try self.session?.receivedReport(report) { try self.output.append(frame) }
+                } catch { self.failure = error }
+            }, { [weak self] in self?.failure = HelperError.io("selected FIDO key was disconnected") })
+        }
+        session = next
+        lastNegotiation = instant
+        if let response = try next.receive(hello) { try output.append(response) }
+        leaseDeadline = now().advanced(by: Self.lease)
+        fputs("[fido-bridge] The selected FIDO interface belongs to this VM until forwarding stops.\n", stderr)
+    }
+
+    private func release(_ reason: String, notifyGuest: Bool) {
+        guard let session else { return }
+        session.close()
+        self.session = nil
+        leaseDeadline = nil
+        if notifyGuest { try? output.append(.bye) }
+        fputs("[fido-bridge] Released the FIDO interface: \(reason).\n", stderr)
     }
 }
