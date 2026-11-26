@@ -27,6 +27,8 @@ Omarchy's update to Hyprland 0.57 can leave the VM's desktop black: no bar, no w
    sudo reboot
    ```
 
+Omarchy's update to Mesa 26.3 can leave the desktop black too, sometimes with only the pointer showing. Newer versions of the app fix it the next time Omarchy starts, with nothing to change inside Omarchy.
+
 To undo the update instead, pick the snapshot from before it in the boot menu. Avoid `snapper rollback` from a shell: in the VM it can leave Omarchy unable to boot.
 
 ## Report a problem

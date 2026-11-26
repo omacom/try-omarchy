@@ -167,6 +167,14 @@ wait_for_ssh() { # seconds
     sleep 2
   done
 }
+# VirGL stops a guest context for good once it rejects one command: the desktop
+# then draws nothing, while every check of its state still passes.
+desktop_drawing() { # log
+  local rejected
+  rejected=$(grep -acE 'context error reported [0-9]+ "(Hyprland|Xwayland|quickshell)"' "$1" || true)
+  ((rejected == 0)) && pass "VirGL accepts every command from Hyprland, Xwayland and the shell" ||
+    miss "VirGL rejected $rejected command buffers from Hyprland, Xwayland or the shell: $(grep -a -m1 'failed to dispatch' "$1")"
+}
 # --- a new VM, prepared before its first boot ------------------------------------------
 log "Creating the VM (the app's launcher, dry run)"
 env "${launch_env[@]}" OMARCHY_QEMU_GPU_DRY_RUN=1 "$launcher" ${launcher_args[@]+"${launcher_args[@]}"} >"$out/create.log" 2>&1 || {
@@ -270,6 +278,7 @@ if [[ -s $status_file ]]; then pass "the app receives guest status: $(tr -d '\n'
 else miss "no guest status report at $status_file"; fi
 # Omarchy boots quiet, so the virtio console carries the getty, not kernel messages.
 [[ -s $state/shell/console.log ]] && pass "the guest's virtio console reaches console.log" || miss "console.log is empty"
+desktop_drawing "$out/launch-1.log"
 guest 'tar -C /ci-run/screens -cf - .' | tar -C "$out/screens" -xf - 2>/dev/null || true
 guest journalctl -b --no-pager >"$out/journal-1.txt" 2>&1 || true
 
@@ -294,6 +303,7 @@ guest test -e /var/lib/omarchy/provisioning/pending && miss "first-boot setup is
 hypr() { guest "ls /run/user/$uid/hypr/*/.socket.sock" >/dev/null 2>&1; }
 for _ in $(seq 1 90); do hypr && break; sleep 1; done
 hypr && pass "the desktop starts again on the second boot ($((SECONDS - boot_start)) s)" || miss "no desktop on the second boot"
+desktop_drawing "$out/launch-2.log"
 guest journalctl -b --no-pager >"$out/journal-2.txt" 2>&1 || true
 
 if ((run_mode)); then

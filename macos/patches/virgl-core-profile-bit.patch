@@ -1,0 +1,17 @@
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -13383,10 +13383,10 @@
+    // we can pass "1" as size on drm path, but not on vtest.
+    caps->v2.capability_bits_v2 |= VIRGL_CAP_V2_COPY_TRANSFER_BOTH_DIRECTIONS;
+
+-   /* On Core Profile hosts, advertise this so guest can cap compatibility level */
+-   if (vrend_state.use_core_profile)
+-      caps->v2.capability_bits_v2 |= VIRGL_CAP_V2_CORE_PROFILE_ONLY;
+-
++   /* The tap's VIRGL_CAP_V2_CORE_PROFILE_ONLY is bit 19, which Mesa 26.3 reads as
++    * VIRGL_CAP_V2_QUERY_FORMAT_MODIFIER. Without GBM the renderer rejects those
++    * queries, and the first rejection stops the guest's context for good. */
++
+    if (has_feature(feat_anisotropic_filter)) {
+       float max_aniso;
+       glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &max_aniso);
