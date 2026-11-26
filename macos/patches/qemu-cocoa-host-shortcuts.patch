@@ -1,0 +1,379 @@
+From: Try Omarchy contributors
+Subject: [PATCH] cocoa: leave chosen shortcuts with macOS
+
+Applies after the Try Omarchy guest-layout patch.
+
+The host-keys patch hands the Mac's dedicated keys back to macOS, whatever
+modifiers are held. Shortcuts such as Control-Right Arrow, which moves to
+the next Space, use ordinary keys the guest needs, so full grab still
+swallows them.
+
+Let host-keys entries carry modifiers, as in 124+ctrl. Such an entry stays
+with macOS only while exactly those modifiers are held. Its repeats and key
+up follow its key down, so releasing Control before the arrow can't leave
+the arrow held in the guest. Bare keycodes keep their meaning.
+
+The capture swallows Command's flagsChanged, so a key pressed with Command
+can reach the tap without the Command flag. Remember Command from its own
+events so Command shortcuts still match, and put the flag back on the
+shortcut handed to macOS.
+
+diff --git a/qapi/ui.json b/qapi/ui.json
+index d5a01cb..04fecbb 100644
+--- a/qapi/ui.json
++++ b/qapi/ui.json
+@@ -1446,7 +1446,10 @@
+ #
+ # @host-keys: Colon-separated macOS virtual keycodes (0-255) that
+ #     stay with macOS while full grab captures the keyboard, such as
+-#     an Apple keyboard's display brightness keys.  (default: none)
++#     an Apple keyboard's display brightness keys.  A keycode with
++#     modifiers, such as 124+ctrl, is a shortcut that stays with macOS
++#     only while exactly those modifiers are held: +ctrl, +opt, +shift
++#     and +cmd.  (default: none)
+ #
+ # @media-keys: Send the Mac's media transport keys (previous,
+ #     play/pause, next) to the guest while full grab captures the
+diff --git a/qemu-options.hx b/qemu-options.hx
+index 7c4ece1..9f856ef 100644
+--- a/qemu-options.hx
++++ b/qemu-options.hx
+@@ -2259,7 +2259,7 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
+ #endif
+ #if defined(CONFIG_COCOA)
+     "-display cocoa[,full-grab=on|off][,immersive=on|off][,swap-opt-cmd=on|off]\n"
+-    "              [,host-keys=code:code...][,media-keys=on|off]\n"
++    "              [,host-keys=code[+mod...]:...][,media-keys=on|off]\n"
+     "              [,show-cursor=on|off][,left-command-key=on|off]\n"
+     "              [,full-screen=on|off][,zoom-to-fit=on|off]\n"
+ #endif
+diff --git a/ui/cocoa.m b/ui/cocoa.m
+index ee199f0..1df6b40 100644
+--- a/ui/cocoa.m
++++ b/ui/cocoa.m
+@@ -1207,58 +1207,188 @@ static void cocoa_pinch_vm_change(void *opaque, bool running, RunState state)
+ 
+ 
+ /*
+  * Keycodes of the Mac's dedicated keys that stay with macOS while full grab
+  * owns the keyboard, from the host-keys display option. In its default mode
+  * an Apple keyboard sends keys such as display brightness as plain key
+  * events with their own keycodes, not as F-keys, so a keycode test leaves
+  * real function keys alone.
+  */
+ static bool cocoa_host_keys[256];
+ static bool media_keys_enabled;
+ 
+-/* Parse "a:b:c" (each 0-255) into host_keys; false if malformed. */
+-static bool cocoa_parse_host_keys(const char *spec, bool host_keys[256])
+-{
++/*
++ * Shortcuts that stay with macOS while full grab owns the keyboard, such as
++ * Control-Right Arrow to move to the next Space. Unlike a dedicated key, a
++ * shortcut's key is an ordinary key the guest needs, so it matches only
++ * with exactly its modifiers held.
++ */
++#define COCOA_HOST_SHORTCUT_MAX 64
++
++typedef struct CocoaHostShortcut {
++    unsigned keycode;
++    NSEventModifierFlags modifiers;
++} CocoaHostShortcut;
++
++static const NSEventModifierFlags cocoa_host_shortcut_modifier_mask =
++    NSEventModifierFlagControl | NSEventModifierFlagOption |
++    NSEventModifierFlagShift | NSEventModifierFlagCommand;
++
++static CocoaHostShortcut cocoa_host_shortcuts[COCOA_HOST_SHORTCUT_MAX];
++static unsigned cocoa_host_shortcut_count;
++static bool cocoa_host_shortcut_held[256];
++static bool cocoa_host_shortcut_left_command;
++static bool cocoa_host_shortcut_right_command;
++
++/*
++ * Parse "a:b+ctrl:c+opt+cmd" (keycodes 0-255): bare keycodes into
++ * host_keys, keycodes with modifiers into shortcuts. False if malformed.
++ */
++static bool cocoa_parse_host_keys(const char *spec, bool host_keys[256],
++                                  CocoaHostShortcut *shortcuts,
++                                  unsigned *shortcut_count)
++{
++    static const struct {
++        const char *name;
++        NSEventModifierFlags flag;
++    } modifier_names[] = {
++        { "ctrl", NSEventModifierFlagControl },
++        { "opt", NSEventModifierFlagOption },
++        { "shift", NSEventModifierFlagShift },
++        { "cmd", NSEventModifierFlagCommand },
++    };
+     const char *cursor = spec;
+ 
+     memset(host_keys, 0, 256 * sizeof(bool));
++    *shortcut_count = 0;
+     if (*cursor == '\0') {
+         return true;
+     }
+     for (;;) {
+         unsigned value = 0;
+         int digits = 0;
++        NSEventModifierFlags modifiers = 0;
+ 
+         while (*cursor >= '0' && *cursor <= '9') {
+             if (++digits > 3) {
+                 return false;
+             }
+             value = value * 10 + (unsigned)(*cursor - '0');
+             cursor++;
+         }
+         if (digits == 0 || value > 255) {
+             return false;
+         }
+-        host_keys[value] = true;
++        while (*cursor == '+') {
++            size_t i;
++
++            cursor++;
++            for (i = 0; i < ARRAY_SIZE(modifier_names); i++) {
++                size_t length = strlen(modifier_names[i].name);
++
++                if (strncmp(cursor, modifier_names[i].name, length) == 0 &&
++                    (cursor[length] == '+' || cursor[length] == ':' ||
++                     cursor[length] == '\0')) {
++                    modifiers |= modifier_names[i].flag;
++                    cursor += length;
++                    break;
++                }
++            }
++            if (i == ARRAY_SIZE(modifier_names)) {
++                return false;
++            }
++        }
++        if (modifiers == 0) {
++            host_keys[value] = true;
++        } else {
++            if (*shortcut_count == COCOA_HOST_SHORTCUT_MAX) {
++                return false;
++            }
++            shortcuts[*shortcut_count].keycode = value;
++            shortcuts[*shortcut_count].modifiers = modifiers;
++            (*shortcut_count)++;
++        }
+         if (*cursor == '\0') {
+             return true;
+         }
+         if (*cursor != ':') {
+             return false;
+         }
+         cursor++;
+     }
+ }
+ 
++/*
++ * Whether a key event belongs to a host shortcut. A key down matches with
++ * exactly the shortcut's modifiers. Its repeats and key up follow that key
++ * down, so releasing Control before the arrow can't strand the arrow in
++ * the guest, and a key the guest already holds stays with the guest.
++ */
++static bool cocoa_host_shortcut_event(unsigned keycode,
++                                      NSEventModifierFlags flags,
++                                      bool down, bool repeat)
++{
++    if (keycode >= 256) {
++        return false;
++    }
++    if (!down) {
++        bool held = cocoa_host_shortcut_held[keycode];
++
++        cocoa_host_shortcut_held[keycode] = false;
++        return held;
++    }
++    if (repeat) {
++        return cocoa_host_shortcut_held[keycode];
++    }
++    cocoa_host_shortcut_held[keycode] = false;
++    for (unsigned i = 0; i < cocoa_host_shortcut_count; i++) {
++        if (cocoa_host_shortcuts[i].keycode == keycode &&
++            cocoa_host_shortcuts[i].modifiers ==
++                (flags & cocoa_host_shortcut_modifier_mask)) {
++            cocoa_host_shortcut_held[keycode] = true;
++            return true;
++        }
++    }
++    return false;
++}
++
++/*
++ * The capture swallows Command's flagsChanged, and the keys pressed with it
++ * can then arrive without the Command flag (#181). Command's own events
++ * still carry it, so remember Command from them, and put it back on a
++ * shortcut handed to macOS.
++ */
++static NSEventModifierFlags cocoa_host_shortcut_tap_flags(CGEventType type,
++                                                          CGEventRef cgEvent)
++{
++    NSEventModifierFlags flags = (NSEventModifierFlags)CGEventGetFlags(cgEvent);
++
++    if (type == kCGEventFlagsChanged) {
++        switch (CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode)) {
++        case kVK_Command:
++            cocoa_host_shortcut_left_command =
++                cocoa_command_down(flags, COCOA_DEVICE_LEFT_COMMAND);
++            break;
++        case kVK_RightCommand:
++            cocoa_host_shortcut_right_command =
++                cocoa_command_down(flags, COCOA_DEVICE_RIGHT_COMMAND);
++            break;
++        }
++    }
++    if (cocoa_host_shortcut_left_command || cocoa_host_shortcut_right_command) {
++        flags |= NSEventModifierFlagCommand;
++    }
++    return flags;
++}
++
+ static bool cocoa_is_host_key(CGKeyCode keycode)
+ {
+     return keycode < 256 && cocoa_host_keys[keycode];
+ }
+ 
+ /*
+  * Decode an NX_SYSDEFINED aux-control event's data1 into a media
+  * transport key. Volume, mute, brightness and backlight return false and
+  * stay with macOS.
+  */
+ static bool cocoa_media_key(long data1, int *qcode, bool *down)
+ {
+@@ -1316,29 +1446,42 @@ static CGEventRef handleTapEvent(CGEventTapProxy proxy, CGEventType type, CGEven
+             cocoa_media_key([systemEvent data1], &qcode, &down)) {
+             [view sendMediaKey:qcode down:down];
+             return NULL;
+         }
+         return cgEvent;
+     }
+ 
+     /*
+      * The tap sees the Mac's dedicated keys before macOS does, and the
+      * capture below would swallow them for the whole session. Hand the
+      * ones configured with host-keys straight back to macOS.
+      */
++    NSEventModifierFlags shortcut_flags =
++        cocoa_host_shortcut_tap_flags(type, cgEvent);
++
+     if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
+         cocoa_is_host_key(CGEventGetIntegerValueField(cgEvent,
+                                     kCGKeyboardEventKeycode))) {
+         return cgEvent;
+     }
++    if ((type == kCGEventKeyDown || type == kCGEventKeyUp) &&
++        cocoa_host_shortcut_event(
++            CGEventGetIntegerValueField(cgEvent, kCGKeyboardEventKeycode),
++            shortcut_flags,
++            type == kCGEventKeyDown,
++            CGEventGetIntegerValueField(cgEvent,
++                                        kCGKeyboardEventAutorepeat))) {
++        CGEventSetFlags(cgEvent, shortcut_flags);
++        return cgEvent;
++    }
+ 
+     NSEvent *event = [NSEvent eventWithCGEvent:cgEvent];
+     if (getenv("TRYOMARCHY_INPUT_OBSERVE_ONLY")) {
+         [view isKeyboardCaptured];
+         return cgEvent;
+     }
+     if (cocoa_globe_action_event(event)) {
+         return cgEvent;
+     }
+     if (cocoa_caps_lock_key_event(event)) {
+         /*
+          * macOS decides between switching the input source and locking
+@@ -2613,24 +2756,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+ 
+             // Keep Command chords with the host unless the focused guest
+             // captured the keyboard.
+             if (![self isKeyboardCaptured] &&
+                 ([event modifierFlags] & NSEventModifierFlagCommand)) {
+                 return false;
+             }
+ 
+             // Host keys stay with macOS even when they reach our key window rather than the tap.
+             if (cocoa_is_host_key([event keyCode])) {
+                 return false;
+             }
++            if (cocoa_host_shortcut_event([event keyCode], [event modifierFlags],
++                                          true, [event isARepeat])) {
++                return false;
++            }
+ 
+             // default
+ 
+             // handle control + alt Key Combos (ctrl+alt+[1..9,g] is reserved for QEMU)
+             if (([event modifierFlags] & NSEventModifierFlagControl) && ([event modifierFlags] & NSEventModifierFlagOption)) {
+                 NSString *keychar = [event charactersIgnoringModifiers];
+                 if ([keychar length] == 1) {
+                     char key = [keychar characterAtIndex:0];
+                     switch (key) {
+ 
+                         // enable graphic console
+                         case '1' ... '9':
+@@ -2648,24 +2795,28 @@ - (bool) handleEventLocked:(NSEvent *)event
+             if (qemu_console_is_graphic(head->dcl.con)) {
+                 qkbd_state_key_event(kbd, keycode, true);
+             } else {
+                 [self handleMonitorInput: event];
+             }
+             return true;
+         case NSEventTypeKeyUp:
+             keycode = cocoa_keycode_to_linux([event keyCode]);
+ 
+             if (cocoa_is_host_key([event keyCode])) {
+                 return false;
+             }
++            if (cocoa_host_shortcut_event([event keyCode], [event modifierFlags],
++                                          false, false)) {
++                return false;
++            }
+ 
+             // don't pass the guest a spurious key-up if we treated this
+             // command-key combo as a host UI action
+             if (![self isKeyboardCaptured] &&
+                 ([event modifierFlags] & NSEventModifierFlagCommand)) {
+                 return true;
+             }
+ 
+             if (qemu_console_is_graphic(head->dcl.con)) {
+                 qkbd_state_key_event(kbd, keycode, false);
+             }
+             return true;
+@@ -4740,26 +4891,29 @@ static void cocoa_add_heads(QemuCocoaAppController *controller)
+ }
+ 
+ static void cocoa_display_init(DisplayState *ds, DisplayOptions *opts)
+ {
+     NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];
+     QemuCocoaAppController *controller;
+ 
+     COCOA_DEBUG("qemu_cocoa: cocoa_display_init\n");
+ 
+     media_keys_enabled = opts->u.cocoa.has_media_keys &&
+                          opts->u.cocoa.media_keys;
+     if (opts->u.cocoa.host_keys &&
+-        !cocoa_parse_host_keys(opts->u.cocoa.host_keys, cocoa_host_keys)) {
+-        error_report("cocoa: host-keys must be keycodes 0-255 separated by ':'");
++        !cocoa_parse_host_keys(opts->u.cocoa.host_keys, cocoa_host_keys,
++                               cocoa_host_shortcuts,
++                               &cocoa_host_shortcut_count)) {
++        error_report("cocoa: host-keys must be keycodes 0-255, each with "
++                     "optional +ctrl, +opt, +shift or +cmd, separated by ':'");
+         exit(1);
+     }
+ 
+     // Pull this console process up to being a fully-fledged graphical
+     // app with a menubar and Dock icon
+     ProcessSerialNumber psn = { 0, kCurrentProcess };
+     TransformProcessType(&psn, kProcessTransformToForegroundApplication);
+ 
+     [[NSProcessInfo processInfo] setProcessName:cocoa_product_name()];
+     [QemuApplication sharedApplication];
+     cocoa_set_product_icon();
+ 

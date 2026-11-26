@@ -57,10 +57,10 @@ SH
 # The fake QEMU carries the project's patch markers, answers -device help and
 # records every other invocation. It never starts: a real launch fails with
 # "QEMU exited before it was ready" after the storage work is done.
-write_qemu() { # extra-marker
+write_qemu() { # extra-markers...
   cat >"$resources/runtime/bin/Try Omarchy" <<SH
 #!/bin/bash
-# TryOmarchy.icns OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY guest_owner_uid $1
+# TryOmarchy.icns OMARCHY_SDL_AUDIO_CONTROL_DIRECTORY guest_owner_uid $*
 if [[ "\$*" == "-device help" ]]; then
   for device in hda-micro intel-hda virtconsole virtserialport virtio-balloon-pci virtio-9p-pci \\
     virtio-blk-pci virtio-gpu-gl-pci virtio-keyboard-pci virtio-net-pci virtio-rng-pci \\
@@ -83,7 +83,7 @@ exit 1
 SH
   chmod 755 "$resources/runtime/bin/Try Omarchy"
 }
-write_qemu 'exact bus 0 matching'
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
 # The fake factory is stored uncompressed; "decompressing" copies it.
 cat >"$resources/runtime/bin/zstd" <<'SH'
 #!/bin/bash
@@ -210,6 +210,10 @@ done
 assert_contains "$output" "-device qemu-xhci,id=omarchy-usb,streams=off"
 assert_contains "$output" "-device usb-kbd,bus=omarchy-usb.0,id=omarchy-boot-keyboard"
 assert_not_contains "$output" "usb-host"
+# Unset keeps the app's defaults: brightness, Mission Control, Spotlight,
+# Dictation, Do Not Disturb.
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178 "
+assert_not_contains "$output" "media-keys="
 
 # --- Caps Lock follows the Mac input source only on a non-JIS Mac with an input method --
 assert_contains "$output" "Caps Lock input: caps-lock"
@@ -452,7 +456,88 @@ assert_contains "$output" "-device usb-host,bus=omarchy-usb.0,id=omarchy-usb-hos
 write_qemu ''
 output=$(launch) && fail "a QEMU without exact USB bus matching was accepted"
 assert_contains "$output" "exact USB bus matching"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+
+# --- the Mac's dedicated keys ---------------------------------------------------------
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=144,145)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=144:145 "
+# Empty sends every dedicated key to Omarchy: no option at all, so a QEMU
+# without the host-keys patch still launches.
 write_qemu 'exact bus 0 matching'
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off "
+assert_not_contains "$output" "host-keys="
+launch_env=()
+output=$(launch) && fail "a QEMU without the host-keys option was accepted"
+assert_contains "$output" "cannot leave the Mac's dedicated keys with macOS"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+for host_keys in 256 abc 1,,2 ,144 144, 1:2 -1 1234 123+ 123+fn +ctrl 123ctrl 256+ctrl 123+ctrl+ 123+ctrl:124+ctrl; do
+  launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+  output=$(launch) && fail "host keys $host_keys were accepted"
+  assert_contains "$output" "OMARCHY_QEMU_GPU_HOST_KEYS must be comma-separated keycodes from 0 to 255"
+  [[ ! -e $test_root/untouched ]] || fail "host keys $host_keys touched storage"
+done
+# Shortcuts carry their modifiers and need a QEMU that reads them; a QEMU
+# without them still takes bare keycodes.
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=160,123+ctrl,124+ctrl,18+opt+shift+cmd)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=160:123+ctrl:124+ctrl:18+opt+shift+cmd "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off'
+output=$(launch) && fail "a QEMU without host shortcuts was accepted"
+assert_contains "$output" "cannot leave shortcuts with macOS"
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS=144,145)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=144:145 "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+host_keys=144
+for _ in $(seq 64); do host_keys+=,1+ctrl; done
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys")
+output=$(launch)
+assert_contains "$output" "host-keys=144:1+ctrl:"
+launch_env=(OMARCHY_QEMU_GPU_HOST_KEYS="$host_keys,1+ctrl" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+output=$(launch) && fail "65 host shortcuts were accepted"
+assert_contains "$output" "at most 64 shortcuts"
+[[ ! -e $test_root/untouched ]] || fail "too many host shortcuts touched storage"
+# Media transport keys go to Omarchy only when enabled.
+launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=1)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178,media-keys=on "
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes'
+output=$(launch) && fail "a QEMU without the media-keys option was accepted"
+assert_contains "$output" "cannot send the Mac's media keys to Omarchy"
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+launch_env=(OMARCHY_QEMU_GPU_MEDIA_KEYS=2 OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+output=$(launch) && fail "media keys 2 were accepted"
+assert_contains "$output" "OMARCHY_QEMU_GPU_MEDIA_KEYS must be 0 or 1"
+[[ ! -e $test_root/untouched ]] || fail "invalid media keys touched storage"
+# The release shortcut needs a QEMU that reads it. Unset keeps QEMU's own
+# Control-Option-G.
+launch_env=()
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178 "
+assert_not_contains "$output" "release-key="
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd' 'release-key must be one keycode'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,host-keys=131:144:145:160:176:177:178,release-key=5+ctrl+opt "
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=48+opt+shift+cmd OMARCHY_QEMU_GPU_HOST_KEYS=)
+output=$(launch)
+assert_contains "$output" "swap-opt-cmd=off,release-key=48+opt+shift+cmd "
+for release_key in 5 5+ 256+ctrl 1234+ctrl 5+ctrl,6+ctrl 5+ctrl:6+ctrl +ctrl 5+fn 5ctrl abc; do
+  launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY="$release_key" OMARCHY_QEMU_GPU_STATE_ROOT="$test_root/untouched")
+  output=$(launch) && fail "release key $release_key was accepted"
+  assert_contains "$output" "OMARCHY_QEMU_GPU_RELEASE_KEY must be one keycode from 0 to 255"
+  [[ ! -e $test_root/untouched ]] || fail "release key $release_key touched storage"
+done
+write_qemu 'exact bus 0 matching' 'host-keys must be keycodes' 'media-keys=on|off' 'optional +ctrl, +opt, +shift or +cmd'
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=5+ctrl+opt)
+output=$(launch) && fail "a QEMU without the release key was accepted"
+assert_contains "$output" "cannot release the keyboard from a shortcut"
+launch_env=(OMARCHY_QEMU_GPU_RELEASE_KEY=)
+output=$(launch)
+assert_not_contains "$output" "release-key="
 
 # --- shared folder --------------------------------------------------------------------
 mkdir -p "$test_root/My Work"

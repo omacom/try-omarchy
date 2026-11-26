@@ -29,14 +29,14 @@ def added() -> str:
 
 
 class CocoaGuestLayoutTests(unittest.TestCase):
-    def test_builder_verifies_and_applies_the_exact_patch_last(self) -> None:
+    def test_builder_verifies_and_applies_the_exact_patch_after_the_display_patches(self) -> None:
         builder = BUILDER.read_text(encoding="utf-8")
         expected = re.search(r"^guest_layout_patch_sha256=([a-f0-9]{64})$", builder, re.M)
         self.assertIsNotNone(expected)
         self.assertEqual(hashlib.sha256(PATCH.read_bytes()).hexdigest(), expected.group(1))
         self.assertIn('verify_file_sha "Try Omarchy Cocoa guest-layout patch"', builder)
         applied = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$(\w+)"$', builder, re.M)
-        self.assertEqual(applied[-1], "guest_layout_patch")
+        self.assertEqual(applied[-3:], ["guest_layout_patch", "host_shortcuts_patch", "release_key_patch"])
 
     def test_the_launcher_serves_the_port_qemu_reads(self) -> None:
         launcher = LAUNCHER.read_text(encoding="utf-8")

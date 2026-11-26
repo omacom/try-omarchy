@@ -222,9 +222,10 @@ int main(void)
         apply = 'patch -d "$source_dir" -p1 -f -i "$multi_display_patch"'
         self.assertIn(apply, builder)
         # Its context is every other Cocoa patch's ui/cocoa.m but the
-        # guest-layout patch, made against this one.
+        # guest-layout, host-shortcuts and release-key patches, made against this one.
         cocoa = re.findall(r'^patch -d "\$source_dir" -p1 -f -i "\$([a-z_]+)"$', builder, re.M)
-        self.assertEqual(cocoa[-2:], ["multi_display_patch", "guest_layout_patch"])
+        self.assertEqual(cocoa[-4:], ["multi_display_patch", "guest_layout_patch", "host_shortcuts_patch",
+                                      "release_key_patch"])
         self.assertGreater(cocoa.index("multi_display_patch"), cocoa.index("command_chord_patch"))
 
 
