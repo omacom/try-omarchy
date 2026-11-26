@@ -1190,6 +1190,14 @@ class AudioBridge(unittest.TestCase):
             self.assertEqual((len(calls), mirror.retry_delay), (5, 1))
 
 
+class HdaQuantum(unittest.TestCase):
+    def test_only_an_hda_card_runs_the_graph_at_4096_frames(self):
+        rule = (FILES / "usr/share/wireplumber/wireplumber.conf.d/60-try-omarchy-hda-quantum.conf").read_text()
+        self.assertIn('alsa.driver_name = "snd_hda_intel"', rule)
+        self.assertIn("node.force-quantum = 4096", rule)
+        self.assertFalse((FILES / "usr/share/pipewire/pipewire.conf.d").exists())
+
+
 class ClockRecovery(unittest.TestCase):
     def recover(self, rtc_name):
         module = load(LIB / "guest-clock-recover", "guest_clock_recover")

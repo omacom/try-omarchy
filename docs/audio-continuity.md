@@ -1,5 +1,9 @@
 # Audio continuity under graphics load
 
+## Device
+
+The VM's sound card is QEMU's `virtio-sound-pci`, on the patched SDL backend that the audio bridge routes. The emulated Intel HDA card it replaced reported its playback position in coarse jumps, which forced the guest to a 4096-frame PipeWire quantum (about 85 ms). virtio-sound reports position as it plays, so the guest uses PipeWire's default quantum. A guest package can still run under an older app with the HDA card, so a WirePlumber rule keeps 4096 frames for an `snd_hda_intel` card alone. The HDA patches below remain in the runtime but no longer affect the VM's sound card.
+
 ## Problem and behavior
 
 A delayed audio callback can leave the emulated HDA output ring full. The original

@@ -430,8 +430,7 @@ verify_runtime_tree() {
     die "relocated QEMU could not enumerate devices: $device_help"
   for device in \
     'name "virtio-gpu-gl-pci"' \
-    'name "intel-hda"' \
-    'name "hda-micro"' \
+    'name "virtio-sound-pci"' \
     'name "virtio-net-pci"' \
     'name "virtio-9p-pci"' \
     'name "virtio-pinch-pci"'; do
