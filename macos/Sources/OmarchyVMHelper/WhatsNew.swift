@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// What changed in this release, shown once when the launcher opens after an
-/// update. An item that is a setting carries its switch, so people can try it
-/// from there.
+/// What changed in the last release with news, shown once when the launcher
+/// opens after an update. A fixes-only release leaves this unchanged, so it
+/// shows nothing. An item that is a setting carries its switch, so people can
+/// try it from there. See docs/releasing.md.
 enum WhatsNew {
     enum Setting {
         case allDisplays
