@@ -27,8 +27,7 @@ if [[ ! $name =~ ^try-omarchy-[0-9][A-Za-z0-9._+-]*-(aarch64|any)\.pkg\.tar\.zst
   exit 1
 fi
 
-root_options=$(findmnt -no OPTIONS /)
-if [[ ,$root_options, == *",subvol=/@/.snapshots/"* ]]; then
+if "${TRY_OMARCHY_SNAPSHOT_BOOT:-/usr/lib/try-omarchy/snapshot-boot}"; then
   record skipped "running from a Snapper snapshot"
   exit 0
 fi

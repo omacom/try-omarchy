@@ -53,6 +53,7 @@ not ignore, so caches and other local files never reach the package.
   passes its settings as the systemd credential `tryomarchy.host` (SMBIOS
   type 11): one line of `key=value` tokens. `try-omarchy-host-config.service` publishes them at
   `/run/try-omarchy/cmdline` for the other units and scripts to read.
+  Only `snapshot-boot` reads `/proc/cmdline`, for the `rootflags` of the guest's own boot entry, which Limine writes.
 - **Upgrades need no downloads.** The app installs this package at a VM's
   boot from its own copy, possibly offline or with a stale package database,
   so every hard dependency is already in the factory image. Anything new the
