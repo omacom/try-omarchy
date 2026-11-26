@@ -138,7 +138,7 @@ fi
                                        ("enabled", "enabled", "0.1.0-48"), ("enabled", "enabled", "0.1.0-49")):
                 log.write_text("")
                 # pacman passes the new and the old version.
-                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-50 "$2"', "bash",
+                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-51 "$2"', "bash",
                                          str(PACKAGE / "try-omarchy.install"), old], check=True,
                                         capture_output=True, text=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log),
