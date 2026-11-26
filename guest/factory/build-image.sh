@@ -324,8 +324,11 @@ printf 'format=1\nplatform=aarch64\nbuilder=try-omarchy-upstream\nchannel=%s\nch
 chmod 0644 "$target/var/lib/omarchy/image/target"
 
 # Inside the chroot only the install hook is worth deferring (orchestrator
-# TARGET_DEFERRED_BOOT_HOOKS).
-ln -sfn /dev/null "$target/etc/pacman.d/hooks/90-mkinitcpio-install.hook"
+# TARGET_DEFERRED_BOOT_HOOKS). limine-mkinitcpio-hook ships its own hook at
+# that path, which replaces mkinitcpio's, so it waits aside while masked.
+limine_install_hook=$target/etc/pacman.d/hooks/90-mkinitcpio-install.hook
+[[ ! -e $limine_install_hook ]] || mv "$limine_install_hook" "$state/90-mkinitcpio-install.hook"
+ln -sfn /dev/null "$limine_install_hook"
 cp "$builder_conf" "$target/etc/pacman.conf"
 sed -i "s|^CacheDir = .*|CacheDir = /var/cache/omarchy-build/|" "$target/etc/pacman.conf"
 install -d "$target/var/cache/omarchy-build"
@@ -337,7 +340,10 @@ arch-chroot "$target" env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/bin HOME=/
 umount "$target/var/cache/omarchy-build"
 unset 'mounted[${#mounted[@]}-1]'
 rmdir "$target/var/cache/omarchy-build"
-rm -f "$target/etc/pacman.d/hooks/90-mkinitcpio-install.hook"
+rm -f "$limine_install_hook"
+[[ ! -e $state/90-mkinitcpio-install.hook ]] || mv "$state/90-mkinitcpio-install.hook" "$limine_install_hook"
+missing=$(arch-chroot "$target" pacman -Qkq limine-mkinitcpio-hook 2>/dev/null) || true
+[[ -z $missing ]] || fail "limine-mkinitcpio-hook is missing files: $missing"
 
 [[ -f $target/var/lib/omarchy/image/deferred-steps ]] || fail "apply-system deferred no hardware steps"
 

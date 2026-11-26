@@ -109,6 +109,13 @@ for unit in $(awk '$1 == "enable" { print $2 }' /usr/lib/systemd/system-preset/8
   fi
 done
 
+# Limine's pacman hook replaces mkinitcpio's, so kernel updates rebuild only
+# the UKI that Limine boots, not a stray kernel and initramfs on the ESP.
+if pacman -Q limine-mkinitcpio-hook >/dev/null 2>&1; then
+  missing=$(pacman -Qkq limine-mkinitcpio-hook 2>/dev/null)
+  [[ -z $missing ]] && ok "limine-mkinitcpio-hook has all its files, including its pacman hook" ||
+    bad "limine-mkinitcpio-hook is missing files: $missing"
+fi
 [[ $(systemctl is-enabled systemd-timesyncd.service 2>/dev/null) == enabled ]] && ok "NTP is enabled" || bad "NTP is not enabled"
 version=$(pacman -Q try-omarchy 2>/dev/null | awk '{print $2}')
 # A package offered the way the app offers its bundled one (the
