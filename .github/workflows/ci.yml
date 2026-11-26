@@ -63,6 +63,11 @@ jobs:
             --sign-identity - --factory-download-url https://ci.invalid/
           make test-kit
 
+      # The same production app: Sparkle embedded, linked weakly and signed.
+      - name: Check the app's updater
+        if: matrix.target == 'runtime'
+        run: make test-app-updates UPDATES_APP="dist/release.noindex/Try Omarchy.app"
+
   # The guest package on Linux, the way a guest runs it: its tests on GNU
   # tools, its shell scripts, and its contracts with the Omarchy the factory
   # installs today (omarchy-dev and omarchy-settings-dev from the live edge
