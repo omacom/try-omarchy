@@ -1,0 +1,47 @@
+#!/usr/bin/python3 -I
+"""Tell the Mac whether Omarchy's Stay Awake is on, on dev.tryomarchy.awake.
+
+Writes `on` or `off` when the port opens, whenever omarchy-toggle-idle
+changes its state file, and again every RESEND_SECONDS. The Mac keeps its
+display awake while it reads `on`, and forgets an `on` that is not resent
+within 30 s (StayAwakeBridge.swift), so it is never left awake by a guest that
+restarted or a session that ended.
+"""
+
+import os
+from pathlib import Path
+import time
+
+PORT = Path(os.environ.get("TRY_OMARCHY_AWAKE_PORT", "/dev/virtio-ports/dev.tryomarchy.awake"))
+STATE = Path.home() / ".local/state/omarchy/indicators/stay-awake"
+
+CHECK_SECONDS = 1
+RESEND_SECONDS = 10
+
+
+def state_line():
+    return "on\n" if STATE.is_file() else "off\n"
+
+
+def report(port):
+    sent, sent_at = None, 0
+    while True:
+        line = state_line()
+        if line != sent or time.monotonic() - sent_at >= RESEND_SECONDS:
+            port.write(line)
+            port.flush()
+            sent, sent_at = line, time.monotonic()
+        time.sleep(CHECK_SECONDS)
+
+
+def main():
+    while True:
+        try:
+            with PORT.open("w") as port:
+                report(port)
+        except OSError:
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

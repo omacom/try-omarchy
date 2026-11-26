@@ -173,7 +173,8 @@ for port in 'nr=0,chardev=omarchy-hvc0' 'nr=1,chardev=omarchy-audio-bridge,name=
   'nr=4,chardev=omarchy-camera-bridge,name=dev.tryomarchy.camera' 'nr=5,chardev=omarchy-guest-status,name=dev.tryomarchy.guest' \
   'nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings' 'nr=7,chardev=omarchy-battery-bridge,name=dev.tryomarchy.battery' \
   'nr=8,chardev=omarchy-timezone-bridge,name=dev.tryomarchy.timezone' \
-  'nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display'; do
+  'nr=9,chardev=omarchy-display-layout,name=dev.tryomarchy.display' \
+  'nr=10,chardev=omarchy-stay-awake,name=dev.tryomarchy.awake'; do
   assert_contains "$output" "$port"
 done
 [[ -f $state/shell/disk.img && -f $state/shell/efi-vars.fd && -f $state/shell/vm.json && -f $state/shell-factory/$sha.img ]] ||
@@ -280,10 +281,13 @@ for name in ' Omarchy' 'Omarchy ' $'Omarchy\nInstaller'; do
 done
 rm "$resources/TryOmarchy.icns"
 
-# --- an app without settings leaves the settings port out ----------------------------
+# --- an app without settings or Stay Awake leaves their ports out ---------------------
 output=$(OMARCHY_QEMU_GPU_BRIDGES='clipboard authentication camera battery timezone' launch)
 assert_not_contains "$output" "dev.tryomarchy.settings"
+assert_not_contains "$output" "dev.tryomarchy.awake"
 assert_contains "$output" "name=dev.tryomarchy.clipboard"
+output=$(OMARCHY_QEMU_GPU_BRIDGES='stay-awake' launch)
+assert_contains "$output" "name=dev.tryomarchy.awake"
 output=$(OMARCHY_QEMU_GPU_BRIDGES='clipboard network' launch) && fail "an unknown bridge launched"
 assert_contains "$output" "OMARCHY_QEMU_GPU_BRIDGES names an unknown bridge: network"
 
