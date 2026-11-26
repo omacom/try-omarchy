@@ -101,6 +101,18 @@ def drop_privileges(account):
         raise PermissionError("Could not drop FIDO setup privileges")
 
 
+def wait_for_host(port, *, sleep=time.sleep):
+    delay = 1
+    while True:
+        try:
+            if os.read(port, 4096):
+                continue
+        except (BlockingIOError, InterruptedError):
+            return
+        sleep(delay)
+        delay = min(delay * 2, 30)
+
+
 def output_report(event):
     if len(event) < 4103:
         raise ValueError("Truncated UHID output")
@@ -194,8 +206,9 @@ def main():
     uhid = None
     try:
         uhid = os.open("/dev/uhid", os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC)
-        create_device(uhid)
         drop_privileges(account)
+        wait_for_host(port)
+        create_device(uhid)
         relay(port, uhid)
     finally:
         try:

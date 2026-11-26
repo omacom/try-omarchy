@@ -195,7 +195,7 @@ class FIDOSetup(unittest.TestCase):
 
         def relay(*args):
             self.assertEqual(identity[0], 65534)
-            self.assertEqual(calls, [('create', 12), ('groups', []), ('setgid', 65534), ('setuid', 65534)])
+            self.assertEqual(calls, [('groups', []), ('setgid', 65534), ('setuid', 65534), ('wait', 11), ('create', 12)])
             raise ConnectionError('synthetic end')
 
         with patch.object(bridge.os, 'geteuid', side_effect=lambda: identity[0]), \
@@ -203,6 +203,7 @@ class FIDOSetup(unittest.TestCase):
                 patch.object(bridge.pwd, 'getpwnam', return_value=account), \
                 patch.object(bridge.os, 'open', side_effect=[11, 12]), \
                 patch.object(bridge, 'create_device', side_effect=lambda fd: calls.append(('create', fd))), \
+                patch.object(bridge, 'wait_for_host', side_effect=lambda fd: calls.append(('wait', fd))), \
                 patch.object(bridge.os, 'setgroups', side_effect=lambda groups: calls.append(('groups', groups))), \
                 patch.object(bridge.os, 'setgid', side_effect=lambda gid: calls.append(('setgid', gid))), \
                 patch.object(bridge.os, 'setuid', side_effect=setuid), \
@@ -311,6 +312,21 @@ class FIDOSetup(unittest.TestCase):
             self.assertEqual([call.args[0] for call in opened.call_args_list], [bridge.PORT])
             written.assert_not_called()
 
+    def test_absent_host_is_awaited_with_backoff_before_the_device_exists(self):
+        reads = iter([b'', b'', b'', b'', b'', b'', bridge.message(bridge.BYE), BlockingIOError(errno.EAGAIN, 'connected')])
+
+        def read(fd, _):
+            self.assertEqual(fd, 11)
+            value = next(reads)
+            if isinstance(value, BaseException):
+                raise value
+            return value
+
+        sleeps = []
+        with patch.object(bridge.os, 'read', side_effect=read):
+            bridge.wait_for_host(11, sleep=sleeps.append)
+        self.assertEqual(sleeps, [1, 2, 4, 8, 16, 30])
+
     def test_unprivileged_invocation_does_not_open_a_device(self):
         with patch.object(bridge.os, 'geteuid', return_value=1000), patch.object(bridge.os, 'open') as opened:
             with self.assertRaises(PermissionError):
@@ -325,7 +341,7 @@ class FIDOTransientIO(unittest.TestCase):
         with patch.object(bridge.os, 'geteuid', return_value=0), \
                 patch.object(bridge.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=65534)), \
                 patch.object(bridge.os, 'open', side_effect=[11, 12]) as opened, \
-                patch.object(bridge, 'create_device') as created, patch.object(bridge, 'drop_privileges'), \
+                patch.object(bridge, 'create_device') as created, patch.object(bridge, 'drop_privileges'), patch.object(bridge, 'wait_for_host'), \
                 patch.object(bridge.os, 'read', side_effect=read), \
                 patch.object(bridge.os, 'write', side_effect=write), \
                 patch.object(bridge.os, 'close') as closed, patch.object(bridge, 'emit') as emitted:
@@ -478,7 +494,7 @@ class FIDOShutdown(unittest.TestCase):
         with patch.object(bridge.os, 'geteuid', return_value=0), \
                 patch.object(bridge.pwd, 'getpwnam', return_value=SimpleNamespace(pw_uid=65534)), \
                 patch.object(bridge.os, 'open', side_effect=[11, 12]), \
-                patch.object(bridge, 'create_device'), patch.object(bridge, 'drop_privileges'), \
+                patch.object(bridge, 'create_device'), patch.object(bridge, 'drop_privileges'), patch.object(bridge, 'wait_for_host'), \
                 patch.object(bridge.os, 'read', side_effect=lambda fd, _: bridge.message(bridge.READY, NONCE)
                              if fd == 11 else output_event(packet)), \
                 patch.object(bridge.os, 'write', side_effect=write), \
