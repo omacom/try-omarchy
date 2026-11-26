@@ -3,26 +3,10 @@ import Foundation
 
 /// The one narrow guest request on the settings port. Unknown lines are ignored.
 struct SettingsRequestBuffer {
-    private var line = Data()
-    private var discarding = false
+    private var lines = GuestLineBuffer(maximumLineBytes: 4096)
 
     mutating func consume(_ data: Data) -> Bool {
-        var requested = false
-        for byte in data {
-            if byte == 10 {
-                requested = requested || (!discarding && line == Data("open-settings".utf8))
-                line.removeAll(keepingCapacity: true)
-                discarding = false
-            } else if !discarding {
-                if line.count < 4096 {
-                    line.append(byte)
-                } else {
-                    line.removeAll(keepingCapacity: true)
-                    discarding = true
-                }
-            }
-        }
-        return requested
+        lines.consume(data).contains(Data("open-settings".utf8))
     }
 }
 

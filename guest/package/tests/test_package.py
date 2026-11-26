@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import stat
 import subprocess
@@ -18,6 +19,7 @@ from unittest import mock
 PACKAGE = Path(__file__).resolve().parents[1] / "try-omarchy"
 FILES = PACKAGE / "files"
 LIB = FILES / "usr/lib/try-omarchy"
+REPO = PACKAGE.parents[2]
 
 
 def run(script, *args, env=None, check=True):
@@ -130,10 +132,11 @@ fi
                               'a, b = (tuple(map(int, re.split(r"[.-]", v))) for v in sys.argv[1:3])\n'
                               'print((a > b) - (a < b))\n')
             vercmp.chmod(0o755)
-            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13")):
+            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13"),
+                                       ("enabled", "enabled", "0.1.0-48"), ("enabled", "enabled", "0.1.0-49")):
                 log.write_text("")
                 # pacman passes the new and the old version.
-                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-20 "$2"', "bash",
+                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-50 "$2"', "bash",
                                          str(PACKAGE / "try-omarchy.install"), old], check=True,
                                         capture_output=True, text=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log),
@@ -143,6 +146,9 @@ fi
                 # NTP is enabled once, on the upgrade that brings it.
                 ntp = [line for line in log.read_text().splitlines() if "timesyncd" in line]
                 self.assertEqual(ntp, ["enable --now systemd-timesyncd.service"] if old == "0.1.0-12" else [])
+                # Stay Awake is enabled once, on the upgrade that brings it.
+                stay_awake = [line for line in log.read_text().splitlines() if "stay-awake" in line]
+                self.assertEqual(stay_awake, [] if old == "0.1.0-49" else ["--global preset try-omarchy-stay-awake.service"])
                 migrated = [line for line in log.read_text().splitlines() if "reenable" in line]
                 expected = [f"--global reenable omarchy-native-{bridge}-bridge.service"
                             for bridge, state in (("audio", audio), ("camera", camera))
@@ -818,6 +824,119 @@ class MenuEntries(unittest.TestCase):
                                        "appearance.top-bar.indicators.battery-percentage-on",
                                        "appearance.top-bar.indicators.battery-percentage-off"})
 
+    def moved_timezone(self):
+        return self.OMARCHY.replace('"update.timezone":', '"setup.region.timezone":')
+
+    def test_the_timezone_row_follows_omarchy_to_region(self):
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertNotIn("update.timezone", parsed)
+        self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
+
+    def test_an_unedited_timezone_row_moves_and_comes_back_with_omarchy(self):
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        text = self.menu.read_text()
+        parsed = self.parse(text)
+        self.assertEqual(parsed["update.timezone"], {"when": "false"})
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["setup.region.timezone"]["action"])
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+        # A snapshot rollback brings the older Omarchy back with the same home.
+        self.omarchy.write_text(self.OMARCHY)
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu", parsed["update.timezone"]["action"])
+        self.assertEqual(parsed["update.timezone"]["label"], "Timezone")
+
+    def test_moves_a_timezone_row_earlier_packages_wrote(self):
+        self.menu.parent.mkdir(parents=True)
+        legacy = self.entries_module()["LEGACY"]["update.timezone"]
+        self.menu.write_text("{\n" + legacy + "}\n")
+        self.state.mkdir(parents=True)
+        (self.state / "menu-entries").write_text("8\n")
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        parsed = self.parse(self.menu.read_text())
+        self.assertEqual(set(parsed), {"update.timezone", "setup.region.timezone"})
+        self.assertEqual(parsed["setup.region.timezone"]["label"], "Timezone")
+
+    def test_moves_a_timezone_row_once_without_a_marker(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text("{\n" + self.entries_module()["LEGACY"]["update.timezone"] + "}\n")
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertEqual(self.menu.read_text().count('"setup.region.timezone"'), 1)
+
+    def test_a_moved_timezone_row_the_user_deletes_stays_deleted(self):
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        text = "".join(row for row in self.menu.read_text().splitlines(keepends=True)
+                       if not row.startswith('  "setup.region.timezone"'))
+        self.menu.write_text(text)
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+        # A rollback and a later update don't bring it back either.
+        self.omarchy.write_text(self.OMARCHY)
+        self.entries()
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertNotIn("setup.region.timezone", self.parse(self.menu.read_text()))
+
+    def test_a_commented_example_does_not_block_a_fresh_setup(self):
+        self.menu.parent.mkdir(parents=True)
+        self.menu.write_text('{\n  // "setup.region.timezone": {"label":"Example"},\n}\n')
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertIn("setup.region.timezone", self.parse(self.menu.read_text()))
+
+    def test_a_deleted_or_edited_timezone_row_is_not_moved(self):
+        self.entries()
+        text = self.menu.read_text()
+        line = next(row for row in text.splitlines(keepends=True) if row.startswith('  "update.timezone"'))
+        self.omarchy.write_text(self.moved_timezone())
+        for edit in ("", line.replace('"label":"Timezone"', '"label":"My Timezone"')):
+            self.menu.write_text(text.replace(line, edit))
+            self.entries()
+            parsed = self.parse(self.menu.read_text())
+            self.assertNotIn("setup.region.timezone", parsed)
+            self.assertEqual(self.menu.read_text(), text.replace(line, edit))
+
+    def test_a_commented_example_does_not_block_the_move(self):
+        self.entries()
+        text = self.menu.read_text()
+        self.menu.write_text(text.replace("{\n", '{\n  // "setup.region.timezone": {"label":"Example"},\n', 1))
+        self.omarchy.write_text(self.moved_timezone())
+        self.entries()
+        self.assertIn("/usr/bin/try-omarchy-timezone-menu",
+                      self.parse(self.menu.read_text())["setup.region.timezone"]["action"])
+
+    def test_a_direct_boot_row_stays_hidden_when_omarchy_drops_it(self):
+        self.entries()
+        text = self.menu.read_text()
+        rows = self.OMARCHY.splitlines(keepends=True)
+        self.omarchy.write_text("".join(row for row in rows if '"setup.direct-boot"' not in row))
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+        self.assertTrue(self.parse(text)["setup.direct-boot"]["when"].startswith("! omarchy-hw-vm && "))
+
+    def test_rows_stay_while_omarchys_menu_is_unreadable(self):
+        self.entries()
+        text = self.menu.read_text()
+        self.omarchy.unlink()
+        self.entries()
+        self.assertEqual(self.menu.read_text(), text)
+
+    @staticmethod
+    def entries_module():
+        namespace = {"__name__": "menu_entries"}
+        exec(compile((LIB / "menu-entries").read_text(), "menu-entries", "exec"), namespace)
+        return namespace
+
     def test_without_omarchys_menu_only_own_rows_are_added(self):
         self.omarchy.unlink()
         self.entries()
@@ -951,6 +1070,80 @@ class GuestStatus(unittest.TestCase):
         self.assertEqual(report["channel"], "edge")
         self.assertEqual(report["kernel"]["installed"], "7.2.8-11")
         self.assertLess(len(module.report()), 4096)
+
+
+class StayAwakeReport(unittest.TestCase):
+    """stay-awake-report sends the Mac `on` or `off` as Omarchy's state file comes and goes."""
+
+    class Finished(Exception):
+        pass
+
+    def reports(self, seconds, changes):
+        """(second, line) for each line sent, as `changes` turns Stay Awake on or off."""
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
+        with tempfile.TemporaryDirectory() as tmp:
+            module.STATE = Path(tmp) / "stay-awake"
+            now = 0
+            lines = []
+
+            class Port:
+                def write(self, line):
+                    lines.append((now, line))
+
+                def flush(self):
+                    pass
+
+            def sleep(duration):
+                nonlocal now
+                now += duration
+                if now > seconds:
+                    raise self.Finished
+                if now in changes:
+                    module.STATE.touch() if changes[now] else module.STATE.unlink()
+
+            with mock.patch.object(module.time, "monotonic", lambda: now), \
+                    mock.patch.object(module.time, "sleep", sleep), \
+                    self.assertRaises(self.Finished):
+                module.report(Port())
+        return lines
+
+    def test_reports_each_change_within_a_second(self):
+        self.assertEqual(
+            self.reports(9, {3: True, 5: False}),
+            [(0, "off\n"), (3, "on\n"), (5, "off\n")],
+        )
+
+    def test_resends_the_current_state_while_unchanged(self):
+        self.assertEqual(
+            self.reports(25, {4: True}),
+            [(0, "off\n"), (4, "on\n"), (14, "on\n"), (24, "on\n")],
+        )
+
+    def test_resends_before_the_mac_forgets_an_on(self):
+        bridge = (REPO / "macos/Sources/OmarchyVMHelper/StayAwakeBridge.swift").read_text()
+        expiry = int(re.search(r"expiry: Duration = \.seconds\((\d+)\)", bridge).group(1))
+        module = load(LIB / "stay-awake-report", "stay_awake_report")
+        self.assertLess(2 * module.RESEND_SECONDS, expiry)
+
+    def test_the_script_writes_the_state_to_its_port(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            port = tmp / "port"
+            os.mkfifo(port)
+            state = tmp / ".local/state/omarchy/indicators/stay-awake"
+            state.parent.mkdir(parents=True)
+            state.touch()
+            env = {**os.environ, "HOME": str(tmp), "TRY_OMARCHY_AWAKE_PORT": str(port)}
+            # Opening to write as well never waits for the script's end.
+            reader = os.open(port, os.O_RDWR)
+            reporter = subprocess.Popen(["python3", str(LIB / "stay-awake-report")], env=env)
+            try:
+                self.assertTrue(select.select([reader], [], [], 30)[0], "the script wrote nothing")
+                self.assertEqual(os.read(reader, 64), b"on\n")
+            finally:
+                reporter.kill()
+                reporter.wait()
+                os.close(reader)
 
 
 class PackageInstall(unittest.TestCase):

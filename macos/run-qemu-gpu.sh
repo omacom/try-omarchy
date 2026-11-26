@@ -226,11 +226,12 @@ done
 # --- bridges -----------------------------------------------------------------
 # Audio and the guest status always run. The app that starts the VM chooses
 # the others; without settings the guest has no settings port, so Omarchy's
-# Setup menu shows no row for an app that cannot open them.
-enabled_bridges=${OMARCHY_QEMU_GPU_BRIDGES-clipboard authentication camera battery timezone settings}
+# Setup menu shows no row for an app that cannot open them, and without
+# stay-awake it has no Stay Awake port.
+enabled_bridges=${OMARCHY_QEMU_GPU_BRIDGES-clipboard authentication camera battery timezone stay-awake settings}
 for bridge in $enabled_bridges; do
   case $bridge in
-    clipboard | authentication | camera | battery | timezone | settings) ;;
+    clipboard | authentication | camera | battery | timezone | stay-awake | settings) ;;
     *) fail "OMARCHY_QEMU_GPU_BRIDGES names an unknown bridge: $bridge" ;;
   esac
 done
@@ -776,6 +777,7 @@ timezone_socket="$socket_dir/timezone.sock"
 display_socket="$socket_dir/display.sock"
 settings_socket="$socket_dir/settings.sock"
 guest_socket="$socket_dir/guest.sock"
+stay_awake_socket="$socket_dir/stay-awake.sock"
 audio_routes="$socket_dir/audio-routes"
 mkdir -m 700 "$work_dir/audio-routes"
 
@@ -863,6 +865,12 @@ if bridge_enabled settings; then
     -device 'virtserialport,bus=omarchy-serial.0,nr=6,chardev=omarchy-settings-bridge,name=dev.tryomarchy.settings'
   )
 fi
+if bridge_enabled stay-awake; then
+  qemu_args+=(
+    -chardev "socket,id=omarchy-stay-awake,path=$stay_awake_socket,server=on,wait=off"
+    -device 'virtserialport,bus=omarchy-serial.0,nr=10,chardev=omarchy-stay-awake,name=dev.tryomarchy.awake'
+  )
+fi
 
 if [[ -n $package_to_install ]]; then
   qemu_args+=(
@@ -936,7 +944,7 @@ echo "[qemu-gpu] Ready. QMP: $qmp_socket" >&2
 status_file="$vm_dir/guest-status.json"
 [[ $storage_mode == persistent ]] || status_file="$work_dir/guest-status.json"
 bridge_names=(audio)
-for bridge in clipboard authentication camera battery timezone; do
+for bridge in clipboard authentication camera battery timezone stay-awake; do
   bridge_enabled "$bridge" && bridge_names+=("$bridge")
 done
 bridge_names+=(guest-status)
@@ -951,6 +959,7 @@ start_bridge() { # index
     battery) "$native_bridge" --bridge-native-battery "$qemu_pid" "$battery_socket" 9>&- & ;;
     timezone) "$native_bridge" --bridge-native-timezone "$qemu_pid" "$timezone_socket" 9>&- & ;;
     guest-status) "$native_bridge" --bridge-guest-status "$qemu_pid" "$guest_socket" "$status_file" 9>&- & ;;
+    stay-awake) "$native_bridge" --bridge-stay-awake "$qemu_pid" "$stay_awake_socket" 9>&- & ;;
   esac
   bridge_pids[$1]=$!
 }

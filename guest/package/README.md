@@ -71,8 +71,9 @@ not ignore, so caches and other local files never reach the package.
   leaves out with a default (its menu documentation says only declared fields
   are replaced), so each changed row carries Omarchy's complete row, read from
   the installed Omarchy at every login, with our change applied. Rows still
-  exactly as written follow Omarchy's later changes; rows the user edits or
-  removes are left alone. The settings row and its desktop entry, which the app
+  exactly as written follow Omarchy's later changes, including a row Omarchy
+  moves (Timezone, now under Setup → Region), whose old row is hidden until
+  Omarchy has it again; rows the user edits or removes are left alone. The settings row and its desktop entry, which the app
   launcher hides, say Try Omarchy Settings in every app that runs the VM.
 
 ## Host interfaces
@@ -82,6 +83,7 @@ not ignore, so caches and other local files never reach the package.
 | credential `tryomarchy.host` | host → guest | Keyboard geometry, locale, time zone, shared folder name, SSH, VirGL flags, the camera housing, the [display layout](../../docs/multi-display.md) and the panel's output |
 | credential `tryomarchy.package` + 9p `tryomarchy-packages` | host → guest | The app's bundled package, installed before login when newer |
 | `dev.tryomarchy.guest` | guest → host | Status reports (protocol 1, JSON lines every 10 s) |
+| `dev.tryomarchy.awake` | guest → host | Omarchy's Stay Awake state, `on` or `off`, on each change and every 10 s; the Mac drops an `on` after 30 s of silence |
 | `dev.tryomarchy.{audio,clipboard,camera,battery,timezone,authentication,settings}` | both | The host bridges, one port per integration |
 
 A status report looks like this:
