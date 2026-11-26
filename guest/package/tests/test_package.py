@@ -132,10 +132,11 @@ fi
                               'a, b = (tuple(map(int, re.split(r"[.-]", v))) for v in sys.argv[1:3])\n'
                               'print((a > b) - (a < b))\n')
             vercmp.chmod(0o755)
-            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13")):
+            for audio, camera, old in (("enabled", "disabled", "0.1.0-12"), ("masked", "enabled", "0.1.0-13"),
+                                       ("enabled", "enabled", "0.1.0-48"), ("enabled", "enabled", "0.1.0-49")):
                 log.write_text("")
                 # pacman passes the new and the old version.
-                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-20 "$2"', "bash",
+                result = subprocess.run(["/bin/bash", "-c", 'source "$1"; post_upgrade 0.1.0-50 "$2"', "bash",
                                          str(PACKAGE / "try-omarchy.install"), old], check=True,
                                         capture_output=True, text=True, env={
                     **os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "TEST_LOG": str(log),
@@ -145,6 +146,9 @@ fi
                 # NTP is enabled once, on the upgrade that brings it.
                 ntp = [line for line in log.read_text().splitlines() if "timesyncd" in line]
                 self.assertEqual(ntp, ["enable --now systemd-timesyncd.service"] if old == "0.1.0-12" else [])
+                # Stay Awake is enabled once, on the upgrade that brings it.
+                stay_awake = [line for line in log.read_text().splitlines() if "stay-awake" in line]
+                self.assertEqual(stay_awake, [] if old == "0.1.0-49" else ["--global preset try-omarchy-stay-awake.service"])
                 migrated = [line for line in log.read_text().splitlines() if "reenable" in line]
                 expected = [f"--global reenable omarchy-native-{bridge}-bridge.service"
                             for bridge, state in (("audio", audio), ("camera", camera))

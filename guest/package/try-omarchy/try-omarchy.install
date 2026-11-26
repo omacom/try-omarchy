@@ -68,7 +68,7 @@ post_upgrade() {
   if [ "$(vercmp "$2" 0.1.0-42)" -lt 0 ]; then
     _remove_factory_boot_entry
   fi
-  if [ "$(vercmp "$2" 0.1.0-48)" -lt 0 ]; then
+  if [ "$(vercmp "$2" 0.1.0-49)" -lt 0 ]; then
     systemctl --global preset try-omarchy-stay-awake.service >/dev/null 2>&1 || true
   fi
   # The app upgrades the package at boot, after the old host-config ran, and
