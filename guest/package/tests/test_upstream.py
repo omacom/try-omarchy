@@ -177,7 +177,7 @@ class UpstreamContracts(unittest.TestCase):
         self.assertIn("guess=${OMARCHY_FORM_TIMEZONE_DEFAULT:-}", prompt)
         self.assertIn("zones=$(timedatectl list-timezones)", prompt)
         self.assertIn("""zones=$(printf '%s\\n' "$guess"; grep -vxF -- "$guess" <<<"$zones")""", prompt)
-        self.assertRegex(prompt, r'timezone=\$\(gum filter\b[^\n]*<<<"\$zones"\)')
+        self.assertRegex(prompt, r'timezone=\$\(gum filter\b(?:[^\n]|\\\n)*<<<"\$zones"\)')
         self.assertIn("OMARCHY_FORM_TIMEZONE_DEFAULT=", (FILES / "usr/lib/try-omarchy/setup-form-defaults").read_text())
 
     def test_provisioning_service_and_its_autologin_cleanup_keep_their_names(self):
