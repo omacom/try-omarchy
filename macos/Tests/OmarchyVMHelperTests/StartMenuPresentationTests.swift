@@ -186,7 +186,7 @@ struct StartMenuPresentationTests {
     @Test("displays guidance says how many displays Full Screen covers")
     func displaysGuidance() {
         #expect(StartMenuPresentation.displaysDetail(isEnabled: true)
-            == "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces.")
+            == "Full Screen covers every display, arranged as in System Settings.")
         #expect(StartMenuPresentation.displaysDetail(isEnabled: false) == "Full Screen uses one display.")
     }
 

@@ -316,7 +316,7 @@ enum StartMenuPresentation {
 
     static func displaysDetail(isEnabled: Bool) -> String {
         isEnabled
-            ? "Full Screen covers every display, arranged as in System Settings. Displays need separate Spaces."
+            ? "Full Screen covers every display, arranged as in System Settings."
             : "Full Screen uses one display."
     }
 }
