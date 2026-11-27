@@ -821,6 +821,8 @@ qemu_args=(
   -smp "$vcpu_count,sockets=1,cores=$vcpu_count,threads=1"
   -m "${memory_mib}M"
   -nodefaults
+  # edk2 reads splash-time only with menu=on; 0 skips its 5 s boot-manager wait.
+  -boot 'menu=on,splash-time=0'
   -action 'reboot=reset,shutdown=poweroff'
   -drive "if=pflash,format=raw,readonly=on,file=${firmware_code//,/,,}"
   -drive "if=pflash,format=raw,file=${working_vars//,/,,}"
