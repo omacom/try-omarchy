@@ -29,7 +29,7 @@ class ReleaseTests(unittest.TestCase):
         # Keep the actual public release/preflight recipes; substitute only the
         # expensive guest, runtime, and signed app builders at their boundaries.
         makefile = (REPOSITORY / "Makefile").read_text()
-        makefile += '\nguest-package guest runtime:\n\t@python3 "$(ROOT)/fake-component.py" "$@" "$(FORCE)"\n'
+        makefile += '\nguest-package guest runtime firmware:\n\t@python3 "$(ROOT)/fake-component.py" "$@" "$(FORCE)"\n'
         (self.root / "Makefile").write_text(makefile)
         (self.root / "scripts/factory-freshness.py").write_text('''
 import os
@@ -179,7 +179,7 @@ if os.environ.get("FAIL_KIT_CHECK"):
         self.assertEqual(self.git("rev-parse", "HEAD"), self.git("rev-parse", "v1.2.3^{commit}"))
         # The cached factory no longer matches upstream, so it is rebuilt; the
         # runtime is pinned.
-        self.assertEqual("guest-package:\nguest:\ncheck\nguest-package forced:\nguest forced:\nruntime:\npackage\n",
+        self.assertEqual("guest-package:\nguest:\ncheck\nguest-package forced:\nguest forced:\nruntime:\nfirmware:\npackage\n",
                          (self.root / "dist/events").read_text())
         self.assertTrue((self.root / "dist/TryOmarchy.dmg").exists())
         self.assertIn(f"Release DMG: {self.root.resolve() / 'dist/TryOmarchy.dmg'}", result.stdout)
@@ -193,13 +193,13 @@ if os.environ.get("FAIL_KIT_CHECK"):
     def test_a_factory_current_with_upstream_is_reused(self) -> None:
         result = self.run_release(FACTORY_CURRENT="1")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual("guest-package:\nguest:\ncheck\nruntime:\npackage\n",
+        self.assertEqual("guest-package:\nguest:\ncheck\nruntime:\nfirmware:\npackage\n",
                          (self.root / "dist/events").read_text())
 
     def test_force_rebuilds_the_factory_without_checking_or_forcing_the_runtime(self) -> None:
         result = self.run_release(FACTORY_CURRENT="1", FORCE="1")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertEqual("guest-package forced:\nguest forced:\nruntime:\npackage\n",
+        self.assertEqual("guest-package forced:\nguest forced:\nruntime:\nfirmware:\npackage\n",
                          (self.root / "dist/events").read_text())
 
     def test_release_factory_download_points_at_its_own_assets(self) -> None:
