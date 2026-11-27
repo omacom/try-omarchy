@@ -48,7 +48,7 @@ enum WhatsNew {
             symbol: "wrench.and.screwdriver.fill",
             color: .gray,
             title: "Fixes",
-            detail: "Among many fixes, the desktop keeps drawing after Omarchy updates Mesa, and the VM stays responsive on Macs with a web content filter."
+            detail: "The desktop keeps drawing after Omarchy updates Mesa, and many other relevant fixes. For more information, check the release notes."
         ),
     ]
 
