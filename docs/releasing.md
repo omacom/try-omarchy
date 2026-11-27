@@ -28,7 +28,7 @@ Check both with `security find-identity -v -p codesigning`, which lists the Deve
 
 After an update, the launcher shows a **What's New** sheet once, to people who already have a VM. Its content is `WhatsNew` in `macos/Sources/OmarchyVMHelper/WhatsNew.swift`. Review it before every release, and change it on `main` before tagging:
 
-- **The release has something people would notice,** such as a new feature, setting or shortcut: set `version` to the new release, point `releaseNotesURL` at its tag, and list up to four items in plain words. A setting can carry its switch. Group fixes into one **Fixes** item.
+- **The release has something people would notice,** such as a new feature, setting or shortcut: set `version` to the new release, point `releaseNotesURL` at its tag, and list up to four items in plain words. A setting can carry its switch. Put the most noticeable fixes in one **Fixes** item that says they are highlights, since the release notes list the rest.
 - **The release only fixes things:** leave `WhatsNew` unchanged. Someone who saw the sheet for its `version` does not see it again, so a fixes-only release shows nothing.
 
 `WhatsNewTests` names the version, so a change to `WhatsNew` updates the test too.
