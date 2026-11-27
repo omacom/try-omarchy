@@ -64,7 +64,7 @@ this command does not check GitHub for published versions.
 Noninteractive runs with `VERSION` skip confirmation; supplying the version is
 the explicit instruction to build that release.
 
-The command builds guest and runtime artifacts only when needed, rechecks the
+The command builds the guest, runtime and firmware only when needed, rechecks the
 checkout, creates an annotated `vX.Y.Z` tag on the commit being packaged, and
 builds the signed and notarized app and DMG. The tag must exist before packaging
 so the app and DMG receive the correct version. Tests and the runtime release

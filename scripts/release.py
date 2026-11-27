@@ -216,8 +216,8 @@ def release(root: Path, make: str) -> None:
     clean_head(root, head)
     print(f"Preparing {tag} from {head[:12]}", flush=True)
     prepare_factory(root, make, force=os.environ.get("RELEASE_FORCE") == "1")
-    # The runtime is pinned by checksum: FORCE=1 would rebuild the same QEMU.
-    subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime", "FORCE=0"], check=True)
+    # The runtime and the firmware are pinned by checksum: FORCE=1 would rebuild the same files.
+    subprocess.run([make, "--no-print-directory", "-C", str(root), "runtime", "firmware", "FORCE=0"], check=True)
     clean_head(root, head)
     if validate_tag(root, tag, head):
         print(f"Reusing {tag}", flush=True)
