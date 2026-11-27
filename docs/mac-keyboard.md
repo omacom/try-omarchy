@@ -127,7 +127,7 @@ Full grab sends every shortcut to Omarchy, including macOS's own, such as Contro
 - **Record Shortcut…** keeps any other shortcut. It needs at least one of Control, Option or Command, so typing in Omarchy keeps working, capitals included. With Accessibility, the launcher records through an HID event tap: it sees shortcuts that macOS or another app would act on, and keeps them from acting while it records. Without Accessibility, it records only shortcuts that reach its window.
 - The launcher passes each shortcut to QEMU in `host-keys` as a keycode with its modifiers, such as `124+ctrl`. The Cocoa tap hands a key down back to macOS only while exactly those modifiers are held; Caps Lock and Fn don't count. The key's repeats and key up follow its key down, so releasing Control first can't leave the arrow held in Omarchy. A key Omarchy already holds stays with Omarchy. The capture swallows Command's own events, so the keys pressed with it can reach the tap without the Command flag; the tap remembers Command from Command's events, so Command shortcuts still match and reach macOS with Command.
 - Omarchy never receives a kept shortcut. Keeping Switch Spaces gives up Control–arrow word movement in Omarchy's terminals and text fields.
-- Omarchy still sees the modifiers go down and up, since they arrive before the key that completes the shortcut. Only the key itself is kept from Omarchy.
+- Omarchy still sees the modifiers go down and up, since they arrive before the key that completes the shortcut. Only the key itself is kept from Omarchy. For Command–Tab and Command–Shift–Tab, macOS also sees the modifier presses and releases so its app switcher can follow the chord.
 
 ## Validation
 
