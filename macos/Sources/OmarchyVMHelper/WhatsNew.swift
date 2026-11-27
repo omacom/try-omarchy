@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// What changed in this release, shown once when the launcher opens after an
-/// update. An item that is a setting carries its switch, so people can try it
-/// from there.
+/// What changed in the last release with news, shown once when the launcher
+/// opens after an update. A fixes-only release leaves this unchanged, so it
+/// shows nothing. An item that is a setting carries its switch, so people can
+/// try it from there. See docs/releasing.md.
 enum WhatsNew {
     enum Setting {
         case allDisplays
@@ -17,31 +18,37 @@ enum WhatsNew {
         var setting: Setting?
     }
 
-    static let version = AppReleaseVersion("1.4.1")!
-    static let releaseNotesURL = AppRelease.releasesURL.appendingPathComponent("tag/v1.4.0")
+    static let version = AppReleaseVersion("1.5.0")!
+    static let releaseNotesURL = AppRelease.releasesURL.appendingPathComponent("tag/v1.5.0")
 
     static let items: [Item] = [
         Item(
-            id: "all-displays",
-            symbol: "display.2",
+            id: "mac-keys",
+            symbol: "keyboard",
             color: .blue,
-            title: "All Displays",
-            detail: "Omarchy can use every display connected to your Mac, arranged as in System Settings, each at its own scale.",
-            setting: .allDisplays
+            title: "Mac Keys and Shortcuts",
+            detail: "Brightness, Mission Control and Spotlight stay with macOS. Choose which keys and shortcuts go to Omarchy in Startup → Keyboard."
         ),
         Item(
-            id: "boot-splash",
-            symbol: "sparkles",
-            color: .purple,
-            title: "Boot Splash",
-            detail: "Omarchy’s splash screen shows again while it starts."
+            id: "release-keyboard",
+            symbol: "command",
+            color: .indigo,
+            title: "Back to the Mac",
+            detail: "Press Control–Option–G to give the keyboard back to macOS, so Command–Tab works again, even in full screen."
+        ),
+        Item(
+            id: "stay-awake",
+            symbol: "cup.and.saucer.fill",
+            color: .orange,
+            title: "Stay Awake",
+            detail: "Turning on Omarchy’s Stay Awake keeps the Mac’s display awake too."
         ),
         Item(
             id: "fixes",
             symbol: "wrench.and.screwdriver.fill",
             color: .gray,
             title: "Fixes",
-            detail: "Omarchy updates keep the desktop working, and Shift, Ctrl and Option stay held with an external mouse."
+            detail: "The desktop keeps drawing after Omarchy updates Mesa, and many other relevant fixes. For more information, check the release notes."
         ),
     ]
 

@@ -24,6 +24,15 @@ Releases are Apple Silicon-only and require macOS 15 or newer.
 
 Check both with `security find-identity -v -p codesigning`, which lists the Developer ID identity, and `xcrun notarytool history --keychain-profile try-omarchy`.
 
+## What's New
+
+After an update, the launcher shows a **What's New** sheet once, to people who already have a VM. Its content is `WhatsNew` in `macos/Sources/OmarchyVMHelper/WhatsNew.swift`. Review it before every release, and change it on `main` before tagging:
+
+- **The release has something people would notice,** such as a new feature, setting or shortcut: set `version` to the new release, point `releaseNotesURL` at its tag, and list up to four items in plain words. A setting can carry its switch. Put the most noticeable fixes in one **Fixes** item that says they are highlights, since the release notes list the rest.
+- **The release only fixes things:** leave `WhatsNew` unchanged. Someone who saw the sheet for its `version` does not see it again, so a fixes-only release shows nothing.
+
+`WhatsNewTests` names the version, so a change to `WhatsNew` updates the test too.
+
 ## Build and verify
 
 ```sh
@@ -161,7 +170,7 @@ KIT_TEAM_ID=RZC79MPD34 KIT_NOTARIZED=1 tests/kit/check.sh "$kit"
 
 ## Release checklist
 
-1. Confirm `main` is clean and all pinned inputs have reviewable provenance.
+1. Confirm `main` is clean, [What's New](#whats-new) matches the release, and all pinned inputs have reviewable provenance.
    Record the factory's `[omarchy]` database digest and Omarchy version from
    `dist/guest/factory.json`.
 2. Run all tests and perform a first-boot provisioning test on a clean Mac user.

@@ -20,7 +20,8 @@ The full version is in [CONTRIBUTING.md](CONTRIBUTING.md#principles).
 - **Read the docs for the area you're changing:** first [docs/architecture.md](docs/architecture.md), then the component's README. For how it works, read the code.
 - **Read the task guide that matches your work,** in [agents/skills/](agents/skills/):
   - [test-vms.md](agents/skills/test-vms.md): run and inspect a disposable VM;
-  - [visual-verification.md](agents/skills/visual-verification.md): check a visual change.
+  - [visual-verification.md](agents/skills/visual-verification.md): check a visual change;
+  - [releasing.md](agents/skills/releasing.md): prepare a release up to its draft.
 
   Add a guide when a procedure is worth repeating. Keep this file high level.
 - **Looking for work?** Look at the open [issues](https://github.com/omacom/try-omarchy/issues) and the backlog in [docs/vm-issues.md](docs/vm-issues.md).

@@ -59,8 +59,9 @@ struct WhatsNewTests {
 
     @Test("names this release, and links to its notes")
     func describesThisRelease() {
-        #expect(WhatsNew.releaseNotesURL.absoluteString.hasSuffix("/tag/v1.4.0"))
-        #expect(WhatsNew.items.contains { $0.setting == .allDisplays })
+        #expect(WhatsNew.version == AppReleaseVersion("1.5.0"))
+        #expect(WhatsNew.releaseNotesURL.absoluteString.hasSuffix("/tag/v1.5.0"))
+        #expect(!WhatsNew.items.isEmpty)
         #expect(Set(WhatsNew.items.map(\.id)).count == WhatsNew.items.count)
     }
 }
